@@ -1,0 +1,175 @@
+export interface ChatCreated {
+  session_id: string;
+}
+
+export interface ChatAttachmentApi {
+  id: number;
+  name: string;
+}
+
+export interface ChatUploadParams {
+  attachment_id: number;
+  params: { url: string; fields: Record<string, string> };
+}
+
+export type ChatAttachmentStatus = 'uploading' | 'processing' | 'completed' | 'error';
+
+/** Same states as `ChatAttachmentStatus`, plus the case where the status key has expired. */
+export type ChatSessionAttachmentStatus = ChatAttachmentStatus | 'unknown';
+
+/** A file currently on a chat session, whether or not a message references it yet. */
+export interface ChatSessionAttachment {
+  id: number;
+  filename: string;
+  status: ChatSessionAttachmentStatus;
+  ready: boolean;
+  chat_message_id: number | null;
+  timestamp: string;
+}
+
+export interface ChatAttachmentUrl {
+  attachment_url: string;
+  filename: string;
+}
+
+export interface ChatMessageApi {
+  id: number;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  attachments: ChatAttachmentApi[];
+  timestamp: string;
+}
+
+export interface UserChat {
+  session_id: string;
+  last_message: ChatMessageApi;
+  name: string;
+}
+
+/** Envelope every paginated list endpoint returns: the page itself plus the total. */
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  items_per_page: number;
+}
+
+export type ChatSortKey = 'date' | 'number';
+export type SortOrder = 'asc' | 'desc';
+
+export interface ChatListQuery {
+  page?: number;
+  itemsPerPage?: number;
+  sort?: ChatSortKey;
+  order?: SortOrder;
+}
+
+export interface ChatResultContent {
+  type: 'error' | 'success';
+  content: string;
+  timestamp: string;
+  attachment_id: number | null;
+  update_name: string | null;
+}
+
+export interface ChatResult {
+  running: boolean;
+  result: ChatResultContent | null;
+}
+
+export const USER_ROLES = ['user', 'admin', 'superuser'] as const;
+
+export type UserRole = (typeof USER_ROLES)[number];
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  user: 'Пользователь',
+  admin: 'Администратор',
+  superuser: 'Суперпользователь'
+};
+
+export const isAdminRole = (role: UserRole | undefined): boolean =>
+  role === 'admin' || role === 'superuser';
+
+export interface User {
+  id: number;
+  username: string;
+  first_name: string | null;
+  last_name: string | null;
+  role: UserRole;
+}
+
+export interface S3AvatarUrl {
+  avatar_url: string | null;
+}
+
+export interface AdminUser {
+  id: number;
+  username: string;
+  first_name: string | null;
+  last_name: string | null;
+  role: UserRole;
+  expires_at: string | null;
+}
+
+export interface AdminUserPayload {
+  username: string;
+  password?: string;
+  first_name: string | null;
+  last_name: string | null;
+  expires_at: string | null;
+  role?: UserRole;
+}
+
+export interface MessageResponse {
+  message: string;
+}
+
+export interface MachineParameters {
+  laser_speed_m_per_hour: number;
+  welding_speed_m_per_hour: number;
+  bending_rate_per_hour: number;
+  painting_rate_m2_per_hour: number;
+}
+
+export interface InstanceSettings {
+  prompt_extension: string;
+  parameters: MachineParameters;
+  last_update_by: number | null;
+  last_update_at: string | null;
+}
+
+export interface InstanceSettingsUpdate {
+  prompt_extension?: string;
+  parameters?: MachineParameters | null;
+}
+
+export const KP_FILENAME = 'kp.xlsx';
+
+export type UploadState = 'idle' | 'uploading' | 'completed';
+
+export type UploadItemStatus = 'queued' | 'uploading' | 'done' | 'error';
+
+export interface UploadItem {
+  readonly id: string;
+  readonly name: string;
+  readonly size: number;
+  readonly extension: string;
+  readonly file: File;
+  readonly status: UploadItemStatus;
+  readonly uploaded: number;
+  /** Server-side id, assigned once the backend has registered the file. Needed to delete it. */
+  readonly attachmentId?: number;
+}
+
+export interface UploadSpeedSample {
+  readonly time: number;
+  readonly bytes: number;
+}
+
+export const MAX_CONCURRENT_UPLOADS = 3;
+
+export const MAX_FILE_SIZE = 30 * 1024 * 1024;
+
+export const ACCEPTED_EXTENSIONS = ['.pdf', '.dxf', '.png', '.jpeg', '.jpg'] as const;
+
+export const VISIBLE_FILES_LIMIT = 5;

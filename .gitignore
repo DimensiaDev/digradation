@@ -1,0 +1,32 @@
+node_modules
+.idea
+.husky
+.env
+docker-compose.override.yml
+# Written by e2e/scripts/setup.sh when it backs up a developer's override.
+docker-compose.override.yml.bak
+.python-version
+
+# remove unusual directory
+docs
+# OpenCode agents (including .opencode/agents/reviewer.md) and its project
+# config. Both are local tooling; nothing here should be shared, and a config
+# file can carry provider keys or per-machine paths.
+.opencode
+opencode.json
+opencode.jsonc
+.DS_Store
+
+.vscode
+
+**/__pycache__/
+__pycache__/
+.freebuff/
+.zcode/
+
+# coverage artifacts
+.coverage
+.coverage.*
+coverage.json
+coverage.xml
+htmlcov/

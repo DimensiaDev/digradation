@@ -1,0 +1,163 @@
+import uuid
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
+from typing import Annotated
+
+from fastapi import Cookie, Depends, HTTPException
+from redis.asyncio import Redis
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from starlette import status
+from types_aiobotocore_s3.client import S3Client
+
+from app.cache import (
+    get_attachment_ownership_key,
+    get_creation_key,
+    get_generation_key,
+    get_ratelimit_key,
+    get_redis_client,
+)
+from app.database import get_db
+from app.models.auth import ROLE_RANK, AccountRole, Session, User
+from app.models.chat import Attachment, ChatSession
+from app.storage import storage
+
+DbSession = Annotated[AsyncSession, Depends(get_db)]
+
+
+async def require_login(
+    db: DbSession,
+    session_token: Annotated[str | None, Cookie()] = None,
+) -> User:
+    if session_token is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
+
+    res = await db.execute(select(Session).options(selectinload(Session.user)).where(Session.token == session_token))
+    session = res.scalar_one_or_none()
+
+    if session is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session")
+
+    if session.expires_at < datetime.now(UTC):
+        await db.delete(session)
+        await db.commit()
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Session expired")
+
+    return session.user
+
+
+CurrentUser = Annotated[User, Depends(require_login)]
+
+
+async def require_admin(user: CurrentUser) -> User:
+    """Allow the two elevated tiers. Admins and superusers both manage users."""
+    if user.role is AccountRole.USER:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You're not an admin")
+    return user
+
+
+AdminUser = Annotated[User, Depends(require_admin)]
+
+
+def ensure_outranks(actor: User, target: User) -> None:
+    """Reject an operation on an account of the same or a higher tier.
+
+    The comparison is strict, so no tier can act on its own peers; a superuser
+    is the only tier left with nobody above it.
+    """
+    if ROLE_RANK[actor.role] <= ROLE_RANK[target.role]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can't manage a user of the same or a higher tier")
+
+
+def ensure_can_assign_roles(actor: User) -> None:
+    """Only a superuser may create or promote an account to an elevated tier."""
+    if actor.role is not AccountRole.SUPERUSER:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a superuser can change roles")
+
+
+async def redis_session() -> AsyncGenerator[Redis]:
+    async with get_redis_client() as session:
+        yield session
+
+
+RedisSession = Annotated[Redis, Depends(redis_session)]
+
+
+async def chat_lock(redis_client: RedisSession, user: CurrentUser) -> AsyncGenerator[None]:
+    user_uuid = user.uuid
+    generation_key = get_generation_key(user_uuid)
+    creation_key = get_creation_key(user_uuid)
+    if await redis_client.exists(generation_key):
+        raise HTTPException(status_code=409, detail="A generation job is already running")
+    if not await redis_client.set(creation_key, "1", ex=5, nx=True):
+        raise HTTPException(status_code=429, detail="Stop spamming")
+    try:
+        yield
+    finally:
+        await redis_client.delete(creation_key)
+
+
+async def verify_chat_session(session_id: uuid.UUID, user: CurrentUser, db: DbSession) -> uuid.UUID:
+    session_valid = await db.scalar(
+        select(select(ChatSession).where(ChatSession.user_id == user.id, ChatSession.session_id == session_id).exists())
+    )
+    if not session_valid:
+        raise HTTPException(status_code=403, detail="Invalid session")
+    return session_id
+
+
+VerifiedMessageSession = Annotated[uuid.UUID, Depends(verify_chat_session)]
+
+
+async def verify_attachment_id(
+    session_id: VerifiedMessageSession,
+    attachment_id: int,
+    db: DbSession,
+    redis: RedisSession,
+) -> int:
+    if await redis.exists(get_attachment_ownership_key(session_id, attachment_id)):
+        return attachment_id
+    val = await db.scalar(
+        select(select(Attachment).where(Attachment.id == attachment_id, Attachment.session_id == session_id).exists())
+    )
+    if not val:
+        raise HTTPException(status_code=403, detail="Invalid session")
+    await redis.set(get_attachment_ownership_key(session_id, attachment_id), "1", ex=600, nx=True)
+    return attachment_id
+
+
+VerifiedAttachmentId = Annotated[int, Depends(verify_attachment_id)]
+
+
+def user_rate_limiter(requests: int, per: timedelta | int, key: str):
+    async def rate_limit(redis_client: RedisSession, user: CurrentUser):
+        rkey = get_ratelimit_key(key, user.id)
+        count = await redis_client.incr(rkey)  # type: ignore
+        if count == 1:
+            await redis_client.expire(rkey, per)
+        if count > requests:
+            ttl = await redis_client.ttl(rkey)
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests",
+                headers={"Retry-After": str(ttl)},
+            )
+
+    return rate_limit
+
+
+async def s3_public_client() -> AsyncGenerator[S3Client]:
+    async with storage.public_client() as client:
+        yield client
+
+
+S3PublicClient = Annotated[S3Client, Depends(s3_public_client)]
+
+
+async def s3_internal_client() -> AsyncGenerator[S3Client]:
+    async with storage.internal_client() as client:
+        yield client
+
+
+S3InternalClient = Annotated[S3Client, Depends(s3_internal_client)]

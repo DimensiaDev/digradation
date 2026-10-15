@@ -1,0 +1,64 @@
+@use '_mixins' as *;
+
+.button {
+  font: inherit;
+
+  padding: 15px;
+
+  display: flex;
+  gap: 8px;
+
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+
+  color: var(--color-white);
+
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+
+  @include reduced-motion;
+
+  &--centered {
+    align-items: center;
+    justify-content: center;
+  }
+
+  &--squared {
+    border-radius: 25%;
+  }
+
+  &--main {
+    background: var(--color-main);
+
+    &:hover {
+      background: var(--color-hover);
+    }
+  }
+
+  &--outline {
+    color: var(--color-text);
+    background: none;
+    border: 1px solid var(--color-outline);
+
+    &:hover {
+      color: var(--color-main);
+      background: var(--color-hover-secondary);
+    }
+  }
+
+  &--danger {
+    &:hover {
+      color: var(--color-danger);
+      background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    }
+  }
+
+  @include focus-ring;
+
+  &:disabled {
+    pointer-events: none;
+    opacity: 0.6;
+  }
+}

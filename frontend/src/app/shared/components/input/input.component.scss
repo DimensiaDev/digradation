@@ -1,0 +1,146 @@
+@use '../../../scrollbars' as *;
+@use '../../../mixins' as *;
+
+:host {
+  display: block;
+  width: 100%;
+}
+
+.input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+
+  :host(.input--textarea) & {
+    align-items: center;
+  }
+
+  padding: 15px;
+
+  border: 1px solid var(--color-outline);
+  border-radius: 15px;
+  background: var(--color-surface);
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &:focus-within {
+    border-color: var(--color-main);
+    box-shadow: 0 0 0 2px var(--color-main);
+  }
+
+  &:has(input:disabled, textarea:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  & > input {
+    padding: 5px;
+  }
+}
+
+:host(.input--error) .input-wrapper {
+  border-color: var(--color-danger);
+
+  &:focus-within {
+    border-color: var(--color-danger);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-danger) 40%, transparent);
+  }
+}
+
+.input__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+
+  color: var(--color-gray);
+  pointer-events: none;
+
+  &.input__icon--interactive {
+    pointer-events: auto;
+
+    background: none;
+    border: none;
+    padding: 0;
+
+    cursor: pointer;
+  }
+}
+
+.input__icon--interactive {
+  pointer-events: auto;
+  cursor: pointer;
+
+  transition: color 0.15s ease;
+
+  @include reduced-motion;
+
+  &:hover {
+    color: var(--color-main);
+  }
+
+  &:active {
+    color: var(--color-hover);
+  }
+}
+
+.input__icon--left {
+  margin-left: -4px;
+}
+
+.input__icon--right {
+  margin-right: -4px;
+}
+
+.form-control {
+  flex: 1;
+  width: 100%;
+  max-height: 75px;
+  min-width: 0;
+
+  padding: 0;
+
+  border: none;
+  outline: none;
+  background: transparent;
+
+  font: inherit;
+  color: var(--color-text);
+
+  &:focus-visible {
+    border: none;
+    outline: none;
+    box-shadow: none;
+  }
+
+  &::placeholder {
+    color: var(--color-gray);
+    opacity: 0.5;
+  }
+
+  &[type='date'] {
+    &::-webkit-calendar-picker-indicator {
+      opacity: 0;
+    }
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+  }
+
+  &--textarea {
+    resize: none;
+    overflow-y: auto;
+    min-height: 40px;
+    line-height: 1.5;
+
+    padding: 8px 5px;
+
+    justify-self: flex-start;
+    @include app-scrollbar;
+  }
+}

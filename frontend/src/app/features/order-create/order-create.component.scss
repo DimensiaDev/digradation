@@ -1,0 +1,25 @@
+.order {
+  &-form,
+  &-section {
+    --order-gap: 30px;
+    display: grid;
+    gap: var(--order-gap);
+  }
+
+  &-form {
+    &__submit-button {
+      & > span {
+        display: inline-flex;
+        width: 100%;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+
+        & > svg {
+          position: relative;
+          top: 1px;
+        }
+      }
+    }
+  }
+}
