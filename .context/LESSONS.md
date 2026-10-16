@@ -677,17 +677,18 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   existing `digradation-e2e_garage_metadata` volume fails with `key ... exists but does not
   match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the e2e project
   from empty volumes (`down -v`, which is safe only for a project you brought up yourself).
-- **A `exclude` entry does not survive a pre-commit hook that passes filenames explicitly,
-  and two repo-wide hooks have no exclusion at all.** The hooks here call `black <files>` and
-  `ruff check --fix <files>`, and both tools honour `exclude` only for files found by
-  directory traversal. `[tool.black] force-exclude` already guarded the generated migrations;
-  ruff has no config key for it, only the `--force-exclude` flag, so the shim reformatted
-  `alembic/versions/*.py` (101 lines: double quotes, `Union[...]` -> `|`) on every run.
-  `end-of-file-fixer` and `trailing-whitespace` cannot be told to skip a path from
-  `pyproject.toml` at all — they stripped the single trailing space Alembic's own template
-  emits after `Revises:`, so the two tools ping-ponged: one hook "fixed" the file, the next
-  reformatted it, and `pre-commit run --all-files` never came back clean. Fixed 2026-10-16
-  with `--force-exclude` in `scripts/precommit-ruff.py` and `exclude:` on both whitespace
-  hooks. **Symptom to recognise: a generated file that a hook "fixes" differently on every
+- **An `exclude` entry does not survive a pre-commit hook that passes filenames
+  explicitly.** The hooks here call `black <files>` and `ruff check --fix <files>`, and both
+  tools honour `exclude` only for files found by directory traversal, so a path listed in
+  `pyproject.toml` was still rewritten. `[tool.black] force-exclude` already guarded the
+  generated migrations; ruff has no config key for it, only the `--force-exclude` flag, so the
+  shim reformatted `alembic/versions/*.py` (101 lines: double quotes, `Union[...]` -> `|`) on
+  every run. That was the ping-pong: `trailing-whitespace` strips the single trailing space
+  Alembic's own template emits after `Revises:`, then ruff reformats the whole file back, and
+  `pre-commit run --all-files` never came back clean. Fixed 2026-10-16 with `--force-exclude`
+  in `scripts/precommit-ruff.py`. **The whitespace hooks were deliberately left enabled**
+  rather than excluded from the generated directory: they make a freshly generated revision
+  dirty exactly once, which converges, and one stripped space beats a special case in the
+  config. **Symptom to recognise: a generated file that a hook "fixes" differently on every
   run.** Note also that `scripts/precommit-*.py` pass `check=False`, so these hooks modify
   files without ever failing the commit they belong to.
