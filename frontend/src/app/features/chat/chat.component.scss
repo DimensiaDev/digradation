@@ -12,7 +12,7 @@
     grid-template-columns 350ms cubic-bezier(0.4, 0, 0.2, 1),
     gap 350ms cubic-bezier(0.4, 0, 0.2, 1);
 
-  &.results-open {
+  &.files-open {
     // Length floor (440px fits the panel title) interpolates everywhere,
     // unlike max-content which needs interpolate-size, unsupported in Safari.
     grid-template-columns: minmax(0, 1.5fr) minmax(440px, 1fr);
@@ -37,7 +37,7 @@
   }
 }
 
-.results-aside {
+.files-aside {
   overflow-x: hidden;
   overflow-y: auto;
 
@@ -69,7 +69,7 @@
   }
 }
 
-:host(.results-open) .results-aside {
+:host(.files-open) .files-aside {
   padding: 32px 40px;
 
   opacity: 1;
@@ -82,7 +82,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   :host,
-  .results-aside {
+  .files-aside {
     transition: none;
   }
 }
@@ -204,7 +204,7 @@
   gap: 15px;
 }
 
-.calculation-results {
+.session-files {
   &__section {
     display: grid;
     gap: 20px;

@@ -46,10 +46,10 @@ describe('NotificationsComponent', () => {
   });
 
   it('renders the message and the type of the notification pushed by the service', () => {
-    service.error('Не удалось создать заявку: Ошибка сервера');
+    service.error('Не удалось создать чат: Ошибка сервера');
     refresh();
 
-    expect(title().nativeElement.textContent).toBe('Не удалось создать заявку: Ошибка сервера');
+    expect(title().nativeElement.textContent).toBe('Не удалось создать чат: Ошибка сервера');
     expect(host().getAttribute('data-type')).toBe('error');
     expect(host().getAttribute('role')).toBe('status');
     expect(host().getAttribute('aria-live')).toBe('polite');

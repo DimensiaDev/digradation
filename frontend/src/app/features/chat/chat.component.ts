@@ -31,7 +31,7 @@ import { AgentStatusComponent } from './agent-status.component';
 import { FilePreviewComponent } from '../../shared/components/drag-n-drop/file-preview.component';
 import { NotificationService } from '../../core/services/notification.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
-import { ChatMessageApi, ChatSessionAttachment, KP_FILENAME } from '../../core/models/models';
+import { ChatMessageApi, ChatSessionAttachment } from '../../core/models/models';
 import { ChatService } from '../../core/services/chat.service';
 import { AttachmentDownloadService } from '../../core/services/attachment-download.service';
 import { extractApiErrorMessage } from '../../shared/utils/api-error';
@@ -45,7 +45,7 @@ const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 @Component({
-  selector: 'app-calculation-chat',
+  selector: 'app-chat',
   imports: [
     LucidePanelRightClose,
     LucidePanelRightOpen,
@@ -65,14 +65,14 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    '[class.results-open]': 'isResultsOpen()'
+    '[class.files-open]': 'isFilesOpen()'
   },
-  templateUrl: './calculation-chat.component.html',
-  styleUrl: './calculation-chat.component.scss'
+  templateUrl: './chat.component.html',
+  styleUrl: './chat.component.scss'
 })
-export class CalculationChatComponent {
+export class ChatComponent {
   readonly id = input.required<string>();
-  readonly isResultsOpen = signal<boolean>(false);
+  readonly isFilesOpen = signal<boolean>(false);
   readonly agentStatus = signal<'thinking' | null>(null);
   readonly attachedFiles = signal<File[]>([]);
   readonly isUploading = signal(false);
@@ -271,7 +271,7 @@ export class CalculationChatComponent {
       .pipe(
         catchError((err: HttpErrorResponse) => {
           if (err.status === 403) {
-            this.notifications.error('Заявка не найдена');
+            this.notifications.error('Чат не найден');
           } else {
             this.notifications.error(
               'Не удалось загрузить историю чата: ' + extractApiErrorMessage(err)
@@ -358,9 +358,9 @@ export class CalculationChatComponent {
 
   readonly messageInputValue = signal('');
 
-  handleResultsOpen() {
-    this.isResultsOpen.set(!this.isResultsOpen());
-    if (this.isResultsOpen()) {
+  handleFilesOpen() {
+    this.isFilesOpen.set(!this.isFilesOpen());
+    if (this.isFilesOpen()) {
       this.loadPendingAttachments(this.id());
     }
   }
@@ -545,18 +545,11 @@ export class CalculationChatComponent {
               time: new Date(reply.timestamp).toLocaleTimeString('ru-RU', {
                 hour: '2-digit',
                 minute: '2-digit'
-              }),
-              attachments: reply.attachment_id
-                ? [{ name: KP_FILENAME, attachmentId: reply.attachment_id }]
-                : undefined
+              })
             }
           ];
         });
-        if (reply.attachment_id) {
-          this.notifications.success('Коммерческое предложение готово');
-        } else {
-          this.notifications.info('Агент ответил на ваше сообщение');
-        }
+        this.notifications.info('Агент ответил на ваше сообщение');
       });
   }
 

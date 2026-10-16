@@ -26,7 +26,7 @@ describe('NotificationService', () => {
   });
 
   it('adds an info and a warning notification', () => {
-    service.info('Расчёт готов');
+    service.info('Ответ готов');
     expect(service.notifications()[0].type).toBe('info');
 
     service.warning('Проверьте размер');

@@ -54,7 +54,7 @@ export class HistoryPage {
   readonly historyColumns: TableColumn<UserChat>[] = [
     {
       key: 'number',
-      label: '№ заявки',
+      label: '№ чата',
       sortable: true,
       text: (chat) => this.shortId(chat.session_id)
     },
@@ -66,7 +66,7 @@ export class HistoryPage {
       text: (chat) => this.formatDate(chat.last_message.timestamp)
     },
     { key: 'message', label: 'Последнее сообщение' },
-    { key: 'open', label: 'Открыть заявку', align: 'right', visuallyHidden: true }
+    { key: 'open', label: 'Открыть чат', align: 'right', visuallyHidden: true }
   ];
 
   readonly rowKey = (chat: UserChat) => chat.session_id;

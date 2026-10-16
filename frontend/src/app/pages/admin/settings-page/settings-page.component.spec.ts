@@ -8,14 +8,10 @@ import { environment } from '../../../../environments/environment';
 
 const SETTINGS_URL = `${environment.apiUrl}/admin/settings`;
 
+const PROMPT = 'Отвечай кратко и по существу.';
+
 const SETTINGS = {
-  prompt_extension: 'Ты — ассистент по расчёту КП.',
-  parameters: {
-    laser_speed_m_per_hour: 10,
-    welding_speed_m_per_hour: 2,
-    bending_rate_per_hour: 84,
-    painting_rate_m2_per_hour: 5.53
-  },
+  prompt_extension: PROMPT,
   last_update_by: null,
   last_update_at: null
 };
@@ -25,27 +21,13 @@ describe('AdminSettingsPage', () => {
   let component: AdminSettingsPage;
   let http: HttpTestingController;
 
-  const flushSettings = (prompt_extension = SETTINGS.prompt_extension): void => {
-    http
-      .expectOne((req) => req.url === SETTINGS_URL && req.method === 'GET')
-      .flush({ ...SETTINGS, prompt_extension });
-  };
-
-  const createPage = (prompt_extension = SETTINGS.prompt_extension): void => {
+  const createPage = (prompt_extension = PROMPT): void => {
     fixture = TestBed.createComponent(AdminSettingsPage);
     component = fixture.componentInstance;
     fixture.detectChanges();
-    flushSettings(prompt_extension);
-    fixture.detectChanges();
-  };
-
-  const paramsInput = (id: string): HTMLInputElement =>
-    fixture.debugElement.query(By.css(`#${id}`)).nativeElement;
-
-  const typeParam = (id: string, value: string): void => {
-    const input = paramsInput(id);
-    input.value = value;
-    input.dispatchEvent(new Event('input'));
+    http
+      .expectOne((req) => req.url === SETTINGS_URL && req.method === 'GET')
+      .flush({ ...SETTINGS, prompt_extension });
     fixture.detectChanges();
   };
 
@@ -70,19 +52,12 @@ describe('AdminSettingsPage', () => {
     http.verify();
   });
 
-  it('loads the settings with a single request and enables both forms', () => {
+  it('loads the settings with a single request and enables the form', () => {
     createPage();
 
-    expect(component.promptForm.getRawValue().prompt).toBe('Ты — ассистент по расчёту КП.');
+    expect(component.promptForm.getRawValue().prompt).toBe(PROMPT);
     expect(component.promptForm.controls.prompt.enabled).toBe(true);
-    expect(textarea().value).toBe('Ты — ассистент по расчёту КП.');
-    expect(component.paramsForm.getRawValue()).toEqual({
-      laser_speed_m_per_hour: '10',
-      welding_speed_m_per_hour: '2',
-      bending_rate_per_hour: '84',
-      painting_rate_m2_per_hour: '5.53'
-    });
-    expect(paramsInput('machine-laser').value).toBe('10');
+    expect(textarea().value).toBe(PROMPT);
   });
 
   it('keeps save disabled while untouched, blank or whitespace-only', () => {
@@ -108,14 +83,14 @@ describe('AdminSettingsPage', () => {
     expect(component.canSave()).toBe(false);
   });
 
-  it('saves an edited prompt as a partial settings update', () => {
+  it('saves an edited prompt as a PATCH carrying only that field', () => {
     createPage();
     typePrompt('Новый промпт');
 
     component.save();
 
     const req = http.expectOne(SETTINGS_URL);
-    expect(req.request.method).toBe('PUT');
+    expect(req.request.method).toBe('PATCH');
     expect(req.request.body).toEqual({ prompt_extension: 'Новый промпт' });
     req.flush({ ...SETTINGS, prompt_extension: 'Новый промпт' });
     fixture.detectChanges();
@@ -124,58 +99,18 @@ describe('AdminSettingsPage', () => {
     expect(component.canSave()).toBe(false);
   });
 
-  it('loads the machine parameters', () => {
+  it('reports a failed save and keeps the edit on screen', () => {
     createPage();
+    typePrompt('Новый промпт');
 
-    expect(component.paramsForm.getRawValue()).toEqual({
-      laser_speed_m_per_hour: '10',
-      welding_speed_m_per_hour: '2',
-      bending_rate_per_hour: '84',
-      painting_rate_m2_per_hour: '5.53'
-    });
-    expect(paramsInput('machine-laser').value).toBe('10');
-    expect(component.canSaveParams()).toBe(false);
-  });
+    component.save();
 
-  it('keeps parameter save disabled until the values change and stay positive', () => {
-    createPage();
-    expect(component.canSaveParams()).toBe(false);
-
-    typeParam('machine-laser', '0');
-    expect(component.canSaveParams()).toBe(false);
-
-    typeParam('machine-laser', '12.5');
-    expect(component.canSaveParams()).toBe(true);
-  });
-
-  it('saves edited parameters wrapped in a parameters key', () => {
-    createPage();
-    typeParam('machine-bending', '90');
-
-    component.saveParams();
-
-    const req = http.expectOne(SETTINGS_URL);
-    expect(req.request.method).toBe('PUT');
-    expect(req.request.body).toEqual({
-      parameters: {
-        laser_speed_m_per_hour: 10,
-        welding_speed_m_per_hour: 2,
-        bending_rate_per_hour: 90,
-        painting_rate_m2_per_hour: 5.53
-      }
-    });
-    req.flush({
-      ...SETTINGS,
-      parameters: {
-        laser_speed_m_per_hour: 10,
-        welding_speed_m_per_hour: 2,
-        bending_rate_per_hour: 90,
-        painting_rate_m2_per_hour: 5.53
-      }
-    });
+    http
+      .expectOne(SETTINGS_URL)
+      .flush({ detail: 'Нет доступа' }, { status: 403, statusText: 'Forbidden' });
     fixture.detectChanges();
 
-    expect(component.paramsForm.pristine).toBe(true);
-    expect(component.canSaveParams()).toBe(false);
+    expect(component.promptForm.controls.prompt.pristine).toBe(false);
+    expect(textarea().value).toBe('Новый промпт');
   });
 });

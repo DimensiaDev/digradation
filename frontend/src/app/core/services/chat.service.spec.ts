@@ -81,7 +81,7 @@ describe('ChatService', () => {
             attachments: [],
             timestamp: 'now'
           },
-          name: 'Расчёт КП'
+          name: 'Заметки по проекту'
         }
       ],
       total: 11,
@@ -106,7 +106,7 @@ describe('ChatService', () => {
       {
         id: 1,
         role: 'user',
-        content: 'Нужен расчёт фланца DN100',
+        content: 'Разбери документ и выдели главное',
         timestamp: '2026-09-12T12:18:35.689095Z'
       }
     ]);
@@ -115,7 +115,7 @@ describe('ChatService', () => {
       {
         id: 1,
         role: 'user',
-        content: 'Нужен расчёт фланца DN100',
+        content: 'Разбери документ и выдели главное',
         timestamp: '2026-09-12T12:18:35.689095Z'
       }
     ]);

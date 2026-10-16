@@ -4,12 +4,12 @@
     <button
       type="button"
       class="chat-section-header__toggle"
-      aria-label="Панель результатов расчёта"
-      [attr.aria-expanded]="isResultsOpen()"
+      aria-label="Панель файлов"
+      [attr.aria-expanded]="isFilesOpen()"
       [attr.aria-controls]="id()"
-      (click)="handleResultsOpen()"
+      (click)="handleFilesOpen()"
     >
-      @if (isResultsOpen()) {
+      @if (isFilesOpen()) {
         <svg size="18" lucidePanelRightClose aria-hidden="true"></svg>
       } @else {
         <svg size="18" lucidePanelRightOpen aria-hidden="true"></svg>
@@ -80,21 +80,21 @@
     </footer>
   </div>
 </section>
-<aside class="section card results-aside" [attr.id]="id()">
+<aside class="section card files-aside" [attr.id]="id()">
   <header class="section__header">
-    <h2 class="h2">Результаты расчёта</h2>
+    <h2 class="h2">Файлы</h2>
   </header>
 
-  <section class="calculation-results__section">
-    <h3 class="calculation-results__subtitle">Файлы</h3>
+  <section class="session-files__section">
+    <h3 class="session-files__subtitle">Файлы в сообщениях</h3>
     @if (sessionFiles().length > 0) {
-      <ul class="calculation-results__files">
+      <ul class="session-files__files">
         @for (file of sessionFiles(); track file.attachmentId) {
-          <li class="calculation-results__file">
-            <span class="calculation-results__file-icon" [style.color]="fileColorFor(file.name)">
+          <li class="session-files__file">
+            <span class="session-files__file-icon" [style.color]="fileColorFor(file.name)">
               <svg size="18" [lucideIcon]="fileIconFor(file.name)" aria-hidden="true"></svg>
             </span>
-            <span class="calculation-results__file-name">{{ file.name }}</span>
+            <span class="session-files__file-name">{{ file.name }}</span>
             <button
               type="button"
               class="button button--outline button--centered"
@@ -115,26 +115,23 @@
         }
       </ul>
     } @else {
-      <p class="calculation-results__files-placeholder h4">Пока нет файлов</p>
+      <p class="session-files__files-placeholder h4">Пока нет файлов</p>
     }
   </section>
 
-  <section class="calculation-results__section">
-    <h3 class="calculation-results__subtitle">Загруженные файлы</h3>
+  <section class="session-files__section">
+    <h3 class="session-files__subtitle">Загруженные файлы</h3>
     @if (pendingAttachments().length > 0) {
-      <ul class="calculation-results__files">
+      <ul class="session-files__files">
         @for (file of pendingAttachments(); track file.id) {
-          <li class="calculation-results__file">
-            <span
-              class="calculation-results__file-icon"
-              [style.color]="fileColorFor(file.filename)"
-            >
+          <li class="session-files__file">
+            <span class="session-files__file-icon" [style.color]="fileColorFor(file.filename)">
               <svg size="18" [lucideIcon]="fileIconFor(file.filename)" aria-hidden="true"></svg>
             </span>
-            <span class="calculation-results__file-name">{{ file.filename }}</span>
+            <span class="session-files__file-name">{{ file.filename }}</span>
             <span
-              class="calculation-results__file-status"
-              [class.calculation-results__file-status--error]="file.status === 'error'"
+              class="session-files__file-status"
+              [class.session-files__file-status--error]="file.status === 'error'"
               [title]="attachmentStatusLabel(file)"
             >
               {{ attachmentStatusLabel(file) }}
@@ -167,11 +164,11 @@
         }
       </ul>
     } @else {
-      <p class="calculation-results__files-placeholder h4">Нет файлов в загрузке</p>
+      <p class="session-files__files-placeholder h4">Нет файлов в загрузке</p>
     }
   </section>
 
-  <footer class="calculation-results__actions">
+  <footer class="session-files__actions">
     <button
       type="button"
       class="button button--outline button--danger button--centered h3 button__remove-session"

@@ -1,0 +1,37 @@
+<section class="section chat-create-section">
+  <header class="section__header">
+    <h1 class="h2">Новый чат</h1>
+    <p class="h4">Опишите задачу или прикрепите файлы</p>
+  </header>
+
+  <form class="chat-create-form" [formGroup]="messageForm" (ngSubmit)="onSubmit()">
+    <div class="field-container">
+      <label for="description">Сообщение <span class="required" aria-hidden="true">*</span></label>
+
+      <app-textarea
+        formControlName="description"
+        inputId="description"
+        [maxLength]="MAX_SYMBOLS"
+        [counterVisibleFrom]="COUNTER_VISIBLE_FROM"
+        placeholder="Напишите, что нужно сделать..."
+      />
+    </div>
+
+    <div class="field-container">
+      <label for="files-input">Файлы</label>
+
+      <app-drag-n-drop
+        inputId="files-input"
+        (filesChange)="onFilesChange($event)"
+      ></app-drag-n-drop>
+    </div>
+
+    <button
+      class="button button--main chat-create-form__submit-button h3"
+      type="submit"
+      [disabled]="isSubmitting()"
+    >
+      <span>Создать чат <svg lucideArrowRight></svg></span>
+    </button>
+  </form>
+</section>

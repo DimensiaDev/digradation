@@ -1,9 +1,9 @@
-.order {
+.chat-create {
   &-form,
   &-section {
-    --order-gap: 30px;
+    --chat-create-gap: 30px;
     display: grid;
-    gap: var(--order-gap);
+    gap: var(--chat-create-gap);
   }
 
   &-form {

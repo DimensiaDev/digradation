@@ -17,12 +17,12 @@ const SESSIONS = [
       content: 'Latest',
       timestamp: '2025-06-01T12:00:00Z'
     },
-    name: 'Расчёт КП'
+    name: 'Заметки по проекту'
   },
   {
     session_id: 'aaaaaaaa-0000-4000-8000-000000000000',
     last_message: { id: 2, role: 'user', content: 'Older', timestamp: '2025-05-26T12:00:00Z' },
-    name: 'Заявка на поставку'
+    name: 'Разбор документа'
   }
 ];
 
@@ -173,7 +173,7 @@ describe('HistoryPage', () => {
     expect(fixture.debugElement.query(By.css('tbody'))).toBeNull();
     expect(
       fixture.debugElement.query(By.css('.history-state--empty')).nativeElement.textContent
-    ).toContain('Пока нет заявок');
+    ).toContain('Пока нет чатов');
   });
 
   it('hides the pager when everything fits on one page', () => {

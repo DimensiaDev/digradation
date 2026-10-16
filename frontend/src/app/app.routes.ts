@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
-import { OrderCreateComponent } from './features/order-create/order-create.component';
-import { CalculationChatComponent } from './features/calculation-chat/calculation-chat.component';
+import { ChatCreateComponent } from './features/chat-create/chat-create.component';
+import { ChatComponent } from './features/chat/chat.component';
 import { Layout } from './shared/components/layout/layout.component';
 import { ADMIN_NAV_ITEMS, USER_NAV_ITEMS } from './shared/components/sidebar/sidebar.config';
 import { HistoryPage } from './pages/history-page/history-page.component';
@@ -49,10 +49,10 @@ export const routes: Routes = [
     data: { navItems: USER_NAV_ITEMS, role: 'user' },
     children: [
       { path: '', redirectTo: '/create', pathMatch: 'full' },
-      { path: 'create', component: OrderCreateComponent },
+      { path: 'create', component: ChatCreateComponent },
       { path: 'settings', component: SettingsPage },
       { path: 'chats', component: HistoryPage },
-      { path: 'chats/:id', component: CalculationChatComponent },
+      { path: 'chats/:id', component: ChatComponent },
       { path: 'profile', component: ProfilePage }
     ]
   }

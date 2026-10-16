@@ -43,11 +43,11 @@ describe('Notification', () => {
     create('info');
     expect(host().querySelector('.notification__description')).toBeNull();
 
-    fixture.componentRef.setInput('description', 'КП готово к скачиванию');
+    fixture.componentRef.setInput('description', 'Файл готов к скачиванию');
     fixture.detectChanges();
 
     expect(host().querySelector('.notification__description')?.textContent?.trim()).toBe(
-      'КП готово к скачиванию'
+      'Файл готов к скачиванию'
     );
   });
 

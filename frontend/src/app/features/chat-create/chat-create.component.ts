@@ -26,13 +26,13 @@ function trimmedRequired(control: AbstractControl): ValidationErrors | null {
 }
 
 @Component({
-  selector: 'app-order-create',
+  selector: 'app-chat-create',
   standalone: true,
   imports: [DragNDropComponent, Textarea, ReactiveFormsModule, LucideArrowRight],
-  templateUrl: './order-create.component.html',
-  styleUrl: './order-create.component.scss'
+  templateUrl: './chat-create.component.html',
+  styleUrl: './chat-create.component.scss'
 })
-export class OrderCreateComponent {
+export class ChatCreateComponent {
   private readonly fb = inject(FormBuilder);
   private readonly router = inject(Router);
   private readonly chatService = inject(ChatService);
@@ -45,7 +45,7 @@ export class OrderCreateComponent {
   readonly MAX_SYMBOLS = 5000;
   readonly COUNTER_VISIBLE_FROM = 1000;
 
-  readonly orderForm = this.fb.nonNullable.group({
+  readonly messageForm = this.fb.nonNullable.group({
     description: ['', [trimmedRequired, Validators.maxLength(this.MAX_SYMBOLS)]]
   });
 
@@ -54,9 +54,9 @@ export class OrderCreateComponent {
   }
 
   onSubmit() {
-    if (this.orderForm.invalid) {
-      this.orderForm.markAllAsTouched();
-      this.notifications.error('Заполните все поля заявки');
+    if (this.messageForm.invalid) {
+      this.messageForm.markAllAsTouched();
+      this.notifications.error('Введите сообщение');
       return;
     }
     if (this.isSubmitting()) {
@@ -64,7 +64,7 @@ export class OrderCreateComponent {
     }
 
     this.isSubmitting.set(true);
-    const { description } = this.orderForm.getRawValue();
+    const { description } = this.messageForm.getRawValue();
     const files = this.selectedFiles();
 
     this.chatService
@@ -85,7 +85,7 @@ export class OrderCreateComponent {
             err instanceof HttpErrorResponse
               ? extractApiErrorMessage(err)
               : (err.message ?? 'Ошибка сервера');
-          this.notifications.error('Не удалось создать заявку: ' + msg);
+          this.notifications.error('Не удалось создать чат: ' + msg);
           return EMPTY;
         })
       )
@@ -96,7 +96,7 @@ export class OrderCreateComponent {
             text: description.trim(),
             files
           });
-          this.orderForm.reset();
+          this.messageForm.reset();
           this.router.navigate(['/chats', session_id]);
         }
       });

@@ -12,7 +12,6 @@ const PREVIEWABLE_EXTENSIONS: Record<string, PreviewKind> = {
 
 const MIME_TYPES: Record<string, string> = {
   '.pdf': 'application/pdf',
-  '.dxf': 'application/dxf',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.xls': 'application/vnd.ms-excel',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

@@ -189,7 +189,7 @@ describe('Sidebar history section', () => {
         content: 'Latest',
         timestamp: '2025-06-01T12:00:00Z'
       },
-      name: 'Расчёт КП'
+      name: 'Заметки по проекту'
     },
     {
       session_id: 'aaaaaaaa-0000-4000-8000-000000000000',
@@ -234,7 +234,7 @@ describe('Sidebar history section', () => {
 
     expect(historySection().nativeElement.textContent).toContain('ИСТОРИЯ');
     const titles = historyItems().map((item) => item.nativeElement.textContent.trim());
-    expect(titles).toEqual(['Расчёт КП', 'aaaaaaaa']);
+    expect(titles).toEqual(['Заметки по проекту', 'aaaaaaaa']);
   });
 
   it('shows the empty state when the user has no sessions', () => {
@@ -267,7 +267,7 @@ describe('Sidebar history section', () => {
     fixture.detectChanges();
 
     const current = historyItems().find((item) => item.nativeElement.hasAttribute('aria-current'));
-    expect(current?.nativeElement.textContent).toContain('Расчёт КП');
+    expect(current?.nativeElement.textContent).toContain('Заметки по проекту');
     expect(current?.nativeElement.getAttribute('aria-current')).toBe('true');
     expect(historyItems().length).toBe(2);
   });

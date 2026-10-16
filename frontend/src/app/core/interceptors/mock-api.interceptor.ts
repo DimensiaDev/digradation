@@ -62,45 +62,40 @@ const users: AdminUser[] = [
 
 const settings: InstanceSettings = {
   prompt_extension: '',
-  parameters: {
-    laser_speed_m_per_hour: 10,
-    welding_speed_m_per_hour: 2,
-    bending_rate_per_hour: 84,
-    painting_rate_m2_per_hour: 5.53
-  },
   last_update_by: null,
   last_update_at: null
 };
 
 const CHAT_NAMES = [
-  'Кронштейн крепления',
-  'Корпус блока питания',
-  'Пластина монтажная',
-  'Рама стола',
-  'Кожух вентилятора',
-  'Петля дверная',
-  'Труба дымохода'
+  'Заметки по проекту',
+  'Разбор документа',
+  'Вопросы по ТЗ',
+  'Сводка по разделу',
+  'План работы',
+  'Черновик письма',
+  'Конспект встречи'
 ];
 
 const CHAT_REQUESTS = [
-  'Нужен КП на 50 штук кронштейнов из стали 3мм, порошковая покраска RAL 7016',
-  'Посчитай корпус 200х150х80 из нержавейки 1.5мм, 10 штук, без покраски',
-  'Монтажная пластина 400х300, сталь 2мм, гибка в двух местах, тираж 200 шт',
-  'Сварная рама под станок, профиль 40х40, сталь 3мм, 5 штук, грунт + эмаль',
-  'Кожух вентилятора из оцинковки 1мм, развёртка прилагается, 100 штук',
-  'Петли дверные усиленные, сталь 4мм, 500 штук, только резка и гибка',
-  'Дымоход из нержавейки 0.8мм, длина 1.2м, диаметр 150мм, 20 штук'
+  'Собери основные тезисы из приложенного документа',
+  'Составь краткое резюме по второй главе',
+  'Что здесь нужно уточнить перед началом работы?',
+  'Сделай список задач со сроками',
+  'Напиши черновик письма по этому поводу',
+  'Разбери документ и выдели спорные места',
+  'Сделай конспект встречи по этому материалу'
 ];
 
-const KP_SUMMARY = (index: number): string =>
-  `Расчёт КП готов: ${CHAT_NAMES[index].toLowerCase()}, позиций — 3, итого ${(index + 1) * 11}.5 тыс. ₽. Файл расчёта приложен.`;
+const REPLY = (index: number): string =>
+  `Готов ответ по теме «${CHAT_NAMES[index].toLowerCase()}»: ` +
+  `основных пунктов — 3, объём — ${(index + 1) * 4} страницы.`;
 
 const chats: UserChat[] = CHAT_NAMES.map((name, index) => {
   const timestamp = new Date(Date.now() - (index + 1) * 36 * 60 * 60 * 1000).toISOString();
   const lastMessage: ChatMessageApi = {
     id: (index + 1) * 10,
     role: 'assistant',
-    content: KP_SUMMARY(index),
+    content: REPLY(index),
     attachments: [],
     timestamp
   };
@@ -201,7 +196,7 @@ export const mockApiInterceptor: HttpInterceptorFn = (req, next) => {
     if (chatMatch) {
       const session = chats.find((candidate) => candidate.session_id === chatMatch[1]);
       if (!session) {
-        return fail(403, 'Заявка не найдена');
+        return fail(403, 'Чат не найден');
       }
       if (chatMatch[2]) {
         const index = chats.indexOf(session);
@@ -209,7 +204,7 @@ export const mockApiInterceptor: HttpInterceptorFn = (req, next) => {
           running: false,
           result: {
             type: 'success',
-            content: KP_SUMMARY(index),
+            content: REPLY(index),
             timestamp: session.last_message.timestamp,
             attachment_id: null,
             update_name: null
@@ -256,18 +251,15 @@ export const mockApiInterceptor: HttpInterceptorFn = (req, next) => {
     }
 
     if (path === '/admin/settings') {
-      if (req.method === 'PUT') {
+      if (req.method === 'PATCH') {
         const patch = body as Partial<InstanceSettings> | null;
         if (patch?.['prompt_extension'] !== undefined) {
           settings.prompt_extension = patch['prompt_extension'];
         }
-        if (patch?.['parameters'] !== undefined && patch['parameters'] !== null) {
-          settings.parameters = patch['parameters'];
-        }
         settings.last_update_by = CURRENT_USER.id;
         settings.last_update_at = new Date().toISOString();
       }
-      return ok({ ...settings, parameters: { ...settings.parameters } });
+      return ok({ ...settings });
     }
 
     return fail(404, `Мок не знает адрес ${req.method} ${path}`);

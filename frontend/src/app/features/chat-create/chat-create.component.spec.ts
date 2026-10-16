@@ -6,7 +6,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter, Router, Routes } from '@angular/router';
 import { Observable, of, throwError } from 'rxjs';
 
-import { OrderCreateComponent } from './order-create.component';
+import { ChatCreateComponent } from './chat-create.component';
 import { NotificationsComponent } from '../../shared/components/notifications/notifications.component';
 import { AttachmentUploadService } from '../../core/services/attachment-upload.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
@@ -21,9 +21,9 @@ class BlankComponent {}
 const TEST_ROUTES: Routes = [{ path: 'chats/:id', component: BlankComponent }];
 
 @Component({
-  selector: 'app-order-create-test-host',
-  imports: [OrderCreateComponent, NotificationsComponent],
-  template: `<app-notifications /><app-order-create />`
+  selector: 'app-chat-create-test-host',
+  imports: [ChatCreateComponent, NotificationsComponent],
+  template: `<app-notifications /><app-chat-create />`
 })
 class TestHost {}
 
@@ -52,7 +52,7 @@ function dropEvent(files: File[]): DragEvent {
   return event;
 }
 
-describe('OrderCreateComponent', () => {
+describe('ChatCreateComponent', () => {
   let fixture: ComponentFixture<TestHost>;
   let uploader: FakeUploader;
   let initialChatState: InitialChatStateService;
@@ -60,8 +60,8 @@ describe('OrderCreateComponent', () => {
   let http: HttpTestingController;
 
   const page = () =>
-    fixture.debugElement.query(By.directive(OrderCreateComponent))
-      .componentInstance as OrderCreateComponent;
+    fixture.debugElement.query(By.directive(ChatCreateComponent))
+      .componentInstance as ChatCreateComponent;
   const descriptionField = () =>
     fixture.debugElement.query(By.css('#description')).nativeElement as HTMLTextAreaElement;
   const counter = () => fixture.debugElement.query(By.css('.textarea__counter'));
@@ -120,15 +120,13 @@ describe('OrderCreateComponent', () => {
     http.verify();
   });
 
-  it('renders the order form with its heading and submit button', () => {
+  it('renders the new-chat form with its heading and submit button', () => {
     createPage();
 
-    expect(fixture.nativeElement.textContent).toContain('Создать заявку');
-    expect(fixture.nativeElement.textContent).toContain('Опишите, что нужно рассчитать');
-    expect(descriptionField().placeholder).toBe(
-      'Нужно рассчитать резервуар объёмом 10 куб. м. для воды...'
-    );
-    expect(submitButton().textContent).toContain('Создать заявку и перейти в чат');
+    expect(fixture.nativeElement.textContent).toContain('Новый чат');
+    expect(fixture.nativeElement.textContent).toContain('Опишите задачу или прикрепите файлы');
+    expect(descriptionField().placeholder).toBe('Напишите, что нужно сделать...');
+    expect(submitButton().textContent).toContain('Создать чат');
     expect(page().selectedFiles()).toEqual([]);
     expect(page().MAX_SYMBOLS).toBe(5000);
     expect(page().COUNTER_VISIBLE_FROM).toBe(1000);
@@ -147,7 +145,7 @@ describe('OrderCreateComponent', () => {
 
   it('keeps the selected files in the attachment list after a drop', () => {
     createPage();
-    const file = makeFile('чертеж.dxf', 2048);
+    const file = makeFile('документ.pdf', 2048);
 
     dropFiles([file]);
 
@@ -158,8 +156,8 @@ describe('OrderCreateComponent', () => {
     createPage();
     submitForm();
 
-    expect(notificationText()).toBe('Заполните все поля заявки');
-    expect(page().orderForm.controls.description.touched).toBe(true);
+    expect(notificationText()).toBe('Введите сообщение');
+    expect(page().messageForm.controls.description.touched).toBe(true);
     http.expectNone(CHATS_URL);
   });
 
@@ -168,7 +166,7 @@ describe('OrderCreateComponent', () => {
     describeTask('   ');
     submitForm();
 
-    expect(notificationText()).toBe('Заполните все поля заявки');
+    expect(notificationText()).toBe('Введите сообщение');
     http.expectNone(CHATS_URL);
   });
 
@@ -196,7 +194,7 @@ describe('OrderCreateComponent', () => {
       text: 'Нужен резервуар объёмом 10 куб. м.',
       files: []
     });
-    expect(page().orderForm.controls.description.value).toBe('');
+    expect(page().messageForm.controls.description.value).toBe('');
     expect(submitButton().disabled).toBe(false);
   });
 
@@ -231,15 +229,15 @@ describe('OrderCreateComponent', () => {
 
   it('uploads the dropped files before sending the message', async () => {
     createPage();
-    const file = makeFile('чертеж.dxf', 2048);
+    const file = makeFile('документ.pdf', 2048);
     dropFiles([file]);
     describeTask('Нужен резервуар');
     submitForm();
 
     createChat('sess-3');
     expect(uploader.items).toHaveLength(1);
-    expect(uploader.items[0].name).toBe('чертеж.dxf');
-    expect(uploader.items[0].extension).toBe('.dxf');
+    expect(uploader.items[0].name).toBe('документ.pdf');
+    expect(uploader.items[0].extension).toBe('.pdf');
     expect(uploader.items[0].size).toBe(2048);
     expect(uploader.items[0].status).toBe('queued');
     expect(uploader.items[0].uploaded).toBe(0);
@@ -260,7 +258,7 @@ describe('OrderCreateComponent', () => {
     await fixture.whenStable();
     refresh();
 
-    expect(notificationText()).toBe('Не удалось создать заявку: Ошибка сервера');
+    expect(notificationText()).toBe('Не удалось создать чат: Ошибка сервера');
     expect(router.url).not.toContain('/chats/');
     expect(submitButton().disabled).toBe(false);
   });
@@ -272,11 +270,11 @@ describe('OrderCreateComponent', () => {
 
     http
       .expectOne(CHATS_URL)
-      .flush({ detail: 'Лимит заявок исчерпан' }, { status: 429, statusText: 'Too Many Requests' });
+      .flush({ detail: 'Лимит чатов исчерпан' }, { status: 429, statusText: 'Too Many Requests' });
     await fixture.whenStable();
     refresh();
 
-    expect(notificationText()).toBe('Не удалось создать заявку: Лимит заявок исчерпан');
+    expect(notificationText()).toBe('Не удалось создать чат: Лимит чатов исчерпан');
   });
 
   it('reports a file upload failure and does not send the message', async () => {
@@ -290,7 +288,7 @@ describe('OrderCreateComponent', () => {
     await fixture.whenStable();
     refresh();
 
-    expect(notificationText()).toBe('Не удалось создать заявку: Не удалось обработать файл');
+    expect(notificationText()).toBe('Не удалось создать чат: Не удалось обработать файл');
     expect(router.url).not.toContain('/chats/');
     http.expectNone(`${CHATS_URL}sess-4`);
   });

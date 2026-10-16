@@ -5,11 +5,10 @@ import { provideRouter, Router } from '@angular/router';
 import { By } from '@angular/platform-browser';
 import { vi } from 'vitest';
 
-import { CalculationChatComponent } from './calculation-chat.component';
+import { ChatComponent } from './chat.component';
 import { environment } from '../../../environments/environment';
 import { NotificationService } from '../../core/services/notification.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
-import { KP_FILENAME } from '../../core/models/models';
 
 const SESSION_ID = 'd0a3f1e2-0000-4000-8000-123456789abc';
 const HISTORY_URL = `${environment.apiUrl}/chats/${SESSION_ID}`;
@@ -24,7 +23,7 @@ const USER_MESSAGES = [
   {
     id: 1,
     role: 'user',
-    content: 'Расчёт кронштейна',
+    content: 'Заметки по проекту',
     attachments: [],
     timestamp: '2026-09-12T12:18:35.689095Z'
   }
@@ -50,10 +49,10 @@ const successResult = (overrides: Record<string, unknown> = {}) => ({
  * real time. `matchMedia` is stubbed because jsdom does not implement it and the
  * component reads it in an afterRenderEffect.
  */
-describe('CalculationChat behaviour', () => {
-  let fixture: ComponentFixture<CalculationChatComponent>;
+describe('Chat behaviour', () => {
+  let fixture: ComponentFixture<ChatComponent>;
   let http: HttpTestingController;
-  let component: CalculationChatComponent;
+  let component: ChatComponent;
   let notifications: NotificationService;
 
   /**
@@ -64,7 +63,7 @@ describe('CalculationChat behaviour', () => {
    * before the test's own polling assertions.
    */
   const openSession = (history: unknown[] = USER_MESSAGES, agentRunning = false): void => {
-    fixture = TestBed.createComponent(CalculationChatComponent);
+    fixture = TestBed.createComponent(ChatComponent);
     component = fixture.componentInstance;
     fixture.componentRef.setInput('id', SESSION_ID);
     fixture.detectChanges();
@@ -94,7 +93,7 @@ describe('CalculationChat behaviour', () => {
       Element.prototype.scrollTo = () => undefined;
     }
     TestBed.configureTestingModule({
-      imports: [CalculationChatComponent],
+      imports: [ChatComponent],
       providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()]
     });
     http = TestBed.inject(HttpTestingController);
@@ -112,7 +111,7 @@ describe('CalculationChat behaviour', () => {
     // matter: flushing throws on a cancelled request, and verify() is what
     // resets the TestBed for the next test.
     fixture?.destroy();
-    fixture = undefined as unknown as ComponentFixture<CalculationChatComponent>;
+    fixture = undefined as unknown as ComponentFixture<ChatComponent>;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     http.match(() => true);
@@ -278,7 +277,7 @@ describe('CalculationChat behaviour', () => {
     );
   });
 
-  it('surfaces the commercial offer as an attachment', async () => {
+  it('attaches nothing to a reply, because the agent produces no files', async () => {
     vi.useFakeTimers();
     openSession();
     component.onMessageInput({ target: { value: 'привет' } } as unknown as Event);
@@ -289,9 +288,11 @@ describe('CalculationChat behaviour', () => {
     http.expectOne(RESULT_URL).flush(successResult({ attachment_id: 7 }));
     fixture.detectChanges();
 
-    expect(component.messages().at(-1)?.attachments?.[0]?.name).toBe(KP_FILENAME);
-    expect(component.sessionFiles().map((f) => f.attachmentId)).toContain(7);
-    expect(notifications.success).toHaveBeenCalledWith('Коммерческое предложение готово');
+    // `attachment_id` is still on the wire for compatibility, but nothing in the
+    // backend writes it any more, so the view must not invent a file from it.
+    expect(component.messages().at(-1)?.attachments).toBeUndefined();
+    expect(component.sessionFiles()).toEqual([]);
+    expect(notifications.info).toHaveBeenCalledWith('Агент ответил на ваше сообщение');
   });
 
   it('gives up after the five minute timeout', async () => {
@@ -396,23 +397,23 @@ describe('CalculationChat behaviour', () => {
     expect(notifications.error).toHaveBeenCalledWith('Не удалось удалить сессию: Ошибка сервера');
   });
 
-  it('toggles the results panel', () => {
+  it('toggles the files panel', () => {
     openSession();
-    expect(fixture.nativeElement.classList.contains('results-open')).toBe(false);
-    component.handleResultsOpen();
+    expect(fixture.nativeElement.classList.contains('files-open')).toBe(false);
+    component.handleFilesOpen();
     fixture.detectChanges();
-    expect(component.isResultsOpen()).toBe(true);
-    expect(fixture.nativeElement.classList.contains('results-open')).toBe(true);
-    component.handleResultsOpen();
-    expect(component.isResultsOpen()).toBe(false);
+    expect(component.isFilesOpen()).toBe(true);
+    expect(fixture.nativeElement.classList.contains('files-open')).toBe(true);
+    component.handleFilesOpen();
+    expect(component.isFilesOpen()).toBe(false);
   });
 
   // --- files being uploaded -------------------------------------------------
 
-  it('loads the files still being uploaded when the results panel opens', () => {
+  it('loads the files still being uploaded when the files panel opens', () => {
     openSession();
 
-    component.handleResultsOpen();
+    component.handleFilesOpen();
     const req = http.expectOne(ATTACHMENTS_URL);
     expect(req.request.method).toBe('GET');
     req.flush([
@@ -426,7 +427,7 @@ describe('CalculationChat behaviour', () => {
       },
       {
         id: 8,
-        filename: 'sent.dxf',
+        filename: 'sent.pdf',
         status: 'completed',
         ready: true,
         chat_message_id: 1,
@@ -439,14 +440,14 @@ describe('CalculationChat behaviour', () => {
     expect(component.pendingAttachments().map((a) => a.filename)).toEqual(['деталь.pdf']);
     expect(component.attachmentStatusLabel(component.pendingAttachments()[0])).toBe('Загружается');
     expect(fixture.nativeElement.textContent).toContain('Загруженные файлы');
-    const pendingRows = fixture.debugElement.queryAll(By.css('.calculation-results__file'));
+    const pendingRows = fixture.debugElement.queryAll(By.css('.session-files__file'));
     expect(pendingRows.length).toBe(1);
     expect(pendingRows[0].nativeElement.textContent).toContain('деталь.pdf');
   });
 
   it('previews and downloads a staged file through the same actions', () => {
     openSession();
-    component.handleResultsOpen();
+    component.handleFilesOpen();
     http.expectOne(ATTACHMENTS_URL).flush([
       {
         id: 7,
@@ -465,7 +466,7 @@ describe('CalculationChat behaviour', () => {
       component as unknown as { attachmentDownload: { fetchFile: typeof fetchFile } }
     ).attachmentDownload.fetchFile = fetchFile;
 
-    const row = fixture.debugElement.queryAll(By.css('.calculation-results__file'))[0];
+    const row = fixture.debugElement.queryAll(By.css('.session-files__file'))[0];
     row.query(By.css('[aria-label="Предпросмотр"]')).nativeElement.click();
     row.query(By.css('[aria-label="Скачать"]')).nativeElement.click();
 
@@ -473,12 +474,12 @@ describe('CalculationChat behaviour', () => {
     expect(fetchFile).toHaveBeenCalledWith(SESSION_ID, 7);
   });
 
-  it('does not re-fetch when the results panel is closed again', () => {
+  it('does not re-fetch when the files panel is closed again', () => {
     openSession();
 
-    component.handleResultsOpen();
+    component.handleFilesOpen();
     http.expectOne(ATTACHMENTS_URL).flush([]);
-    component.handleResultsOpen();
+    component.handleFilesOpen();
 
     expect(http.match((r) => r.url === ATTACHMENTS_URL)).toEqual([]);
   });
@@ -512,7 +513,7 @@ describe('CalculationChat behaviour', () => {
 
   it('deletes a staged file from the panel', () => {
     openSession();
-    component.handleResultsOpen();
+    component.handleFilesOpen();
     http.expectOne(ATTACHMENTS_URL).flush([
       {
         id: 7,
@@ -539,7 +540,7 @@ describe('CalculationChat behaviour', () => {
 
   it('keeps the row and reports a failed delete', () => {
     openSession();
-    component.handleResultsOpen();
+    component.handleFilesOpen();
     http.expectOne(ATTACHMENTS_URL).flush([
       {
         id: 7,
@@ -578,7 +579,7 @@ describe('CalculationChat behaviour', () => {
   it('reports a failed request for the staged files', () => {
     openSession();
 
-    component.handleResultsOpen();
+    component.handleFilesOpen();
     http
       .expectOne(ATTACHMENTS_URL)
       .flush({ detail: 'nope' }, { status: 500, statusText: 'Server Error' });
@@ -590,16 +591,16 @@ describe('CalculationChat behaviour', () => {
   });
 
   it('reports a history 403 as a missing request', () => {
-    fixture = TestBed.createComponent(CalculationChatComponent);
+    fixture = TestBed.createComponent(ChatComponent);
     fixture.componentRef.setInput('id', SESSION_ID);
     fixture.detectChanges();
     http.expectOne(HISTORY_URL).flush({ detail: 'no' }, { status: 403, statusText: 'Forbidden' });
 
-    expect(notifications.error).toHaveBeenCalledWith('Заявка не найдена');
+    expect(notifications.error).toHaveBeenCalledWith('Чат не найден');
   });
 
   it('reports a generic history failure', () => {
-    fixture = TestBed.createComponent(CalculationChatComponent);
+    fixture = TestBed.createComponent(ChatComponent);
     fixture.componentRef.setInput('id', SESSION_ID);
     fixture.detectChanges();
     http

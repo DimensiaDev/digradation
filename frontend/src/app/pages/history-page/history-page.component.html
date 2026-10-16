@@ -12,14 +12,14 @@
     } @else {
       <app-input
         inputId="history-search"
-        placeholder="Поиск заявки..."
+        placeholder="Поиск чата..."
         [leftIcon]="searchIcon"
         [value]="search()"
         (valueChange)="search.set($event)"
       />
       @if (filteredSessions().length === 0) {
         <p class="history-card__state history-state--empty">
-          {{ search() ? 'Заявки не найдены' : 'Пока нет заявок' }}
+          {{ search() ? 'Чаты не найдены' : 'Пока нет чатов' }}
         </p>
       } @else {
         <div class="history-table-wrapper">
@@ -42,7 +42,7 @@
                 (click)="$event.stopPropagation()"
               >
                 <svg lucideChevronRight aria-hidden="true"></svg>
-                <span class="visually-hidden">Открыть заявку</span>
+                <span class="visually-hidden">Открыть чат</span>
               </a>
             </ng-template>
           </app-table>

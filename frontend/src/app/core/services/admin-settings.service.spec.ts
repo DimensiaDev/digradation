@@ -51,28 +51,18 @@ describe('AdminSettingsService', () => {
 
     service.updateSettings({ prompt_extension: 'Новый промпт' }).subscribe((s) => (result = s));
 
-    const req = http.expectOne((r) => r.url === BASE_URL && r.method === 'PUT');
+    const req = http.expectOne((r) => r.url === BASE_URL && r.method === 'PATCH');
     expect(req.request.body).toEqual({ prompt_extension: 'Новый промпт' });
     req.flush({ ...SETTINGS, prompt_extension: 'Новый промпт' });
 
     expect(result).toEqual({ ...SETTINGS, prompt_extension: 'Новый промпт' });
   });
 
-  it('updates the machine parameters wrapped in a parameters key', () => {
-    let result: unknown;
-    const parameters = {
-      laser_speed_m_per_hour: 12.5,
-      welding_speed_m_per_hour: 2,
-      bending_rate_per_hour: 84,
-      painting_rate_m2_per_hour: 5.53
-    };
+  it('sends an empty body as-is, leaving every setting untouched', () => {
+    service.updateSettings({}).subscribe();
 
-    service.updateSettings({ parameters }).subscribe((s) => (result = s));
-
-    const req = http.expectOne((r) => r.url === BASE_URL && r.method === 'PUT');
-    expect(req.request.body).toEqual({ parameters });
-    req.flush({ ...SETTINGS, parameters });
-
-    expect(result).toEqual({ ...SETTINGS, parameters });
+    const req = http.expectOne((r) => r.url === BASE_URL && r.method === 'PATCH');
+    expect(req.request.body).toEqual({});
+    req.flush(SETTINGS);
   });
 });

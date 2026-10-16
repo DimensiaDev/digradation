@@ -17,9 +17,6 @@ const FILE_EXCEL_BOX =
 const FILE_IMAGE_BOX =
   'M8.5 13.498l2.5 3.006l3.5-4.506l4.5 6H5m16 1v-14a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z';
 
-const FILE_CAD_BOX =
-  'M5 3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2m-7.75 2.25h1.5v1.13c.83 0 1.5.67 1.5 1.5v2.49l-.14.13l1.07 1.86c.37-.6.57-1.29.57-2h1.5A5.2 5.2 0 0 1 16 13.77l2 3.48v1.5L16.7 18l-1.86-3.22a5.18 5.18 0 0 1-5.68 0L7.3 18l-1.3.75v-1.5l3.89-6.75l-.14-.13V7.88c0-.83.67-1.5 1.5-1.5m.75 1.5c-.84 0-1.26 1.02-.66 1.62A.943.943 0 1 0 12 7.88m-1 3.72l-1.09 1.9c1.26.86 2.92.86 4.18 0L13 11.6c-.57.51-1.43.51-2 0';
-
 export const FILE_TYPE_PDF = mdiNode('file-pdf-box', FILE_PDF_BOX);
 
 export const FILE_TYPE_WORD = mdiNode('file-word-box', FILE_WORD_BOX);
@@ -27,8 +24,6 @@ export const FILE_TYPE_WORD = mdiNode('file-word-box', FILE_WORD_BOX);
 export const FILE_TYPE_EXCEL = mdiNode('file-excel-box', FILE_EXCEL_BOX);
 
 export const FILE_TYPE_IMAGE = mdiNode('file-image-box', FILE_IMAGE_BOX);
-
-export const FILE_TYPE_CAD = mdiNode('file-cad-box', FILE_CAD_BOX);
 
 export interface FileTypeStyle {
   readonly icon: LucideIconData;
@@ -43,9 +38,7 @@ const FILE_TYPE_STYLES: Record<string, FileTypeStyle> = {
   '.xlsx': { icon: FILE_TYPE_EXCEL, color: 'var(--color-success)' },
   '.png': { icon: FILE_TYPE_IMAGE, color: 'var(--color-warning)' },
   '.jpg': { icon: FILE_TYPE_IMAGE, color: 'var(--color-warning)' },
-  '.jpeg': { icon: FILE_TYPE_IMAGE, color: 'var(--color-warning)' },
-  '.dwg': { icon: FILE_TYPE_CAD, color: 'var(--color-cad)' },
-  '.dxf': { icon: FILE_TYPE_CAD, color: 'var(--color-cad)' }
+  '.jpeg': { icon: FILE_TYPE_IMAGE, color: 'var(--color-warning)' }
 };
 
 const UNKNOWN_FILE_TYPE: FileTypeStyle = {

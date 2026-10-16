@@ -16,6 +16,8 @@ export class AdminSettingsService {
   }
 
   updateSettings(patch: InstanceSettingsUpdate): Observable<InstanceSettings> {
-    return this.http.put<InstanceSettings>(this.baseUrl, patch);
+    // PATCH, not PUT: the payload is partial, so a setting added on the server
+    // later does not become something this client has to know about.
+    return this.http.patch<InstanceSettings>(this.baseUrl, patch);
   }
 }

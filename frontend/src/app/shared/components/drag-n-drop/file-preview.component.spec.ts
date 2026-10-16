@@ -6,6 +6,7 @@ import { previewKindFor, mimeTypeFor } from './file-preview.model';
 import { FilePreviewComponent } from './file-preview.component';
 import { DragNDropComponent } from './drag-n-drop.component';
 import { AttachmentUploadService } from '../../../core/services/attachment-upload.service';
+import { ACCEPTED_EXTENSIONS } from '../../../core/models/models';
 import { Observable } from 'rxjs';
 
 function makeFile(name: string, contents: BlobPart = 'x', type = 'application/octet-stream'): File {
@@ -56,7 +57,6 @@ describe('previewKindFor', () => {
 
   it('returns null for formats without browser rendering', () => {
     expect(previewKindFor('.dwg')).toBeNull();
-    expect(previewKindFor('.dxf')).toBeNull();
     expect(previewKindFor('.doc')).toBeNull();
     expect(previewKindFor('.exe')).toBeNull();
     expect(previewKindFor('')).toBeNull();
@@ -250,7 +250,7 @@ describe('DragNDropComponent preview integration', () => {
   });
 
   it('opens the preview dialog with the dropped file and closes on output', () => {
-    const pdf = makeFile('заявка.pdf');
+    const pdf = makeFile('документ.pdf');
     dropFiles([pdf]);
     finishAllUploads();
 
@@ -271,17 +271,27 @@ describe('DragNDropComponent preview integration', () => {
     expect(fixture.debugElement.query(By.css('app-file-preview'))).toBeNull();
   });
 
-  it('hides the eye button for formats without preview support', () => {
-    dropFiles([makeFile('деталь.dxf'), makeFile('doc.pdf')]);
+  it('offers a preview for every accepted upload type', () => {
+    // The eye button is rendered conditionally on `previewKindFor`. While every
+    // accepted extension has a preview kind that branch is unreachable, so there
+    // is nothing integration-level to assert about a hidden button; what matters
+    // is that the two lists agree. This fails on the day someone accepts a type
+    // they cannot render, which is exactly when the guard starts to matter.
+    for (const extension of ACCEPTED_EXTENSIONS) {
+      expect(previewKindFor(extension)).not.toBeNull();
+    }
+  });
+
+  it('still previews a PDF among the accepted types', () => {
+    dropFiles([makeFile('doc.pdf')]);
     finishAllUploads();
 
     const rows = fixture.debugElement.queryAll(By.css('.upload-item'));
-    const dxfRow = rows.find((row) => row.nativeElement.textContent.includes('деталь.dxf'));
     const pdfRow = rows.find((row) => row.nativeElement.textContent.includes('doc.pdf'));
 
-    expect(dxfRow?.query(By.css('button[aria-label="Предпросмотр"]'))).toBeNull();
-    expect(dxfRow?.query(By.css('button[aria-label="Удалить"]'))).not.toBeNull();
+    expect(pdfRow).toBeDefined();
     expect(pdfRow?.query(By.css('button[aria-label="Предпросмотр"]'))).not.toBeNull();
+    expect(pdfRow?.query(By.css('button[aria-label="Удалить"]'))).not.toBeNull();
   });
 
   it('clears the open preview when its item is removed', () => {

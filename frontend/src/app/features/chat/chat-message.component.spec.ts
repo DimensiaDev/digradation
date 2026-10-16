@@ -46,7 +46,7 @@ describe('ChatMessageComponent', () => {
     fixture.componentRef.setInput('message', {
       id: 1,
       direction: 'incoming',
-      text: 'КП',
+      text: 'Ответ агента',
       time: '12:00',
       attachments: [{ name: 'kp.xlsx', attachmentId: 5 }]
     } as ChatMessage);

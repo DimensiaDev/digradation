@@ -107,7 +107,7 @@ describe('mockApiInterceptor', () => {
       http.get<{ items: UserChat[] }>(`${API}/chats?page=1&items_per_page=4&sort=number&order=asc`)
     );
     expect(response.items.length).toBe(3);
-    expect(response.items[0].name).toBe('Кожух вентилятора');
+    expect(response.items[0].name).toBe('План работы');
   });
 
   it('serves chat messages for the trailing-slash list path', async () => {
@@ -191,19 +191,31 @@ describe('mockApiInterceptor', () => {
   it('serves and updates instance settings', async () => {
     await login();
     const initial = await firstValueFrom(http.get<InstanceSettings>(`${API}/admin/settings`));
-    expect(initial.parameters.laser_speed_m_per_hour).toBe(10);
+    expect(initial.prompt_extension).toBe('');
 
     const updated = await firstValueFrom(
-      http.put<InstanceSettings>(`${API}/admin/settings`, {
-        prompt_extension: 'тест',
-        parameters: { ...initial.parameters, welding_speed_m_per_hour: 3 }
+      http.patch<InstanceSettings>(`${API}/admin/settings`, {
+        prompt_extension: 'тест'
       })
     );
     expect(updated.prompt_extension).toBe('тест');
-    expect(updated.parameters.welding_speed_m_per_hour).toBe(3);
     expect(updated.last_update_by).toBe(1);
     expect(updated.last_update_at).not.toBeNull();
 
+    const reread = await firstValueFrom(http.get<InstanceSettings>(`${API}/admin/settings`));
+    expect(reread.prompt_extension).toBe('тест');
+  });
+
+  it('ignores a PUT to the settings endpoint', async () => {
+    await login();
+
+    await expect(
+      firstValueFrom(
+        http.put<InstanceSettings>(`${API}/admin/settings`, { prompt_extension: 'через PUT' })
+      )
+    ).resolves.toBeTruthy();
+
+    // The mock only writes on PATCH, so the stored value is untouched.
     const reread = await firstValueFrom(http.get<InstanceSettings>(`${API}/admin/settings`));
     expect(reread.prompt_extension).toBe('тест');
   });
