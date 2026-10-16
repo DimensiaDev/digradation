@@ -49,7 +49,7 @@ set -a
 source "$COMPOSE_DIR/.env"
 set +a
 export POSTGRES_HOST="localhost"
-export POSTGRES_PORT="5431"
+export POSTGRES_PORT="${POSTGRES_PORT:-5433}"
 
 # --- Run Alembic ---
 cd "$BACKEND_DIR"

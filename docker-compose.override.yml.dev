@@ -17,5 +17,10 @@ services:
       CHOKIDAR_USEPOLLING: "true"
 
   db:
+    # 5433, not 5432: the base file publishes no database port at all, and a
+    # developer may already be running PostgreSQL on the host's 5432. This
+    # override is what makes the database reachable from the host, which the
+    # makemigrations scripts need, and it must not land on a port that is
+    # already taken by something that is not ours.
     ports:
-      - 5431:5432
+      - 5433:5432

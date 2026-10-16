@@ -15,6 +15,10 @@ Get-Content (Join-Path $ComposeDir ".env") | ForEach-Object {
     }
 }
 $env:POSTGRES_HOST = "localhost"  # native install, always localhost — no container networking at all
+# 5433, matching docker-compose.override.yml.dev. Never 5432: a developer may
+# already be running PostgreSQL there, and autogenerating against the wrong
+# database produces a migration for somebody else's schema.
+if (-not $env:POSTGRES_PORT) { $env:POSTGRES_PORT = "5433" }
 
 Write-Host "Generating migration: $Message"
 poetry -C $ScriptDir run alembic revision --autogenerate -m $Message

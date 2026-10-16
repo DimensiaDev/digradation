@@ -1,13 +1,13 @@
 import { expect, login, test } from "./helpers";
 
 test.describe("history", () => {
-  test("lists a created request and reopens it", async ({ page }) => {
+  test("lists a created chat and reopens it", async ({ page }) => {
     await login(page);
 
     const marker = `Проверка истории ${Date.now()}`;
     await page.goto("/create");
     await page.locator("#description").fill(marker);
-    await page.getByRole("button", { name: /Создать заявку/ }).click();
+    await page.getByRole("button", { name: /Создать чат/ }).click();
     await expect(page).toHaveURL(/\/chats\/.+/);
 
     // The mock provider renames every chat to the same title, so identify the
@@ -18,7 +18,7 @@ test.describe("history", () => {
     const rows = page.locator("tbody tr");
     await expect(rows.first()).toBeVisible({ timeout: 30_000 });
 
-    // The newest request is first, and it is the one just created.
+    // The newest chat is first, and it is the one just created.
     await rows.first().click();
     await expect(page).toHaveURL(new RegExp(`/chats/${sessionId}$`));
     await expect(page.getByText(marker)).toBeVisible();

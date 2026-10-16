@@ -1,7 +1,7 @@
 import { createChat, expect, login, test } from "./helpers";
 
 /**
- * Issue #47: deleting an uploaded file.
+ * Deleting an uploaded file.
  *
  * This is the one gap unit tests structurally cannot close. Before #47 the
  * trash button called `removeItem`, which dropped the row from a signal and
@@ -48,9 +48,9 @@ test.describe("attachment upload and delete", () => {
     await login(page);
     await createChat(page);
 
-    // Open the results panel, where "Загруженные файлы" lives.
+    // Open the files panel, where "Загруженные файлы" lives.
     await page
-      .getByRole("button", { name: "Панель результатов расчёта" })
+      .getByRole("button", { name: "Панель файлов" })
       .click();
     await expect(
       page.getByRole("heading", { name: "Загруженные файлы" }),
@@ -58,10 +58,10 @@ test.describe("attachment upload and delete", () => {
     await expect(page.getByText("Нет файлов в загрузке")).toBeVisible();
 
     // Upload through the real input the dropzone owns.
-    await uploadFile(page, "drawing.pdf");
+    await uploadFile(page, "document.pdf");
 
-    const row = page.locator(".calculation-results__file", {
-      hasText: "drawing.pdf",
+    const row = page.locator(".session-files__file", {
+      hasText: "document.pdf",
     });
     await expect(row).toBeVisible({ timeout: 30_000 });
 
@@ -80,12 +80,12 @@ test.describe("attachment upload and delete", () => {
     await login(page);
     const sessionId = await createChat(page);
     await page
-      .getByRole("button", { name: "Панель результатов расчёта" })
+      .getByRole("button", { name: "Панель файлов" })
       .click();
-    await uploadFile(page, "drawing.pdf");
+    await uploadFile(page, "document.pdf");
 
-    const row = page.locator(".calculation-results__file", {
-      hasText: "drawing.pdf",
+    const row = page.locator(".session-files__file", {
+      hasText: "document.pdf",
     });
     await expect(row).toBeVisible({ timeout: 30_000 });
 
@@ -102,7 +102,7 @@ test.describe("attachment upload and delete", () => {
     expect(before.ok()).toBeTruthy();
     const beforeBody = await before.json();
     expect(beforeBody.map((a: { filename: string }) => a.filename)).toContain(
-      "drawing.pdf",
+      "document.pdf",
     );
 
     await row.getByRole("button", { name: "Удалить файл" }).click();
@@ -117,19 +117,19 @@ test.describe("attachment upload and delete", () => {
     const afterBody = await after.json();
     expect(
       afterBody.map((a: { filename: string }) => a.filename),
-    ).not.toContain("drawing.pdf");
+    ).not.toContain("document.pdf");
   });
 
   test("the delete call reports success to the session", async ({ page }) => {
     await login(page);
     const sessionId = await createChat(page);
     await page
-      .getByRole("button", { name: "Панель результатов расчёта" })
+      .getByRole("button", { name: "Панель файлов" })
       .click();
-    await uploadFile(page, "drawing.pdf");
+    await uploadFile(page, "document.pdf");
 
-    const row = page.locator(".calculation-results__file", {
-      hasText: "drawing.pdf",
+    const row = page.locator(".session-files__file", {
+      hasText: "document.pdf",
     });
     await expect(row).toBeVisible({ timeout: 30_000 });
 

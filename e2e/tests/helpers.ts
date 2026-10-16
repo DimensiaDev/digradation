@@ -71,7 +71,7 @@ function clearRateLimits(): void {
  * Wait for any in-flight generation of the seeded user to finish.
  *
  * `POST /chats/` answers 409 while `chat:generation:*` exists, and that key
- * lives until the worker pipeline (parse, generate, spreadsheet, S3) drains.
+ * lives until the worker pipeline (upload, generate, store the reply) drains.
  * A test that only asserts on the DOM can finish while the previous test's
  * generation is still running, so the next `createChat` is refused and fails
  * on navigation with no mention of a lock. Polling here serialises the suite
@@ -147,23 +147,23 @@ export async function login(page: Page): Promise<void> {
  */
 export async function createChat(
   page: Page,
-  description = "Кронштейн 200x100 мм, ст3 1 мм",
+  description = "Собери основные тезисы из документа",
 ): Promise<string> {
   await page.goto("/create");
   await expect(
-    page.getByRole("heading", { name: "Создать заявку" }),
+    page.getByRole("heading", { name: "Новый чат" }),
   ).toBeVisible();
   await page.locator("#description").fill(description);
-  await page.getByRole("button", { name: /Создать заявку/ }).click();
+  await page.getByRole("button", { name: /Создать чат/ }).click();
   await expect(page).toHaveURL(/\/chats\/.+/);
   await expect(page.getByText(description)).toBeVisible();
   return new URL(page.url()).pathname.split("/").pop() as string;
 }
 
-/** Open the create-request page. */
+/** Open the new-chat page. */
 export async function gotoCreate(page: Page): Promise<void> {
   await page.goto("/create");
   await expect(
-    page.getByRole("heading", { name: "Создать заявку" }),
+    page.getByRole("heading", { name: "Новый чат" }),
   ).toBeVisible();
 }
