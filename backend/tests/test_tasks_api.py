@@ -1,7 +1,7 @@
 """Tests for the chat workers in ``app.tasks.api``.
 
 Every test here drives the real task bodies through :func:`tests.helpers.run_task`,
-so the database, Redis and MinIO work the workers do is genuinely executed. The
+so the database, Redis and Garage work the workers do is genuinely executed. The
 only thing stubbed out is the enqueue itself (``process_response.kiq``), which
 would otherwise need a live RabbitMQ.
 """
@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
-from processing.calculator.calc import DEFAULT_PARAMETERS, Parameters
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
@@ -31,70 +30,27 @@ from app.models.chat import (
     GenerationResultType,
     UserRole,
 )
-from app.models.settings import SETTINGS_ROW_ID, Settings
-from app.providers.models import Message, Position
-from app.storage import storage
+from app.providers.models import Message
 from app.tasks import api
 from tests.helpers import run_task
-
-XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-#: ``MATERIALS[12]`` — a grade the shipped ``res/calc.xlsx`` template is priced
-#: for, so ``process_calculation`` can always resolve it.
-MATERIAL_INDEX = 12
-
 
 # --------------------------------------------------------------------------------------
 # payload helpers
 # --------------------------------------------------------------------------------------
 
 
-def position_payload(index: int = 0) -> dict:
-    return {
-        "name": f"Деталь {index + 1}",
-        "material": MATERIAL_INDEX,
-        "area_m2": 0.5,
-        "laser_m": 1.0,
-        "bends": 2,
-        "welding_m": 0.5,
-        "turning_hours": 0.0,
-        "painting_m2": 1.0,
-    }
-
-
-def position(index: int = 0) -> Position:
-    return Position(**position_payload(index))
-
-
 def payload(
     *,
     chat_name: str | None = "Расчёт детали",
-    message: str = "Готово, расчёт выполнен.",
-    gen_kp: bool = True,
-    positions: list[dict] | None = None,
+    message: str = "Готово.",
 ) -> str:
     return json.dumps(
         {
             "chat_name": chat_name,
             "message": message,
-            "gen_kp": gen_kp,
-            "positions": [position_payload()] if positions is None else positions,
         },
         ensure_ascii=False,
     )
-
-
-class JobRecorder:
-    """Stand-in for ``_generate_kp_job`` that records what it was handed."""
-
-    def __init__(self) -> None:
-        self.calls: list[list[Position]] = []
-        self.parameters: list[Parameters] = []
-
-    def __call__(self, positions: list[Position], parameters: Parameters) -> bytes:
-        self.calls.append(positions)
-        self.parameters.append(parameters)
-        return b"PK fake workbook"
 
 
 class FalsyResponse:
@@ -301,145 +257,6 @@ def provider_recorder(monkeypatch) -> ProviderRecorder:
 
 
 # --------------------------------------------------------------------------------------
-# _generate_kp_job / _generate_kp
-# --------------------------------------------------------------------------------------
-
-
-def test_generate_kp_job_returns_a_workbook():
-    data = api._generate_kp_job([position()], DEFAULT_PARAMETERS)
-
-    assert isinstance(data, bytes)
-    assert data[:2] == b"PK", "an xlsx file is a zip archive"
-
-
-def test_generate_kp_job_honours_custom_rates():
-    """The rates are forwarded to the calculator, not just accepted.
-
-    Asserted on the arguments rather than on workbook cells, because the arithmetic
-    lives in `processing` and is tested there; what is tested here is that the
-    instance setting reaches it.
-    """
-    seen: dict[str, object] = {}
-
-    def capture(data, template_bytes, parameters=None, material_prices=None):
-        seen["parameters"] = parameters
-        return b"PK"
-
-    monkey = api.process_calculation
-    try:
-        api.process_calculation = capture
-        api._generate_kp_job([position()], Parameters(laser_speed_m_per_hour=6.5))
-    finally:
-        api.process_calculation = monkey
-
-    assert seen["parameters"] == Parameters(laser_speed_m_per_hour=6.5)
-
-
-async def test_generate_kp_uploads_the_workbook(rows, s3, db_session):
-    user = await rows.user()
-    session = await rows.chat_session(user)
-
-    attachment = await api._generate_kp(session.session_id, [position()], db_session)
-
-    assert attachment.name == "kp.xlsx"
-    assert attachment.ready is True
-    assert attachment.session_id == session.session_id
-    assert attachment.s3_key.startswith(f"attachments/{session.session_id}/")
-    assert attachment.s3_key.endswith(".xlsx")
-
-    async with storage.internal_client() as client:
-        head = await client.head_object(Bucket="uploads", Key=attachment.s3_key)
-        response = await client.get_object(Bucket="uploads", Key=attachment.s3_key)
-        async with response["Body"] as body:
-            stored = await body.read()
-    assert head["ContentType"] == XLSX_CONTENT_TYPE
-    assert stored[:2] == b"PK"
-    # The attachment is handed back, not persisted — the caller owns the session.
-    async with rows.session() as db:
-        assert await db.scalar(select(func.count()).select_from(Attachment)) == 0
-
-
-async def test_generate_kp_truncates_more_than_ten_positions(rows, s3, monkeypatch, db_session):
-    recorder = JobRecorder()
-    monkeypatch.setattr(api, "_generate_kp_job", recorder)
-    user = await rows.user()
-    session = await rows.chat_session(user)
-
-    attachment = await api._generate_kp(session.session_id, [position(i) for i in range(12)], db_session)
-
-    assert len(recorder.calls) == 1
-    assert [p.name for p in recorder.calls[0]] == [f"Деталь {i + 1}" for i in range(10)]
-    assert attachment.ready is True
-
-
-# --------------------------------------------------------------------------------------
-# _load_parameters: the instance rates reach the workbook
-# --------------------------------------------------------------------------------------
-
-
-async def test_load_parameters_defaults_when_nothing_is_configured(db_session):
-    assert await api._load_parameters(db_session) == DEFAULT_PARAMETERS
-
-
-async def test_load_parameters_defaults_after_a_reset(db_session):
-    """A null blob is the reset, so it must behave like no row at all."""
-    db_session.add(Settings(id=SETTINGS_ROW_ID, parameters=None))
-    await db_session.commit()
-
-    assert await api._load_parameters(db_session) == DEFAULT_PARAMETERS
-
-
-async def test_load_parameters_applies_the_stored_rates(db_session):
-    db_session.add(
-        Settings(
-            id=SETTINGS_ROW_ID,
-            parameters={
-                "laser_speed_m_per_hour": 6.0,
-                "welding_speed_m_per_hour": 3.0,
-                "bending_rate_per_hour": 60.0,
-                "painting_rate_m2_per_hour": 8.0,
-            },
-        )
-    )
-    await db_session.commit()
-
-    loaded = await api._load_parameters(db_session)
-
-    assert loaded.laser_speed_m_per_hour == 6.0
-    assert loaded.welding_speed_m_per_hour == 3.0
-    assert loaded.bending_rate_per_hour == 60.0
-    assert loaded.painting_rate_m2_per_hour == 8.0
-    # Not editable through the API, so it must survive a rate change untouched.
-    assert loaded.max_positions == DEFAULT_PARAMETERS.max_positions
-
-
-async def test_generate_kp_passes_the_stored_rates_to_the_job(rows, s3, monkeypatch, db_session):
-    recorder = JobRecorder()
-    monkeypatch.setattr(api, "_generate_kp_job", recorder)
-    user = await rows.user()
-    session = await rows.chat_session(user)
-
-    db_session.add(
-        Settings(
-            id=SETTINGS_ROW_ID,
-            parameters={
-                "laser_speed_m_per_hour": 7.5,
-                "welding_speed_m_per_hour": 2.5,
-                "bending_rate_per_hour": 70.0,
-                "painting_rate_m2_per_hour": 6.0,
-            },
-        )
-    )
-    await db_session.commit()
-
-    await api._generate_kp(session.session_id, [position()], db_session)
-
-    assert len(recorder.parameters) == 1
-    assert recorder.parameters[0].laser_speed_m_per_hour == 7.5
-    assert recorder.parameters[0].max_positions == DEFAULT_PARAMETERS.max_positions
-
-
-# --------------------------------------------------------------------------------------
 # _add_error_result
 # --------------------------------------------------------------------------------------
 
@@ -499,7 +316,7 @@ async def test_cleanup_old_results_is_idempotent(task_db, rows):
 
 
 async def test_generate_chat_message_enqueues_process_response(task_db, rows, redis_keys, kiq_spy, mock_mode):
-    mock_mode("kp")
+    mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id, "Посчитай кронштейн")
@@ -510,7 +327,9 @@ async def test_generate_chat_message_enqueues_process_response(task_db, rows, re
     args = kiq_spy.await_args.args
     assert args[0] == user.uuid
     assert args[1] == session.session_id
-    assert json.loads(args[2])["gen_kp"] is True
+    forwarded = json.loads(args[2])
+    assert set(forwarded) == {"chat_name", "message"}
+    assert forwarded["message"]
     # No result is written by this task: that is process_response's job.
     async with rows.session() as db:
         assert await db.scalar(select(func.count()).select_from(GenerationResult)) == 0
@@ -519,7 +338,7 @@ async def test_generate_chat_message_enqueues_process_response(task_db, rows, re
 async def test_generate_chat_message_clears_a_stale_result_and_takes_the_lock(
     task_db, rows, redis_keys, kiq_spy, mock_mode
 ):
-    mock_mode("kp")
+    mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id)
@@ -539,7 +358,7 @@ async def test_generate_chat_message_clears_a_stale_result_and_takes_the_lock(
 
 
 async def test_generate_chat_message_without_messages_writes_an_error(task_db, rows, redis_keys, kiq_spy, mock_mode):
-    mock_mode("kp")
+    mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     key = redis_keys.track(get_generation_key(user.uuid))
@@ -619,7 +438,7 @@ async def test_generate_chat_message_with_falsy_provider_response_writes_an_erro
 
 
 async def test_generate_chat_message_stops_on_a_deletion_tombstone(task_db, rows, redis_keys, kiq_spy, mock_mode):
-    mock_mode("kp")
+    mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id)
@@ -636,7 +455,7 @@ async def test_generate_chat_message_stops_on_a_deletion_tombstone(task_db, rows
 async def test_generate_chat_message_skips_when_the_generation_lock_is_held(
     task_db, rows, redis_keys, kiq_spy, mock_mode
 ):
-    mock_mode("kp")
+    mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id)
@@ -675,7 +494,7 @@ async def test_generate_chat_message_for_a_missing_session_hits_the_foreign_key(
 
 async def test_generate_chat_message_reports_an_unexpected_failure(task_db, rows, redis_keys, mock_mode):
     """A failure outside the provider call still produces an error result and unlocks."""
-    mock_mode("kp")
+    mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id)
@@ -720,13 +539,13 @@ def test_history_keeps_assistant_turns_before_the_last_user_message():
     rows = [
         stored(UserRole.SYSTEM, "system"),
         stored(UserRole.USER, "посчитай"),
-        stored(UserRole.ASSISTANT, '{"gen_kp": true}'),
+        stored(UserRole.ASSISTANT, '{"message": "старый ответ"}'),
         stored(UserRole.USER, "а теперь пересчитай"),
     ]
 
     kept = api._history_up_to_last_user_message(rows)
 
-    assert [m.content for m in kept] == ["system", "посчитай", '{"gen_kp": true}', "а теперь пересчитай"]
+    assert [m.content for m in kept] == ["system", "посчитай", '{"message": "старый ответ"}', "а теперь пересчитай"]
 
 
 def test_history_drops_every_trailing_assistant_message():
@@ -760,7 +579,7 @@ async def test_generate_chat_message_does_not_resend_the_assistant_turn_being_re
     an error it is still the last row of the session. Sending it back would make
     the provider continue its own message instead of answering the user.
     """
-    mock_mode("kp")
+    mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id, "system prompt", role=UserRole.SYSTEM)
@@ -784,7 +603,7 @@ async def test_generate_chat_message_keeps_an_assistant_turn_that_precedes_the_l
     task_db, rows, redis_keys, kiq_spy, mock_mode, provider_recorder
 ):
     """An answer the user has already seen is context, not something to cut."""
-    mock_mode("kp")
+    mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id, "Посчитай кронштейн")
@@ -803,7 +622,7 @@ async def test_generate_chat_message_keeps_the_whole_history_of_a_healthy_sessio
     task_db, rows, redis_keys, kiq_spy, mock_mode, provider_recorder
 ):
     """A plain turn ending on a user message reaches the provider untouched."""
-    mock_mode("kp")
+    mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id, "system prompt", role=UserRole.SYSTEM)
@@ -832,7 +651,7 @@ async def test_generate_chat_message_without_a_user_message_writes_an_error(
     task_db, rows, redis_keys, kiq_spy, mock_mode, provider_recorder
 ):
     """A history that holds no user turn has nothing to answer."""
-    mock_mode("kp")
+    mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id, "system prompt", role=UserRole.SYSTEM)
@@ -854,7 +673,7 @@ async def test_generate_chat_message_without_a_user_message_writes_an_error(
 # --------------------------------------------------------------------------------------
 
 
-async def test_process_response_stores_the_offer_and_renames_the_session(task_db, rows, redis_keys, s3):
+async def test_process_response_stores_the_reply_and_renames_the_session(task_db, rows, redis_keys):
     user = await rows.user()
     session = await rows.chat_session(user)
     body = payload(chat_name="Расчёт кронштейна", message="Расчёт готов.")
@@ -865,50 +684,28 @@ async def test_process_response_stores_the_offer_and_renames_the_session(task_db
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
         stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
-        attachment = await db.scalar(select(Attachment).where(Attachment.session_id == session.session_id))
         assistant = await db.scalar(
             select(ChatMessage).where(
                 ChatMessage.chat_session_id == session.session_id,
                 ChatMessage.role == UserRole.ASSISTANT,
             )
         )
-        # ``ChatMessage.attachments`` is lazy and cannot be loaded from a plain sync
-        # expression, so the link is verified with an explicit query instead.
-        linked = await db.scalars(select(Attachment.id).where(Attachment.chat_message_id == assistant.id))
-        message_attachment_ids = list(linked)
+        # Nothing is generated any more, so no attachment may be linked to the reply.
+        attachment_count = await db.scalar(select(func.count()).select_from(Attachment))
     assert result is not None
     assert result.type == GenerationResultType.SUCCESS
     assert result.content == "Расчёт готов."
     assert result.update_name == "Расчёт кронштейна"
-    assert attachment is not None
-    assert result.attachment_id == attachment.id
-    assert attachment.name == "kp.xlsx"
-    assert attachment.ready is True
+    assert result.attachment_id is None
     assert stored is not None and stored.name == "Расчёт кронштейна"
     assert assistant is not None
     assert assistant.content == body
     assert assistant.display_text == "Расчёт готов."
-    assert message_attachment_ids == [attachment.id]
+    assert attachment_count == 0
     assert await redis_keys.get(get_generation_key(user.uuid)) is None
 
 
-async def test_process_response_without_positions_creates_no_attachment(task_db, rows, redis_keys):
-    user = await rows.user()
-    session = await rows.chat_session(user)
-    body = payload(gen_kp=True, positions=[], message="Нужны уточнения.")
-
-    await run_task(api.process_response, user.uuid, session.session_id, body)
-
-    async with rows.session() as db:
-        result = await db.get(GenerationResult, session.session_id)
-        attachment_count = await db.scalar(select(func.count()).select_from(Attachment))
-    assert result is not None
-    assert result.attachment_id is None
-    assert result.update_name == "Расчёт детали"
-    assert attachment_count == 0
-
-
-async def test_process_response_keeps_an_existing_session_name(task_db, rows, redis_keys, s3):
+async def test_process_response_keeps_an_existing_session_name(task_db, rows, redis_keys):
     user = await rows.user()
     session = await rows.chat_session(user, name="Мой расчёт")
 
@@ -925,7 +722,7 @@ async def test_process_response_without_a_chat_name_leaves_the_session_alone(tas
     user = await rows.user()
     session = await rows.chat_session(user)
 
-    await run_task(api.process_response, user.uuid, session.session_id, payload(chat_name=None, gen_kp=False))
+    await run_task(api.process_response, user.uuid, session.session_id, payload(chat_name=None))
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
@@ -969,7 +766,8 @@ async def test_process_response_reports_a_schema_mismatch(task_db, rows, redis_k
     user = await rows.user()
     session = await rows.chat_session(user)
 
-    await run_task(api.process_response, user.uuid, session.session_id, json.dumps({"message": "без флагов"}))
+    # `message` is the one required field, so a payload without it is the mismatch.
+    await run_task(api.process_response, user.uuid, session.session_id, json.dumps({"chat_name": "Без ответа"}))
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)

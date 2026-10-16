@@ -261,7 +261,7 @@ def test_validation_errors_survive_non_finite_input():
         [
             {
                 "type": "finite_number",
-                "loc": ("body", "parameters", "bending_rate_per_hour"),
+                "loc": ("body", "prompt_extension"),
                 "msg": "Input should be a finite number",
                 "input": float("nan"),
             }

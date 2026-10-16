@@ -16,7 +16,6 @@ from app.cache import (
     get_attachment_url_key,
     get_deletion_key,
     get_generation_key,
-    get_pdf_sync_key,
 )
 from app.deps import (
     CurrentUser,
@@ -30,14 +29,13 @@ from app.deps import (
     require_login,
     user_rate_limiter,
 )
-from app.harness import FILE_ADDED_DESCRIPTION, build_system_prompt
+from app.harness import build_system_prompt
 from app.models.chat import (
     Attachment,
     ChatMessage,
     ChatSession,
     GenerationResult,
     GenerationResultType,
-    ProcessingResult,
     ProcessingResultUploadable,
     UserRole,
 )
@@ -71,7 +69,6 @@ log = structlog.stdlib.get_logger(__name__)
 
 ALLOWED_CHAT_CONTENT_TYPES = [
     "application/pdf",
-    "application/dxf",
     "image/png",
     "image/jpeg",
 ]
@@ -80,7 +77,7 @@ CHAT_MAX_UPLOAD_SIZE = 30 * 1024 * 1024
 # filenames whose types the content type allowlist above already permits. The
 # suffix is copied into the S3 key and shown back to the user, so it has to be
 # one of these rather than whatever the client felt like asking for.
-ALLOWED_CHAT_FILE_EXTENSIONS = frozenset({".pdf", ".dxf", ".png", ".jpg", ".jpeg"})
+ALLOWED_CHAT_FILE_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg"})
 # Values `upload_file` and the attachment workers write to the Redis status key. Anything else
 # found there, including an expired key which reads back as None, is reported as unknown rather
 # than passed to the response schema, which would raise on an unexpected value.
@@ -332,23 +329,12 @@ async def send_message(session_id: VerifiedMessageSession, db: DbSession, data: 
         content=data.content,
         files_str=files_str,
     )
+    # The provider file ids have been copied onto the message, so the rows that
+    # produced them are spent and are removed with it.
     await db.execute(
         delete(ProcessingResultUploadable).where(ProcessingResultUploadable.attachment_id.in_(attachment_ids))
     )
-
-    processing_results = await db.scalars(
-        select(ProcessingResult)
-        .where(ProcessingResult.attachment_id.in_(attachment_ids))
-        .options(selectinload(ProcessingResult.attachment))
-    )
-    system_message = ""
-    for result in processing_results:
-        system_message += FILE_ADDED_DESCRIPTION.format(filename=result.attachment.name, description=result.output)
-    if system_message:
-        new_message.display_text = new_message.content
-        new_message.content += system_message
     db.add(new_message)
-    await db.execute(delete(ProcessingResult).where(ProcessingResult.attachment_id.in_(attachment_ids)))
     await db.commit()
     await db.refresh(new_message)
     await db.execute(
@@ -471,10 +457,10 @@ async def upload_file(
 ):
     """Register an attachment and get a presigned URL to upload it directly to storage.
 
-    Allowed content types: PDF, DXF, PNG, JPEG. Max file size 30 MB.
+    Allowed content types: PDF, PNG, JPEG. Max file size 30 MB.
 
-    The filename must be a bare name whose extension is one of .pdf, .dxf,
-    .png, .jpg, .jpeg.
+    The filename must be a bare name whose extension is one of .pdf, .png, .jpg,
+    .jpeg.
 
     After uploading to the returned URL, call
     `POST /chats/{session_id}/uploads/{attachment_id}/uploaded` to confirm and
@@ -617,10 +603,10 @@ async def delete_attachment(
 ):
     """Delete an attachment of the session: the row, its storage objects, and its cached state.
 
-    Removing the row cascades to the processing results and to the per-page
-    artifacts a PDF produced, and the ownership cache entry goes with it so a
-    repeated delete is refused by the dependency rather than served from cache.
-    A storage object that is already gone is not an error: the row is still deleted.
+    Removing the row cascades to the artifacts derived from it, and the ownership
+    cache entry goes with it so a repeated delete is refused by the dependency
+    rather than served from cache. A storage object that is already gone is not an
+    error: the row is still deleted.
     """
     attachment = await db.scalar(
         select(Attachment)
@@ -638,7 +624,6 @@ async def delete_attachment(
         get_attachment_status_key(attachment_id),
         get_attachment_url_key(attachment_id),
         get_attachment_ownership_key(session_id, attachment_id),
-        get_pdf_sync_key(attachment_id),
     )
     return AttachmentDeletedResponse(deleted=True)
 

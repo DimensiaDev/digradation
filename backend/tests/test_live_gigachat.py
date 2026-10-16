@@ -66,7 +66,7 @@ async def test_live_generate_against_gigachat(live_provider):
     assert response is not None, "the live API returned an error"
     payload = json.loads(response.messages[0].content[0].text)
     assert payload["message"]
-    assert isinstance(payload["positions"], list)
+    assert set(payload) == {"chat_name", "message"}
 
 
 async def test_live_upload_and_reflect(live_provider):

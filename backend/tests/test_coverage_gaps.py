@@ -83,26 +83,22 @@ def _payload(response) -> dict:
     return json.loads(response.messages[0].content[0].text)
 
 
-async def test_mock_kp_mode_returns_positions(monkeypatch):
-    monkeypatch.setenv("MOCK_PROVIDER_MODE", "kp")
+async def test_mock_ok_mode_returns_the_chat_contract(monkeypatch):
+    monkeypatch.setenv("MOCK_PROVIDER_MODE", "ok")
     provider = MockProvider("mock", "PERS")
     payload = _payload(await _generate(provider))
 
-    assert payload["gen_kp"] is True
-    assert 1 <= len(payload["positions"]) <= 2
-    position = payload["positions"][0]
-    for field in ("name", "material", "area_m2", "laser_m", "bends", "welding_m", "turning_hours", "painting_m2"):
-        assert field in position
-    assert position["area_m2"] > 0
-    assert position["painting_m2"] == pytest.approx(position["area_m2"] * 2)
-
-
-async def test_mock_clarify_mode_returns_no_positions(monkeypatch):
-    monkeypatch.setenv("MOCK_PROVIDER_MODE", "clarify")
-    payload = _payload(await _generate(MockProvider("mock", "PERS")))
-    assert payload["positions"] == []
-    assert payload["gen_kp"] is False
+    assert set(payload) == {"chat_name", "message"}
     assert payload["message"]
+    assert payload["chat_name"]
+
+
+async def test_mock_ok_mode_is_deterministic(monkeypatch):
+    """The same conversation must produce the same reply, or e2e assertions drift."""
+    monkeypatch.setenv("MOCK_PROVIDER_MODE", "ok")
+    first = _payload(await _generate(MockProvider("mock", "PERS")))
+    second = _payload(await _generate(MockProvider("mock", "PERS")))
+    assert first == second
 
 
 async def test_mock_error_mode_returns_none(monkeypatch):
@@ -230,31 +226,6 @@ def test_chat_message_rejects_system_display():
 
     fallback = ChatMessage(role=UserRole.USER, content="raw", chat_session_id=uuid.uuid4())
     assert fallback.get_chat_text() == "raw"
-
-
-def test_position_material_index_out_of_range_raises_index_error():
-    """MATERIALS is a list, so an out-of-range index raises IndexError.
-
-    The validator catches KeyError, which a list never raises, so the raw
-    IndexError escapes ``model_validate``. Pinned here as current behaviour:
-    changing the validator to ``except IndexError`` is the correct fix, and this
-    test should be updated to expect ValueError when that happens.
-    """
-    from app.providers.models import Position
-
-    base = {
-        "name": "x",
-        "area_m2": 1.0,
-        "laser_m": 1.0,
-        "bends": 1,
-        "welding_m": 1.0,
-        "turning_hours": 0.0,
-        "painting_m2": 1.0,
-    }
-    assert Position(material=0, **base).material
-    assert Position(material="already a name", **base).material == "already a name"
-    with pytest.raises(IndexError):
-        Position(material=10_000, **base)
 
 
 async def test_verify_chat_session_rejects_a_foreign_session(db_session, test_user):

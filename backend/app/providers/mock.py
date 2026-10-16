@@ -5,7 +5,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from app.harness import MATERIALS
 from app.providers.client import AIClient
 from app.providers.models import (
     Content,
@@ -18,21 +17,16 @@ from app.providers.models import (
 
 MOCK_API_KEY = "mock"
 
-Mode = Literal["kp", "clarify", "empty", "error"]
+Mode = Literal["ok", "empty", "error"]
 
-#: Modes the mock understands. ``kp`` is the happy path: a complete commercial
-#: offer. ``clarify`` returns an empty ``positions`` list, which the harness
-#: contract defines as "ask the user for more information". ``empty`` returns a
-#: response with no content at all, and ``error`` returns ``None``, both of
-#: which drive the backend's error paths.
-MODES: tuple[Mode, ...] = ("kp", "clarify", "empty", "error")
+#: Modes the mock understands. ``ok`` is the happy path: a well-formed reply and a
+#: chat name. ``empty`` returns a response with no content at all, and ``error``
+#: returns ``None``, both of which drive the backend's error paths.
+MODES: tuple[Mode, ...] = ("ok", "empty", "error")
 
-DEFAULT_MODE: Mode = "kp"
+DEFAULT_MODE: Mode = "ok"
 
-#: A material index guaranteed to have a price on the template's metal-price
-#: sheet, so the calculator can always build a spreadsheet. See MATERIALS[12],
-#: a 1.0 mm carbon-steel grade that is present in the shipped template.
-DEFAULT_MATERIAL_INDEX = 12
+MOCK_CHAT_NAME = "Чат (mock)"
 
 
 def get_mock_mode() -> Mode:
@@ -49,14 +43,10 @@ def _seed(*parts: str) -> int:
     """A stable integer derived from the inputs.
 
     Deterministic on purpose: the same conversation must always produce the same
-    numbers, otherwise end-to-end assertions and spreadsheets drift between runs.
+    reply, otherwise end-to-end assertions drift between runs.
     """
     digest = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
     return int(digest[:8], 16)
-
-
-def _rounded(value: float, digits: int = 2) -> float:
-    return round(value, digits)
 
 
 class MockProvider(AIClient):
@@ -97,48 +87,13 @@ class MockProvider(AIClient):
         )
         return f"mock-file-{_seed(str(x_session_id), filename):08x}"
 
-    def _positions(self, fingerprint: str) -> list[dict]:
-        seed = _seed(fingerprint)
-        count = 1 + seed % 2  # one or two positions, never more
-        positions = []
-        for i in range(count):
-            sub = _seed(fingerprint, str(i))
-            area = _rounded(0.1 + (sub % 900) / 1000, 3)
-            positions.append(
-                {
-                    "name": f"Деталь {i + 1}",
-                    "material": DEFAULT_MATERIAL_INDEX,
-                    "area_m2": area,
-                    "laser_m": _rounded(1.0 + (sub % 500) / 100, 2),
-                    "bends": sub % 8,
-                    "welding_m": _rounded((sub % 250) / 100, 2),
-                    "turning_hours": 0.0,
-                    "painting_m2": _rounded(area * 2, 3),
-                }
-            )
-        return positions
-
     def _payload(self, fingerprint: str) -> dict:
         mode = get_mock_mode()
-        if mode == "clarify":
-            return {
-                "chat_name": "Расчёт КП (mock)",
-                "message": (
-                    "Уточните, пожалуйста, материал и габариты детали — " "без них расчёт стоимости невозможен."
-                ),
-                "gen_kp": False,
-                "positions": [],
-            }
         if mode == "empty":
-            return {"chat_name": "Расчёт КП (mock)", "message": "", "gen_kp": False, "positions": []}
-        positions = self._positions(fingerprint)
+            return {"chat_name": MOCK_CHAT_NAME, "message": ""}
         return {
-            "chat_name": "Расчёт КП (mock)",
-            "message": (
-                f"Готово: рассчитано {len(positions)} позиц. " f"Материал: {MATERIALS[DEFAULT_MATERIAL_INDEX]}."
-            ),
-            "gen_kp": True,
-            "positions": positions,
+            "chat_name": MOCK_CHAT_NAME,
+            "message": f"Это ответ офлайн-мока на сообщение №{_seed(fingerprint) % 1000}.",
         }
 
     async def generate(

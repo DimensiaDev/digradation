@@ -3,7 +3,6 @@ from typing import ClassVar, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.harness import MATERIALS
 from app.models.chat import ChatMessage
 
 
@@ -46,32 +45,9 @@ class Message(BaseModel):
         return cls(content=[Content(text=obj.content, files=files)], role=obj.role)  # type: ignore
 
 
-class Position(BaseModel):
-    name: str
-    material: str
-    area_m2: float
-    laser_m: float
-    bends: int
-    welding_m: float
-    turning_hours: float
-    painting_m2: float
-
-    @field_validator("material", mode="before")
-    @classmethod
-    def material_id_to_material_str(cls, val):
-        if isinstance(val, (int, float)):
-            try:
-                return MATERIALS[int(val)]
-            except KeyError as e:
-                raise ValueError("Invalid material id") from e
-        return val
-
-
 class HarnessStructuredOutput(BaseModel):
     chat_name: str | None = None
     message: str
-    gen_kp: bool
-    positions: list[Position] = Field(default_factory=list)
 
 
 class ResponseFormat(BaseModel):

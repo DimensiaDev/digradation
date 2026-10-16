@@ -137,12 +137,6 @@ class Attachment(Base):
     ready: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=false())
 
     message: Mapped[ChatMessage | None] = relationship("ChatMessage", back_populates="attachments", uselist=False)
-    processing_result: Mapped[ProcessingResult | None] = relationship(
-        "ProcessingResult",
-        back_populates="attachment",
-        cascade="all, delete-orphan",
-        uselist=False,
-    )
     processing_result_uploadables: Mapped[list[ProcessingResultUploadable]] = relationship(
         "ProcessingResultUploadable",
         back_populates="attachment",
@@ -152,21 +146,6 @@ class Attachment(Base):
     generation_result: Mapped[GenerationResult | None] = relationship(
         "GenerationResult", back_populates="attachment", cascade="all", uselist=False
     )
-
-
-class ProcessingResult(Base):
-    __tablename__ = "processing_results"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    attachment_id: Mapped[int] = mapped_column(
-        ForeignKey("attachments.id", ondelete="CASCADE"),
-        nullable=False,
-        unique=True,
-        index=True,
-    )
-    output: Mapped[str] = mapped_column(Text(), nullable=False)
-
-    attachment: Mapped[Attachment] = relationship("Attachment", back_populates="processing_result")
 
 
 class ProcessingResultUploadable(Base):

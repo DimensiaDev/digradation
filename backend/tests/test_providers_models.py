@@ -11,7 +11,6 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from app.harness import MATERIALS
 from app.models.chat import ChatMessage, UserRole
 from app.providers.models import (
     AuthResponse,
@@ -23,7 +22,6 @@ from app.providers.models import (
     InputTokenDetails,
     Message,
     ModelOptions,
-    Position,
     ResponseFormat,
     Usage,
 )
@@ -121,54 +119,6 @@ def test_message_from_chat_message_preserves_the_system_role():
     row = ChatMessage(role=UserRole.SYSTEM, content="system prompt")
 
     assert Message.from_chat_message(row).role == "system"
-
-
-# ---------------------------------------------------------------------------
-# Position.material_id_to_material_str
-# ---------------------------------------------------------------------------
-
-
-def position_kwargs(**overrides) -> dict:
-    data = {
-        "name": "Деталь",
-        "area_m2": 0.5,
-        "laser_m": 1.2,
-        "bends": 3,
-        "welding_m": 0.4,
-        "turning_hours": 0.0,
-        "painting_m2": 0.5,
-    }
-    data.update(overrides)
-    return data
-
-
-@pytest.mark.parametrize("index", [0, 5, len(MATERIALS) - 1])
-def test_position_resolves_a_material_index(index):
-    position = Position(**position_kwargs(material=index))
-
-    assert position.material == MATERIALS[index]
-
-
-def test_position_passes_a_material_string_through():
-    position = Position(**position_kwargs(material="1,5 мм Ст3 (2500х1250)"))
-
-    assert position.material == "1,5 мм Ст3 (2500х1250)"
-
-
-def test_position_out_of_range_index_raises_index_error():
-    # ``MATERIALS`` is a list, so an out-of-range lookup raises IndexError — not
-    # the KeyError the validator catches, and not the ValueError it means to
-    # raise. IndexError is not a pydantic-handled exception, so it propagates
-    # out of model_validate instead of becoming a ValidationError. Asserted as
-    # it is today rather than as intended; see .context/LESSONS.md.
-    with pytest.raises(IndexError):
-        Position(**position_kwargs(material=len(MATERIALS) + 5))
-
-
-def test_position_negative_index_wraps_around():
-    # A negative index is not out of range for a list, so -1 silently resolves
-    # to the last material rather than being rejected.
-    assert Position(**position_kwargs(material=-1)).material == MATERIALS[-1]
 
 
 # ---------------------------------------------------------------------------
@@ -342,23 +292,25 @@ def test_input_token_details_is_a_plain_model():
 # ---------------------------------------------------------------------------
 
 
-def test_harness_structured_output_defaults_positions_to_empty():
-    output = HarnessStructuredOutput(message="ок", gen_kp=False)
+def test_harness_structured_output_requires_only_a_message():
+    """`chat_name` is optional so a model that omits it still yields a usable reply.
 
-    assert output.positions == []
+    The schema asks the provider for both, but a missing name must not cost the user
+    their answer: the session simply keeps its default title.
+    """
+    output = HarnessStructuredOutput(message="ок")
+
+    assert output.message == "ок"
     assert output.chat_name is None
 
 
-def test_harness_structured_output_resolves_material_indices():
-    output = HarnessStructuredOutput.model_validate(
-        {
-            "chat_name": "Кронштейн",
-            "message": "ок",
-            "gen_kp": True,
-            "positions": [position_kwargs(material=0)],
-        }
-    )
+def test_harness_structured_output_takes_both_fields():
+    output = HarnessStructuredOutput.model_validate({"chat_name": "Заметки", "message": "ок"})
 
-    assert output.chat_name == "Кронштейн"
-    assert output.gen_kp is True
-    assert output.positions[0].material == MATERIALS[0]
+    assert output.chat_name == "Заметки"
+    assert output.message == "ок"
+
+
+def test_harness_structured_output_rejects_a_missing_message():
+    with pytest.raises(ValidationError):
+        HarnessStructuredOutput.model_validate({"chat_name": "Заметки"})

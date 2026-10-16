@@ -30,9 +30,8 @@ from app.cache import (
     get_creation_key,
     get_deletion_key,
     get_generation_key,
-    get_pdf_sync_key,
 )
-from app.harness import FILE_ADDED_DESCRIPTION, SYSTEM_PROMPT, build_system_prompt
+from app.harness import SYSTEM_PROMPT, build_system_prompt
 from app.models.auth import User
 from app.models.chat import (
     Attachment,
@@ -40,7 +39,6 @@ from app.models.chat import (
     ChatSession,
     GenerationResult,
     GenerationResultType,
-    ProcessingResult,
     ProcessingResultUploadable,
     UserRole,
 )
@@ -426,10 +424,9 @@ async def test_send_message(auth_client: AsyncClient, db_session: AsyncSession, 
 async def test_send_message_attaches_processed_files(
     auth_client: AsyncClient, db_session: AsyncSession, chat, factories, kiq, redis_session: None
 ):
-    attachment = await factories.attachment(chat.session_id, name="part.dxf", ready=True)
-    db_session.add(ProcessingResult(attachment_id=attachment.id, output="100x50"))
+    attachment = await factories.attachment(chat.session_id, name="drawing.pdf", ready=True)
     db_session.add(
-        ProcessingResultUploadable(attachment_id=attachment.id, s3_key="artifacts/pdf/1.png", sber_id="file-1")
+        ProcessingResultUploadable(attachment_id=attachment.id, s3_key="attachments/1.pdf", sber_id="file-1")
     )
     await db_session.commit()
 
@@ -444,14 +441,14 @@ async def test_send_message_attaches_processed_files(
             )
         )
     ).one()
-    assert message.display_text == "посчитай"
-    assert message.content == "посчитай" + FILE_ADDED_DESCRIPTION.format(filename="part.dxf", description="100x50")
+    # The user wrote exactly what they typed: nothing is appended to the text.
+    assert message.display_text is None
+    assert message.content == "посчитай"
     assert message.files_str == "file-1"
 
     await db_session.refresh(attachment)
     assert attachment.chat_message_id == message.id
-    # Both result tables are consumed by the send.
-    assert await count(db_session, ProcessingResult) == 0
+    # The provider file id has been copied onto the message, so the row is spent.
     assert await count(db_session, ProcessingResultUploadable) == 0
 
 
@@ -772,7 +769,6 @@ async def test_upload_file_rejects_names_that_are_not_bare(
     ("filename", "content_type", "extension"),
     [
         ("drawing.pdf", "application/pdf", ".pdf"),
-        ("деталь.dxf", "application/dxf", ".dxf"),
         ("photo.png", "image/png", ".png"),
         ("photo.jpg", "image/jpeg", ".jpg"),
         ("photo.JPEG", "image/jpeg", ".jpeg"),
@@ -826,7 +822,7 @@ async def test_list_attachments_reports_uploads_and_message_links(
     """Files still being uploaded are listed too, and only those have no message yet."""
     message = await factories.message(chat.session_id, content="вопрос")
     uploading = await factories.attachment(chat.session_id, name="uploading.pdf", ready=False)
-    sent = await factories.attachment(chat.session_id, name="sent.dxf", ready=True, chat_message_id=message.id)
+    sent = await factories.attachment(chat.session_id, name="sent.pdf", ready=True, chat_message_id=message.id)
     await redis_client.set(get_attachment_status_key(uploading.id), "uploading", ex=600)
     await redis_client.set(get_attachment_status_key(sent.id), "completed", ex=600)
     # Neither another session of the same user nor another user's file may leak in.
@@ -839,7 +835,7 @@ async def test_list_attachments_reports_uploads_and_message_links(
     assert response.status_code == 200
     data = response.json()
     assert [entry["id"] for entry in data] == [uploading.id, sent.id]
-    assert [entry["filename"] for entry in data] == ["uploading.pdf", "sent.dxf"]
+    assert [entry["filename"] for entry in data] == ["uploading.pdf", "sent.pdf"]
     assert [entry["status"] for entry in data] == ["uploading", "completed"]
     assert [entry["ready"] for entry in data] == [False, True]
     assert [entry["chat_message_id"] for entry in data] == [None, message.id]
@@ -979,16 +975,14 @@ async def test_delete_attachment(
 ):
     """The row, the stored file and the cached state all go away together."""
     attachment = await factories.attachment(chat.session_id, name="drawing.pdf", s3_key="chat/delete.pdf")
-    db_session.add(ProcessingResult(attachment_id=attachment.id, output="100x50"))
     db_session.add(
-        ProcessingResultUploadable(attachment_id=attachment.id, s3_key="artifacts/pdf/delete.png", sber_id="file-1")
+        ProcessingResultUploadable(attachment_id=attachment.id, s3_key="artifacts/derived.pdf", sber_id="file-1")
     )
     await db_session.commit()
     await s3_put(b"%PDF-1.4", attachment.s3_key)
-    await s3_put(b"\x89PNG", "artifacts/pdf/delete.png")
+    await s3_put(b"%PDF-1.4", "artifacts/derived.pdf")
     await redis_client.set(get_attachment_status_key(attachment.id), "completed", ex=600)
     await redis_client.set(get_attachment_url_key(attachment.id), '{"url": "x"}', ex=3600)
-    await redis_client.set(get_pdf_sync_key(attachment.id), "3", ex=600)
 
     response = await auth_client.delete(f"/chats/{chat.session_id}/attachments/{attachment.id}")
 
@@ -996,15 +990,12 @@ async def test_delete_attachment(
     assert response.json() == {"deleted": True}
     assert await count(db_session, Attachment) == 0
     # Cascades through the ORM relationships.
-    assert await count(db_session, ProcessingResult) == 0
     assert await count(db_session, ProcessingResultUploadable) == 0
     assert await s3_object_missing("chat/delete.pdf") is True
-    assert await s3_object_missing("artifacts/pdf/delete.png") is True
+    assert await s3_object_missing("artifacts/derived.pdf") is True
     assert await redis_client.get(get_attachment_status_key(attachment.id)) is None
     assert await redis_client.get(get_attachment_url_key(attachment.id)) is None
     assert await redis_client.get(get_attachment_ownership_key(chat.session_id, attachment.id)) is None
-    # The counter an in-flight PDF page upload decrements.
-    assert await redis_client.get(get_pdf_sync_key(attachment.id)) is None
 
 
 async def test_delete_attachment_keeps_other_files(

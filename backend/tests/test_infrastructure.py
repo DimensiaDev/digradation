@@ -4,8 +4,6 @@ These exist so a broken fixture fails here with an obvious message, rather than
 as a confusing error in whichever suite happens to run first.
 """
 
-import pytest
-
 from app.cache import get_redis_client
 from app.storage import get_s3_avatar_processed_key, storage
 
@@ -43,8 +41,7 @@ def test_mock_provider_is_selected(monkeypatch):
     assert isinstance(build("real-key"), SberProvider)
 
 
-@pytest.mark.parametrize("mode", ["kp", "clarify", "empty", "error"])
-def test_s3_key_builders_are_namespaced(mode: str):
+def test_s3_key_builders_are_namespaced():
     import uuid as _uuid
 
     user = _uuid.uuid4()
