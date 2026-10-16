@@ -31,26 +31,6 @@ repos:
         files: ^backend/.*\.py$
         pass_filenames: false
 
-      # --- processing ---
-      - id: black
-        name: black (processing)
-        entry: python scripts/precommit-black.py processing/
-        language: system
-        files: ^processing/.*\.py$
-
-      - id: ruff
-        name: ruff (processing)
-        entry: python scripts/precommit-ruff.py processing/
-        language: system
-        files: ^processing/.*\.py$
-
-      - id: pytest
-        name: pytest (processing)
-        entry: poetry -C processing run pytest
-        language: system
-        files: ^processing/.*\.py$
-        pass_filenames: false
-
       # --- frontend ---
       - id: eslint
         name: eslint (frontend)
@@ -85,15 +65,6 @@ repos:
         language: system
         stages: [pre-push]
         files: ^backend/.*\.py$
-        pass_filenames: false
-        always_run: true
-
-      - id: pytest-coverage-processing
-        name: pytest coverage report (processing)
-        entry: poetry -C processing run pytest --cov --cov-report=term-missing
-        language: system
-        stages: [pre-push]
-        files: ^processing/.*\.py$
         pass_filenames: false
         always_run: true
 

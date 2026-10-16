@@ -23,7 +23,6 @@ dependencies = [
     "aioboto3 (>=15.5.0,<16.0.0)",
     "types-aiobotocore[s3] (>=3.9.1,<4.0.0)",
     "pillow (>=12.3.0,<13.0.0)",
-    "processing @ ../processing",
 ]
 
 [build-system]
