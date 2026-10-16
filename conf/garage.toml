@@ -1,4 +1,4 @@
-# Garage configuration for digraduation.
+# Garage configuration for digradation.
 #
 # Garage is an S3-compatible object store. It replaces MinIO, whose upstream
 # repositories were deleted and are no longer pullable from any registry.

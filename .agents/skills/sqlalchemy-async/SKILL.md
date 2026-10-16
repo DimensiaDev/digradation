@@ -1,9 +1,9 @@
 ---
 name: sqlalchemy-async
-description: Conventions for SQLAlchemy 2.0 async ORM models, sessions, queries and Alembic migrations in the digraduation backend. Use when touching backend/app/models/, backend/app/database.py, or adding or changing an Alembic migration.
+description: Conventions for SQLAlchemy 2.0 async ORM models, sessions, queries and Alembic migrations in the digradation backend. Use when touching backend/app/models/, backend/app/database.py, or adding or changing an Alembic migration.
 ---
 
-# SQLAlchemy 2.0 async and Alembic — digraduation conventions
+# SQLAlchemy 2.0 async and Alembic — digradation conventions
 
 PostgreSQL 18, asyncpg, SQLAlchemy >= 2.0.52, Alembic >= 1.19.
 
@@ -90,9 +90,18 @@ Any model change requires a migration. `tests/test_migrations.py` runs `upgrade 
 `downgrade base` and `alembic check`, and fails on drift.
 
 ```bash
-cp docker-compose.override.yml{.dev,}        # publishes PostgreSQL on 5431
+cp docker-compose.override.yml{.dev,}        # publishes PostgreSQL on 5433
 ./backend/makemigrations.sh "add expires_at to users"
 ```
+
+- History is a **single squashed `initial` revision**, regenerated when the quotation tables
+  were dropped. It was only safe because no instance held real data; from here migrations are
+  append-only.
+- **Every migration that creates a Postgres enum must drop it in `downgrade()`** with
+  `checkfirst=True`. `drop_table` drops the column, not the type, so a `downgrade base` that
+  omits it leaves the type behind and the next `upgrade head` fails on
+  `CREATE TYPE ... already exists`. `initial` does this for `userrole` and
+  `generationresulttype`.
 
 - `alembic/env.py` gets its URL from `get_database_url()`, built from `POSTGRES_*`, not from
   `alembic.ini`, and escapes `%` as `%%` for `ConfigParser` interpolation.

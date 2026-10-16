@@ -1,11 +1,12 @@
 ---
 name: frontend-file-preview
-description: Conventions for the inline file preview in the digraduation frontend — PDF, image, docx and xlsx rendering, lazy loading of docx-preview/xlsx/hyperformula, HyperFormula cross-sheet evaluation, and the upload polling handshake. Use when touching file-preview or attachment upload code.
+description: Conventions for the inline file preview in the digradation frontend — PDF, image, docx and xlsx rendering, lazy loading of docx-preview/xlsx/hyperformula, HyperFormula cross-sheet evaluation, and the upload polling handshake. Use when touching file-preview or attachment upload code.
 ---
 
-# File preview and attachment upload — digraduation conventions
+# File preview and attachment upload — digradation conventions
 
-Covers `file-preview.component.ts`, the results panel, and `AttachmentUploadService`.
+Covers `shared/components/drag-n-drop/file-preview.component.ts`, the chat files panel, and
+`AttachmentUploadService`.
 
 ## Supported formats
 
@@ -73,7 +74,7 @@ const STATUS_POLL_LIMIT = 150;
 `AttachmentUploadService` polls upload status on that interval up to that limit, then gives
 up. Keep these constants; they bound the request storm and the user-visible wait.
 
-Server-side, `process_attachment` and `process_pdf` run on the `default` TaskIQ queue and
+Server-side, `process_attachment` and `process_document` run on the `default` TaskIQ queue and
 write progress keys that this polling reads. Progress values are `completed` and `error`.
 
 ## Result polling

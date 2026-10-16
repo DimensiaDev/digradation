@@ -25,13 +25,13 @@ const REPO_ROOT = process.env.E2E_REPO_ROOT ?? `${process.cwd()}/..`;
 // Must match the project `setup.sh` used. Compose prefixes named volumes with
 // the project name, so the wrong value here would seed the developer's database
 // instead of the throwaway e2e one.
-const E2E_PROJECT = process.env.E2E_PROJECT ?? "digraduation-e2e";
+const E2E_PROJECT = process.env.E2E_PROJECT ?? "digradation-e2e";
 
 /** Insert `count` sessions with one user message each, owned by `username`. */
 function seedChats(username: string, count: number): void {
   // Fail loudly rather than write to the wrong database. Compose prefixes
   // volumes with the project name, so a mismatch means the dev stack.
-  if (!E2E_PROJECT || E2E_PROJECT === "digraduation") {
+  if (!E2E_PROJECT || E2E_PROJECT === "digradation") {
     throw new Error(
       `Refusing to seed: E2E_PROJECT is "${E2E_PROJECT}", which is the development project. ` +
         "The e2e suite must run under its own project name or it writes into the dev database.",
@@ -78,9 +78,9 @@ function seedChats(username: string, count: number): void {
       "db",
       "psql",
       "-U",
-      "digraduation",
+      "digradation",
       "-d",
-      "digraduation",
+      "digradation",
       "-v",
       "ON_ERROR_STOP=1",
       "-c",

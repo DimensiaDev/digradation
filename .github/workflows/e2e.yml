@@ -87,12 +87,12 @@ jobs:
           path: e2e/test-results
           retention-days: 7
 
-      # setup.sh runs the stack under the digraduation-e2e project, so plain
+      # setup.sh runs the stack under the digradation-e2e project, so plain
       # `docker compose` here would target a project that does not exist.
       - name: Dump logs on failure
         if: failure()
         run: >-
-          docker compose -p digraduation-e2e
+          docker compose -p digradation-e2e
           -f docker-compose.yaml
           -f docker-compose.override.yml.e2e
           logs --no-color --tail 200
@@ -102,7 +102,7 @@ jobs:
       - name: Stop the stack
         if: always()
         run: >-
-          docker compose -p digraduation-e2e
+          docker compose -p digradation-e2e
           -f docker-compose.yaml
           -f docker-compose.override.yml.e2e
           down

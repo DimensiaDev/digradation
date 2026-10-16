@@ -4,7 +4,7 @@ description: |
   FastAPI framework guardrails, patterns, and best practices for AI-assisted development.
   Use when working with FastAPI projects, or when the user mentions FastAPI.
   Provides async patterns, Pydantic models, dependency injection, and OpenAPI guidelines.
-  In the digraduation repo, read references/digraduation-overrides.md FIRST: it overrides this guide
+  In the digradation repo, read references/digradation-overrides.md FIRST: it overrides this guide
   where the project differs (Annotated dependency aliases, no repository layer, structlog).
 license: MIT
 metadata:
@@ -15,8 +15,8 @@ metadata:
   extensions: ".py"
 ---
 
-> **Working in the digraduation repository? Read
-> [`references/digraduation-overrides.md`](references/digraduation-overrides.md) before applying
+> **Working in the digradation repository? Read
+> [`references/digradation-overrides.md`](references/digradation-overrides.md) before applying
 > anything below.** It records where this generic guide conflicts with the project's actual
 > conventions, and the project conventions win. Key divergences: dependencies are
 > `Annotated[...]` aliases used as parameter types (never `= Depends(...)`); there is no

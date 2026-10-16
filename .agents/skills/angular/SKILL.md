@@ -5,16 +5,16 @@ description: >-
   Components, Zoneless applications, SSR/Hydration, and reactive patterns.
   Use PROACTIVELY for Angular development, component architecture, state
   management, performance optimization, and migration to modern patterns.
-  In the digraduation repo, read references/digraduation-overrides.md FIRST: the app is
+  In the digradation repo, read references/digradation-overrides.md FIRST: the app is
   Angular 21.2, client-side only (no SSR, no hydration, no zoneless migration),
   signals without NgRx, and SCSS with CSS custom properties.
 risk: safe
 source: self
 ---
 
-> **Working in the digraduation repository? Read
-> [`references/digraduation-overrides.md`](references/digraduation-overrides.md) before applying
-> anything below.** Several sections of this generic guide do not apply: digraduation is
+> **Working in the digradation repository? Read
+> [`references/digradation-overrides.md`](references/digradation-overrides.md) before applying
+> anything below.** Several sections of this generic guide do not apply: digradation is
 > **Angular 21.2**, renders **client-side only** (no SSR, no hydration, no prerendering),
 > uses **signals without NgRx**, and styles with **SCSS plus CSS custom properties** rather
 > than any utility framework. Do not migrate to zoneless change detection as incidental work.

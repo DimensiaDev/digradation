@@ -1,9 +1,9 @@
 ---
 name: taskiq-workers
-description: Conventions for TaskIQ background jobs in the digraduation backend — queue assignment, cron schedules, thread offloading, Redis status keys and logging. Use when adding or changing anything in backend/app/tasks/.
+description: Conventions for TaskIQ background jobs in the digradation backend — queue assignment, cron schedules, thread offloading, Redis status keys and logging. Use when adding or changing anything in backend/app/tasks/.
 ---
 
-# TaskIQ workers — digraduation conventions
+# TaskIQ workers — digradation conventions
 
 TaskIQ >= 0.12, broker RabbitMQ via `taskiq-aio-pika` (vhost `taskiq`), results in Redis
 database `/1`, dashboard at `http://taskiq_dashboard:8000`.
@@ -47,8 +47,7 @@ async def process_document(attachment_id: int) -> None:
 Anything CPU-bound or filesystem-heavy goes through the thread pool:
 
 ```python
-images = await asyncio.to_thread(converter.convert, pdf_path)
-result = await asyncio.to_thread(process_calculation, template_bytes, params)
+resized = await asyncio.to_thread(pillow_resize, raw_bytes, (256, 256))
 ```
 
 This applies to anything in `_prepare_for_llm` and to Pillow

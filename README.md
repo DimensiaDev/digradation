@@ -1,10 +1,8 @@
 <div align="center">
 
-# 🎼 di:graduation
+# 🎼 di:gradation
 
-**AI‑assisted quotation engine for sheet‑metal fabrication**
-
-*Upload a drawing. Get a priced commercial offer.*
+**Chat with an AI agent that reads the files you attach**
 
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Angular](https://img.shields.io/badge/frontend-Angular%2021-DD0031?logo=angular&logoColor=white)](https://angular.dev)
@@ -16,62 +14,62 @@
 [![TaskIQ](https://img.shields.io/badge/queue-TaskIQ-FFD34E?logoColor=black)](https://taskiq-python.github.io)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)]()
 
-[🇬🇧 English](README.md) · [🇷🇺 Русский](README.ru.md)
-
 </div>
 
 ---
 
-## 🎯 What is di:graduation?
+## 🎯 What is di:gradation?
 
-di:graduation is an internal web application for **ООО НПО «Энергон»**, a metal‑working
-fabrication company. It turns a customer's **drawings** into a **priced commercial offer**
-(commercial proposal, *КП*) as an Excel file — automatically.
+di:gradation is a self-hosted web application for talking to a **GigaChat (Sber)** assistant
+that can read the files you attach. You describe a task in Russian, drop in a PDF or an
+image, and the agent answers with the content of that file in the conversation.
 
-An engineer uploads a PDF/DXF drawing, adds a short description, and chats with an
-AI technologist that reads the drawing, identifies the material, extracts geometry,
-asks clarifying questions when data is missing, and finally produces a costed
-`.xlsx` offer based on the shop's real production norms.
+It is a **platform, not a product**: there is no domain workflow baked in. What is here is the
+plumbing — asynchronous generation, file attachments with inline preview, sessions, history,
+accounts and administration — on top of which a specific use can be built. The system prompt
+is the place to describe that use, and an administrator can extend it from the admin UI
+without a deploy.
 
 ```
-   📐 Drawing (PDF / DXF / PNG / JPEG)
-              │
-              ▼
+   📎 Attachment (PDF / PNG / JPEG)
+               │
+               ▼
    ┌──────────────────────────┐
-   │  Preprocessing workers   │  PDF → 150 DPI PNG pages · DXF → measurement report
+   │  object storage (Garage) │  presigned upload, browser talks to S3 directly
    └──────────────────────────┘
-              │
-              ▼
+               │  worker picks it up
+               ▼
    ┌──────────────────────────┐
-   │   GigaChat (Sber) LLM    │  reads images + DXF text + user message
-   │   structured JSON output │  material · area · bends · welds · hours
+   │  process_document        │  prepares the file for the provider
    └──────────────────────────┘
-              │
-              ▼
+               │
+               ▼
    ┌──────────────────────────┐
-   │  processing.calculator   │  fills res/calc.xlsx with production norms
+   │  GigaChat (Sber) LLM     │  reads images + file text + conversation
+   │  structured JSON output  │  { chat_name, message }
    └──────────────────────────┘
-              │
-              ▼
-        📊 kp.xlsx  (offer)
+               │
+               ▼
+        💬 assistant message in the transcript
 ```
+
+The reply is generated **asynchronously**: the request returns `202` immediately, a TaskIQ
+worker calls the provider, and the frontend polls for the result.
 
 ---
 
 ## ✨ Features
 
-### 👷 For engineers
+### 👷 For users
 
 | | Feature | Details |
 |---|---|---|
-| 💬 | **AI chat with a technologist** | Asynchronous generation, live status indicator, Markdown + syntax highlighting |
-| 📎 | **Drawing upload** | Drag‑and‑drop, PDF · DXF · PNG · JPEG, up to **30 MB**, max 3 concurrent uploads |
-| 🔍 | **Automatic file parsing** | PDF pages rasterised at 150 DPI; DXF entities parsed into a measurement report |
-| ❓ | **Clarification loop** | When dimensions or material are missing, the agent asks targeted questions and recomputes |
-| 📊 | **Commercial offer (КП)** | Priced `.xlsx` generated from the shop's production norms (laser / welding / bending / painting) |
-| 📄 | **File preview** | Inline preview of PDF, images, `.docx`, and `.xlsx` (with live formula evaluation) |
-| 🕘 | **Request history** | Sortable, most‑recently‑active first, with skeleton and empty states |
-| 🔁 | **Retry failed generations** | One click to regenerate after an error |
+| 💬 | **AI chat** | Asynchronous generation, live status indicator, Markdown with syntax highlighting |
+| 📎 | **File attachments** | Drag-and-drop, PDF · PNG · JPEG, up to **30 MB**, max 3 concurrent uploads |
+| 📄 | **Inline preview** | PDF, images, `.docx` and `.xlsx` (with live formula evaluation) rendered from presigned URLs |
+| 🕘 | **History** | Paginated, sortable, most-recently-active first, with skeleton and empty states |
+| 🔁 | **Retry a failed answer** | One click to regenerate after an error |
+| 🗑️ | **Session and file management** | Delete a session, delete a single attachment |
 | 🌗 | **Light / dark theme** | Persisted in `localStorage` |
 | 👤 | **Profile & avatar** | PNG/JPEG/WebP, normalised to WebP |
 
@@ -81,8 +79,9 @@ asks clarifying questions when data is missing, and finally produces a costed
 |---|---|---|
 | 👥 | **User management** | Search, create, edit, delete |
 | 📅 | **Account expiry** | `expires_at` with active / expiring / expired badges |
-| 🔑 | **Password reset** | Superuser‑only; fully disabled under `TEST_INSTANCE_MODE` |
-| 🚦 | **Test‑instance mode** | `TEST_INSTANCE_MODE=true` blocks destructive admin actions with HTTP `450` |
+| 🔑 | **Password reset** | Superuser-only; fully disabled under `TEST_INSTANCE_MODE` |
+| 🧠 | **System prompt extension** | Additional instructions appended to the prompt of every **new** chat |
+| 🚦 | **Test-instance mode** | `TEST_INSTANCE_MODE=true` blocks destructive admin actions with HTTP `450` |
 
 ### ⚙️ For operators
 
@@ -91,7 +90,7 @@ asks clarifying questions when data is missing, and finally produces a costed
 | 📈 | **TaskIQ dashboard** | Task history, results, failures |
 | 🐇 | **RabbitMQ management** | Queue depth and worker health |
 | 🗄️ | **Garage admin API** | Cluster status, layout, keys |
-| ♻️ | **Self‑cleaning storage** | ILM rules expire unprocessed avatars (1 d), attachments (7 d), artifacts (1 d) |
+| ♻️ | **Self-cleaning storage** | Lifecycle rules expire unprocessed avatars (1 d), attachments (7 d), artifacts (1 d) |
 | 🧹 | **Scheduled cleanup** | Hourly jobs purge stale results, orphan attachments and expired sessions |
 
 ---
@@ -99,43 +98,47 @@ asks clarifying questions when data is missing, and finally produces a costed
 ## 🏗️ Architecture
 
 ```
-digraduation/
+digradation/
 ├── backend/          FastAPI + SQLAlchemy 2.0 (async) + Alembic + TaskIQ
 │   ├── app/
 │   │   ├── routes/       HTTP layer — one APIRouter per domain
 │   │   ├── schemas/      Pydantic v2 request/response models
 │   │   ├── models/       SQLAlchemy ORM models
 │   │   ├── tasks/        TaskIQ background jobs (default + network queues)
-│   │   ├── providers/    GigaChat (Sber) AI client
+│   │   ├── providers/    GigaChat (Sber) AI client, plus the offline mock
 │   │   ├── cache.py      Redis client + every cache-key builder
 │   │   ├── storage.py    S3 object storage (Garage)
 │   │   ├── deps.py       Annotated dependency aliases
 │   │   └── harness.py    LLM system prompt + structured output schema
-│   ├── alembic/          Migrations (single `initial` revision so far)
-│   ├── res/              calc.xlsx template, GigaChat CA certificate
+│   ├── alembic/          Migrations (a single squashed `initial` revision)
+│   ├── res/              GigaChat CA certificate
 │   └── tests/            pytest + testcontainers
-├── processing/        Shared library: PDF rasteriser, DXF parser, Excel calculator
 ├── frontend/          Angular 21 standalone + signals + SCSS
-├── conf/              Infra config: redis.conf, garage.toml, garage-init.sh, lifecycle rules, pg init
+├── e2e/               Playwright suite against the Compose stack
+├── conf/              Infra config: redis.conf, garage.toml, garage init, lifecycle rules, pg init
 ├── scripts/           pre-commit shims for per-package Poetry tools
 └── docker-compose.yaml
 ```
+
+There is **no monorepo tool**: no npm workspaces, no Nx, no Bazel. Orchestration is Docker
+Compose only.
 
 ### 🔁 Request lifecycle
 
 1. `POST /api/v1/chats` creates a session, returns `202`.
 2. The message is enqueued on the **`network`** queue (`generate_chat_message`).
-3. The worker uploads attachments to GigaChat and requests a structured JSON completion.
-4. If the agent returns positions → `res/calc.xlsx` is filled → `kp.xlsx` lands in Garage.
-5. If it returns an empty `positions` list → it asked clarifying questions instead.
-6. The frontend polls `GET /chats/{id}/result` every 2 s (5 min timeout) — there are no WebSockets.
+3. The worker prepares the attachments and asks GigaChat for a structured JSON completion of
+   `{chat_name, message}`.
+4. The reply is stored as an assistant message and cached under the session's generation key.
+5. The frontend polls `GET /chats/{id}/result` every 2 s (5 min timeout) — there are no
+   WebSockets.
 
 ### 🧾 Two task queues
 
 | Queue | Purpose | Tasks |
 |---|---|---|
-| `default` | Local / CPU‑bound work | DXF parsing, PDF rasterising, avatar normalisation, result processing, cleanup crons |
-| `network` | Outbound calls to GigaChat | `generate_chat_message`, `upload_pdf_image` |
+| `default` | Local / CPU-bound work | attachment and avatar preparation, response processing, cleanup crons |
+| `network` | Outbound calls to GigaChat | `generate_chat_message` |
 
 Splitting them means a slow external API never blocks the local pipeline.
 
@@ -143,9 +146,7 @@ Splitting them means a slow external API never blocks the local pipeline.
 
 ## 🧰 Tech stack
 
-**Backend** — Python 3.14 · FastAPI · SQLAlchemy 2.0 (async) · asyncpg · Alembic · Pydantic v2 · TaskIQ · structlog · argon2‑cffi · aioboto3 · Pillow · uvicorn
-
-**Processing** — PyMuPDF · Pillow · openpyxl (pure‑Python DXF parser, no `ezdxf`)
+**Backend** — Python 3.14 · FastAPI · SQLAlchemy 2.0 (async) · asyncpg · Alembic · Pydantic v2 · TaskIQ · structlog · argon2-cffi · aioboto3 · Pillow · uvicorn
 
 **Frontend** — Angular 21 (standalone, signals) · TypeScript 5.9 · SCSS (BEM + CSS custom properties) · RxJS · Vitest · ESLint · Prettier
 
@@ -161,15 +162,15 @@ Splitting them means a slow external API never blocks the local pipeline.
 - 📝 A `.env` file with the secrets marked required in the [table below](#-environment-variables)
 
 > ⚠️ **The full project runs only via Docker Compose.** The backend expects service
-> hostnames (`db`, `redis`, `rabbitmq`, `garage`) and two paths resolved relative to
-> `backend/` as the working directory. There is no supported local run of the app.
+> hostnames (`db`, `redis`, `rabbitmq`, `garage`) and `res/gigachat-ca.cer` resolved
+> relative to `backend/` as the working directory. There is no supported local run of the app.
 > Running individual services locally is fine for editing, but *running* means Compose.
 
 ### 1️⃣ Clone
 
 ```bash
-git clone https://github.com/yel-gar/digraduation.git
-cd digraduation
+git clone https://github.com/yel-gar/digradation.git
+cd digradation
 ```
 
 ### 2️⃣ Configure
@@ -193,6 +194,9 @@ Generate secrets with:
 ```bash
 openssl rand -hex 48
 ```
+
+`GARAGE_RPC_SECRET` and `GARAGE_ADMIN_TOKEN` are the exception: Garage requires them to be
+exactly 32 bytes of hex, so use `openssl rand -hex 32`.
 
 ### 3️⃣ Launch
 
@@ -232,7 +236,7 @@ Open **http://localhost:8080** and log in with the account you just created. �
 | 🐇 **RabbitMQ** | http://localhost:15672 | user `RABBITMQ_USER` / `RABBITMQ_PASS` |
 | 🗄️ **Garage admin API** | http://localhost:3903 | needs `GARAGE_ADMIN_TOKEN` |
 | 🗃️ **Garage S3 API** | http://localhost:3900 | presigned upload/download URLs point here |
-| 🐘 **PostgreSQL** | `localhost:5432` | `5431` in the dev override |
+| 🐘 **PostgreSQL** | not published by default | `5433` in the dev override, which the migration scripts need |
 
 ### Compose services
 
@@ -240,7 +244,7 @@ Open **http://localhost:8080** and log in with the account you just created. �
 |---|---|
 | `frontend` | Angular bundle served by nginx |
 | `backend` | FastAPI + uvicorn |
-| `migrate` | one‑shot `alembic upgrade head`, others wait for it |
+| `migrate` | one-shot `alembic upgrade head`, others wait for it |
 | `scheduler` | TaskIQ scheduler (periodic jobs) |
 | `worker_default` | ×2 replicas on the `default` queue |
 | `worker_network` | ×2 replicas on the `network` queue |
@@ -257,10 +261,11 @@ Open **http://localhost:8080** and log in with the account you just created. �
 ## 👨‍💻 Developer setup
 
 <details>
-<summary><b>🔧 Hot‑reload dev stack</b></summary>
+<summary><b>🔧 Hot-reload dev stack</b></summary>
 
-The committed `.dev` override bind‑mounts the source into the containers and adds
-polling watchers. It also publishes PostgreSQL on `5431` — **required for migrations**.
+The committed `.dev` override bind-mounts the source into the containers and adds
+polling watchers. It also publishes PostgreSQL on **5433** — required for migrations, and
+deliberately not 5432, which a developer may already be using.
 
 ```bash
 # Linux / macOS
@@ -280,6 +285,19 @@ Then edit `backend/` or `frontend/` and just wait for the reload.
 
 </details>
 
+### Override files
+
+Three overrides ship, and the resulting `docker-compose.override.yml` is **gitignored**:
+
+| Source | Effect |
+|---|---|
+| `docker-compose.override.yml.dev` | bind mounts `./backend` and `./frontend`, forced polling watchers, and publishes PostgreSQL on host port **5433** — required by the migration scripts, and deliberately not 5432, which a developer may already be using |
+| `docker-compose.override.yml.memlim` | per-service `mem_limit` values; no limits by default |
+| `docker-compose.override.yml.e2e` | passed with `-f` by the Playwright stack; moves the frontend to 18080 and forces `SBER_API_KEY=mock` |
+
+The `.dev` override is what makes `backend/makemigrations.sh` work, because Alembic runs from
+the host and needs the database published.
+
 <details>
 <summary><b>🪢 Git hooks (linting, formatting, commit messages)</b></summary>
 
@@ -289,14 +307,17 @@ All hooks live in the single root `.pre-commit-config.yaml`.
 npm install                  # commitlint, used by the commit-msg hook
 pip install pre-commit
 pre-commit install --hook-type pre-commit --hook-type commit-msg
+pre-commit install --hook-type pre-push   # the two coverage reports
 ```
 
-| Hook | Scope |
-|---|---|
-| `check-yaml`, `check-json`, `check-toml`, `end-of-file-fixer`, `trailing-whitespace` | repo‑wide |
-| `black`, `ruff`, `pytest` | `backend/**.py` |
-| `black`, `ruff`, `pytest` | `processing/**.py` |
-| `eslint --fix`, `prettier --write` | `frontend/**` |
+| Hook | Scope | Stage |
+|---|---|---|
+| `check-yaml`, `check-json`, `check-toml`, `end-of-file-fixer`, `trailing-whitespace` | repo-wide | pre-commit |
+| `black`, `ruff`, `pytest` | `backend/**.py` | pre-commit |
+| `eslint --fix`, `prettier --write` | `frontend/**` | pre-commit |
+| `commitlint` | commit message | commit-msg |
+| `pytest --cov` | backend, `fail_under = 90` | pre-push |
+| `ng test --coverage` | frontend, `coverageThresholds` = 90 | pre-push |
 
 > ⚠️ The Python hooks invoke a `python` executable. If yours is `python3` or `py`,
 > set up an alias.
@@ -310,26 +331,22 @@ validated by `commitlint.config.js`.
 <summary><b>🐍 Running tests & checks locally</b></summary>
 
 Tests may be run locally. Backend tests use **testcontainers**, so a Docker *daemon*
-must be running (they spin up throwaway PostgreSQL and Redis).
+must be running (they spin up throwaway PostgreSQL, Redis and Garage).
 
 ```bash
 # backend
-poetry -C backend install
+poetry -C backend install --no-root
 poetry -C backend run pytest
+poetry -C backend run pytest --cov
 poetry -C backend run black --check .
 poetry -C backend run ruff check .
 
-# processing
-poetry -C processing install
-poetry -C processing run pytest -v
-poetry -C processing run black --check src tests
-poetry -C processing run ruff check src tests
-
 # frontend
-npm --prefix frontend ci
+npx --yes npm@10.9.2 ci --prefix frontend   # the pinned npm; a newer one fails here
 npm --prefix frontend test
 npm --prefix frontend run lint
 npm --prefix frontend run format
+npm --prefix frontend run build             # also typechecks
 ```
 
 </details>
@@ -338,7 +355,7 @@ npm --prefix frontend run format
 <summary><b>🗄️ Alembic migrations</b></summary>
 
 ```bash
-# with the .dev override in place (PostgreSQL published on 5431)
+# with the .dev override in place (PostgreSQL published on 5433)
 ./backend/makemigrations.sh "add foo column"
 ```
 
@@ -372,8 +389,8 @@ You should generally only touch variables marked as **Required**.
 | `TEST_INSTANCE_MODE`          | Safety switch. When truthy (`true`, `yes`, `1`), destructive admin/user mutations return HTTP `450` instead of running.                       | ❌           | `false`                 |
 | **Database (PostgreSQL)**     |                                                                                                                                             |              |                         |
 | `POSTGRES_PASSWORD`           | Database password. Set to something secure; generate with `openssl rand -hex 48`.                                                           | ✅           |                         |
-| `POSTGRES_USER`               | Database user.                                                                                                                              | ❌           | `digraduation`               |
-| `POSTGRES_DB`                 | Database name.                                                                                                                              | ❌           | `digraduation`               |
+| `POSTGRES_USER`               | Database user.                                                                                                                              | ❌           | `digradation`           |
+| `POSTGRES_DB`                 | Database name.                                                                                                                              | ❌           | `digradation`           |
 | **Message broker (RabbitMQ)** |                                                                                                                                             |              |                         |
 | `RABBITMQ_PASS`               | Password for RabbitMQ admin panel.                                                                                                          | ✅           |                         |
 | `RABBITMQ_USER`               | User for RabbitMQ admin panel.                                                                                                              | ❌           | `admin`                 |
@@ -382,7 +399,7 @@ You should generally only touch variables marked as **Required**.
 | `TASKIQ_API_TOKEN`            | Secret for TaskIQ dashboard.                                                                                                                | ✅           |                         |
 | `TASKIQ_DASHBOARD_PORT`       | Port on which TaskIQ dashboard runs.                                                                                                        | ❌           | `8000`                  |
 | **GigaChat (Sber)**           |                                                                                                                                             |              |                         |
-| `SBER_API_KEY`                | API key from [Sber developers](https://developers.sber.ru/docs/ru/gigachat/api/reference/rest/post-token).                                  | ✅           | `mock`                  |
+| `SBER_API_KEY`                | API key from [Sber developers](https://developers.sber.ru/docs/ru/gigachat/api/reference/rest/post-token). `mock` selects the offline provider. | ✅      | `mock`                  |
 | `SBER_API_SCOPE`              | API scope from [Sber developers](https://developers.sber.ru/docs/ru/gigachat/api/reference/rest/post-token). One of: `PERS`, `B2B`, `CORP`. | ✅           | `PERS`                  |
 | `GIGACHAT_MODEL`              | GigaChat model used. See [Sber models docs](https://developers.sber.ru/docs/ru/gigachat/models/main).                                       | ❌           | `GigaChat-3-Ultra`      |
 | **Object storage (Garage)**   |                                                                                                                                             |              |                         |
@@ -407,6 +424,14 @@ You should generally only touch variables marked as **Required**.
 | `/0` | general — cache, locks, rate limits, statuses |
 | `/1` | TaskIQ task results |
 
+### 🪣 Object storage buckets
+
+| Bucket | Holds | Retention |
+|---|---|---|
+| `avatars` | normalised profile pictures | unprocessed uploads expire after 1 day |
+| `uploads` | files a user attaches to a chat | expire after 7 days |
+| `artifacts` | files the service derives from an upload | expire after 1 day |
+
 ---
 
 ## 🛡️ Security notes
@@ -416,10 +441,8 @@ You should generally only touch variables marked as **Required**.
 - 📚 `/api/v1/docs`, `/redoc` and `openapi.json` are served **only when `DEBUG` is on**.
 - 🚦 `TEST_INSTANCE_MODE` blocks destructive admin operations with a non‑standard
   **HTTP 450**.
-- 🧨 The LLM system prompt contains an explicit **prompt‑injection guard**: the agent is
-  told to treat instructions found inside uploaded files as an attack, warn the user,
-  and refuse off‑topic conversation.
 - 🔒 CORS origins come from `FRONTEND_URL` / `BACKEND_URL` and only fall back to `*` in debug.
+- 🚦 Chat creation and message sending are rate limited per user (5 per minute each).
 
 ---
 
@@ -429,7 +452,6 @@ You should generally only touch variables marked as **Required**.
 |---|---|
 | `/backend/`, `/scripts/`, `/.github/`, `docker-compose.yaml`, `.env.example` | @yel-gar |
 | `/frontend/` | @krchvl |
-| `/processing/` | @AX-Ray |
 
 See [`.github/CODEOWNERS`](.github/CODEOWNERS).
 
@@ -477,7 +499,7 @@ Working on this repo? Read these first:
 
 <div align="center">
 
-**Made with 🛠️ for the engineers of ООО НПО «Энергон»**
+**Made with 🛠️**
 
 *Repository license: proprietary.*
 

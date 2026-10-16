@@ -1,4 +1,4 @@
-# digraduation overrides for the generic FastAPI skill
+# digradation overrides for the generic FastAPI skill
 
 The upstream `SKILL.md` in this directory is the generic FastAPI guide. **Where it
 disagrees with this file, this file wins.** These are the only divergences; everything else
@@ -10,12 +10,12 @@ Read this before writing any route, dependency or schema.
 
 ## 1. Dependency injection: use `Annotated` aliases, never `= Depends(...)`
 
-The generic guide shows `db: AsyncSession = Depends(get_db)`. **di:graduation does not do that.**
+The generic guide shows `db: AsyncSession = Depends(get_db)`. **di:gradation does not do that.**
 `backend/app/deps.py` exports `Annotated[...]` aliases used as the parameter type directly,
 with no `Depends()` at the call site:
 
 ```python
-# digraduation
+# digradation
 from app.deps import AdminUser, DbSession, RedisSession
 
 @router.post("/users/{user_id}/password")
@@ -31,7 +31,7 @@ alias, then attach it to the router.
 
 ## 2. There is no service or repository layer
 
-The generic guide may suggest repositories or service classes. **di:graduation queries the
+The generic guide may suggest repositories or service classes. **di:gradation queries the
 database directly from routes and tasks.** Do not introduce a repository unless the user
 explicitly asks for one.
 
@@ -91,7 +91,7 @@ Chat routes carry a multi-line docstring **and** a `responses={...}` map for 401
 
 - **`SBER_API_KEY=mock` is not a test-only hack.** It selects `app/providers/mock.py`, a
   real `AIClient` implementation that ships in the image. Its mode comes from
-  `MOCK_PROVIDER_MODE` (`kp`, `clarify`, `empty`, `error`) and its output is
+  `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`) and its output is
   deterministic, so tests and e2e never depend on an LLM.
 - **PostgreSQL, Redis and Garage are real testcontainers**, not fakes. Only the LLM and the
   `httpx` calls inside `SberProvider` (via `httpx.MockTransport`) are stubbed.

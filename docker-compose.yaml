@@ -7,9 +7,9 @@ x-s3-env: &s3-env
   S3_SECRET_KEY: ${S3_SECRET_KEY:?}
 
 x-postgres-env: &postgres-env
-  POSTGRES_USER: ${POSTGRES_USER:-digraduation}
+  POSTGRES_USER: ${POSTGRES_USER:-digradation}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
-  POSTGRES_DB: ${POSTGRES_DB:-digraduation}
+  POSTGRES_DB: ${POSTGRES_DB:-digradation}
   POSTGRES_HOST: db
 
 x-backend-env: &backend-env
@@ -111,7 +111,7 @@ services:
       TASKIQ_DASHBOARD__STORAGE_TYPE: postgres
       TASKIQ_DASHBOARD__POSTGRES__HOST: db
       TASKIQ_DASHBOARD__API__TOKEN: ${TASKIQ_API_TOKEN:?}
-      TASKIQ_DASHBOARD__POSTGRES__USER: ${POSTGRES_USER:-digraduation}
+      TASKIQ_DASHBOARD__POSTGRES__USER: ${POSTGRES_USER:-digradation}
       TASKIQ_DASHBOARD__POSTGRES__PASSWORD: ${POSTGRES_PASSWORD:?}
       TASKIQ_DASHBOARD__POSTGRES__DATABASE: taskiq_dashboard
     ports:
@@ -129,7 +129,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-digraduation} -d ${POSTGRES_DB:-digraduation}",
+          "pg_isready -U ${POSTGRES_USER:-digradation} -d ${POSTGRES_DB:-digradation}",
         ]
       interval: 3s
       timeout: 5s

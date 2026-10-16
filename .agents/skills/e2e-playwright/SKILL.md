@@ -1,14 +1,14 @@
 ---
 name: e2e-playwright
-description: Conventions for the Playwright end-to-end suite in digraduation. Use when writing or debugging a spec under e2e/tests/, changing the e2e stack override, or adding a CI step that drives the Compose stack.
+description: Conventions for the Playwright end-to-end suite in digradation. Use when writing or debugging a spec under e2e/tests/, changing the e2e stack override, or adding a CI step that drives the Compose stack.
 ---
 
-# E2E with Playwright — digraduation conventions
+# E2E with Playwright — digradation conventions
 
 The suite in `e2e/` drives the **real Compose stack** — Angular behind nginx, FastAPI,
 both TaskIQ worker pools, PostgreSQL, Redis, Garage — with `SBER_API_KEY=mock`. Only the
 LLM is replaced, by the same `MockProvider` the unit suite uses. A request therefore still
-walks the router, the worker, the spreadsheet calculator and a real S3 round trip.
+walks the router, the worker and a real S3 round trip.
 
 ## Running
 
@@ -23,11 +23,11 @@ with `E2E_BASE_URL`.
 
 ## Isolation: the project name is load-bearing
 
-`setup.sh` runs `docker compose -p digraduation-e2e -f docker-compose.yaml -f
+`setup.sh` runs `docker compose -p digradation-e2e -f docker-compose.yaml -f
 docker-compose.override.yml.e2e`. Neither half is cosmetic:
 
 - **The project name isolates the volumes.** Compose prefixes named volumes with it, so
-  the default project name resolves to `digraduation_postgres_data` — the developer's own
+  the default project name resolves to `digradation_postgres_data` — the developer's own
   database. Before this was fixed the suite had written 13 users and 278 seeded chat
   sessions into it. Volume names cannot be overridden per service, so the project name is
   the only lever.
@@ -38,7 +38,7 @@ docker-compose.override.yml.e2e`. Neither half is cosmetic:
 
 Anything that shells out to Docker — `clearRateLimits` in `helpers.ts`, the SQL seeder in
 `history-pagination.spec.ts` — must repeat both `-p` and the two `-f` flags, or it silently
-operates on the dev stack. Both throw if `E2E_PROJECT` is `digraduation` or empty.
+operates on the dev stack. Both throw if `E2E_PROJECT` is `digradation` or empty.
 
 The frontend port in `docker-compose.override.yml.e2e` uses `ports: !override`, not a plain
 list. Compose **merges** a service's ports across files, so a plain list leaves the base
@@ -83,12 +83,12 @@ test('does the thing', async ({ page }) => {
 ### Locating elements
 
 - **Icon-only buttons have an `aria-label`.** Use
-  `getByRole('button', { name: 'Панель результатов расчёта' })`, not a visible-text guess.
+  `getByRole('button', { name: 'Панель файлов' })`, not a visible-text guess.
 - **`app-input` renders a hidden input and a textarea**, so `getByPlaceholder` resolves to
   two elements and trips strict mode. Target `textarea[placeholder="..."]`.
 - **User-facing errors are toasts**, not inline field errors. A failed login raises a
   notification; there is no `.auth-error` element.
-- **The brand mark is a `div`, not a heading.** `page.locator('.h1:has-text("di:graduation")')`.
+- **The brand mark is a `div`, not a heading.** `page.locator('.h1:has-text("di:gradation")')`.
 - Incoming chat messages carry the author label `Агент`.
 
 ### Native dialogs
@@ -127,7 +127,7 @@ to 5 per minute with a real generation queued behind each one. Creating 20+ sess
 UI is not viable, so `history-pagination.spec.ts` inserts them straight into PostgreSQL:
 
 ```typescript
-execFileSync('docker', ['compose', 'exec', '-T', 'db', 'psql', '-U', 'digraduation', '-d', 'digraduation', '-v', 'ON_ERROR_STOP=1', '-c', sql], { cwd: REPO_ROOT, stdio: 'ignore' });
+execFileSync('docker', ['compose', 'exec', '-T', 'db', 'psql', '-U', 'digradation', '-d', 'digradation', '-v', 'ON_ERROR_STOP=1', '-c', sql], { cwd: REPO_ROOT, stdio: 'ignore' });
 ```
 
 Two things about that SQL:
@@ -143,7 +143,7 @@ Seeding this way is fine for e2e because the suite owns the stack. It is not fin
 ## Traps that cost time here
 
 - **`login()` lands on `/create`, not in a chat.** Anything living only on the chat view — the
-  results panel, the attachment list — needs `createChat()` first, or every locator times out on
+  files panel, the attachment list — needs `createChat()` first, or every locator times out on
   a page that does not exist there.
 - **The chat's dropzone is given no `inputId`,** so its hidden file input has no id to target.
   Drive it through `page.waitForEvent('filechooser')` on the "Прикрепить файл" button instead.
@@ -164,7 +164,9 @@ Generation is asynchronous: the frontend polls the result every 2 s. Give agent-
 assertions a generous timeout:
 
 ```typescript
-await expect(page.getByText('kp.xlsx')).toBeVisible({ timeout: 45_000 });
+await expect(page.locator('.message__author', { hasText: 'Агент' })).toHaveCount(2, {
+  timeout: 45_000
+});
 ```
 
 ## The seeded user

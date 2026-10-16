@@ -1,8 +1,8 @@
 {
-  "name": "digraduation-e2e",
+  "name": "digradation-e2e",
   "version": "0.0.0",
   "private": true,
-  "description": "End-to-end tests for digraduation, run against the Docker Compose stack with the offline mock provider.",
+  "description": "End-to-end tests for digradation, run against the Docker Compose stack with the offline mock provider.",
   "scripts": {
     "test": "playwright test",
     "test:headed": "playwright test --headed",

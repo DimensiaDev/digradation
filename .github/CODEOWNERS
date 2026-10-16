@@ -4,9 +4,6 @@
 # Frontend. Responsible: @krchvl
 /frontend/ @krchvl
 
-# Parser and calculator. Responsible: @AX-Ray
-/processing/ @AX-Ray
-
 # CI/CD Pipeline. Responsible: @yel-gar
 /.github/ @yel-gar
 .pre-commit-config.yaml @yel-gar

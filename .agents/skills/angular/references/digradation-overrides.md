@@ -1,4 +1,4 @@
-# digraduation overrides for the generic Angular skill
+# digradation overrides for the generic Angular skill
 
 The upstream `SKILL.md` in this directory is the generic Angular guide. **Where it
 disagrees with this file, this file wins.**
@@ -9,7 +9,7 @@ Read this before writing any component, service, template or stylesheet.
 
 ## 1. Version and rendering: 21.2, client-side only
 
-di:graduation is **Angular 21.2** standalone with signals, targeting **ES2022**.
+di:gradation is **Angular 21.2** standalone with signals, targeting **ES2022**.
 
 - **No SSR, no hydration, no prerendering.** The generic guide covers these extensively;
   none of it applies. There is no `provideClientHydration()` and no server build.
@@ -24,7 +24,7 @@ di:graduation is **Angular 21.2** standalone with signals, targeting **ES2022**.
 | Folder | Holds |
 |---|---|
 | `core/` | singletons: `services/`, `guards/`, `interceptors/`, `models/` |
-| `features/` | route-level feature areas (`calculation-chat/`, `order-create/`) |
+| `features/` | route-level feature areas (`chat/`, `chat-create/`) |
 | `pages/` | routed pages (`login-page/`, `history-page/`, `profile-page/`, `admin/`) |
 | `shared/` | reusable components and utils |
 
@@ -45,7 +45,7 @@ di:graduation is **Angular 21.2** standalone with signals, targeting **ES2022**.
 - `styleUrl` singular, one `.component.scss` beside the template.
 - Files are always `<kebab-name>.component.ts`.
 - **Class naming is inconsistent by history**: some end in `Component`
-  (`CalculationChatComponent`), some do not (`HistoryPage`, `Layout`, `Sidebar`). Follow the
+  (`ChatComponent`), some do not (`HistoryPage`, `Layout`, `Sidebar`). Follow the
   file you are editing; prefer `Component` for new classes.
 - **Colours come only from CSS custom properties.** Light theme in `:root`, dark theme in
   `html[data-theme='dark']`, persisted by `ThemeService` to `localStorage['theme']`. Never
@@ -113,7 +113,7 @@ notifications. Code identifiers stay English.
 - **The suite runs in CI** via `npx ng test --watch=false` in `frontend-ci.yml`, alongside
   `ng lint` and `ng build`. Pass `--watch=false` explicitly: the builder defaults watch mode
   to `true` in TTY environments, so an interactive run would otherwise hang. The suite is
-  154 tests across 20 files.
+  377 tests across 38 files.
 - **`src/test-setup.ts` supplies Web Storage.** The jsdom test environment exposes no
   `localStorage` or `sessionStorage`, and `ThemeService` reads `localStorage` in a field
   initializer, so specs touching the sidebar fail without it. The shim is registered via the

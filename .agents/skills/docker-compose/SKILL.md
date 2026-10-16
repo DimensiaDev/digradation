@@ -3,7 +3,7 @@ name: docker-compose
 description: Conventions for the 13-service Docker Compose stack, the backend and frontend Dockerfiles, env var plumbing, and the gitignored dev and memlim override files. Use when changing services, images, build args, or environment configuration.
 ---
 
-# Docker Compose — digraduation conventions
+# Docker Compose — digradation conventions
 
 **The full project runs only via Docker Compose.** There is no supported local run of the
 application; see the reasoning in `.context/DECISIONS.md`.
@@ -124,9 +124,11 @@ Redis database `/0` is general purpose; `/1` is TaskIQ result storage only.
 | `conf/garage-rules/` | `/rules`, source of the lifecycle expiration rules |
 | `conf/postgres-init/` | `/docker-entrypoint-initdb.d`, creates `taskiq_dashboard` |
 
-Garage buckets are `avatars` and `uploads`, both private. Garage has no ACL API, so privacy
-is the default and access is granted per key per bucket; `mc anonymous set none` has no
-equivalent because there is nothing to turn off.
+Garage buckets are `avatars`, `uploads` and `artifacts`, all private. Garage has no ACL API,
+so privacy is the default and access is granted per key per bucket; `mc anonymous set none` has
+no equivalent because there is nothing to turn off. The bucket list is declared in three places
+that must agree: `conf/garage-init.sh`, `backend/apply_s3_config.py` and
+`backend/tests/conftest.py`.
 
 Lifecycle rules expire unprocessed avatars (1 day), attachments (7 days) and artifacts
 (1 day). They cannot be applied from the garage CLI, which has no lifecycle command, so

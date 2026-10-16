@@ -46,7 +46,7 @@ log "Garage is up"
 # to pin the credentials: it lets S3_ACCESS_KEY and S3_SECRET_KEY stay static in
 # the environment instead of having to be captured out of a `key create` at
 # runtime and handed to the backend through a shared volume.
-if /garage key import "$S3_ACCESS_KEY" "$S3_SECRET_KEY" --yes -n digraduation-app >/dev/null 2>&1; then
+if /garage key import "$S3_ACCESS_KEY" "$S3_SECRET_KEY" --yes -n digradation-app >/dev/null 2>&1; then
     log "imported application key $S3_ACCESS_KEY"
 else
     # Already present from a previous run. The secret is not re-displayed and

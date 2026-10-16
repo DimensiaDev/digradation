@@ -17,9 +17,9 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   Nothing builds from the repo root, so there is no root `.dockerignore`; each context
   carries its own. This only became possible when `processing/` went — the backend used to
   need a `COPY processing/ /processing/` from the root context.
-- **`parser/` at the repo root is a dead leftover.** It contains only `__pycache__`
-  directories from the pre-rename layout (py3.13 bytecode). Nothing imports it.
-  (Recorded 2026-09 so nobody "fixes" the wrong directory.)
+- **`parser/` at the repo root was a dead leftover** containing only `__pycache__` directories
+  from the pre-rename layout. It was never tracked in git and is gone from the working tree
+  now (verified 2026-10-16). If it ever reappears, it is not a missing source directory.
 
 ## Running the project
 
@@ -138,17 +138,6 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   `Invalid message session: no messages to send` result. It used to be sent to the provider
   as-is.
 
-    `UnicodeDecodeError` fallback after the decode loop can never be reached.
-  - `_get_float` catches `ValueError` and `TypeError` itself and returns `0.0`, and
-    `math.hypot` on floats does not raise, so the six per-entity
-    `except ValueError, TypeError: continue` blocks can never be entered.
-  Removing the defensive handlers would reach 100% but makes the helpers fragile if a
-  future change lets `_get_float` raise. The number is documented in `pyproject.toml` so a
-  future agent does not write tests chasing it.
-- **A PDF that opens but reports zero pages is unreachable through PyMuPDF**, which rejects
-  an empty stream earlier. That path is covered by substituting the module's `fitz`
-  attribute with a stand-in document, which is the only honest way to reach it.
-
 ## Commit message length
 
 - **Commit messages are capped at roughly 15 lines, subject plus body.** This was added
@@ -227,8 +216,10 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 
 ## Documentation
 
-- **`README.md` is English, `README.ru.md` is Russian**, cross-linked in the header. The
-  product UI, LLM prompt and Excel output are all Russian; the code, comments and docs are
+- **`README.md` is the only README, and it is English.** The Russian translation
+  (`README.ru.md`) was deleted on 2026-10-16: it described the quotation product and would
+  have needed the same rewrite, and a second README to keep in step is a second thing to go
+  stale. The product UI and the LLM prompt are Russian; the code, comments and docs are
   English. Keep new documentation in English unless it duplicates README content.
 - **`AGENTS.md` documents *how*; `.context/` documents *why*.** Keeping them separate stops
   the harness from bloating with rationale and the context files from going stale.
@@ -525,10 +516,13 @@ and why what replaced it is there.
   resource it only partly accepted. PATCH says what it does, and it lets the next setting be
   added without a client ever having to learn it exists. The concurrent-first-save recovery
   is unaffected.
-- **The product is named `di:graduation` and the repository `digraduation`.** The rename
-  was mechanical across ~40 files; the one thing worth remembering is that the e2e Compose
-  project name moved with it (`digraduation-e2e`), because Compose derives volume names
-  from it and the specs hard-code it in several places.
+- **The product is named `di:gradation` and the repository `digradation`.** The rename was
+  mechanical (`digraduation` -> `digradation`, `di:graduation` -> `di:gradation`) across ~35
+  files. Two things are worth remembering: the e2e Compose project name moved with it
+  (`digradation-e2e`), because Compose derives volume names from it and the specs hard-code
+  it in several places; and the PostgreSQL role and database name moved with it, so after the
+  rename Compose mounts an empty volume rather than the developer's old one. Both are written
+  up in `LESSONS.md`.
 - **The published PostgreSQL port moved from 5431 to 5433.** Both host-side migration
   scripts set `POSTGRES_HOST=localhost`, so 5432 would have meant autogenerating against
   whatever PostgreSQL the developer happens to be running — producing a migration for

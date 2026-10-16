@@ -18,8 +18,8 @@ const REPO_ROOT = process.env.E2E_REPO_ROOT ?? `${process.cwd()}/..`;
  * polls its own generation while clearing the developer's keys.
  */
 function composeBase(): string[] {
-  const project = process.env.E2E_PROJECT ?? "digraduation-e2e";
-  if (!project || project === "digraduation") {
+  const project = process.env.E2E_PROJECT ?? "digradation-e2e";
+  if (!project || project === "digradation") {
     throw new Error(
       `Refusing to run: E2E_PROJECT is "${project}", which is the development project. ` +
         "The e2e suite must run under its own project name or it shares the developer's volumes.",
@@ -136,7 +136,7 @@ export async function login(page: Page): Promise<void> {
   await page.locator("#username").fill(E2E_USER);
   await page.locator("#password").fill(E2E_PASSWORD);
   await page.getByRole("button", { name: "Войти" }).click();
-  await expect(page.locator('.h1:has-text("di:graduation")')).toBeVisible();
+  await expect(page.locator('.h1:has-text("di:gradation")')).toBeVisible();
 }
 
 /**

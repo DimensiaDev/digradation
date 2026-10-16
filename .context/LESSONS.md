@@ -92,12 +92,17 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   requests queue for up to 60 s and then raise, so a burst of generation requests looks like
   failures even though nothing is broken.
 
-## Processing library
+## Processing library (historical — the package was deleted on 2026-10-16)
 
-- **Two copies of `calc.xlsx` exist on purpose**: `backend/res/calc.xlsx` (read by
+> The `processing/` package (PDF rasteriser, DXF parser, Excel calculator) no longer exists.
+> These lessons are kept for the history: if a template, a parser or a pricing behaviour is
+> ever reintroduced, they are the traps that were already paid for once. `res/calc.xlsx` is
+> gone too, and so are the `processing` coverage hooks and workflows.
+
+- **Two copies of `calc.xlsx` existed on purpose**: `backend/res/calc.xlsx` (read by
   `tasks/api.py`) and `processing/src/processing/calculator/res/calc.xlsx` (packaged with the
-  library). Editing only one produces a mismatch between what the library ships and what the
-  backend renders.
+  library). Editing only one produced a mismatch between what the library shipped and what
+  the backend rendered.
 - `processing/tests/conftest.py` inserts `processing/src` into `sys.path` so the tests run
   **without installing the package**. A test that only passes after `poetry install` is
   testing something other than the library.
@@ -512,8 +517,8 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 
 - **A Compose override cannot isolate volumes; only the project name can.** Compose prefixes
   named volumes with the project name, and volume names are not overridable per service. The
-  e2e suite therefore ran against the *developer's* `digraduation_postgres_data` and had written
-  13 users and 278 seeded chat sessions into it. Fixed with `-p digraduation-e2e`. Anything that
+  e2e suite therefore ran against the *developer's* `digradation_postgres_data` and had written
+  13 users and 278 seeded chat sessions into it. Fixed with `-p digradation-e2e`. Anything that
   shells out to Docker from a test must repeat that `-p`, or it silently targets the dev
   stack — which is exactly how `clearRateLimits` ended up clearing the developer's Redis
   while the e2e counters went uncleared and the suite tripped its own rate limiter.
@@ -531,7 +536,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   instead of copying it.
 
 - **A container left in a failed port-bind can come up with no network attached.** After a
-  bind collision, `digraduation-e2e-frontend-1` was stuck `restarting` with an empty
+  bind collision, `digradation-e2e-frontend-1` was stuck `restarting` with an empty
   `NetworkSettings.Networks` map, and nginx reported `host not found in upstream "backend"`
   even though the backend container was healthy and correctly aliased. `--force-recreate`
   fixed it; a plain restart would not have.
@@ -571,11 +576,11 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   after the migration landed was 99.34%. Coverage measured concurrently with your own edits is
   not a baseline, and the `alembic check` failure in it is expected rather than a real drift.
 - **On a 4 GB Docker Desktop, bring the e2e stack down before running Compose tooling.** With
-  `digraduation-e2e` up, `docker compose up -d db` and even a bare `docker compose ps` hung for
+  `digradation-e2e` up, `docker compose up -d db` and even a bare `docker compose ps` hung for
   minutes, in the bash script and in the PowerShell one alike. The giveaway was a
   `502 Bad Gateway` on `//./pipe/docker_engine` from `docker inspect`: the engine's API proxy was
   failing, so the scripts were innocent and retrying into a sick proxy is what wasted the time.
-  `docker compose -p digraduation-e2e -f docker-compose.yaml -f docker-compose.override.yml.e2e down`
+  `docker compose -p digradation-e2e -f docker-compose.yaml -f docker-compose.override.yml.e2e down`
   (no `-v`) makes the tooling reliable again.
 
 - **A 422 whose detail quotes a `NaN` cannot be encoded, and the failure looks like a 200 or a
@@ -628,3 +633,33 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   written when the form was always visible; since it became a panel, its controls exist in
    the DOM while closed, so visibility assertions fail and count assertions pass vacuously.
    Click `Новый пользователь` (or the row edit action) first.
+- **Renaming the project silently orphans every Compose volume and the Garage key name.**
+  `digraduation` -> `digradation` changed the *defaults* of `POSTGRES_USER` / `POSTGRES_DB`,
+  and Compose derives both the volume names and the container names from the project
+  directory name. After the rename a developer gets a fresh, empty database and a fresh
+  `garage-bootstrap` that imports the key as `digradation-app`; the old
+  `digraduation_postgres_data` volume is still on disk, untouched and unmounted, holding
+  whatever accounts and chats it held. Nothing errors and nothing warns. The data is
+  recoverable by pointing `POSTGRES_*` at the old names, so **do not `docker volume prune`
+  after a rename** (see the "never destroy volumes you did not create" rule).
+- **The Garage key's *name* is cosmetic, its id and secret are identity.** `garage key import`
+  with the same id and secret is idempotent, so renaming the key label in `conf/garage-init.sh` from `digraduation-app` to
+  `digradation-app` changes only the display name. This is the opposite of `S3_ACCESS_KEY`,
+  where Garage refuses to reuse an id with a different secret.
+- **The brand mark is duplicated in three places, and two e2e specs assert on its text.**
+  `frontend/src/index.html` (`<title>`), `frontend/src/app/shared/components/sidebar/
+  sidebar.component.html` (a `div.h1`, not a heading) and the locator
+  `.h1:has-text("di:gradation")` in `e2e/tests/helpers.ts` and `e2e/tests/admin-roles.spec.ts`.
+  A rename that touches only the frontend shows up as a failing e2e suite, not as a stale
+  label.
+- **The e2e Compose project name is hard-coded in four places** and is not derived from
+  anything: `e2e/scripts/setup.sh` (`E2E_PROJECT`), `e2e/tests/helpers.ts`,
+  `e2e/tests/history-pagination.spec.ts`, and `.github/workflows/e2e.yml`. Change one and the
+  suite quietly talks to the developer's own stack — which is the accident recorded at the top
+  of this file. `E2E_PROJECT` guards in the specs throw rather than fall back.
+- **A mass rename has to include the lockfiles and the `sed` order matters.**
+  `package-lock.json` carries the project name in its root `packages[""]` entry, so replacing
+  only `package.json` leaves git dirty on the next `npm install`. And `digraduation` does not
+  contain `di:graduation`, so a single pattern with the longer form first would silently miss
+  the brand mark: `sed -i 's/digraduation/digradation/g; s/di:graduation/di:gradation/g'`
+  handles both because neither pattern contains the other.
