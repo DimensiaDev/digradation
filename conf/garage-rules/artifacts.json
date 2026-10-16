@@ -1,0 +1,14 @@
+{
+  "Rules": [
+    {
+      "ID": "artifacts-cleanup",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": ""
+      },
+      "Expiration": {
+        "Days": 1
+      }
+    }
+  ]
+}

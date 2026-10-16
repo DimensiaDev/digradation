@@ -1,7 +1,7 @@
 #!/bin/sh
 #
-# Prepare the object store: import the application key, create the two buckets
-# and grant the key access to them.
+# Prepare the object store: import the application key, create the buckets and
+# grant the key access to them.
 #
 # Runs in the `garage-bootstrap` service, which is a thin busybox wrapper around
 # the Garage image because that image has no shell of its own.
@@ -17,7 +17,12 @@
 set -eu
 
 GARAGE_URL="${GARAGE_URL:-http://garage:3903}"
-BUCKETS="avatars uploads"
+# `avatars` holds normalised profile pictures, `uploads` the files a user attaches
+# to a chat, and `artifacts` the files the service derives from them. The three
+# have very different retention, so they are separate buckets rather than prefixes
+# in one: the expiration rules live in conf/garage-rules/<bucket>.json and a
+# whole-bucket rule is far easier to reason about than a prefix-scoped one.
+BUCKETS="avatars uploads artifacts"
 
 log() { echo "[garage-bootstrap] $*"; }
 

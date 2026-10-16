@@ -34,7 +34,10 @@ from pathlib import Path
 import aioboto3
 
 RULES_DIR = Path(os.getenv("S3_RULES_DIR", "/rules"))
-BUCKETS = ("avatars", "uploads")
+# Must match `BUCKETS` in conf/garage-init.sh: a bucket created there but absent
+# here would never get its rules, and one listed here but not created would make
+# this script fail on a missing bucket.
+BUCKETS = ("avatars", "uploads", "artifacts")
 
 # Every method the presigned URLs the backend hands out can produce: POST for the
 # presigned form uploads, GET for the presigned downloads, HEAD and PUT for

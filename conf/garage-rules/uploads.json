@@ -9,16 +9,6 @@
       "Expiration": {
         "Days": 7
       }
-    },
-    {
-      "ID": "artifacts-cleanup",
-      "Status": "Enabled",
-      "Filter": {
-        "Prefix": "artifacts/"
-      },
-      "Expiration": {
-        "Days": 1
-      }
     }
   ]
 }

@@ -55,7 +55,7 @@ S3_REGION = "garage"
 GARAGE_S3_PORT = 3900
 
 #: Mirrors the buckets created by conf/garage-init.sh in the Compose stack.
-S3_BUCKETS = ("avatars", "uploads")
+S3_BUCKETS = ("avatars", "uploads", "artifacts")
 
 #: Minimal Garage config for the test container. The test container is a single
 #: node, so `--single-node` assigns the cluster layout at startup and no separate
