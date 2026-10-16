@@ -1,9 +1,9 @@
 ---
 name: conventional-commits
-description: Conventions for commit messages, commit types and scopes, and branch naming in the divaldi repository. Use when writing a commit message, preparing a PR description, or choosing a branch name.
+description: Conventions for commit messages, commit types and scopes, and branch naming in the digraduation repository. Use when writing a commit message, preparing a PR description, or choosing a branch name.
 ---
 
-# Conventional Commits — divaldi conventions
+# Conventional Commits — digraduation conventions
 
 Enforced mechanically by `commitlint.config.js`:
 

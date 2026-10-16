@@ -3,7 +3,7 @@ name: docker-compose
 description: Conventions for the 13-service Docker Compose stack, the backend and frontend Dockerfiles, env var plumbing, and the gitignored dev and memlim override files. Use when changing services, images, build args, or environment configuration.
 ---
 
-# Docker Compose — divaldi conventions
+# Docker Compose — digraduation conventions
 
 **The full project runs only via Docker Compose.** There is no supported local run of the
 application; see the reasoning in `.context/DECISIONS.md`.

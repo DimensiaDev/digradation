@@ -1,9 +1,9 @@
 ---
 name: frontend-file-preview
-description: Conventions for the inline file preview in the divaldi frontend — PDF, image, docx and xlsx rendering, lazy loading of docx-preview/xlsx/hyperformula, HyperFormula cross-sheet evaluation, and the upload polling handshake. Use when touching file-preview or attachment upload code.
+description: Conventions for the inline file preview in the digraduation frontend — PDF, image, docx and xlsx rendering, lazy loading of docx-preview/xlsx/hyperformula, HyperFormula cross-sheet evaluation, and the upload polling handshake. Use when touching file-preview or attachment upload code.
 ---
 
-# File preview and attachment upload — divaldi conventions
+# File preview and attachment upload — digraduation conventions
 
 Covers `file-preview.component.ts`, the results panel, and `AttachmentUploadService`.
 

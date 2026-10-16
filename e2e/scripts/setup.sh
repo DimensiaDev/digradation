@@ -16,7 +16,7 @@ E2E_FRONTEND_PORT="${E2E_FRONTEND_PORT:-18080}"
 
 # A SEPARATE COMPOSE PROJECT IS LOAD-BEARING, not cosmetic. Compose prefixes
 # named volumes with the project name, so without this the e2e stack resolves to
-# `divaldi_postgres_data` -- the developer's own database -- and the suite writes
+# `digraduation_postgres_data` -- the developer's own database -- and the suite writes
 # its seeded users and chats straight into it. Volume names cannot be overridden
 # per service, so the project name is the only lever.
 #
@@ -28,7 +28,7 @@ E2E_FRONTEND_PORT="${E2E_FRONTEND_PORT:-18080}"
 #
 # Specs that shell out to docker must use the same flags; E2E_PROJECT is exported
 # below so tests read it instead of hardcoding.
-E2E_PROJECT="${E2E_PROJECT:-divaldi-e2e}"
+E2E_PROJECT="${E2E_PROJECT:-digraduation-e2e}"
 export E2E_PROJECT
 DC=(docker compose -p "$E2E_PROJECT" -f docker-compose.yaml -f docker-compose.override.yml.e2e)
 

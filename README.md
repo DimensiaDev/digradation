@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎼 Divaldi
+# 🎼 di:graduation
 
 **AI‑assisted quotation engine for sheet‑metal fabrication**
 
@@ -22,9 +22,9 @@
 
 ---
 
-## 🎯 What is Divaldi?
+## 🎯 What is di:graduation?
 
-Divaldi is an internal web application for **ООО НПО «Энергон»**, a metal‑working
+di:graduation is an internal web application for **ООО НПО «Энергон»**, a metal‑working
 fabrication company. It turns a customer's **drawings** into a **priced commercial offer**
 (commercial proposal, *КП*) as an Excel file — automatically.
 
@@ -99,7 +99,7 @@ asks clarifying questions when data is missing, and finally produces a costed
 ## 🏗️ Architecture
 
 ```
-divaldi/
+digraduation/
 ├── backend/          FastAPI + SQLAlchemy 2.0 (async) + Alembic + TaskIQ
 │   ├── app/
 │   │   ├── routes/       HTTP layer — one APIRouter per domain
@@ -168,8 +168,8 @@ Splitting them means a slow external API never blocks the local pipeline.
 ### 1️⃣ Clone
 
 ```bash
-git clone https://github.com/yel-gar/divaldi.git
-cd divaldi
+git clone https://github.com/yel-gar/digraduation.git
+cd digraduation
 ```
 
 ### 2️⃣ Configure
@@ -372,8 +372,8 @@ You should generally only touch variables marked as **Required**.
 | `TEST_INSTANCE_MODE`          | Safety switch. When truthy (`true`, `yes`, `1`), destructive admin/user mutations return HTTP `450` instead of running.                       | ❌           | `false`                 |
 | **Database (PostgreSQL)**     |                                                                                                                                             |              |                         |
 | `POSTGRES_PASSWORD`           | Database password. Set to something secure; generate with `openssl rand -hex 48`.                                                           | ✅           |                         |
-| `POSTGRES_USER`               | Database user.                                                                                                                              | ❌           | `divaldi`               |
-| `POSTGRES_DB`                 | Database name.                                                                                                                              | ❌           | `divaldi`               |
+| `POSTGRES_USER`               | Database user.                                                                                                                              | ❌           | `digraduation`               |
+| `POSTGRES_DB`                 | Database name.                                                                                                                              | ❌           | `digraduation`               |
 | **Message broker (RabbitMQ)** |                                                                                                                                             |              |                         |
 | `RABBITMQ_PASS`               | Password for RabbitMQ admin panel.                                                                                                          | ✅           |                         |
 | `RABBITMQ_USER`               | User for RabbitMQ admin panel.                                                                                                              | ❌           | `admin`                 |

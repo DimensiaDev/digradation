@@ -1,8 +1,8 @@
 {
-  "name": "divaldi-e2e",
+  "name": "digraduation-e2e",
   "version": "0.0.0",
   "private": true,
-  "description": "End-to-end tests for divaldi, run against the Docker Compose stack with the offline mock provider.",
+  "description": "End-to-end tests for digraduation, run against the Docker Compose stack with the offline mock provider.",
   "scripts": {
     "test": "playwright test",
     "test:headed": "playwright test --headed",

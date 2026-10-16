@@ -1,4 +1,4 @@
-# divaldi overrides for the generic Angular skill
+# digraduation overrides for the generic Angular skill
 
 The upstream `SKILL.md` in this directory is the generic Angular guide. **Where it
 disagrees with this file, this file wins.**
@@ -9,7 +9,7 @@ Read this before writing any component, service, template or stylesheet.
 
 ## 1. Version and rendering: 21.2, client-side only
 
-Divaldi is **Angular 21.2** standalone with signals, targeting **ES2022**.
+di:graduation is **Angular 21.2** standalone with signals, targeting **ES2022**.
 
 - **No SSR, no hydration, no prerendering.** The generic guide covers these extensively;
   none of it applies. There is no `provideClientHydration()` and no server build.

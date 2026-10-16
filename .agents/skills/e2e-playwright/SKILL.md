@@ -1,9 +1,9 @@
 ---
 name: e2e-playwright
-description: Conventions for the Playwright end-to-end suite in divaldi. Use when writing or debugging a spec under e2e/tests/, changing the e2e stack override, or adding a CI step that drives the Compose stack.
+description: Conventions for the Playwright end-to-end suite in digraduation. Use when writing or debugging a spec under e2e/tests/, changing the e2e stack override, or adding a CI step that drives the Compose stack.
 ---
 
-# E2E with Playwright — divaldi conventions
+# E2E with Playwright — digraduation conventions
 
 The suite in `e2e/` drives the **real Compose stack** — Angular behind nginx, FastAPI,
 both TaskIQ worker pools, PostgreSQL, Redis, Garage — with `SBER_API_KEY=mock`. Only the
@@ -23,11 +23,11 @@ with `E2E_BASE_URL`.
 
 ## Isolation: the project name is load-bearing
 
-`setup.sh` runs `docker compose -p divaldi-e2e -f docker-compose.yaml -f
+`setup.sh` runs `docker compose -p digraduation-e2e -f docker-compose.yaml -f
 docker-compose.override.yml.e2e`. Neither half is cosmetic:
 
 - **The project name isolates the volumes.** Compose prefixes named volumes with it, so
-  the default project name resolves to `divaldi_postgres_data` — the developer's own
+  the default project name resolves to `digraduation_postgres_data` — the developer's own
   database. Before this was fixed the suite had written 13 users and 278 seeded chat
   sessions into it. Volume names cannot be overridden per service, so the project name is
   the only lever.
@@ -38,7 +38,7 @@ docker-compose.override.yml.e2e`. Neither half is cosmetic:
 
 Anything that shells out to Docker — `clearRateLimits` in `helpers.ts`, the SQL seeder in
 `history-pagination.spec.ts` — must repeat both `-p` and the two `-f` flags, or it silently
-operates on the dev stack. Both throw if `E2E_PROJECT` is `divaldi` or empty.
+operates on the dev stack. Both throw if `E2E_PROJECT` is `digraduation` or empty.
 
 The frontend port in `docker-compose.override.yml.e2e` uses `ports: !override`, not a plain
 list. Compose **merges** a service's ports across files, so a plain list leaves the base
@@ -88,7 +88,7 @@ test('does the thing', async ({ page }) => {
   two elements and trips strict mode. Target `textarea[placeholder="..."]`.
 - **User-facing errors are toasts**, not inline field errors. A failed login raises a
   notification; there is no `.auth-error` element.
-- **The brand mark is a `div`, not a heading.** `page.locator('.h1:has-text("Divaldi")')`.
+- **The brand mark is a `div`, not a heading.** `page.locator('.h1:has-text("di:graduation")')`.
 - Incoming chat messages carry the author label `Агент`.
 
 ### Native dialogs
@@ -127,7 +127,7 @@ to 5 per minute with a real generation queued behind each one. Creating 20+ sess
 UI is not viable, so `history-pagination.spec.ts` inserts them straight into PostgreSQL:
 
 ```typescript
-execFileSync('docker', ['compose', 'exec', '-T', 'db', 'psql', '-U', 'divaldi', '-d', 'divaldi', '-v', 'ON_ERROR_STOP=1', '-c', sql], { cwd: REPO_ROOT, stdio: 'ignore' });
+execFileSync('docker', ['compose', 'exec', '-T', 'db', 'psql', '-U', 'digraduation', '-d', 'digraduation', '-v', 'ON_ERROR_STOP=1', '-c', sql], { cwd: REPO_ROOT, stdio: 'ignore' });
 ```
 
 Two things about that SQL:

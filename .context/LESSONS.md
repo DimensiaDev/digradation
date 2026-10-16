@@ -512,8 +512,8 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 
 - **A Compose override cannot isolate volumes; only the project name can.** Compose prefixes
   named volumes with the project name, and volume names are not overridable per service. The
-  e2e suite therefore ran against the *developer's* `divaldi_postgres_data` and had written
-  13 users and 278 seeded chat sessions into it. Fixed with `-p divaldi-e2e`. Anything that
+  e2e suite therefore ran against the *developer's* `digraduation_postgres_data` and had written
+  13 users and 278 seeded chat sessions into it. Fixed with `-p digraduation-e2e`. Anything that
   shells out to Docker from a test must repeat that `-p`, or it silently targets the dev
   stack — which is exactly how `clearRateLimits` ended up clearing the developer's Redis
   while the e2e counters went uncleared and the suite tripped its own rate limiter.
@@ -531,7 +531,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   instead of copying it.
 
 - **A container left in a failed port-bind can come up with no network attached.** After a
-  bind collision, `divaldi-e2e-frontend-1` was stuck `restarting` with an empty
+  bind collision, `digraduation-e2e-frontend-1` was stuck `restarting` with an empty
   `NetworkSettings.Networks` map, and nginx reported `host not found in upstream "backend"`
   even though the backend container was healthy and correctly aliased. `--force-recreate`
   fixed it; a plain restart would not have.
@@ -571,11 +571,11 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   after the migration landed was 99.34%. Coverage measured concurrently with your own edits is
   not a baseline, and the `alembic check` failure in it is expected rather than a real drift.
 - **On a 4 GB Docker Desktop, bring the e2e stack down before running Compose tooling.** With
-  `divaldi-e2e` up, `docker compose up -d db` and even a bare `docker compose ps` hung for
+  `digraduation-e2e` up, `docker compose up -d db` and even a bare `docker compose ps` hung for
   minutes, in the bash script and in the PowerShell one alike. The giveaway was a
   `502 Bad Gateway` on `//./pipe/docker_engine` from `docker inspect`: the engine's API proxy was
   failing, so the scripts were innocent and retrying into a sick proxy is what wasted the time.
-  `docker compose -p divaldi-e2e -f docker-compose.yaml -f docker-compose.override.yml.e2e down`
+  `docker compose -p digraduation-e2e -f docker-compose.yaml -f docker-compose.override.yml.e2e down`
   (no `-v`) makes the tooling reliable again.
 
 - **A 422 whose detail quotes a `NaN` cannot be encoded, and the failure looks like a 200 or a

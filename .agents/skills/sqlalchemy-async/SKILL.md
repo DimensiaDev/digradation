@@ -1,9 +1,9 @@
 ---
 name: sqlalchemy-async
-description: Conventions for SQLAlchemy 2.0 async ORM models, sessions, queries and Alembic migrations in the divaldi backend. Use when touching backend/app/models/, backend/app/database.py, or adding or changing an Alembic migration.
+description: Conventions for SQLAlchemy 2.0 async ORM models, sessions, queries and Alembic migrations in the digraduation backend. Use when touching backend/app/models/, backend/app/database.py, or adding or changing an Alembic migration.
 ---
 
-# SQLAlchemy 2.0 async and Alembic — divaldi conventions
+# SQLAlchemy 2.0 async and Alembic — digraduation conventions
 
 PostgreSQL 18, asyncpg, SQLAlchemy >= 2.0.52, Alembic >= 1.19.
 

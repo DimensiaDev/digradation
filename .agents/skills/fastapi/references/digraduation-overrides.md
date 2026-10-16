@@ -1,4 +1,4 @@
-# divaldi overrides for the generic FastAPI skill
+# digraduation overrides for the generic FastAPI skill
 
 The upstream `SKILL.md` in this directory is the generic FastAPI guide. **Where it
 disagrees with this file, this file wins.** These are the only divergences; everything else
@@ -10,12 +10,12 @@ Read this before writing any route, dependency or schema.
 
 ## 1. Dependency injection: use `Annotated` aliases, never `= Depends(...)`
 
-The generic guide shows `db: AsyncSession = Depends(get_db)`. **Divaldi does not do that.**
+The generic guide shows `db: AsyncSession = Depends(get_db)`. **di:graduation does not do that.**
 `backend/app/deps.py` exports `Annotated[...]` aliases used as the parameter type directly,
 with no `Depends()` at the call site:
 
 ```python
-# divaldi
+# digraduation
 from app.deps import AdminUser, DbSession, RedisSession
 
 @router.post("/users/{user_id}/password")
@@ -31,7 +31,7 @@ alias, then attach it to the router.
 
 ## 2. There is no service or repository layer
 
-The generic guide may suggest repositories or service classes. **Divaldi queries the
+The generic guide may suggest repositories or service classes. **di:graduation queries the
 database directly from routes and tasks.** Do not introduce a repository unless the user
 explicitly asks for one.
 

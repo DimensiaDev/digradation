@@ -282,7 +282,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   Python-testing skill, and `anthropics/skills` has no framework skills either. The
   community collections `samuelpkg/skills`, `xfstudio/skills` and `github/awesome-copilot`
   do.
-- **Every third-party skill carries a `references/divaldi-overrides.md`** listing exactly
+- **Every third-party skill carries a `references/digraduation-overrides.md`** listing exactly
   where the generic guide conflicts with this project, plus a pointer block at the top of
   the `SKILL.md` itself. **Precedence: `AGENTS.md` and `DECISIONS.md` > the overrides file >
   the vendor `SKILL.md` > the agent's own priors.** Without the top-of-file pointer the

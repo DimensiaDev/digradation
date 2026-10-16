@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎼 Divaldi
+# 🎼 di:graduation
 
 **ИИ‑движок расчёта коммерческих предложений для обработки металла**
 
@@ -21,9 +21,9 @@
 
 ---
 
-## 🎯 Что такое Divaldi?
+## 🎯 Что такое di:graduation?
 
-Divaldi — внутреннее веб‑приложение для **ООО НПО «Энергон»**, предприятия по
+di:graduation — внутреннее веб‑приложение для **ООО НПО «Энергон»**, предприятия по
 обработке металла. Оно превращает **чертежи** заказчика в **рассчитанное коммерческое
 предложение** (КП) в формате Excel — полностью автоматически.
 
@@ -98,7 +98,7 @@ Divaldi — внутреннее веб‑приложение для **ООО �
 ## 🏗️ Архитектура
 
 ```
-divaldi/
+digraduation/
 ├── backend/          FastAPI + SQLAlchemy 2.0 (async) + Alembic + TaskIQ
 │   ├── app/
 │   │   ├── routes/       HTTP-слой — по одному APIRouter на домен
@@ -168,8 +168,8 @@ divaldi/
 ### 1️⃣ Клонировать
 
 ```bash
-git clone https://github.com/yel-gar/divaldi.git
-cd divaldi
+git clone https://github.com/yel-gar/digraduation.git
+cd digraduation
 ```
 
 ### 2️⃣ Настроить
@@ -372,8 +372,8 @@ npm --prefix frontend run format
 | `TEST_INSTANCE_MODE`          | Предохранитель. Если истинно (`true`, `yes`, `1`), разрушающие операции админа возвращают HTTP `450` вместо выполнения.                     | ❌             | `false`              |
 | **База данных (PostgreSQL)**  |                                                                                                                                             |                |                      |
 | `POSTGRES_PASSWORD`           | Пароль БД. Задайте надёжное значение; генерация — `openssl rand -hex 48`.                                                                 | ✅             |                      |
-| `POSTGRES_USER`               | Пользователь БД.                                                                                                                            | ❌             | `divaldi`            |
-| `POSTGRES_DB`                 | Имя базы данных.                                                                                                                           | ❌             | `divaldi`            |
+| `POSTGRES_USER`               | Пользователь БД.                                                                                                                            | ❌             | `digraduation`            |
+| `POSTGRES_DB`                 | Имя базы данных.                                                                                                                           | ❌             | `digraduation`            |
 | **Брокер (RabbitMQ)**         |                                                                                                                                             |                |                      |
 | `RABBITMQ_PASS`               | Пароль панели RabbitMQ.                                                                                                                     | ✅             |                      |
 | `RABBITMQ_USER`               | Пользователь панели RabbitMQ.                                                                                                               | ❌             | `admin`              |

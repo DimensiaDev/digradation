@@ -172,7 +172,7 @@ def _bootstrap_garage(container: DockerContainer) -> None:
         S3_SECRET_KEY,
         "--yes",
         "-n",
-        "divaldi-app",
+        "digraduation-app",
         tolerate=True,
     )
     for bucket in S3_BUCKETS:

@@ -1,9 +1,9 @@
 ---
 name: taskiq-workers
-description: Conventions for TaskIQ background jobs in the divaldi backend — queue assignment, cron schedules, thread offloading, Redis status keys and logging. Use when adding or changing anything in backend/app/tasks/.
+description: Conventions for TaskIQ background jobs in the digraduation backend — queue assignment, cron schedules, thread offloading, Redis status keys and logging. Use when adding or changing anything in backend/app/tasks/.
 ---
 
-# TaskIQ workers — divaldi conventions
+# TaskIQ workers — digraduation conventions
 
 TaskIQ >= 0.12, broker RabbitMQ via `taskiq-aio-pika` (vhost `taskiq`), results in Redis
 database `/1`, dashboard at `http://taskiq_dashboard:8000`.

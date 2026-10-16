@@ -4,7 +4,7 @@
 > Read this file in full before making a change. It describes how this project
 > actually works, not how it ideally would.
 
-**Repo:** `divaldi` — AI-assisted quotation engine for sheet-metal fabrication
+**Repo:** `digraduation` — AI-assisted quotation engine for sheet-metal fabrication
 **Product language:** Russian (all UI strings, LLM prompt, Excel sheet names)
 **Code language:** English (identifiers, comments, docs)
 
@@ -28,7 +28,7 @@ These five rules override any other instinct you have.
 ## 1. Repository layout
 
 ```
-divaldi/
+digraduation/
 ├── backend/            FastAPI service + TaskIQ workers     owner @yel-gar
 ├── processing/         shared library (PDF, DXF, Excel)     owner @AX-Ray
 ├── frontend/           Angular 21 SPA                        owner @krchvl
@@ -379,7 +379,7 @@ cd e2e && npx playwright test --ui
 | Seed + stack | `e2e/scripts/setup.sh` (creates the `e2e` superuser, clears rate limits) |
 | CI | `.github/workflows/e2e.yml` |
 
-**The e2e stack runs under its own Compose project, `divaldi-e2e`,** and names its
+**The e2e stack runs under its own Compose project, `digraduation-e2e`,** and names its
 override with `-f` rather than copying it over `docker-compose.override.yml`. Both are
 load-bearing, see [`.context/LESSONS.md`](.context/LESSONS.md). In short: Compose prefixes
 named volumes with the project name, so sharing the project name would put the suite's
@@ -489,7 +489,7 @@ subfolder for detail that is only sometimes needed.
 Eight skills are project-specific and were written from this repository's source:
 `sqlalchemy-async`, `taskiq-workers`, `python-testing`, `frontend-file-preview`,
 `docker-compose`, `e2e-playwright`, `parallel-issues`, `conventional-commits`. They encode
-divaldi's actual conventions.
+digraduation's actual conventions.
 
 Two are **third-party** and installed from public registries:
 
@@ -498,11 +498,11 @@ Two are **third-party** and installed from public registries:
 | `fastapi` | [`samuelpkg/skills`](https://github.com/samuelpkg/skills) | MIT |
 | `angular` | [`xfstudio/skills`](https://github.com/xfstudio/skills) | see `metadata.json` |
 
-Each third-party skill ships a **`references/divaldi-overrides.md`** that states where the
+Each third-party skill ships a **`references/digraduation-overrides.md`** that states where the
 generic guide conflicts with this project. **Precedence, highest first:**
 
 1. `AGENTS.md` and `.context/DECISIONS.md` — this project's rules
-2. `references/divaldi-overrides.md` inside a skill — project-specific divergences
+2. `references/digraduation-overrides.md` inside a skill — project-specific divergences
 3. The skill's own `SKILL.md` — generic framework guidance
 4. Your own general knowledge
 
@@ -512,7 +512,7 @@ before writing code against `fastapi` or `angular`.
 **Exception to the no-emoji rule:** the upstream `SKILL.md` bodies of the two third-party
 skills are kept **verbatim** so they can be re-installed or diffed against their source
 repos. The Angular guide contains a few checkmark and cross marks. Everything authored for
-this repository, including both `divaldi-overrides.md` files, is emoji-free.
+this repository, including both `digraduation-overrides.md` files, is emoji-free.
 
 | Skill | Origin | When to load it |
 |---|---|---|

@@ -1,9 +1,9 @@
 ---
 name: python-testing
-description: Conventions for pytest, pytest-asyncio, testcontainers and fixtures in the divaldi backend and processing packages. Use when writing tests, adding fixtures, or debugging a failing test suite.
+description: Conventions for pytest, pytest-asyncio, testcontainers and fixtures in the digraduation backend and processing packages. Use when writing tests, adding fixtures, or debugging a failing test suite.
 ---
 
-# Python testing — divaldi conventions
+# Python testing — digraduation conventions
 
 pytest >= 9.1, pytest-asyncio >= 1.4 (auto mode), httpx `ASGITransport`,
 testcontainers for PostgreSQL and Redis.

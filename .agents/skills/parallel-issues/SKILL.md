@@ -3,7 +3,7 @@ name: parallel-issues
 description: Conventions for running several GitHub issues in parallel with git worktrees and subagents. Use when implementing more than one issue at once, creating or cleaning up worktrees, delegating work to subagents, or merging worker branches back into an integration branch.
 ---
 
-# Parallel issues with worktrees — divaldi conventions
+# Parallel issues with worktrees — digraduation conventions
 
 Each issue gets its own branch and its own `git worktree` outside the main checkout. Workers
 never share a working tree, so two agents cannot clobber each other's files.
@@ -26,14 +26,14 @@ be committed by accident.
 
 ```bash
 # one branch and worktree per issue
-git worktree add /tmp/divaldi-wt/issue-59 -b issue/59-fix-retry-history feat/ai-refactor
-git worktree add /tmp/divaldi-wt/issue-46 -b issue/46-filename-filter feat/ai-refactor
+git worktree add /tmp/digraduation-wt/issue-59 -b issue/59-fix-retry-history feat/ai-refactor
+git worktree add /tmp/digraduation-wt/issue-46 -b issue/46-filename-filter feat/ai-refactor
 ```
 
 Then, per worktree, before any suite will run:
 
 ```bash
-cd /tmp/divaldi-wt/issue-59
+cd /tmp/digraduation-wt/issue-59
 pyenv local 3.14                                          # .python-version is gitignored
 poetry -C backend install --with dev --no-root
 npm --prefix frontend install                             # only if the frontend is touched
@@ -100,7 +100,7 @@ Order matters when two branches touch the same file. Check for overlap first wit
 ## Cleanup
 
 ```bash
-git worktree remove /tmp/divaldi-wt/issue-59
+git worktree remove /tmp/digraduation-wt/issue-59
 git branch -d issue/59-fix-retry-history   # only after the merge landed
 ```
 
@@ -166,8 +166,8 @@ limiters are all already covered.
   silently cannot run. Copy it in explicitly, or the worker's review is skipped without error:
 
   ```bash
-  mkdir -p /tmp/divaldi-wt/issue-59/.opencode/agents
-  cp .opencode/agents/reviewer.md /tmp/divaldi-wt/issue-59/.opencode/agents/
+  mkdir -p /tmp/digraduation-wt/issue-59/.opencode/agents
+  cp .opencode/agents/reviewer.md /tmp/digraduation-wt/issue-59/.opencode/agents/
   ```
 
   This applies to `.env` too, which every gitignored and which the Compose stack needs.
