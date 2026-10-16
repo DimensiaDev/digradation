@@ -59,7 +59,7 @@ create page never navigates, and the assertion reports `expected URL to match /c
 with no mention of a rate limit. If a chat-creating test fails on navigation, check the
 backend log for 429 before debugging the test.
 
-**2. The mock provider names every chat identically** (`Расчёт КП (mock)`), because
+**2. The mock provider names every chat identically** (`Чат (mock)`), because
 `chat_name` comes from the generated payload. Identify a session by the id in the URL:
 
 ```typescript

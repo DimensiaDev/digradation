@@ -16,10 +16,15 @@ Covers `file-preview.component.ts`, the results panel, and `AttachmentUploadServ
 | DOCX | `docx-preview`, lazily imported |
 | XLSX | `xlsx` (SheetJS) parsed and rendered as a sheet grid |
 
-Backend-side accepted upload types: `.pdf`, `.dxf`, `.png`, `.jpeg`, `.jpg`, up to
+Backend-side accepted upload types: `.pdf`, `.png`, `.jpeg`, `.jpg`, up to
 **30 MB**, at most **3 concurrent uploads** (`MAX_FILE_SIZE`, `ACCEPTED_EXTENSIONS`,
-`MAX_CONCURRENT_UPLOADS` in `core/models/models.ts`). DXF is parsed server-side and never
-previewed as a document.
+`MAX_CONCURRENT_UPLOADS` in `core/models/models.ts`).
+
+The DOCX and XLSX renderers are ahead of the upload allowlist on purpose: the backend
+accepts neither today, and both are kept because the moment a feature emits or accepts
+one, the preview already works. **Every accepted extension must have a preview kind**,
+and a test asserts exactly that, so adding a type to `ACCEPTED_EXTENSIONS` without a
+renderer fails the suite rather than shipping a file with no way to open it.
 
 ## Heavy dependencies must stay lazy
 
@@ -34,13 +39,13 @@ user, including those who never open a preview. Keep the dynamic `import()`.
 
 ## XLSX previews need a formula engine
 
-The generated commercial offer (`kp.xlsx`) prices rows using **workbook formulas**, not
-literal values. Rendering cells without evaluating formulas shows blanks where prices should
-be. HyperFormula is configured to evaluate across sheets, because the offer spreads metal
-prices on the `Цены на металл` sheet and references them from `Расчёт`.
+A workbook may price its rows with **formulas** rather than literal values. Rendering
+cells without evaluating formulas shows blanks where numbers should be. HyperFormula is
+configured to evaluate across sheets, because a spreadsheet that keeps its inputs on one
+sheet and references them from another is the normal case.
 
-When changing the renderer, verify a price cell on `Расчёт` actually displays a number, not
-an empty cell or a raw formula string.
+When changing the renderer, verify a computed cell actually displays a number, not an
+empty cell or a raw formula string.
 
 ## Sheet tabs and the active pill
 
@@ -104,5 +109,5 @@ npm --prefix frontend run build
 docker compose up -d --build
 ```
 
-Then exercise: upload a PDF, a DXF, a PNG, a generated `kp.xlsx`, download it, reopen the
-preview, and switch between its sheets.
+Then exercise: upload a PDF and a PNG, download one, reopen the preview, and — for a
+workbook — switch between its sheets.

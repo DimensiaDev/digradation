@@ -7,18 +7,19 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 
 ## Repository shape
 
-- **`backend/`, `processing/`, `frontend/` are three independently installed units**:
-  two Poetry projects (`backend/`, `processing/`) and one npm project (`frontend/`), plus
-  a root `package.json` that exists *only* to provide `commitlint` to the `commit-msg`
-  pre-commit hook. The root project has no runtime dependencies.
+- **`backend/` and `frontend/` are two independently installed units**: one Poetry project
+  and one npm project, plus a root `package.json` that exists *only* to provide `commitlint`
+  to the `commit-msg` pre-commit hook. The root project has no runtime dependencies.
 - **No monorepo tool** (no npm workspaces, Nx, Turborepo, Bazel, Pants). Docker Compose is
   the sole orchestrator. The project was simple enough that workspace tooling would cost
   more than it saves, and Compose was already the required run path.
+- **Each package is also its own Docker build context** (`backend/`, `frontend/`, `conf/`).
+  Nothing builds from the repo root, so there is no root `.dockerignore`; each context
+  carries its own. This only became possible when `processing/` went — the backend used to
+  need a `COPY processing/ /processing/` from the root context.
 - **`parser/` at the repo root is a dead leftover.** It contains only `__pycache__`
-  directories from the pre-rename layout (py3.13 bytecode). The live code is in
-  `processing/`, and `.pre-commit-config.yaml` plus CODEOWNERS already reference only
-  `processing/`. Nothing imports it. (Recorded 2026-09 so nobody "fixes" the wrong
-  directory.)
+  directories from the pre-rename layout (py3.13 bytecode). Nothing imports it.
+  (Recorded 2026-09 so nobody "fixes" the wrong directory.)
 
 ## Running the project
 
@@ -26,7 +27,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   This is not laziness, it is load-bearing:
   - Redis, RabbitMQ, Garage and the TaskIQ dashboard hostnames are **hardcoded literals** in
     the backend (`redis://redis:6379`, `amqp://...@rabbitmq:5672/taskiq`,
-    `http://minio:9000`, `http://taskiq_dashboard:8000`), matching Compose service names.
+    `http://garage:3900`, `http://taskiq_dashboard:8000`), matching Compose service names.
   - `providers/sber.py` loads `res/gigachat-ca.cer` by **relative path**, so the process
     must have CWD == `backend/`.
   - Service-to-service DNS only resolves inside the Compose network.
@@ -34,7 +35,9 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   *daemon* but not the full 13-service stack.
 - **Two override files are shipped but gitignored** (`docker-compose.override.yml`):
   - `.dev` — bind mounts for hot reload, watchers with polling forced on, and publishes
-    PostgreSQL on host port **5431** so Alembic can run from the host.
+    PostgreSQL on host port **5433** so Alembic can run from the host. Not 5432: a
+    developer may already be running PostgreSQL there, and the host-side migration
+    scripts would then silently autogenerate against somebody else's schema.
   - `.memlim` — per-service `mem_limit` values. No limits by default.
 
   Copying one to `docker-compose.override.yml` is an explicit, local developer decision.
@@ -79,16 +82,16 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 
   | Queue | Nature | Tasks |
   |---|---|---|
-  | `default` | local / CPU-bound | `process_dxf`, `process_pdf`, `process_image`, `process_avatar`, `process_attachment`, `process_response`, `cleanup_old_results`, `cleanup_orphan_attachments`, `cleanup_stale_results`, `pdf_upload_cleanup`, `cleanup_expired_sessions` |
-  | `network` | outbound GigaChat calls | `generate_chat_message`, `upload_pdf_image` |
+  | `default` | local / CPU-bound | `process_attachment`, `process_document`, `process_avatar`, `process_response`, `cleanup_old_results`, `cleanup_orphan_attachments`, `cleanup_stale_results`, `cleanup_expired_sessions` |
+  | `network` | outbound GigaChat calls | `generate_chat_message` |
 
   **Why:** the `network` queue is bounded by external API latency. Isolating it means a slow
-  or rate-limited GigaChat cannot starve DXF parsing or the cleanup crons. Separate worker
-  pools (`worker_default` x2, `worker_network` x2) allow independent scaling.
+  or rate-limited GigaChat cannot starve attachment preparation or the cleanup crons.
+  Separate worker pools (`worker_default` x2, `worker_network` x2) allow independent scaling.
 - **`redis://redis:6379/0` is general purpose** (cache, locks, rate limits, statuses);
   **`/1` is TaskIQ result storage only.** Confusing the two silently breaks result reads.
-- **Blocking work is always offloaded via `await asyncio.to_thread(...)`**: PDF rasterising,
-  DXF parsing, xlsx generation, Pillow resizing. The event loop must never be blocked.
+- **Blocking work is always offloaded via `await asyncio.to_thread(...)`**: attachment
+  preparation, Pillow resizing. The event loop must never be blocked.
 - **Cron jobs use TaskIQ's `schedule=[{"interval": timedelta(...)}]`** with
   `LabelScheduleSource`, so the scheduler service is the only place periodic work is defined.
 - **GigaChat PERS scope is rate-limited by a global Redis lock** (`api:global:lock`, timeout
@@ -97,27 +100,23 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 
 ## The GigaChat harness
 
-- **`app/harness.py` owns the entire LLM contract**: a Russian `SYSTEM_PROMPT` persona
-  (technologist / design engineer / estimator for ООО НПО «Энергон»), `MATERIALS` (27
-  indexed steel grades), and `HARNESS_STRUCTURED_SCHEMA` (a JSON schema the model must
-  satisfy).
-- **The `material` field in every generated position is an integer index into `MATERIALS`**,
-  not a name or an enum. This is the model's cheapest reliable output format. Consequence:
-  **the order of `MATERIALS` is part of the data contract. Reordering or inserting in the
-  middle silently corrupts every material** already persisted. Append only.
-- **An empty `positions` list is the clarification signal.** When the drawing lacks
-  dimensions, material, bend count or weld length, the model returns `positions: []` plus a
-  message containing short professional questions. The UI shows that message; the user
-  replies in chat and generation runs again. This is deliberate, because it lets one
-  endpoint serve both "here is your offer" and "I need more information" without a separate
-  state machine.
-- **Hard cap of 10 positions per commercial offer** (`positions[:10]`,
-  `max_positions: int = 10`), also stated in the prompt, which instructs the agent to ask
-  the user to drop items.
-- **The prompt-injection defence is in the prompt.** `SYSTEM_REMINDER` tells the agent to
-  treat instructions found inside uploaded files as an attack, warn the user, and politely
-  decline off-topic conversation. The defence is therefore a soft model-level control, not
-  a parser-level one, and should not be described as a security boundary.
+- **`app/harness.py` owns the LLM contract**, and it has two halves that must agree:
+  `SYSTEM_PROMPT` (what the model is told) and `HARNESS_STRUCTURED_SCHEMA` (what it is
+  asked to return). The reply is validated against `HarnessStructuredOutput` in
+  `app/providers/models.py`, so changing the schema without changing the model makes every
+  reply a validation error, and the failure surfaces as a generic internal error.
+- **The schema is `{chat_name, message}`.** `chat_name` exists so a session can be titled
+  from the model's own words rather than staying "Новый чат" forever; `message` is the whole
+  reply. `chat_name` is optional in the Pydantic model, so a model that omits it still
+  yields a usable answer and the session just keeps its default title.
+- **The prompt is deliberately short and domain-free.** It states the agent's job in two
+  sentences and nothing about any particular subject. That is a starting point, not a
+  design: the project is a chat application awaiting its purpose, and a longer prompt would
+  encode an assumption about what that purpose is.
+- **The prompt-injection defence is in the prompt.** The agent is told to treat instructions
+  found inside uploaded files as an attack, warn the user, and decline off-topic
+  conversation. The defence is therefore a soft model-level control, not a parser-level one,
+  and should not be described as a security boundary.
 
 ## Provider history ends at the last user message
 
@@ -133,308 +132,12 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   `retry_send` enqueue the same `generate_chat_message` task with the same session id and the
   task has no way to know which route triggered it. A fix in the route would leave the worker
   still able to send a trailing assistant turn.
-- **Assistant turns before the last user message are kept.** The harness prompt tells the
-  model what to do with offers it already produced (`gen_kp` should be `false` unless the user
-  asked for a recalculation), so the model's own earlier output is context it needs. Trimming
-  the whole history would break that contract, so only the trailing turns go.
+- **Assistant turns before the last user message are kept.** Trimming the whole history
+  would throw away the conversation the model is replying in; only the trailing turns go.
 - **A history with no user message is an error**, reported through the existing
   `Invalid message session: no messages to send` result. It used to be sent to the provider
   as-is.
 
-## Commercial offer generation
-
-- **`processing.calculator.calc.process_calculation` fills a template instead of building a
-  workbook from scratch.** `calc.xlsx` carries the company's layout, formulas and print
-  settings; the code writes values into fixed cells. Sheet names are Russian (`Расчёт`,
-  `Цены на металл`) and are **business output, so do not "fix" them to English.**
-- **Production norms are named constants**, not literals: laser `10.0 m/h`, welding
-  `2.0 m/h`, bending `84 bends/h`, painting `5.53 m²/h`. Turning hours are supplied by the
-  model and taken as-is.
-- **The calculator is a pure function**: bytes in, bytes out, no filesystem access. The
-  caller reads the template. This keeps it trivially testable.
-- **Two copies of `calc.xlsx` exist on purpose**: `backend/res/calc.xlsx` (read by
-  `tasks/api.py`) and `processing/src/processing/calculator/res/calc.xlsx` (packaged with the
-  library). Do not delete either without checking both call sites.
-
-## DXF and PDF processing
-
-- **The DXF parser is hand-rolled, not `ezdxf`.** Only lines, circles, arcs and polylines
-  are extracted, and a full CAD library would be a heavy dependency for that.
-  `SUPPORTED_ENCODINGS = ["utf-8", "cp1251", "latin-1"]` reflects real customer files.
-- **PDF pages rasterise at 150 DPI**, the accuracy and LLM-token balance chosen after
-  testing higher and lower values.
-- **`processing/` is a separate Poetry package with `src/` layout**, consumed by the
-  backend as a path dependency (`processing @ ../processing`). Its `tests/conftest.py`
-  inserts `src` into `sys.path` so its tests run without installing the package.
-
-## Database and migrations
-
-- **Alembic with an async `env.py`.** The URL is built from `POSTGRES_*` env vars at
-  runtime (`get_database_url()`), not read from `alembic.ini`, so the same code works in
-  every environment.
-- **`alembic/versions/` is excluded from black and ruff.** Generated migrations are never
-  reformatted; reformatting them produces noisy diffs on every regeneration.
-- **`tests/test_migrations.py` is a real gate.** It runs `upgrade head`, `downgrade base` and
-  `alembic check`, and fails with a message telling you to run
-  `alembic revision --autogenerate`. **A model change without a migration cannot merge.**
-- **`backend/res/` and the CA certificate live outside the Python package** but are required
-  at runtime, so the app must run with CWD == `backend/`.
-
-## Frontend
-
-- **Angular 21 standalone with signals, no NgRx or Redux.** Service-level `signal()` state
-  plus `computed()` and `effect()` covers the actual complexity. Cross-component handoff
-  uses tiny one-shot "state services" (`set()` / `consume()`), for example
-  `InitialChatStateService` moving an order description from the create page into the chat.
-- **List refresh is a version signal**, not an event bus: `ChatService.historyVersion =
-  signal(0)` is bumped on mutation and read by the sidebar to re-fetch.
-- **The API base URL is injected at image build time.** `environment.prod.ts` contains the
-  placeholder `apiUrl: '__BACKEND_URL__/api/v1'`; `docker/rewrite-env.mjs` rewrites it from
-  the `BACKEND_URL` build arg during `docker build`. In dev, the Angular dev server proxies
-  `/api` to `localhost:3000` via `proxy.conf.json`. **Never hardcode a backend URL in a
-  service.**
-- **Polling, not WebSockets.** Chat results poll `GET /chats/{id}/result` every 2 s with a
-  5 min timeout; upload status polls every 2 s up to 150 attempts. Simpler to reason about,
-  survives the async task pipeline, and the 5-minute bound is acceptable for this workload.
-- **Heavy preview dependencies are lazily `import()`ed**: `docx-preview`, `xlsx` and
-  `hyperformula` load only when a user opens such a preview, keeping them out of the eager
-  bundle.
-- **`.xlsx` previews evaluate formulas across sheets with HyperFormula**, because the
-  generated `kp.xlsx` relies on workbook formulas for pricing.
-- **SCSS with BEM-style modifiers and CSS custom properties**, no Tailwind and no CSS
-  modules. Theming is `html[data-theme='dark']` plus a `localStorage['theme']` key, so a
-  colour must never be hardcoded in a component.
-- **Component class names are inconsistent by history**: some end in `Component`
-  (`CalculationChatComponent`), some do not (`HistoryPage`, `Layout`, `Sidebar`). Files are
-  always `<kebab-name>.component.ts`. Follow the surrounding file, and prefer the
-  `Component` suffix for new classes.
-
-## Security and safety
-
-- **`TEST_INSTANCE_MODE` returns HTTP 450** for destructive admin and user mutations. It is a
-  non-standard status code, deliberately chosen so it cannot collide with a real response and
-  cannot be dismissed as a typo. It guards password changes, user edits and deletions so a
-  shared demo instance cannot be wrecked.
-- **API docs are debug-only.** `docs_url`, `redoc_url` and `openapi_url` are `None` unless
-  `DEBUG` is truthy, so the API surface is not publicly discoverable in production.
-- **Cookies are `secure=not get_debug()`**: insecure in development so HTTP localhost works,
-  secure everywhere else.
-- **CORS origins come from `FRONTEND_URL` and `BACKEND_URL`**, falling back to `["*"]` only in
-  debug. Both env vars are required in production or startup raises.
-- **Argon2-cffi for password hashing**, never a fast hash.
-- **Redis locks guard concurrency, not the database**: `chats:global` (one generation per
-  user, 409), an attachment-upload confirmation lock, and a deletion-tombstone key so a
-  result that lands after its session was deleted is discarded rather than resurrected.
-- **MinIO buckets are private** (`mc anonymous set none`), with ILM rules expiring
-  unprocessed avatars (1 day), attachments (7 days) and artifacts (1 day) as a backstop
-  behind the scheduled cleanup tasks.
-
-## Language version
-
-- **Python 3.14 is the floor, not the ceiling of convenience.** `requires-python = ">=3.14,<4"`
-  in both `backend/pyproject.toml` and `processing/pyproject.toml`, `.python-version` is `3.14`,
-  both Dockerfiles use `python:3.14-alpine`, and CI sets up Python 3.14. Black and ruff are
-  pinned to `target-version = ["py314"]`.
-- **This means 3.14-only syntax is expected and correct.** Notably PEP 758, which allows
-  `except ValueError, TypeError:` without parentheses. Black with `target-version = "py314"`
-  *emits* that form, so adding parentheses by hand would fight the formatter. Treat brace-less
-  multi-type `except` as idiomatic here, not as a Python 2 leftover.
-- **The same applies to the frontend**, which targets Angular 21 and ES2022 with
-  `strictTemplates` enabled. Modern-only constructs are expected, not suspicious.
-
-## Tooling
-
-- **One `.pre-commit-config.yaml` for the whole repo**, using the Poetry wrapper scripts
-  `scripts/precommit-black.py` and `scripts/precommit-ruff.py`. They strip the directory
-  prefix and re-invoke the tool inside that Poetry project, because Poetry 2.x cannot easily
-  run per-project commands and pre-commit `language: system` hooks need a single entry point.
-- **Import sorting is ruff's `I` rule, not isort.** There is no standalone isort, no flake8
-  and no mypy.
-- **Python line length is 120; Prettier `printWidth` is 100, with single quotes and no
-  trailing comma.** Match the surrounding code.
-- **Conventional Commits are enforced** by `commitlint.config.js` through the `commit-msg`
-  hook. Branch prefixes in use: `jut/`, `feat/`, `fix/`, `docs/`, `feature/`.
-- **`pre-commit.yml` CI only runs the generic hooks** (yaml, json, toml, eof, whitespace).
-  Real lint and test coverage comes from `backend-ci.yml` and `processing-ci.yml`.
-  `frontend-ci.yml` runs `ng lint` and `ng build` but **not** `ng test`.
-- **Hooks never fail the commit**: `scripts/precommit-*.py` pass `check=False`, relying on
-  pre-commit's own re-staged-file detection. Run `black --check` and `ruff check` explicitly
-  before claiming work is clean.
-
-## Agent skills
-
-- **`.agents/skills/` mixes two origins on purpose.** Six skills (`sqlalchemy-async`,
-  `taskiq-workers`, `python-testing`, `frontend-file-preview`, `docker-compose`,
-  `conventional-commits`) are project-specific and were written from this repository's
-  source. Two (`fastapi` from `samuelpkg/skills`, MIT; `angular` from `xfstudio/skills`) are
-  third-party and installed with the standard skill installer.
-- **Why install anything:** a hand-written flat `SKILL.md` cannot carry genuine framework
-  depth. The FastAPI skill is 497 lines plus a `references/patterns.md`, and the Angular one
-  is 821 lines covering signals, standalone components and change detection. Those are not
-  reproducible from memory, and guessing at framework best practices is exactly where an
-  agent invents APIs.
-- **Why not install everything:** generic framework guides assume a different stack. The
-  Angular skill spends significant space on SSR, hydration and zoneless change detection,
-  none of which this app uses. The 37-line and 28-line "python testing" candidates were
-  too thin to be worth installing.
-- **Both official registries were checked and came up empty for this stack.**
-  `openai/skills` (the `openai/skills` curated list) has no FastAPI, Angular, Docker or
-  Python-testing skill, and `anthropics/skills` has no framework skills either. The
-  community collections `samuelpkg/skills`, `xfstudio/skills` and `github/awesome-copilot`
-  do.
-- **Every third-party skill carries a `references/digraduation-overrides.md`** listing exactly
-  where the generic guide conflicts with this project, plus a pointer block at the top of
-  the `SKILL.md` itself. **Precedence: `AGENTS.md` and `DECISIONS.md` > the overrides file >
-  the vendor `SKILL.md` > the agent's own priors.** Without the top-of-file pointer the
-  overrides would never be read, since an agent loads `SKILL.md` and stops.
-- **Known provenance gap:** a richer FastAPI skill exists in a sibling repository
-  (`portals-be/.agents/skills/fastapi`, 321 lines plus six reference files). It could not be
-  traced to any public repo despite searching for its distinctive `Asyncer`, `SQLModel`,
-  `ty` and `uv` vocabulary. It was deliberately **not** copied, because it recommends
-  SQLModel over SQLAlchemy and `uv` over Poetry, both of which contradict this project.
-
-## Frontend test coverage
-
-- **Coverage is measured and reported, not enforced**, mirroring the backend decision.
-  Baseline is **67.6% statements, 68.71% branches, 62.81% functions** over 2022 statements,
-  measured with the full 154-test suite green.
-- **The coverage engine is `@vitest/coverage-v8`, but the config is not a `vitest.config.ts`.**
-  This project has no Vitest config file, and adding one would be wrong: the
-  `@angular/build:unit-test` builder owns the Vitest configuration, exposes native
-  `coverage`, `coverageReporters`, `coverageInclude`, `coverageExclude`, `coverageThresholds`
-  and `coverageWatermarks` options, and **hard-requires `@vitest/coverage-v8`** when coverage
-  is enabled (`runners/vitest/index.js`). Configuration therefore lives in the `test` target
-  of `frontend/angular.json`.
-- **The provider must be version-matched to the installed Vitest.** The project is on Vitest
-  `4.1.11`, so the dependency is pinned to `@vitest/coverage-v8@^4.1.11`. A bare
-  `npm install -D @vitest/coverage-v8` resolves to the v5 line, which is a major-version
-  mismatch against the v4 runner and would break at runtime.
-- **`coverageInclude` is set on purpose even though it lowers the number.** Without it, V8
-  reports only files that were actually loaded by a test, which inflates the figure by
-  omitting untouched files entirely. With `src/app/**/*.ts` and `src/environments/**/*.ts`
-  included, never-imported files count as 0%. The same run reads 78.15% with implicit
-  include-all and 67.6% with the explicit honest include; the second is the real number.
-- **The missing-storage problem is fixed in test infrastructure, never in application code.**
-  `src/test-setup.ts`, registered through the builder's `setupFiles` option, installs an
-  in-memory `localStorage` and `sessionStorage`, because the jsdom test environment provides
-  neither while `ThemeService` reads `localStorage` in a field initializer. Guarding
-  `ThemeService` with a `typeof localStorage === 'undefined'` check was rejected: the
-  application is not broken, `localStorage` always exists in a browser, and such a guard
-  would be permanent defensive code on the theme hot path. The shim installs only when
-  storage is missing, so it self-disables if a future Angular or Vitest release supplies it.
-- **The threshold lives in one place: `coverageThresholds` on the `test` target in
-  `frontend/angular.json`.** The builder enforces it and exits non-zero, so no percentage is
-  hardcoded in the hook or the workflow. Verified to bite: at `statements: 90` the run exits
-  0, at `95` it exits 1. Reporters are `text-summary`, `json-summary` and `html`; output
-  nests under `frontend/coverage/frontend/`.
-- **The gate was raised from 67.6% to 90.24% on 2026-09-29** by adding specs for the
-  previously untested pages and services: login (0% to 100%), order-create (0% to 100%),
-  the upload and download services, the error interceptor, the ControlValueAccessor
-  controls (checkbox, toggle, input, select), the notification components, layout, and the
-  chat view's send / poll / retry / delete behaviour. The suite went from 154 to 305 tests.
-- **Testing the chat view's polling needed three workarounds**, recorded because none is
-  obvious. `window.matchMedia` and `Element.prototype.scrollTo` must both be stubbed: jsdom
-  implements neither and the component's `afterRenderEffect` calls both. The loop must be
-  driven with `vi.useFakeTimers()` and `advanceTimersByTimeAsync`. Teardown must
-  `fixture.destroy()` before `TestBed.resetTestingModule()`, because `onDestroy` is what
-  clears the interval; skipping that leaves hundreds of unconsumed requests, and flushing
-  them instead throws `Cannot flush a cancelled request`.
-- **V8 coverage requires Chromium, which is satisfied here only because tests run in jsdom.**
-  If the project ever switches to `@vitest/browser-*` with a non-Chromium browser, coverage
-  will hard-fail with a message about unsupported browsers. This is a constraint to remember
-  before adopting a browser runner.
-
-## End-to-end tests
-
-- **The e2e suite drives the real Compose stack with `SBER_API_KEY=mock`.** Playwright in
-  `e2e/` runs against a full deployment: the Angular build behind nginx, FastAPI, both
-  TaskIQ worker pools, PostgreSQL, Redis and MinIO. Only the LLM is replaced, by the same
-  `MockProvider` the unit suite uses, so a request still walks the router, the worker, the
-  spreadsheet calculator and a real S3 round trip. This is what makes the suite trustworthy:
-  it fails if any of that pipeline breaks.
-- **The stack runs on a separate port (18080) and a separate override file**
-  (`docker-compose.override.yml.e2e`), copied to the gitignored
-  `docker-compose.override.yml` by `e2e/scripts/setup.sh`. The previous override is backed
-  up so a developer's dev stack is not silently lost. Only the frontend port and the
-  provider env vars are changed; every real service is still the real service.
-- **Tests run serially (`workers: 1`) and the `ratelimit:*` counters are cleared before
-  each test.** Both are load-bearing, and the reason is non-obvious: `app/routes/chat.py`
-  limits chat creation *and* message sending to 5 per minute per user
-  (`chats:post`). A single e2e run creates several chats as one shared user, so the suite
-  trips its own limiter. The symptom is misleading — the chat is created with 202 but the
-  send is rejected with 429, so the create page never navigates and the test fails with
-  "expected URL /chats/.+" rather than anything mentioning a rate limit. This cost the most
-  debugging time in the e2e work.
-- **The mock provider names every chat identically** (`Расчёт КП (mock)`), because
-  `chat_name` is part of the generated payload. E2E specs must therefore identify a session
-  by the id in the URL, not by its visible title.
-- **Playwright runs one worker in the harness and needs its own npm project.** The global
-  npm on this machine breaks on this repository (arborist crash, then `EALLOWREMOTE` on the
-  remote-tarball `xlsx` dependency), so `e2e/scripts/run.sh` installs with the pinned
-  `npm@10.9.2`.
-- **The native `window.confirm` in the admin delete flow is handled with a Playwright
-  `dialog` handler**, not a DOM locator, because it is not a DOM element.
-
-## Backend test coverage
-
-- **Coverage is measured and enforced at 90%.** `pytest-cov` is a `dev` dependency added
-  via `poetry add --group dev pytest-cov`. Current state is **98.79% statements** with
-  branch coverage on, across 1437 statements / 216 branches from 308 passing tests.
-- **The threshold lives in exactly one place: `fail_under` in `backend/pyproject.toml`.**
-  pytest-cov reads it and turns the run's exit code on it. Verified in both directions: at
-  `90` the run exits 0, at `99` it exits 1. Neither the pre-push hook nor the CI workflow
-  hardcodes a percentage, so the three cannot drift apart.
-- **The gate was unreachable before 2026-09-29, and the way it was reached is the point.**
-  Coverage went from 49.55% to 98.79% by testing exactly the areas that were untested,
-  which were also the riskiest: the chat routes (24% to 99%), `tasks/files.py` (15% to
-  100%), `tasks/api.py` (17% to 100%), the users routes (34% to 100%) and the GigaChat
-  provider (28% to 100%).
-- **Test dependencies are real wherever Compose provides a service.** PostgreSQL 18, Redis
-  8 and MinIO all run as testcontainers, so the suites exercise the actual SQL, the actual
-  Redis semantics (locks, counters, `getdel`) and the actual S3 API. Only two things are
-  faked: the LLM, and the outbound HTTP inside `SberProvider` via `httpx.MockTransport`.
-- **Worker tests cannot use the request-scoped `db_session` fixture.** Task bodies open
-  their own session through `app.tasks.conf.broker.tsq_db`, so rows left pending in
-  `db_session`'s rolled-back transaction are invisible to them. Such tests commit through
-  the engine directly and clean up in teardown.
-- **The hook is `pre-push`, not `pre-commit`,** because it needs the whole suite plus a
-  live Docker daemon for testcontainers, which is too slow and too fragile per save.
-- **Coverage artifacts are gitignored** (`.coverage*`, `coverage.json`, `coverage.xml`,
-  `htmlcov/`), since the JSON report is written into `backend/` on every run.
-
-## Offline provider and live tests
-
-- **`SBER_API_KEY=mock` selects `app/providers/mock.py`**, a full `AIClient` implementation
-  that performs no network I/O. Chosen over mocking at the call site because it is a
-  production code path: the same class runs in the compose stack, in end-to-end tests and
-  in the unit suite, so the substitution is exercised rather than assumed.
-- **The mock is deterministic by design.** Geometry values derive from a SHA-256 hash of
-  the conversation, so the same input always produces the same numbers. Non-determinism
-  would make the generated spreadsheet and any end-to-end assertion drift between runs.
-- **Its behaviour is switched by `MOCK_PROVIDER_MODE`** (`kp`, `clarify`, `empty`, `error`),
-  so one deployment can exercise the happy path, the clarification loop and both error
-  branches of the worker. The mode is read per call rather than at construction, so tests
-  can flip it with `monkeypatch.setenv`.
-- **Tests that hit the real GigaChat are marked `live` and deselected by default** through
-  `addopts = "-m 'not live'"`, because they cost money per call. They are opted into with
-  `pytest -m live` and a real key. Every other provider test uses `httpx.MockTransport`, so
-  nothing reaches the network by accident.
-
-## Processing test coverage
-
-- **`fail_under = 90` in `processing/pyproject.toml` is the gate**, single-sourced the same
-  way the backend's is. The pre-push hook and `processing-coverage.yml` run
-  `pytest --cov` and name no percentage, so they cannot disagree with the config. Verified
-  to bite: at 90 the run exits 0, at 99 it exits 1. Coverage reads **95.73%** with branch
-  coverage across 85 tests, up from 86% without branch coverage across 50.
-- **The gap was concentrated in `get_measurements_data`, not in `parse_dxf`.** Both
-  `extract_measurements` and `get_measurements_data` walk the same entity list but build
-  different results, so each has its own ARC and LWPOLYLINE branches. Tests for the string
-  renderer left the dictionary builder's equivalents entirely uncovered, which is why the
-  file read 77% while its public API looked well tested.
-- **15 statements in `dxf_parser.py` are provably unreachable and were left uncovered.**
-  Both claims were verified by script rather than by inspection:
-  - `SUPPORTED_ENCODINGS` ends in `latin-1`, which maps every byte value, so the
     `UnicodeDecodeError` fallback after the decode loop can never be reached.
   - `_get_float` catches `ValueError` and `TypeError` itself and returns `0.0`, and
     `math.hypot` on floats does not raise, so the six per-entity
@@ -552,7 +255,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   which covers the NUL byte asyncpg refuses to write), and its suffix must be in
   `ALLOWED_CHAT_FILE_EXTENSIONS`.
 - **The allowlist mirrors the frontend's `ACCEPTED_EXTENSIONS`, not a new policy.** `.pdf`,
-  `.dxf`, `.png`, `.jpg`, `.jpeg` are exactly what `drag-n-drop` offers, so nothing the UI can
+  `.png`, `.jpg`, `.jpeg` are exactly what `drag-n-drop` offers, so nothing the UI can
   produce is refused. The value of the rule is that the extension in the stored key cannot be
   `.sh` or `.html` while the object is declared `application/pdf`, which is what
   `process_attachment` dispatches on. Extensions are compared case-insensitively because
@@ -618,23 +321,18 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   `verify_attachment_id` caches `attachment:ownership:{session}:{id}` for 10 minutes, so
   deleting the row alone would leave the dependency answering for an id that no longer
   exists, and `GET .../attachments/{id}` would serve a presigned URL for a deleted file. The
-  handler therefore drops the status, URL, ownership and PDF-sync keys together with the row.
+  handler therefore drops the status, URL and ownership keys together with the row.
 - **Storage deletion is best-effort and never blocks the row deletion.** `_s3_try_delete`
   from `app.tasks.files` logs and swallows a failure, which is what a delete wants: an object
   that already expired must not leave the row behind. The 7-day lifecycle rule on the
   `attachments/` prefix is the backstop for anything the best-effort path misses.
-- **The delete removes the PDF page artifacts too.** A PDF attachment owns
-  `ProcessingResultUploadable` rows, one per rasterised page, each pointing at its own object
-  under `artifacts/pdf/`. Deleting only `attachment.s3_key` would leave one object per page.
+- **The delete removes derived artifacts too.** An attachment owns
+  `ProcessingResultUploadable` rows, one per file the service derived from it, each pointing
+  at its own object. Deleting only `attachment.s3_key` would leave those behind.
 - **The delete reuses `_s3_try_delete` across modules rather than growing a second copy.**
   `app.routes.chat` imports it from `app.tasks.files` alongside `process_attachment`. The
   underscore says "not part of that module's API", which is true and is the trade being made:
   duplicating the helper would let the two drift on what a delete does about a failure.
-- **Deleting the generated offer also drops the generation result, and that is intended.**
-  `Attachment.generation_result` carries `cascade="all"`, so deleting the attachment the agent
-  produced takes the `GenerationResult` row with it. The alternative is a result that survives
-  and points at a file the download route answers 404 for. `GET /chats/{id}/result` then reports
-  `result: null`, which the frontend already handles.
 - **Known limitation: deleting an attachment mid-processing races the worker.** A worker that
   already read the row can still write a status key for the deleted id. Nothing serves it,
   because the ownership entry is gone and `verify_attachment_id` refuses the id, and the key
@@ -643,29 +341,15 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 ## Admin system prompt editing (2026-10-06)
 
 The admin settings page edits the system prompt over `GET/PUT /api/v1/admin/system-prompt`
-with body `{ "prompt": string }`. The frontend contract is already implemented
-(`AdminSettingsService`, `AdminSettingsPage`); the backend route is still pending — the
-prompt currently lives as the `SYSTEM_PROMPT` constant in `app/harness.py`. When adding the
-endpoint, return the same schema so the page keeps working unchanged.
+with body `{ "prompt": string }`. **Superseded** by "Admin-editable system prompt
+extension" below, which shipped the same idea on the singleton settings row instead of a
+dedicated endpoint.
 
 - **The contract reuses the admin router** (`prefix="/admin"`, `require_admin` dependency) so
   authorization is a one-line `include_router` away and cannot leak to non-admins.
 - **The frontend disables the editor until the prompt loads** instead of showing a blank
   editable field: saving a blank over an unknown prompt would silently wipe the real one.
-## Admin machine parameters editing (2026-10-09)
 
-The settings page edits production norms over `GET/PUT /api/v1/admin/parameters` with the
-`Parameters` shape from `processing/calculator/calc.py`. Same split as the system prompt:
-the frontend contract is implemented (`AdminSettingsService`, second card on
-`AdminSettingsPage`), the backend route is still pending.
-
-- **`max_positions` is immutable and not rendered at all**, so the PUT body
-  (`MachineParametersPayload`) holds only the four editable rates. If the backend ever accepts
-  it, the contract still matches — the page just never sends it.
-- **The form stays disabled until the parameters load**, same rule as the prompt editor:
-  saving defaults over unknown values would silently reset real norms.
-- **Rates must be positive numbers** (`required` + numeric pattern + `min(0.01)`); the form
-  uses `type="number"` inputs with dot decimals, converted with `Number()` on save.
 ## Users form as a slide-over panel (2026-10-09)
 
 The "Новый пользователь" / "Редактирование пользователя" card on the admin users page is no
@@ -726,122 +410,60 @@ panel is `display: none`, otherwise its invisible content would hold open an emp
   the empty extension" are different states and only one of them has a timestamp. `GET` therefore
   reports nulls rather than 404 on an untouched instance, since there is one settings row
   conceptually and it simply holds no value yet.
-- **Reset is `PUT` with an empty string, and an explicit `null` is rejected.** The payload fields
+- **Reset is an empty string, and an explicit `null` is rejected.** The payload fields
   are optional so the next option can be added without disturbing this one, which makes "field
   omitted" and "field is null" both reachable — and they mean opposites, so `null` is a 422, the
   same treatment `AdminEditUserSchema` gives `role` and `username`.
-- **The extension may reference material indices but must not change them, and the prompt says
-  so.** The preamble wrapping the admin's text states that it can override the choice of
-  material (for example by making some unavailable) but cannot add materials or renumber them.
-  This matters because `MATERIALS` order is load-bearing: `material` is an integer index, so a
-  renumbering instruction would corrupt every material in the list for every chat. The bound is
-  the text of the preamble plus the admin tier, not validation — admin-authored prompt text is an
-  accepted prompt-injection surface, limited to accounts that can already reset passwords.
-- **`MAX_PROMPT_EXTENSION_LENGTH` is 8000, which is generous on purpose.** The intended content
-  is site-specific tolerances and a list of unavailable materials, so a tight cap would get in
-  the way; the bound exists to stop a pasted document being appended to every prompt the
-  instance sends. The server `strip()`s what it stores, so trailing whitespace never becomes a
-  dangling heading, and a whitespace-only value is treated as unset by `build_system_prompt`.
-
-## Configurable production rates in the instance settings (2026-10-09, issue #64, follow-up)
-
-- **The four production rates are editable per instance; `max_positions` is not.** The
-  calculator's `Parameters` dataclass has five fields, and only four are exposed. `max_positions`
-  stays fixed at 10 because three separate places assume that number: the backend truncates with
-  `positions[:10]`, `_generate_kp` logs `too_many_positions` above it, and the Russian system
-  prompt tells the model "Позиций может быть максимально 10". Exposing it would have meant an
-  admin-facing field that silently does nothing, or a prompt that contradicts the code. It also
-  drives `range(params.max_positions)` in `_clear_positions`, so a value above 10 reaches parts
-  of the template no test covers. Making it configurable is a separate change that has to move
-  all four together.
-- **Rates live in one JSONB column, not one column per rate.** The set mirrors the `processing`
-  dataclass, and a blob means adding a rate there is a change to that dataclass rather than a
-  migration here. The cost is losing database-level typing on four numbers that are validated by
-  Pydantic and read by one function, which is a trade worth making for a singleton settings row.
-- **A rate set is all-or-nothing, and `null` is the reset.** Every field is required once
-  `parameters` appears, so a payload naming one rate cannot silently return the other three to
-  their defaults — these numbers become prices. Sending `parameters: null` restores the
-  defaults, which is the way back from a bad edit; omitting the key leaves the current rates
-  alone. The route distinguishes the two with `model_fields_set`, so `null` and absent are not
-  conflated.
-- **The API reports the effective rates, not the stored blob.** `GET` on an unconfigured instance
-  returns the calculator's own defaults, so a form renders with real numbers in it. The defaults
-  come from `Parameters` rather than being restated in the schema, and
-  `test_rates_cover_every_editable_parameter` fails if a field is added to the dataclass without a
-  decision about it — otherwise a new rate would be quietly unconfigurable with nothing failing.
-- **Rates reach the workbook through the session, not a fresh query.** `_generate_kp` takes the
-  `AsyncSession` the caller already has and passes a `Parameters` instance into
-  `_generate_kp_job`, which hands it to `process_calculation`. `dataclasses.replace` builds it
-  from `DEFAULT_PARAMETERS`, so a rate the API cannot edit keeps the dataclass value and the reset
-  needs no branch. The dataclass is frozen, which also makes it safe to pass into the worker
-  thread. Nothing is cached: one settings read per generated offer.
-- **`GET /admin/settings` grew a field, so the response shape is no longer just the stored
-  value.** The handler takes the same argument as every other admin mutation and is still not
-  gated by `TEST_INSTANCE_MODE`.
-- **A `RequestValidationError` handler sanitises non-finite numbers.** Starlette's `JSONResponse`
-  writes with `allow_nan=False` and FastAPI's default handler copies the offending input into the
-  error detail, so a body containing a `NaN` literal turned a 422 into a crash — measured, on
-  every route, not only the one that introduced it. The handler replaces non-finite floats with
-  their text form and then applies `jsonable_encoder`, which the default handler also needs and
-  which is what makes error details containing Pydantic objects encodable.
+- **The preamble exists to separate the admin's text from the base prompt, not to constrain it.**
+  It labels the block, so the prompt reads as base instructions followed by an appended
+  extension rather than as one undifferentiated mass. Nothing stops an admin from writing
+  anything, and that is accepted: admin-authored prompt text is a prompt-injection surface
+  by design, bounded only by the admin tier — accounts that can already reset passwords.
+- **`MAX_PROMPT_EXTENSION_LENGTH` is 8000, which is generous on purpose.** The bound exists to
+  stop a pasted document being appended to every prompt the instance sends. The server
+  `strip()`s what it stores, so trailing whitespace never becomes a dangling heading, and a
+  whitespace-only value is treated as unset by `build_system_prompt`.
 
 ## Review fixes to the settings API (2026-10-09, issue #64)
 
-- **The painting rate was inert because the template carried it, not the code.** Laser,
-  bending and welding hours are written into empty cells as `value / rate`, but the template
-  ships `=E{row}/5.53` in every painting-hours cell, and `_write_position` wrote only the area
-  beside it. So `Parameters.painting_rate_m2_per_hour` was configurable in the API and did
-  nothing to any offer. Painting hours are now written like the other three, which makes the
-  template's literal obsolete, and `_clear_positions` clears that cell too — otherwise a second
-  run with fewer positions would keep stale hours, which it could not do while the cell was a
-  formula. The three copies of `res/calc.xlsx` were left alone deliberately: the rate now comes
-  from `Parameters`, so changing the template is no longer how it is configured.
-- **Two concurrent first saves no longer 500.** The singleton row is created by the first PUT,
-  so two admins saving together both read "no row" and both insert `Settings(id=1)`; the loser
-  took a primary-key `IntegrityError` and lost its change to a 500. The loser now rolls back,
-  adopts the row the winner inserted and re-applies its own update, so the last write wins —
-  the same result as two sequential saves. If the competing transaction rolled back too, there
-  is nothing to adopt and the request answers 409 rather than pretending to have saved.
+- **Two concurrent first saves no longer 500.** The singleton row is created by the first
+  write, so two admins saving together both read "no row" and both insert `Settings(id=1)`;
+  the loser took a primary-key `IntegrityError` and lost its change to a 500. The loser now
+  rolls back, adopts the row the winner inserted and re-applies its own update, so the last
+  write wins — the same result as two sequential saves. If the competing transaction rolled
+  back too, there is nothing to adopt and the request answers 409 rather than pretending to
+  have saved.
 - **`admin.id` and the timestamp are read before the rollback, not inside the recovery path.**
   A rollback expires every instance in the session, so touching `admin.id` afterwards triggers
   an implicit refresh that async SQLAlchemy refuses with `MissingGreenlet`. `_apply_settings`
   therefore takes the id and the stamp as plain values, which also means nothing in it can reach
   the database.
 - **`AdminSettingsUpdate` forbids extra fields.** The likeliest mistake in this payload is
-  sending the four rates without their `parameters` wrapper. With extras allowed those keys were
-  ignored, nothing was set, the audit fields were stamped anyway and the caller got a 200 that
-  changed nothing — a silent no-op on a settings screen. Rejecting extras turns it into a 422
- naming the key. This is the same failure this change's own tests hit while being written, so
- the behaviour is now pinned by a test rather than by luck.
+  misspelling a key. With extras allowed the key would be ignored, nothing would be set, the
+  audit fields would be stamped anyway and the caller would get a 200 that changed nothing — a
+  silent no-op on a settings screen. Rejecting extras turns it into a 422 naming the key.
 
 ## Frontend settings page synced to the unified settings endpoint (2026-10-10)
 
 - **The two provisional frontend endpoints never existed on the backend.** The page was built
-  against `GET/PUT /admin/system-prompt` (`{prompt}`) and `GET/PUT /admin/parameters` (bare
-  rates), while the backend shipped the unified `GET/PUT /admin/settings` carrying
-  `{prompt_extension, parameters, last_update_by, last_update_at}`. The service now exposes
-  `getSettings()` plus `updateSettings(patch)` and each card saves a partial body
-  (`{prompt_extension}` or `{parameters: {...}}`), which the backend's `model_fields_set`
-  handling supports. This supersedes the "backend route is still pending" notes in the two
-  earlier frontend sections above; those describe a contract that was never implemented.
-- **The old shapes would have failed, not degraded.** Bare rates without the `parameters`
-  wrapper are rejected with 422 by `extra="forbid"`, and `{prompt}` names a field the schema
-  does not have, so the mismatch surfaced as errors rather than silent drift. No compatibility
+  against `GET/PUT /admin/system-prompt` (`{prompt}`) and `GET/PUT /admin/parameters`, while
+  the backend shipped the unified `GET/PUT /admin/settings`. The service now exposes
+  `getSettings()` plus `updateSettings(patch)` and each card saves a partial body, which the
+  backend's `model_fields_set` handling supports. This supersedes the "backend route is still
+  pending" notes in the two earlier frontend sections above; those describe a contract that was
+  never implemented.
+- **The old shapes would have failed, not degraded.** `extra="forbid"` rejected the unknown
+  keys with 422, so the mismatch surfaced as errors rather than silent drift. No compatibility
   shim was added: both sides are owned by this repo and moved together.
 - **The form refuses to save a blank prompt extension.** `canSave` requires the trimmed
   value to be non-empty, so whitespace-only input never reaches the server as a no-op
-  write. The backend still treats `""` as the reset (reachable with a direct `PUT`), but
+  write. The backend still treats `""` as the reset (reachable with a direct request), but
   the UI offers no "clear the extension" path: an accidental select-all plus save must not
-  silently drop the site's tolerances. The "don't wipe an unknown value" rule is still kept
+  silently drop the configured prompt. The "don't wipe an unknown value" rule is still kept
   separately by disabling the editor until the settings load.
 - **`MAX_PROMPT_EXTENSION_LENGTH` is 8000 on both sides.** The page previously capped at
   20000, which would have passed values the server rejects with 422. The counter threshold
   moved with it (7000), since the old 15000 could never be reached under an 8000 cap.
-- **`max_positions` is gone from the frontend model.** The backend never returns it
-  (`AdminRatesSchema` has four fields), so `MachineParameters` now mirrors those four and
-  `MachineParametersPayload` was removed. The card hint was also corrected: the extension
-  applies to new chats, not to "new messages in all sessions" — in-progress sessions keep the
-  prompt they started with.
 
 ## Shared table component (`app-table`) (2026-10-10)
 
@@ -859,3 +481,55 @@ duplicated per page.
 - `interactiveRows` opts a table into clickable, hover-highlighted rows (history); the
   users table stays non-interactive. Class names `th.sortable` / `.th-content` are kept
   from the pre-refactor markup because both page specs select them.
+
+## Repurposed from a quotation engine to a chat application (2026-10-16)
+
+The project was an AI quotation engine for sheet-metal fabrication: drawings in, a priced
+commercial offer out. It is now a bare chat application with file attachments, awaiting a
+purpose. Every commercial concept is gone. What is recorded here is why each piece went,
+and why what replaced it is there.
+
+- **The LLM contract is `{chat_name, message}` and nothing else.** `positions` and `gen_kp`
+  existed only to carry a calculation result to the workbook generator. With no workbook,
+  they were dead weight in the schema, in the prompt and in the Pydantic model. Structured
+  output stays rather than dropping to free text, because the reply is stored as an
+  assistant message and read back through a schema, and because `chat_name` has to be
+  separable from prose.
+- **The `processing` package is deleted outright** (PDF rasteriser, DXF parser, Excel
+  calculator) rather than left unused. It was the only reason the backend built from the
+  repository root; with it gone each package is its own Docker context, which is simpler
+  and keeps test files out of the image.
+- **The migration history is reset to a single `initial` revision generated from the new
+  models**, rather than edited to drop the two dead pieces. This is only safe because no
+  instance exists yet. The reason to prefer regeneration over a hand-written `drop table`:
+  `settings.parameters` was a JSONB blob and `processing_results` was a table, and a squashed
+  initial has neither to describe. **Once any instance has real data, this is no longer
+  available** — from that point migrations are append-only and dropping a table means a new
+  revision.
+- **`processing_results` is dropped rather than kept as an artifact store.** Its only writer
+  was the DXF parser. A table with no writer is not an extension point, it is dead schema
+  that every future query has to know is always empty.
+- **`_prepare_for_llm` in `tasks/files.py` is a deliberate pass-through.** It is the seam
+  where per-content-type processing belongs, and it returns its input unchanged because
+  nothing needs such a step today. It is kept rather than deleted because the pipeline is
+  meant to be the example to build on: the alternative is a worker whose only job is to
+  hand bytes to the provider, with nothing marking where the interesting work would go. Its
+  docstring says so, and a test pins that it does not silently alter bytes.
+- **`process_pdf` and `process_image` were merged into one `process_document`.** They had
+  become byte-identical apart from their names once rasterising went. Keeping two would have
+  meant two copies of the same body to keep in sync, and a dispatch that selected between
+  them on nothing. `process_attachment` still allowlists content types, which is where a
+  genuinely different preparation step would be added.
+- **`PUT /admin/settings` became `PATCH`.** The body was already partial
+  (`model_fields_set`), so PUT was a claim the endpoint did not honour: it replaced a
+  resource it only partly accepted. PATCH says what it does, and it lets the next setting be
+  added without a client ever having to learn it exists. The concurrent-first-save recovery
+  is unaffected.
+- **The product is named `di:graduation` and the repository `digraduation`.** The rename
+  was mechanical across ~40 files; the one thing worth remembering is that the e2e Compose
+  project name moved with it (`digraduation-e2e`), because Compose derives volume names
+  from it and the specs hard-code it in several places.
+- **The published PostgreSQL port moved from 5431 to 5433.** Both host-side migration
+  scripts set `POSTGRES_HOST=localhost`, so 5432 would have meant autogenerating against
+  whatever PostgreSQL the developer happens to be running — producing a migration for
+  somebody else's schema, silently.

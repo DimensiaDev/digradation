@@ -4,8 +4,8 @@
 > Read this file in full before making a change. It describes how this project
 > actually works, not how it ideally would.
 
-**Repo:** `digraduation` — AI-assisted quotation engine for sheet-metal fabrication
-**Product language:** Russian (all UI strings, LLM prompt, Excel sheet names)
+**Repo:** `digraduation` — chat application with file attachments
+**Product language:** Russian (all UI strings, LLM prompt)
 **Code language:** English (identifiers, comments, docs)
 
 ---
@@ -16,12 +16,12 @@ These five rules override any other instinct you have.
 
 | # | Rule |
 |---|---|
-| 1 | **All Python dependencies are added via `poetry add`.** Never hand-edit `pyproject.toml` dependencies, never write a `requirements.txt`. Use `poetry add <pkg>` (runtime) or `poetry add --group dev <pkg>` (dev) from the relevant package directory (`backend/` or `processing/`). Commit the updated `poetry.lock` with it. |
+| 1 | **All Python dependencies are added via `poetry add`.** Never hand-edit `pyproject.toml` dependencies, never write a `requirements.txt`. Use `poetry add <pkg>` (runtime) or `poetry add --group dev <pkg>` (dev) from `backend/`. Commit the updated `poetry.lock` with it. |
 | 2 | **All frontend dependencies are added via `npm install`.** From `frontend/`, use `npm install <pkg>` (runtime) or `npm install -D <pkg>` (dev). Commit `frontend/package-lock.json` with it. Never hand-edit dependency versions in `package.json`; let npm resolve them and write the lockfile. |
-| 3 | **The full project can only be run via Docker.** `docker compose up -d --build`. There is no supported local run of the application: the backend expects service hostnames (`db`, `redis`, `rabbitmq`, `garage`) and resolves two paths relative to `backend/` as CWD. Never claim the app works without stating how you started it in Docker. |
-| 4 | **Tests may be run locally.** `poetry -C backend run pytest`, `poetry -C processing run pytest -v`, `npm --prefix frontend test`. Backend tests need a running Docker *daemon* (they use testcontainers) but not the full stack. Testcontainers fixtures must **not bind-mount host paths**: on Windows Docker Desktop prompts to share the directory, and a dismissed prompt fails the run with a `pywintypes` error at fixture setup. Use `with_copy_into_container` and `with_tmpfs_mount`. |
-| 5 | **Update `.context/` as you work.** See [section 7](#7-context-directory). A change with no recorded decision or lesson is a change the next agent will re-litigate. |
-| 6 | **Never destroy Docker volumes.** No `docker compose down -v`, no `docker volume prune`, no `docker system prune`. The named volumes hold real state — the PostgreSQL database can contain a developer's accounts, chats and uploaded attachments, and you cannot see whether it does. Ask before removing a volume, even one that looks disposable. `docker compose down` on its own is fine; it leaves volumes alone. |
+| 3 | **The full project can only be run via Docker.** `docker compose up -d --build`. There is no supported local run of the application: the backend expects service hostnames (`db`, `redis`, `rabbitmq`, `garage`) and resolves `res/gigachat-ca.cer` relative to `backend/` as CWD. Never claim the app works without stating how you started it in Docker. |
+| 4 | **Tests may be run locally.** `poetry -C backend run pytest`, `npm --prefix frontend test`. Backend tests need a running Docker *daemon* (they use testcontainers) but not the full stack. Testcontainers fixtures must **not bind-mount host paths**: on Windows Docker Desktop prompts to share the directory, and a dismissed prompt fails the run with a `pywintypes` error at fixture setup. Use `with_copy_into_container` and `with_tmpfs_mount`. |
+| 5 | **Update `.context/` as you work.** See [section 6](#6-context-directory). A change with no recorded decision or lesson is a change the next agent will re-litigate. |
+| 6 | **Never destroy Docker volumes you did not create.** No `docker volume prune`, no `docker system prune`. The named volumes hold real state — the PostgreSQL database can contain a developer's accounts, chats and uploaded attachments, and you cannot see whether it does. `docker compose down -v` is acceptable for a stack you brought up yourself in this session; ask first when in doubt whose data it is. `docker compose down` on its own is always fine. |
 
 ---
 
@@ -30,8 +30,8 @@ These five rules override any other instinct you have.
 ```
 digraduation/
 ├── backend/            FastAPI service + TaskIQ workers     owner @yel-gar
-├── processing/         shared library (PDF, DXF, Excel)     owner @AX-Ray
 ├── frontend/           Angular 21 SPA                        owner @krchvl
+├── e2e/                Playwright suite against the Compose stack
 ├── conf/               infra config: redis.conf, garage.toml, garage init, lifecycle rules, pg init
 ├── scripts/            pre-commit shims for per-package Poetry tools
 ├── .context/           decisions / lessons / project state
@@ -107,8 +107,8 @@ router = APIRouter(
 ### Async, honestly
 
 Everything is `async`. **CPU-bound and blocking work must be offloaded with
-`await asyncio.to_thread(...)`**: PDF rasterising, DXF parsing, xlsx generation, Pillow
-resizing. Never block the event loop.
+`await asyncio.to_thread(...)`**: attachment preparation in `tasks/files.py`, Pillow
+resizing, anything you add to `_prepare_for_llm`. Never block the event loop.
 
 ### Docstrings are part of the API contract
 
@@ -129,22 +129,7 @@ with `log = log.bind(attachment_id=...)`. Never use `print()`.
 
 ---
 
-## 3. Processing conventions
-
-Separate Poetry package with `src/` layout, imported by the backend via the path
-dependency `processing @ ../processing`.
-
-- Prefer pure functions. `calc.py` is bytes-in / bytes-out with no I/O; keep it that way.
-- The DXF parser is hand-rolled (no `ezdxf`); supported encodings are listed in
-  `SUPPORTED_ENCODINGS`. Do not add a parser dependency without asking.
-- Excel sheet names are Russian (`Расчёт`, `Цены на металл`). They are part of the
-  business output; do not "fix" them to English.
-- Production norms (laser 10.0 m/h, welding 2.0 m/h, bending 84 bends/h, painting
-  5.53 m²/h) live as named constants.
-
----
-
-## 4. Frontend conventions
+## 3. Frontend conventions
 
 **Stack:** Angular 21.2 standalone, signals, TypeScript 5.9 strict, SCSS.
 
@@ -153,7 +138,7 @@ dependency `processing @ ../processing`.
 | Folder | Holds |
 |---|---|
 | `core/` | singletons: `services/`, `guards/`, `interceptors/`, `models/` |
-| `features/` | route-level feature areas (`calculation-chat/`, `order-create/`) |
+| `features/` | route-level feature areas (`chat/`, `chat-create/`) |
 | `pages/` | routed pages (`login-page/`, `history-page/`, `profile-page/`, `admin/`) |
 | `shared/` | reusable components and utils |
 
@@ -198,7 +183,7 @@ dependencies lazy too.
 
 ---
 
-## 5. Docker and environment
+## 4. Docker and environment
 
 ### Bringing the stack up
 
@@ -208,8 +193,9 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-Dev hot-reload (this override also publishes PostgreSQL on port **5431**, which is
-required for migrations):
+Dev hot-reload (this override also publishes PostgreSQL on port **5433**, which the
+host-side migration scripts need — never 5432, which a developer may already be
+using for their own PostgreSQL):
 
 ```bash
 cp docker-compose.override.yml{.dev,}
@@ -263,28 +249,43 @@ Five things about Garage are not obvious and will cost you an hour if you redisc
   permissive default, so this only surfaced after the migration. `garage bucket` has no
   `cors` subcommand; the rules go over the S3 API from `apply_s3_config.py`.
 
-The buckets are still `avatars` and `uploads`, and the lifecycle rules are still the same
-three prefix-scoped expirations. Garage implements `Expiration` and
-`AbortIncompleteMultipartUpload` only, which is all this project uses; it has no ACL API at
-all, and buckets are private unless a key is granted access.
+There are three buckets, and the list is declared in three places that must agree:
+`conf/garage-init.sh` (creates them), `backend/apply_s3_config.py` (applies their rules
+and CORS), and `backend/tests/conftest.py` (the testcontainer).
 
-### Two CWD-sensitive paths
+| Bucket | Holds | Retention |
+|---|---|---|
+| `avatars` | normalised profile pictures | unprocessed uploads expire after 1 day |
+| `uploads` | files a user attaches to a chat | expire after 7 days |
+| `artifacts` | files the service derives from uploads | expire after 1 day |
+
+Garage implements `Expiration` and `AbortIncompleteMultipartUpload` only, which is all
+this project uses; it has no ACL API at all, and buckets are private unless a key is
+granted access.
+
+### One CWD-sensitive path
 
 | Path | Consumer |
 |---|---|
 | `res/gigachat-ca.cer` | `providers/sber.py`, relative path, requires CWD == `backend/` |
-| `res/calc.xlsx` | `tasks/api.py`, via `Path(__file__).parent.parent.parent / "res/calc.xlsx"` |
 
-Both Dockerfiles handle this with `WORKDIR /app`. Follow the same pattern for any new
+The Dockerfile handles this with `WORKDIR /app`. Follow the same pattern for any new
 resource file.
+
+### Build contexts are per-package
+
+`backend` builds from `backend/`, `frontend` from `frontend/`, the Garage bootstrap
+from `conf/`. Nothing builds from the repository root, so there is no root
+`.dockerignore`; each context carries its own.
 
 ### `.env` is secret
 
-Never commit `.env`; use `.env.example`. Generate secrets with `openssl rand -hex 48`.
+Never commit `.env`; use `.env.example`. Generate secrets with `openssl rand -hex 48`,
+except `GARAGE_RPC_SECRET` and `GARAGE_ADMIN_TOKEN`, which need `openssl rand -hex 32`.
 
 ---
 
-## 6. Quality gates
+## 5. Quality gates
 
 Run all of these **before** proposing a change is done.
 
@@ -312,7 +313,7 @@ reads and enforces.
 **To change the gate:** edit `fail_under` in `backend/pyproject.toml`. Nothing else names
 a percentage. Verified to bite: at `fail_under = 90` the run exits 0, at `99` it exits 1.
 
-Current coverage is **98.79%** statements across 308 tests. Branch coverage is on
+Current coverage is **99.33%** statements across 353 tests. Branch coverage is on
 (`branch = true`) and `source = ["app"]`. Coverage artifacts (`.coverage*`, `coverage.json`,
 `coverage.xml`, `htmlcov/`) are gitignored.
 
@@ -324,13 +325,12 @@ without credentials and without LLM cost. Its behaviour is set by `MOCK_PROVIDER
 
 | Mode | Behaviour | Used to exercise |
 |---|---|---|
-| `kp` (default) | a complete offer with positions | the happy path, e2e |
-| `clarify` | empty `positions` | the clarification loop |
+| `ok` (default) | a well-formed reply and a chat name | the happy path, e2e |
 | `empty` | a response with no content | "Provider did not respond properly" |
 | `error` | returns `None` | the backend's error path |
 
-Output is deterministic: numbers derive from a hash of the conversation, so the same
-input always yields the same spreadsheet.
+Output is deterministic: the reply derives from a hash of the conversation, so the same
+input always yields the same text.
 
 ### Live API tests
 
@@ -340,25 +340,6 @@ Tests marked `live` hit the real GigaChat and **are deselected by default** via
 ```bash
 SBER_API_KEY=<real-key> SBER_API_SCOPE=PERS poetry -C backend run pytest -m live
 ```
-
-### Processing
-
-```bash
-poetry -C processing run black --check src tests
-poetry -C processing run ruff check src tests
-poetry -C processing run pytest -v
-poetry -C processing run pytest --cov        # with a branch-coverage report
-```
-
-Processing coverage is measured with `pytest-cov` and **enforced at 90%**, single-sourced the
-same way as the backend: `fail_under` in `processing/pyproject.toml`, read by pytest-cov, so
-neither the `pytest-coverage-processing` pre-push hook nor
-`.github/workflows/processing-coverage.yml` names a percentage. Verified to bite: at 90 the run
-exits 0, at 99 it exits 1.
-
-Current coverage is **95.73%** with branch coverage across 85 tests. It will not reach 100%,
-and that is deliberate: 15 statements in `dxf_parser.py` are provably unreachable (see
-`.context/DECISIONS.md`). Do not write tests to chase them.
 
 ### End-to-end (Playwright)
 
@@ -394,7 +375,7 @@ Two constraints worth knowing before adding a spec:
   before each test and `workers: 1` keeps the tests serial. Adding a chat-creating test
   without those will produce a 429 and a test that fails with a confusing "did not
   navigate" error.
-- **The mock provider names every chat the same** (`Расчёт КП (mock)`), so identify a
+- **The mock provider names every chat the same** (`Чат (mock)`), so identify a
   session by its URL id, not by its title.
 
 ### Frontend
@@ -427,8 +408,8 @@ target in `frontend/angular.json`. The builder enforces it and exits non-zero, s
 percentage is hardcoded in the hook or the workflow. Verified to bite: at `statements: 90`
 the run exits 0, at `95` it exits 1.
 
-Current coverage is **90.24% statements / 84.93% branches / 90.13% functions** across
-305 tests. Note that `coverageInclude` counts untested files at 0%, so the number is
+Current coverage is **90.87% statements / 85.85% branches / 90.74% functions** across
+377 tests. Note that `coverageInclude` counts untested files at 0%, so the number is
 honest rather than flattering.
 
 > **Test setup:** `src/test-setup.ts` is registered through the builder's `setupFiles`
@@ -445,15 +426,24 @@ Any change to `app/models/` **must** ship a migration. `tests/test_migrations.py
 drift. Generate one with:
 
 ```bash
-./backend/makemigrations.sh "short description"
+./backend/makemigrations.sh "short description"   # or makemigrations-local.ps1 on Windows
 ```
+
+Both scripts need the dev override in place, because they reach PostgreSQL from the
+host on **5433**. They start `db` if it is not already running and stop it again on the
+way out.
 
 Note that `alembic/versions/` is **excluded** from black and ruff. Do not reformat
 generated files.
 
+**Postgres enum types are not owned by the column.** `drop_table` drops the column,
+not the type, so a `downgrade base` that does not also drop the enum leaves it behind
+and the next `upgrade head` fails on `CREATE TYPE ... already exists`. Every migration
+that introduces an enum must drop it in `downgrade()` with `checkfirst=True`.
+
 ---
 
-## 7. `.context/` directory
+## 6. `.context/` directory
 
 `.context/` is the project's memory. **Every meaningful change updates it.** Three flat
 files, no subdirectories:
@@ -478,7 +468,7 @@ Rules for writing them:
 
 ---
 
-## 8. `.agents/skills/` directory
+## 7. `.agents/skills/` directory
 
 Task-specific playbooks live in `.agents/skills/<skill-name>/SKILL.md`, each with YAML
 frontmatter (`name`, `description`) and progressive disclosure through a `references/`
@@ -521,7 +511,7 @@ this repository, including both `digraduation-overrides.md` files, is emoji-free
 | `taskiq-workers` | project | Adding or changing a background job, queue assignment, or schedule |
 | `python-testing` | project | Writing tests or fixtures, or debugging test failures |
 | `angular` | third-party | Writing components, services, signals, templates, or styles |
-| `frontend-file-preview` | project | Working on the docx/xlsx/pdf/image preview and its lazy dependencies |
+| `frontend-file-preview` | project | Working on the docx/xlsx/pdf/image preview and its lazy dependencies, or the upload flow |
 | `docker-compose` | project | Changing services, Dockerfiles, env plumbing, or the dev overrides |
 | `e2e-playwright` | project | Writing or debugging an end-to-end spec, or changing the e2e stack override |
 | `parallel-issues` | project | Running several issues at once via worktrees and subagents |
@@ -569,7 +559,7 @@ order, and the traps that this workflow has actually hit.
 
 ---
 
-## 9. Commits and branches
+## 8. Commits and branches
 
 **[Conventional Commits](https://www.conventionalcommits.org/)**, enforced by
 `commitlint.config.js` through the `commit-msg` pre-commit hook.
@@ -599,7 +589,7 @@ refactor!: drop the legacy parser shim
 | `chore` | housekeeping |
 | `!` after type or scope, plus a `BREAKING CHANGE:` footer | breaking change |
 
-Observed scopes: `backend`, `frontend`, `processing`, `ci`. Branch prefixes in use: `jut/`,
+Observed scopes: `backend`, `frontend`, `ci`. Branch prefixes in use: `jut/`,
 `feat/`, `fix/`, `docs/`, `feature/`.
 
 ### Keep commit messages short
@@ -634,7 +624,7 @@ follow.
 
 ---
 
-## 10. Things that will bite you
+## 9. Things that will bite you
 
 1. **`providers/containers.py` constructs the provider at import time.** Importing any
    task or route module requires `SBER_API_KEY` and `SBER_API_SCOPE` to exist. The tests
@@ -643,18 +633,20 @@ follow.
    deterministic-looking response in tests or e2e, that is the mock provider, not a real
    model. Use `MOCK_PROVIDER_MODE` to change its behaviour.
 2. **The app must run with CWD == `backend/`.** See the CWD-sensitive paths in section 5.
-3. **The LLM prompt is Russian and drives the output schema.** `harness.py` defines
-   `MATERIALS` (27 indexed steel grades) and `HARNESS_STRUCTURED_SCHEMA`. The `material`
-   field is an **integer index into that list**, so changing the list order silently
-   corrupts every material. If you add one, append and record it in `DECISIONS.md`.
-   Admins can now append their own text to the prompt through `PUT /admin/settings`;
-   `PROMPT_EXTENSION_PREAMBLE` is what stops that text renumbering materials, so do not
-   reword it into something vaguer.
-4. **`TEST_INSTANCE_MODE` blocks admin mutations with HTTP 450**, except `PUT
+3. **The LLM prompt and the output schema are two halves of one contract.**
+   `harness.py` holds `SYSTEM_PROMPT`, `PROMPT_EXTENSION_PREAMBLE` and
+   `HARNESS_STRUCTURED_SCHEMA`; `providers/models.py` holds the Pydantic model the reply
+   is validated against. Change one and you must change the other, or every reply
+   becomes a validation error. The schema is currently `{chat_name, message}`.
+   Admins append their own text to the prompt through `PATCH /admin/settings`, and
+   `build_system_prompt` composes it once per session at creation time.
+4. **`TEST_INSTANCE_MODE` blocks admin mutations with HTTP 450**, except `PATCH
    /admin/settings`, which is allowed on purpose. This non-standard code will look like a
    typo in any frontend `switch`. It is intentional.
-5. **The root `parser/` directory is dead.** It contains only `__pycache__`. The real code
-   is in `processing/`. Do not add anything there and do not import from it.
+5. **`_prepare_for_llm` in `tasks/files.py` is a deliberate pass-through.** It is the seam
+   where per-content-type processing goes, and it returns its input unchanged because
+   nothing needs one today. Do not "implement" it speculatively, and do not delete it
+   either: it documents where that work belongs.
 6. **The frontend suite runs in CI** via `npx ng test --watch=false` in
    `frontend-ci.yml`. `--watch=false` is passed explicitly because the builder defaults watch
    mode to `true` in TTY environments; without it an interactive run hangs.
@@ -665,13 +657,12 @@ follow.
 
 ---
 
-## 11. Pre-submission checklist
+## 10. Pre-submission checklist
 
 - [ ] Dependencies added with `poetry add` / `npm install`, lockfiles committed
 - [ ] `black --check` and `ruff check` clean in every touched Python package
 - [ ] `pytest` green in every touched Python package (backend gate: 90% coverage)
 - [ ] `poetry -C backend run pytest --cov` run if backend code changed; still at or above 90%
-- [ ] `poetry -C processing run pytest --cov` run if processing code changed; still at or above 90%
 - [ ] `ng lint`, `ng build` and `vitest` green if the frontend was touched
 - [ ] `npx ng test --coverage` run if frontend code changed; still at or above 90%
 - [ ] Migration added if any ORM model changed (`alembic check` proves it)

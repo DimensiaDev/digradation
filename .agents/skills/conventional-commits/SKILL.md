@@ -42,8 +42,8 @@ message blocks the commit locally and fails CI remotely.
 
 ## Scopes
 
-Observed in this repository's history: `backend`, `frontend`, `processing`, `ci`. Use the
-top-level package name, not a module name, unless a module is genuinely independent.
+Observed in this repository's history: `backend`, `frontend`, `ci`. Use the top-level
+package name, not a module name, unless a module is genuinely independent.
 
 ## Examples drawn from real history
 
@@ -55,7 +55,7 @@ fix(frontend): sliding active-pill indicator for xlsx sheet tabs
 docs: add missing npm install instruction to dev setup
 ci(backend): pre-commits checks
 ci!: temporarily remove minio from images
-refactor(processing): extract shared parsing helpers
+refactor(backend)!: replace the quotation harness with a generic chat contract
 test(backend): cover TEST_INSTANCE_MODE guards
 ```
 
@@ -64,10 +64,10 @@ test(backend): cover TEST_INSTANCE_MODE guards
 Mark with `!` after the type or scope, and add a footer:
 
 ```
-refactor(api)!: remove the legacy parser endpoint
+refactor(backend)!: reset the migration history
 
-Superseded by processing.parser. Callers must migrate to
-POST /api/v1/chats/{id}/messages.
+Superseded by a single initial revision. Instances created before this
+must be recreated from an empty database.
 ```
 
 ## Good subjects
@@ -76,8 +76,8 @@ State what changed and where. "fix: bug in upload" is useless three weeks later.
 
 ```
 fix(backend): release the chats:global lock when generation times out
-feat(frontend): show per-position hours in the results panel
-fix(processing): handle DXF POLYLINE with closed flag
+feat(frontend): show the agent's reply in the transcript
+fix(backend): drop the pdf sync key when an attachment is deleted
 ```
 
 ## Branch naming

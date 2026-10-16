@@ -44,9 +44,10 @@ via `pkgutil`; never add manual imports. See the `sqlalchemy-async` skill.
 
 ## 4. Blocking work must be offloaded
 
-`await asyncio.to_thread(...)` for PyMuPDF, openpyxl, Pillow, the DXF parser. Never block
-the event loop. The generic guide's advice about sync `def` endpoints for threadpool
-execution does **not** apply: every handler here is `async def`.
+`await asyncio.to_thread(...)` for Pillow and for whatever goes into
+`_prepare_for_llm` in `tasks/files.py`. Never block the event loop. The generic guide's
+advice about sync `def` endpoints for threadpool execution does **not** apply: every
+handler here is `async def`.
 
 ## 5. Logging is structlog, never print
 
@@ -82,8 +83,9 @@ Chat routes carry a multi-line docstring **and** a `responses={...}` map for 401
   `os.environ`, so importing any route module requires `SBER_API_KEY` and `SBER_API_SCOPE`.
 - **Python 3.14 floor:** PEP 758 brace-less `except ValueError, TypeError:` is valid and is
   what black emits at `target-version = "py314"`. Do not add parentheses.
-- The LLM contract lives in `app/harness.py`. `MATERIALS` order is a data contract because
-  the model returns `material` as an integer index. Append only.
+- The LLM contract is two halves that must agree: `HARNESS_STRUCTURED_SCHEMA` in
+  `app/harness.py` is what the model is asked for, and `HarnessStructuredOutput` in
+  `app/providers/models.py` is what the reply is validated against.
 
 ## 9. Testing
 
@@ -107,7 +109,7 @@ Chat routes carry a multi-line docstring **and** a `responses={...}` map for 401
 
 ## 10. Dependencies
 
-Add Python dependencies with **`poetry add`** from `backend/` or `processing/`, never by
+Add Python dependencies with **`poetry add`** from `backend/`, never by
 hand-editing `pyproject.toml`. There is no `requirements.txt` and no `uv`.
 
 ## 11. Verify

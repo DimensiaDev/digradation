@@ -1,6 +1,6 @@
 ---
 name: python-testing
-description: Conventions for pytest, pytest-asyncio, testcontainers and fixtures in the digraduation backend and processing packages. Use when writing tests, adding fixtures, or debugging a failing test suite.
+description: Conventions for pytest, pytest-asyncio, testcontainers and fixtures in the digraduation backend. Use when writing tests, adding fixtures, or debugging a failing test suite.
 ---
 
 # Python testing — digraduation conventions
@@ -13,8 +13,7 @@ testcontainers for PostgreSQL and Redis.
 ```bash
 poetry -C backend run pytest                                  # needs a Docker daemon
 poetry -C backend run pytest --cov                            # branch-coverage report
-poetry -C backend run pytest tests/test_migrations.py          # the migration drift gate
-poetry -C processing run pytest -v                             # pure, no Docker
+poetry -C backend run pytest tests/test_migrations.py         # the migration drift gate
 ```
 
 **Tests may be run locally.** The full application may not; see AGENTS.md.
@@ -24,7 +23,7 @@ poetry -C processing run pytest -v                             # pure, no Docker
 - `pytest-cov` is a `dev` dependency of the backend package. `source = ["app"]` with
   `branch = true`.
 - The threshold is `fail_under` in `backend/pyproject.toml`, currently **90**, so coverage
-  is enforced. It reads 98.79% today. To change the gate, edit that one value; the pre-push
+  is enforced. It reads 99.33% today. To change the gate, edit that one value; the pre-push
   hook and the CI workflow name no percentage.
 - `addopts = "-m 'not live'"` deselects the `live` tests, which hit the real GigaChat and
   cost money. Opt in with `SBER_API_KEY=<real> poetry -C backend run pytest -m live`.
@@ -40,8 +39,6 @@ poetry -C processing run pytest -v                             # pure, no Docker
 ## Layout and naming
 
 - `backend/tests/test_*.py`, flat, with `tests/__init__.py` present.
-- `processing/tests/test_*.py` plus `processing/tests/conftest.py`, which inserts
-  `processing/src` into `sys.path` so the tests run without installing the package.
 - `pyproject.toml` sets `testpaths = ["tests"]`, `asyncio_mode = "auto"`, and both
   `asyncio_default_fixture_loop_scope` and `asyncio_default_test_loop_scope` to `"session"`.
 
@@ -133,18 +130,16 @@ Available from `conftest.py` (see the file for the full set):
 
 ## Language version: Python 3.14
 
-Both Poetry projects pin `requires-python = ">=3.14,<4"`, and black and ruff are set to
+The backend pins `requires-python = ">=3.14,<4"`, and black and ruff are set to
 `target-version = ["py314"]`. Syntax that looks archaic can therefore be correct.
 
 The one that bites: **PEP 758 allows `except ValueError, TypeError:` without parentheses.**
-It appears in `processing/src/processing/calculator/calc.py` and six times in
-`processing/src/processing/parser/dxf_parser.py`, and black with `target-version = "py314"`
-formats it exactly that way.
+Black with `target-version = "py314"` formats it exactly that way, so do not "fix" it.
 
 ```python
 # correct here, and what black produces -- do not "fix" it
 try:
-    prices[str(name).strip()] = float(value)
+    value = float(raw)
 except ValueError, TypeError:
     continue
 ```

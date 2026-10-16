@@ -13,7 +13,7 @@ application; see the reasoning in `.context/DECISIONS.md`.
 | Service | Image / build | Role |
 |---|---|---|
 | `frontend` | `./frontend`, build arg `BACKEND_URL` | nginx serving the Angular bundle, proxies `/api` |
-| `backend` | context `.`, `backend/Dockerfile` | FastAPI + uvicorn on port 3000 |
+| `backend` | context `./backend`, `backend/Dockerfile` | FastAPI + uvicorn on port 3000 |
 | `migrate` | same image | one-shot `alembic upgrade head` |
 | `scheduler` | same image | TaskIQ scheduler |
 | `worker_default` | same image, x2 replicas | `default` queue |
@@ -69,11 +69,10 @@ the destructive command at a throwaway project name.
 FROM python:3.14-alpine
 RUN apk add --no-cache libstdc++
 RUN pip install poetry==2.4.3 uvicorn==0.52.4
-COPY backend/pyproject.toml backend/poetry.lock /app/
 WORKDIR /app
-COPY processing/ /processing/
+COPY pyproject.toml poetry.lock /app/
 RUN poetry install --only main --no-root
-COPY backend/ .
+COPY . .
 RUN chmod +x entrypoint.sh
 CMD ["./entrypoint.sh"]
 ```
@@ -83,8 +82,9 @@ CMD ["./entrypoint.sh"]
 - `uvicorn` is pinned and `pip`-installed in the image; it is deliberately **not** a project
   dependency.
 - Production installs use `--only main --no-root`; CI uses `poetry install --no-root`.
-- `COPY processing/ /processing/` exists because `backend` depends on it as the path
-  dependency `processing @ ../processing`. Keep them in sync.
+- **The build context is `backend/`**, so every `COPY` is relative to it and nothing outside
+  the package enters the image. `backend/.dockerignore` keeps `tests/` out. Nothing builds
+  from the repository root, so there is no root `.dockerignore`.
 - `frontend/Dockerfile` takes `ARG BACKEND_URL` and runs `node docker/rewrite-env.mjs` before
   `npm run build`, which is how the API base URL reaches the bundle.
 
@@ -94,7 +94,7 @@ Two overrides ship, and the resulting `docker-compose.override.yml` is **gitigno
 
 | Source | Effect |
 |---|---|
-| `docker-compose.override.yml.dev` | bind mounts `./backend` and `./frontend`, forced polling watchers, and publishes PostgreSQL on host port **5431** |
+| `docker-compose.override.yml.dev` | bind mounts `./backend` and `./frontend`, forced polling watchers, and publishes PostgreSQL on host port **5433** (never 5432: a developer may already be running PostgreSQL there, and the host-side migration scripts would then target the wrong database) |
 | `docker-compose.override.yml.memlim` | per-service `mem_limit` values; no limits by default |
 
 The `.dev` override is what makes `backend/makemigrations.sh` work, because Alembic runs from

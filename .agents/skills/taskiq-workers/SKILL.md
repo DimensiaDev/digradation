@@ -12,11 +12,11 @@ database `/1`, dashboard at `http://taskiq_dashboard:8000`.
 
 | Queue | Nature | Use it for |
 |---|---|---|
-| `default` | local, CPU-bound | DXF parsing, PDF rasterising, avatar normalisation, result processing, cleanup crons |
-| `network` | outbound GigaChat calls | `generate_chat_message`, `upload_pdf_image` |
+| `default` | local, CPU-bound | attachment preparation, avatar normalisation, result processing, cleanup crons |
+| `network` | outbound GigaChat calls | `generate_chat_message` |
 
 This matters because the `network` queue is bounded by external API latency. Keeping it
-separate means a slow or rate-limited GigaChat cannot starve DXF parsing or the cleanup
+separate means a slow or rate-limited GigaChat cannot starve attachment preparation or the cleanup
 crons. Pool sizes are independent (`worker_default` x2, `worker_network` x2).
 
 ## Defining a task
@@ -31,7 +31,7 @@ log = structlog.stdlib.get_logger(__name__)
 
 
 @broker.task(queue_name="default")
-async def process_dxf(attachment_id: int) -> None:
+async def process_document(attachment_id: int) -> None:
     log = log.bind(attachment_id=attachment_id)
     async with tsq_db() as session:
         ...
@@ -51,7 +51,7 @@ images = await asyncio.to_thread(converter.convert, pdf_path)
 result = await asyncio.to_thread(process_calculation, template_bytes, params)
 ```
 
-This applies to PyMuPDF rasterising, the DXF parser, `openpyxl` workbook writing and Pillow
+This applies to anything in `_prepare_for_llm` and to Pillow
 resizing. Never call these directly inside an async task; a single one blocks the whole
 worker's event loop.
 
@@ -94,12 +94,8 @@ frontend polls every 2 s (`AttachmentUploadService`, up to 150 attempts).
 | `process_response` | `tasks/api.py` | `default` | none |
 | `cleanup_old_results` | `tasks/api.py` | `default` | 1 hour |
 | `process_attachment` | `tasks/files.py` | `default` | none |
-| `process_pdf` | `tasks/files.py` | `default` | none |
-| `process_dxf` | `tasks/files.py` | `default` | none |
-| `process_image` | `tasks/files.py` | `default` | none |
+| `process_document` | `tasks/files.py` | `default` | none |
 | `process_avatar` | `tasks/files.py` | `default` | none |
-| `upload_pdf_image` | `tasks/files.py` | `network` | none |
-| `pdf_upload_cleanup` | `tasks/files.py` | `default` | none |
 | `cleanup_orphan_attachments` | `tasks/files.py` | `default` | 1 hour |
 | `cleanup_stale_results` | `tasks/files.py` | `default` | 1 hour |
 | `cleanup_expired_sessions` | `tasks/users.py` | `default` | 10 minutes |
