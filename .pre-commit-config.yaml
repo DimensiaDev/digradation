@@ -5,8 +5,15 @@ repos:
       - id: check-yaml
       - id: check-json
         exclude: ^frontend/tsconfig.*\.json
+      # Generated migrations are left exactly as Alembic writes them. Black and
+      # ruff are force-excluded in backend/pyproject.toml; these two would strip
+      # the trailing space after `Revises:` that Alembic's own template emits, so
+      # every freshly generated revision would fail the hooks until someone
+      # reformatted a file the repo says not to reformat.
       - id: end-of-file-fixer
+        exclude: ^backend/alembic/versions/
       - id: trailing-whitespace
+        exclude: ^backend/alembic/versions/
       - id: check-toml
 
   - repo: local
