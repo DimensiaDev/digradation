@@ -23,6 +23,10 @@ services:
       SBER_API_SCOPE: "PERS"
       MOCK_PROVIDER_MODE: "${E2E_MOCK_MODE:-ok}"
       DEBUG: "0"
+      # Presigned upload and download URLs are built from S3_PUBLIC_URL, and the
+      # browser follows them straight to object storage. It has to point at the
+      # port `garage` publishes below, not at the dev default of 3900.
+      S3_PUBLIC_URL: "http://localhost:${E2E_S3_PORT:-13900}"
 
   migrate:
     environment:
@@ -51,4 +55,11 @@ services:
     ports: !reset []
 
   garage:
-    ports: !reset []
+    # The one port that MUST be published: the browser uploads and downloads
+    # through presigned URLs, so nothing in the container boundary can stand in
+    # for it. It gets a dedicated port rather than the dev 3900 for the same
+    # reason the frontend gets 18080 -- a running dev stack holds 3900, and a
+    # test that quietly reaches the developer's Garage proves nothing.
+    # `!override`, not `!reset []`, for the merge reason spelled out above.
+    ports: !override
+      - "${E2E_S3_PORT:-13900}:3900"

@@ -356,7 +356,7 @@ cd e2e && npx playwright test --ui
 |---|---|
 | Specs | `e2e/tests/*.spec.ts` |
 | Config | `e2e/playwright.config.ts` |
-| Stack override | `docker-compose.override.yml.e2e` (forces `SBER_API_KEY=mock`, moves the frontend to port 18080) |
+| Stack override | `docker-compose.override.yml.e2e` (forces `SBER_API_KEY=mock`, moves the frontend to port 18080, publishes Garage's S3 port on 13900 so the browser can reach the presigned URLs) |
 | Seed + stack | `e2e/scripts/setup.sh` (creates the `e2e` superuser, clears rate limits) |
 | CI | `.github/workflows/e2e.yml` |
 

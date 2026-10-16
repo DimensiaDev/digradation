@@ -663,3 +663,17 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   contain `di:graduation`, so a single pattern with the longer form first would silently miss
   the brand mark: `sed -i 's/digraduation/digradation/g; s/di:graduation/di:gradation/g'`
   handles both because neither pattern contains the other.
+- **An e2e spec that uploads through the browser needs the S3 port published, and a dev
+  stack on 3900 hides the fact that it does not.** `docker-compose.override.yml.e2e` used to
+  `ports: !reset []` Garage, so nothing listened on `S3_PUBLIC_URL`; the three
+  `attachments.spec.ts` specs failed with a file that never appeared, while passing on any
+  machine where a development stack already held 3900 — which is why they survived a green
+  local run and could not have passed in CI. Fixed 2026-10-16: Garage publishes
+  `${E2E_S3_PORT:-13900}` and the backend's `S3_PUBLIC_URL` is rewritten to match, on a
+  dedicated port so it cannot collide with a dev stack. **Nothing inside the Compose network
+  can stand in for a presigned URL: the browser leaves the network to follow it.**
+- **Garage refuses a key id whose secret changed, which makes a stale e2e volume look like a
+  bootstrap bug.** Re-running `setup.sh` with a freshly generated `S3_SECRET_KEY` against an
+  existing `digradation-e2e_garage_metadata` volume fails with `key ... exists but does not
+  match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the e2e project
+  from empty volumes (`down -v`, which is safe only for a project you brought up yourself).

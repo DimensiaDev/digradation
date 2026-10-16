@@ -90,12 +90,13 @@ CMD ["./entrypoint.sh"]
 
 ## Override files
 
-Two overrides ship, and the resulting `docker-compose.override.yml` is **gitignored**:
+Three overrides ship, and the resulting `docker-compose.override.yml` is **gitignored**:
 
 | Source | Effect |
 |---|---|
 | `docker-compose.override.yml.dev` | bind mounts `./backend` and `./frontend`, forced polling watchers, and publishes PostgreSQL on host port **5433** (never 5432: a developer may already be running PostgreSQL there, and the host-side migration scripts would then target the wrong database) |
 | `docker-compose.override.yml.memlim` | per-service `mem_limit` values; no limits by default |
+| `docker-compose.override.yml.e2e` | never copied over `docker-compose.override.yml`, only passed with `-f`; moves the frontend to 18080, publishes Garage's S3 port on `${E2E_S3_PORT:-13900}` so the browser can follow the presigned URLs, and forces `SBER_API_KEY=mock` |
 
 The `.dev` override is what makes `backend/makemigrations.sh` work, because Alembic runs from
 the host and needs the database published.

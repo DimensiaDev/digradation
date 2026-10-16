@@ -44,6 +44,14 @@ The frontend port in `docker-compose.override.yml.e2e` uses `ports: !override`, 
 list. Compose **merges** a service's ports across files, so a plain list leaves the base
 file's 8080 binding in place and the container cannot start whenever a dev stack holds it.
 
+**Garage publishes exactly one port, and it is load-bearing: `${E2E_S3_PORT:-13900}`.** The
+browser uploads and downloads through presigned URLs built from `S3_PUBLIC_URL`, so it has to
+leave the Compose network to reach object storage — nothing internal can stand in for it. The
+override therefore rewrites the backend's `S3_PUBLIC_URL` to match, and uses a dedicated port
+so it cannot collide with a dev stack on 3900. Symptom when it is missing: the upload appears
+to succeed, the row never shows up in the files panel, and the spec fails on a 30 s visibility
+timeout.
+
 ## The two rules that will break your test
 
 **1. The backend rate-limits chat creation and message sending to 5 per minute per user**
