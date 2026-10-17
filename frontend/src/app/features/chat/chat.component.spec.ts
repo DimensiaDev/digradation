@@ -273,7 +273,8 @@ describe('Chat behaviour', () => {
     expect(component.lastMessageFailed()).toBe(true);
     expect(component.agentStatus()).toBeNull();
     expect(notifications.error).toHaveBeenCalledWith(
-      'Агент не смог обработать запрос — попробуйте позже'
+      'Агент не смог обработать запрос — попробуйте позже',
+      { description: 'На стороне сервиса произошла ошибка.' }
     );
   });
 
@@ -307,7 +308,9 @@ describe('Chat behaviour', () => {
 
     expect(component.lastMessageFailed()).toBe(true);
     expect(component.agentStatus()).toBeNull();
-    expect(notifications.error).toHaveBeenCalledWith('Агент не ответил — попробуйте позже');
+    expect(notifications.error).toHaveBeenCalledWith('Агент не ответил — попробуйте позже', {
+      description: 'Превышено время ожидания ответа.'
+    });
   });
 
   it('does not duplicate a reply that is already in the history', async () => {
@@ -366,7 +369,9 @@ describe('Chat behaviour', () => {
 
     component.onRetryRequest();
     http.expectOne(`${SEND_URL}/retry`).flush({ message: 'ok' });
-    expect(notifications.success).toHaveBeenCalledWith('Повторный запрос отправлен');
+    expect(notifications.success).toHaveBeenCalledWith('Повторный запрос отправлен', {
+      description: 'Агент обрабатывает запрос заново.'
+    });
   });
 
   it('deletes the session and navigates away', async () => {
@@ -378,7 +383,9 @@ describe('Chat behaviour', () => {
     http.expectOne(SEND_URL).flush({ deleted: true });
     await fixture.whenStable();
 
-    expect(notifications.success).toHaveBeenCalledWith('Сессия удалена');
+    expect(notifications.success).toHaveBeenCalledWith('Сессия удалена', {
+      description: 'Чат и его сообщения удалены безвозвратно.'
+    });
     expect(navigate).toHaveBeenCalledWith(['/create']);
   });
 
@@ -389,12 +396,16 @@ describe('Chat behaviour', () => {
     http
       .expectOne(SEND_URL)
       .flush({ detail: 'Invalid session' }, { status: 403, statusText: 'Forbidden' });
-    expect(notifications.error).toHaveBeenCalledWith('Сессия не найдена или уже удалена');
+    expect(notifications.error).toHaveBeenCalledWith('Сессия не найдена или уже удалена', {
+      description: 'Чат не был удалён — обновите список чатов и попробуйте снова.'
+    });
 
     // A 5xx is normalised to a generic message by extractApiErrorMessage.
     component.deleteSession();
     http.expectOne(SEND_URL).flush({ detail: 'oops' }, { status: 500, statusText: 'Server Error' });
-    expect(notifications.error).toHaveBeenCalledWith('Не удалось удалить сессию: Ошибка сервера');
+    expect(notifications.error).toHaveBeenCalledWith('Не удалось удалить сессию: Ошибка сервера', {
+      description: 'Чат не был удалён — обновите список чатов и попробуйте снова.'
+    });
   });
 
   it('toggles the files panel', () => {
@@ -534,7 +545,9 @@ describe('Chat behaviour', () => {
     fixture.detectChanges();
 
     expect(component.pendingAttachments()).toEqual([]);
-    expect(notifications.success).toHaveBeenCalledWith('Файл «деталь.pdf» удалён');
+    expect(notifications.success).toHaveBeenCalledWith('Файл «деталь.pdf» удалён', {
+      description: 'Файл убран из списка вложений.'
+    });
     expect(fixture.debugElement.query(By.css('[aria-label="Удалить файл"]'))).toBeNull();
   });
 
@@ -559,7 +572,9 @@ describe('Chat behaviour', () => {
       .flush({ detail: 'nope' }, { status: 500, statusText: 'Server Error' });
 
     expect(component.pendingAttachments().length).toBe(1);
-    expect(notifications.error).toHaveBeenCalledWith('Не удалось удалить файл: Ошибка сервера');
+    expect(notifications.error).toHaveBeenCalledWith('Не удалось удалить файл: Ошибка сервера', {
+      description: 'Файл остался в чате — попробуйте ещё раз.'
+    });
   });
 
   it('reloads the staged files once an upload batch finishes', () => {
@@ -585,7 +600,8 @@ describe('Chat behaviour', () => {
       .flush({ detail: 'nope' }, { status: 500, statusText: 'Server Error' });
 
     expect(notifications.error).toHaveBeenCalledWith(
-      'Не удалось загрузить список файлов: Ошибка сервера'
+      'Не удалось загрузить список файлов: Ошибка сервера',
+      { description: 'Попробуйте открыть список вложений ещё раз.' }
     );
     expect(component.pendingAttachments()).toEqual([]);
   });
@@ -596,7 +612,9 @@ describe('Chat behaviour', () => {
     fixture.detectChanges();
     http.expectOne(HISTORY_URL).flush({ detail: 'no' }, { status: 403, statusText: 'Forbidden' });
 
-    expect(notifications.error).toHaveBeenCalledWith('Чат не найден');
+    expect(notifications.error).toHaveBeenCalledWith('Чат не найден', {
+      description: 'Возможно, он был удалён.'
+    });
   });
 
   it('reports a generic history failure', () => {
@@ -608,7 +626,8 @@ describe('Chat behaviour', () => {
       .flush({ detail: 'nope' }, { status: 500, statusText: 'Server Error' });
 
     expect(notifications.error).toHaveBeenCalledWith(
-      'Не удалось загрузить историю чата: Ошибка сервера'
+      'Не удалось загрузить историю чата: Ошибка сервера',
+      { description: 'Обновите страницу или попробуйте позже.' }
     );
   });
 
@@ -672,7 +691,9 @@ describe('Chat behaviour', () => {
     ).attachmentDownload.fetchFile = fetchFile;
 
     component.openAttachmentPreview({ name: 'x.pdf', attachmentId: 9 });
-    expect(notifications.error).toHaveBeenCalledWith('boom');
+    expect(notifications.error).toHaveBeenCalledWith('boom', {
+      description: 'Проверьте соединение и повторите попытку.'
+    });
   });
 
   // --- the handoff from the create page -----------------------------------

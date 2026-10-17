@@ -65,8 +65,8 @@ first extension point if a feature starts deriving files from an upload.
 |---|---|---|
 | Backend | `poetry -C backend run pytest` | 353 tests; needs a Docker daemon |
 | Backend coverage | `poetry -C backend run pytest --cov` | **99.33%** across 353 tests, gated at 90% by `fail_under` |
-| Frontend | `npm --prefix frontend test` | Vitest, 377 tests in 38 files; runs in `frontend-ci.yml` |
-| Frontend coverage | `npx ng test --coverage` | 90.87% stmts, 85.85% branches, 90.74% funcs; gated at 90% |
+| Frontend | `npm --prefix frontend test` | Vitest, 372 tests in 38 files; runs in `frontend-ci.yml` |
+| Frontend coverage | `npx ng test --coverage` | 90.92% stmts, 86.32% branches, 90.68% funcs; gated at 90% |
 | End-to-end | `./e2e/scripts/run.sh` | Playwright against the Compose stack, `SBER_API_KEY=mock`; 26 tests |
 
 **Both coverage gates are enforced at 90%**, each in exactly one place:

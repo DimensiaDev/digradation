@@ -85,13 +85,17 @@ export class ChatCreateComponent {
             err instanceof HttpErrorResponse
               ? extractApiErrorMessage(err)
               : (err.message ?? 'Ошибка сервера');
-          this.notifications.error('Не удалось создать чат: ' + msg);
+          this.notifications.error('Не удалось создать чат: ' + msg, {
+            description: 'Проверьте соединение и попробуйте ещё раз.'
+          });
           return EMPTY;
         })
       )
       .subscribe({
         next: (session_id) => {
-          this.notifications.success('Новый чат создан');
+          this.notifications.success('Новый чат создан', {
+            description: 'Агент уже получил ваше сообщение.'
+          });
           this.initialChatState.set({
             text: description.trim(),
             files

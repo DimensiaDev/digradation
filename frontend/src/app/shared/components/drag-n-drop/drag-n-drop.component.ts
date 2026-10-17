@@ -228,7 +228,10 @@ export class DragNDropComponent implements OnDestroy {
       return;
     }
     this.uploader.remove(sessionId, attachmentId).subscribe({
-      error: () => this.notifications.error('Не удалось удалить файл на сервере')
+      error: () =>
+        this.notifications.error('Не удалось удалить файл на сервере', {
+          description: 'Файл мог остаться в сессии.'
+        })
     });
   }
 
@@ -409,14 +412,19 @@ export class DragNDropComponent implements OnDestroy {
     const failedCount = items.filter((item) => item.status === 'error').length;
     if (failedCount > 0) {
       this.notifications.warning(
-        `Загружено с ошибками: ${items.length - failedCount} из ${items.length}`
+        `Загружено с ошибками: ${items.length - failedCount} из ${items.length}`,
+        { description: 'Проверьте файлы с ошибкой и повторите загрузку.' }
       );
       return;
     }
     if (items.length === 1) {
-      this.notifications.success(`Файл «${items[0].name}» загружен`);
+      this.notifications.success(`Файл «${items[0].name}» загружен`, {
+        description: 'Файл готов к отправке.'
+      });
     } else {
-      this.notifications.success(`Загружено файлов: ${items.length}`);
+      this.notifications.success(`Загружено файлов: ${items.length}`, {
+        description: 'Файлы готовы к отправке.'
+      });
     }
   }
 

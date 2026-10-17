@@ -13,10 +13,13 @@ describe('NotificationsComponent', () => {
   let component: NotificationsComponent;
   let service: NotificationService;
 
-  const notification = () => fixture.debugElement.query(By.css('app-notification'));
-  const title = () => fixture.debugElement.query(By.css('.notification__title'));
-  const closeButton = () => fixture.debugElement.query(By.css('.notification__close'));
-  const host = () => notification().nativeElement as HTMLElement;
+  const notifications = () => fixture.debugElement.queryAll(By.css('app-notification'));
+  const titles = () =>
+    fixture.debugElement
+      .queryAll(By.css('.notification__title'))
+      .map((el) => el.nativeElement.textContent as string);
+  const closeButtons = () => fixture.debugElement.queryAll(By.css('.notification__close'));
+  const host = (index = 0) => notifications()[index].nativeElement as HTMLElement;
 
   const refresh = (): void => fixture.detectChanges();
 
@@ -41,15 +44,14 @@ describe('NotificationsComponent', () => {
 
   it('renders an empty list when there are no notifications', () => {
     expect(fixture.debugElement.query(By.css('ul.notifications'))).not.toBeNull();
-    expect(notification()).toBeNull();
-    expect(component.displayed()).toBeNull();
+    expect(notifications()).toHaveLength(0);
   });
 
   it('renders the message and the type of the notification pushed by the service', () => {
     service.error('Не удалось создать чат: Ошибка сервера');
     refresh();
 
-    expect(title().nativeElement.textContent).toBe('Не удалось создать чат: Ошибка сервера');
+    expect(titles()).toEqual(['Не удалось создать чат: Ошибка сервера']);
     expect(host().getAttribute('data-type')).toBe('error');
     expect(host().getAttribute('role')).toBe('status');
     expect(host().getAttribute('aria-live')).toBe('polite');
@@ -59,55 +61,58 @@ describe('NotificationsComponent', () => {
     service.success('Новый чат создан');
     refresh();
 
-    expect(title().nativeElement.textContent).toBe('Новый чат создан');
+    expect(titles()).toEqual(['Новый чат создан']);
     expect(host().getAttribute('data-type')).toBe('success');
     expect(host().classList).not.toContain('notification--leaving');
   });
 
-  it('lets the replaced notification finish its leave animation before showing the new one', () => {
-    useFakeTimers();
+  it('stacks several notifications at once', () => {
     service.info('Первое');
-    refresh();
-    expect(title().nativeElement.textContent).toBe('Первое');
-
-    service.info('Второе');
+    service.error('Второе');
     refresh();
 
-    expect(title().nativeElement.textContent).toBe('Первое');
-    expect(host().classList).toContain('notification--leaving');
-    expect(component.leaving()).toHaveLength(1);
-
-    vi.advanceTimersByTime(LEAVE_ANIMATION_MS);
-    refresh();
-
-    expect(component.leaving()).toHaveLength(0);
-    expect(title().nativeElement.textContent).toBe('Второе');
-    expect(fixture.debugElement.queryAll(By.css('app-notification')).length).toBe(1);
+    expect(titles()).toEqual(['Первое', 'Второе']);
+    expect(notifications()).toHaveLength(2);
   });
 
-  it('removes the notification from the service when the close button is clicked', () => {
+  it('marks the clicked notification as leaving', () => {
     useFakeTimers();
     service.error('Заполните логин и пароль');
     refresh();
 
-    closeButton().nativeElement.click();
+    closeButtons()[0].nativeElement.click();
+    refresh();
+
+    expect(component.isLeaving(service.notifications()[0].id)).toBe(true);
+    expect(host().classList).toContain('notification--leaving');
+    expect(service.notifications()).toHaveLength(1);
+  });
+
+  it('removes the notification once the leave animation ends', () => {
+    useFakeTimers();
+    service.error('Заполните логин и пароль');
+    refresh();
+
+    closeButtons()[0].nativeElement.click();
+    vi.advanceTimersByTime(LEAVE_ANIMATION_MS);
     refresh();
 
     expect(service.notifications()).toHaveLength(0);
-    expect(component.isLeaving(component.displayed()?.id ?? '')).toBe(true);
+    expect(notifications()).toHaveLength(0);
   });
 
-  it('hides the notification entirely once the leave animation ends', () => {
+  it('only animates out the clicked notification, keeping the rest', () => {
     useFakeTimers();
-    service.error('Заполните логин и пароль');
+    service.info('Первое');
+    service.error('Второе');
     refresh();
 
-    closeButton().nativeElement.click();
-    vi.advanceTimersByTime(LEAVE_ANIMATION_MS);
+    closeButtons()[0].nativeElement.click();
     refresh();
 
-    expect(component.displayed()).toBeNull();
-    expect(notification()).toBeNull();
+    expect(component.isLeaving(service.notifications()[0].id)).toBe(true);
+    expect(component.isLeaving(service.notifications()[1].id)).toBe(false);
+    expect(notifications()[1].nativeElement.classList).not.toContain('notification--leaving');
   });
 
   it('hides the notification automatically after five seconds', () => {
@@ -117,30 +122,26 @@ describe('NotificationsComponent', () => {
 
     vi.advanceTimersByTime(NOTIFICATION_DURATION_MS - 1);
     refresh();
-    expect(title().nativeElement.textContent).toBe('Файл загружен');
     expect(service.notifications()).toHaveLength(1);
 
     vi.advanceTimersByTime(1);
     refresh();
-    expect(service.notifications()).toHaveLength(0);
+    expect(component.isLeaving(service.notifications()[0].id)).toBe(true);
 
     vi.advanceTimersByTime(LEAVE_ANIMATION_MS);
     refresh();
-
-    expect(notification()).toBeNull();
+    expect(notifications()).toHaveLength(0);
   });
 
-  it('removes the dismissed notification from the list when a new one is pushed behind it', () => {
+  it('keeps a persistent notification on screen past the auto-dismiss window', () => {
     useFakeTimers();
-    service.info('Уходит');
+    service.info('Постоянное', { persistent: true });
     refresh();
 
-    closeButton().nativeElement.click();
-    service.success('Новый чат создан');
-    vi.advanceTimersByTime(LEAVE_ANIMATION_MS);
+    vi.advanceTimersByTime(NOTIFICATION_DURATION_MS * 2);
     refresh();
 
-    expect(title().nativeElement.textContent).toBe('Новый чат создан');
-    expect(host().classList).not.toContain('notification--leaving');
+    expect(service.notifications()).toHaveLength(1);
+    expect(titles()).toEqual(['Постоянное']);
   });
 });

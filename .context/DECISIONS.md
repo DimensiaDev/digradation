@@ -640,3 +640,22 @@ sidebar UI went — the reusable pieces stay.
 - **The bottom anchor moved to the bottom nav.** With `.profile { margin-top: auto }` gone, the
   `Помощь` + footer group is pinned by `.sidebar__bottom-group { margin-top: auto }`, so both
   stay at the bottom for the user (who has a bottom nav) and the admin (who does not).
+
+## Notification toasts reworked: stacking, soft tint, descriptions (2026-10-17)
+
+The toast stack went from single to multi, the card stopped being a hard white box, and
+toasts gained an optional second line.
+
+- **Toasts now stack.** `NotificationService.add` appends instead of replacing, and
+  `NotificationsComponent` renders the whole list, giving each toast its own auto-dismiss
+  timer (and its own leave animation). The old replace semantics made it impossible to see,
+  say, a warning and the success that followed it side by side.
+- **The card background is a tint, not white.** `background` and `border` use
+  `color-mix(in srgb, <type> 6%|38%, var(--color-surface))`. A pure white card with a fully
+  saturated border read as too harsh in the light theme; the tint keeps the type readable
+  while softening the surface. The type is still carried by the icon and the border hue.
+- **`Notification` gained an optional `description`.** Meaningful action results and errors
+  set one; terse field validations and pure info toasts deliberately do not, to avoid noise.
+- **`errorOnce` takes an options object** — `errorOnce(message, { windowMs?, description?,
+  persistent? })` — instead of a bare `windowMs` number, so the deduped interceptor errors can
+  carry a description like every other call.

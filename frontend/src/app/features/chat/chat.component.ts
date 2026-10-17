@@ -132,13 +132,17 @@ export class ChatComponent {
       .deleteAttachment(this.id(), attachment.id)
       .pipe(
         catchError((err: HttpErrorResponse) => {
-          this.notifications.error('Не удалось удалить файл: ' + extractApiErrorMessage(err));
+          this.notifications.error('Не удалось удалить файл: ' + extractApiErrorMessage(err), {
+            description: 'Файл остался в чате — попробуйте ещё раз.'
+          });
           return EMPTY;
         })
       )
       .subscribe(() => {
         this.pendingAttachments.update((list) => list.filter((item) => item.id !== attachment.id));
-        this.notifications.success(`Файл «${attachment.filename}» удалён`);
+        this.notifications.success(`Файл «${attachment.filename}» удалён`, {
+          description: 'Файл убран из списка вложений.'
+        });
       });
   }
 
@@ -148,7 +152,8 @@ export class ChatComponent {
       .pipe(
         catchError((err: HttpErrorResponse) => {
           this.notifications.error(
-            'Не удалось загрузить список файлов: ' + extractApiErrorMessage(err)
+            'Не удалось загрузить список файлов: ' + extractApiErrorMessage(err),
+            { description: 'Попробуйте открыть список вложений ещё раз.' }
           );
           return EMPTY;
         })
@@ -195,7 +200,8 @@ export class ChatComponent {
             ? 'Не удалось получить файл: ' + extractApiErrorMessage(err)
             : err instanceof Error
               ? err.message
-              : 'Не удалось получить файл'
+              : 'Не удалось получить файл',
+          { description: 'Проверьте соединение и повторите попытку.' }
         );
       }
     });
@@ -271,10 +277,13 @@ export class ChatComponent {
       .pipe(
         catchError((err: HttpErrorResponse) => {
           if (err.status === 403) {
-            this.notifications.error('Чат не найден');
+            this.notifications.error('Чат не найден', {
+              description: 'Возможно, он был удалён.'
+            });
           } else {
             this.notifications.error(
-              'Не удалось загрузить историю чата: ' + extractApiErrorMessage(err)
+              'Не удалось загрузить историю чата: ' + extractApiErrorMessage(err),
+              { description: 'Обновите страницу или попробуйте позже.' }
             );
           }
 
@@ -435,7 +444,8 @@ export class ChatComponent {
         finalize(() => this.isSending.set(false)),
         catchError((err: HttpErrorResponse) => {
           this.notifications.error(
-            'Не удалось отправить сообщение: ' + extractApiErrorMessage(err)
+            'Не удалось отправить сообщение: ' + extractApiErrorMessage(err),
+            { description: 'Текст сохранён в поле ввода — попробуйте ещё раз.' }
           );
           this.messages.update((messages) => messages.filter((m) => m.id !== messageId));
           this.messageInputValue.set(text);
@@ -462,13 +472,16 @@ export class ChatComponent {
       .pipe(
         catchError((err: HttpErrorResponse) => {
           this.notifications.error(
-            'Не удалось отправить повторный запрос: ' + extractApiErrorMessage(err)
+            'Не удалось отправить повторный запрос: ' + extractApiErrorMessage(err),
+            { description: 'Попробуйте ещё раз через некоторое время.' }
           );
           return EMPTY;
         })
       )
       .subscribe(() => {
-        this.notifications.success('Повторный запрос отправлен');
+        this.notifications.success('Повторный запрос отправлен', {
+          description: 'Агент обрабатывает запрос заново.'
+        });
         this.startReplyPolling();
       });
   }
@@ -482,7 +495,9 @@ export class ChatComponent {
     this.pollTimeoutTimer = setTimeout(() => {
       this.stopReplyPolling();
       this.lastMessageFailed.set(true);
-      this.notifications.error('Агент не ответил — попробуйте позже');
+      this.notifications.error('Агент не ответил — попробуйте позже', {
+        description: 'Превышено время ожидания ответа.'
+      });
     }, POLL_TIMEOUT_MS);
   }
 
@@ -495,13 +510,16 @@ export class ChatComponent {
           this.notifications.error(
             detail === 'Invalid session'
               ? 'Сессия не найдена или уже удалена'
-              : 'Не удалось удалить сессию: ' + detail
+              : 'Не удалось удалить сессию: ' + detail,
+            { description: 'Чат не был удалён — обновите список чатов и попробуйте снова.' }
           );
           return EMPTY;
         })
       )
       .subscribe(() => {
-        this.notifications.success('Сессия удалена');
+        this.notifications.success('Сессия удалена', {
+          description: 'Чат и его сообщения удалены безвозвратно.'
+        });
         this.router.navigate(['/create']);
       });
   }
@@ -522,7 +540,9 @@ export class ChatComponent {
         this.stopReplyPolling();
         if (chatResult.result.type === 'error') {
           this.lastMessageFailed.set(true);
-          this.notifications.error('Агент не смог обработать запрос — попробуйте позже');
+          this.notifications.error('Агент не смог обработать запрос — попробуйте позже', {
+            description: 'На стороне сервиса произошла ошибка.'
+          });
           return;
         }
 

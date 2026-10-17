@@ -70,7 +70,8 @@ export class AdminSettingsPage {
         error: (err: HttpErrorResponse) => {
           this.promptForm.controls.prompt.enable();
           this.notifications.error(
-            'Не удалось загрузить настройки: ' + extractApiErrorMessage(err)
+            'Не удалось загрузить настройки: ' + extractApiErrorMessage(err),
+            { description: 'Попробуйте обновить страницу.' }
           );
         }
       });
@@ -89,11 +90,14 @@ export class AdminSettingsPage {
       .subscribe({
         next: (settings) => {
           this.applyPrompt(settings.prompt_extension);
-          this.notifications.success('Системный промпт сохранён');
+          this.notifications.success('Системный промпт сохранён', {
+            description: 'Изменения вступят в силу для новых чатов.'
+          });
         },
         error: (err: HttpErrorResponse) => {
           this.notifications.error(
-            'Не удалось сохранить системный промпт: ' + extractApiErrorMessage(err)
+            'Не удалось сохранить системный промпт: ' + extractApiErrorMessage(err),
+            { description: 'Промпт остался без изменений.' }
           );
         }
       });

@@ -27,16 +27,20 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
       if (error.status === 401) {
         if (!redirectState.redirectingToLogin() && !router.url.startsWith('/login')) {
           redirectState.redirectingToLogin.set(true);
-          notifications.error('Вы не авторизованы');
+          notifications.error('Вы не авторизованы', {
+            description: 'Войдите в систему, чтобы продолжить.'
+          });
           router.navigate(['/login']).finally(() => redirectState.redirectingToLogin.set(false));
         }
         return throwError(() => error);
       }
 
       if (error.status >= 500) {
-        notifications.errorOnce('Ошибка сервера');
+        notifications.errorOnce('Ошибка сервера', {
+          description: 'Попробуйте повторить действие позже.'
+        });
       } else {
-        notifications.errorOnce(message);
+        notifications.errorOnce(message, { description: 'Попробуйте повторить действие.' });
       }
 
       return throwError(() => error);
