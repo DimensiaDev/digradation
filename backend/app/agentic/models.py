@@ -46,7 +46,7 @@ class ProgramKind(StrEnum):
 
 
 class ProgramStatus(StrEnum):
-    """Lifecycle of the document; per-stage progress lives in StageState."""
+    """Lifecycle of the document; per-stage progress lives in StageStatuses."""
 
     DRAFT = "draft"
     GENERATING = "generating"
@@ -377,11 +377,15 @@ class ProgramMeta(SchemaModel):
     version: int = 1
 
 
-class StageState(SchemaModel):
-    """Status of one generation stage, shown in the UI."""
+class StageStatuses(SchemaModel):
+    """Status of every generation stage, shown in the UI."""
 
-    stage: Stage
-    status: StageStatus = StageStatus.PENDING
+    competences: StageStatus = StageStatus.PENDING
+    hours: StageStatus = StageStatus.PENDING
+    assessment: StageStatus = StageStatus.PENDING
+    materials: StageStatus = StageStatus.PENDING
+    sources: StageStatus = StageStatus.PENDING
+    summary: StageStatus = StageStatus.PENDING
 
 
 class EducationalProgram(SchemaModel):
@@ -389,7 +393,7 @@ class EducationalProgram(SchemaModel):
 
     meta: ProgramMeta
     current_stage: Stage = Field(description="Stage the agent is working on")
-    stages: list[StageState] = Field(min_length=1, description="Status of every generation stage, one per Stage")
+    stages: StageStatuses = Field(description="Status of each generation stage")
     summary: ProgramSummary
     competencies: list[Competence] = Field(min_length=1)
     curriculum: Curriculum
@@ -399,16 +403,3 @@ class EducationalProgram(SchemaModel):
     conditions: Conditions
     staffing: list[StaffSlot] = Field(min_length=1)
     approval: ApprovalInfo
-
-    @model_validator(mode="after")
-    def _require_every_stage_once(self) -> Self:
-        """The UI needs exactly one status per stage."""
-        seen = [state.stage for state in self.stages]
-        missing = sorted(stage for stage in Stage if stage not in seen)
-        repeated = sorted(stage for stage in Stage if seen.count(stage) > 1)
-        if missing or repeated:
-            details = [f"missing: {', '.join(missing)}"] if missing else []
-            if repeated:
-                details.append(f"repeated: {', '.join(repeated)}")
-            raise ValueError(f"stages must cover every stage exactly once ({'; '.join(details)})")
-        return self

@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from app.agentic.models import EducationalProgram, ProgramKind, ProgramStatus, Stage, StageStatus
+from app.agentic.models import EducationalProgram, ProgramKind, ProgramStatus, Stage, StageStatus, StageStatuses
 
 EXAMPLE_PATH = Path(__file__).resolve().parents[1] / "examples" / "document_state_example.json"
 
@@ -34,19 +34,26 @@ def test_example_document_state_validates(raw: Program) -> None:
     assert program.meta.kind is ProgramKind.PROFESSIONAL_DEVELOPMENT
     assert program.meta.status is ProgramStatus.DRAFT
     assert program.current_stage is Stage.SUMMARY
-    assert [state.status for state in program.stages] == [StageStatus.COMPLETED] * len(Stage)
+    assert all(getattr(program.stages, stage) is StageStatus.COMPLETED for stage in Stage)
     assert program.curriculum.total_hours == 66
     assert program.curriculum.contact_hours == 38
     assert program.curriculum.self_study_hours == 28
 
 
-def test_stages_must_cover_every_stage_exactly_once(raw: Program) -> None:
-    raw["stages"][1]["stage"] = "competences"
-    assert "repeated: competences" in problems(raw)
+def test_stage_statuses_default_to_pending(raw: Program) -> None:
+    raw["stages"] = {}
+    assert all(getattr(validate(raw).stages, stage) is StageStatus.PENDING for stage in Stage)
 
-    raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
-    raw["stages"] = [state for state in raw["stages"] if state["stage"] != "sources"]
-    assert "missing: sources" in problems(raw)
+
+def test_stage_statuses_accept_a_partial_update(raw: Program) -> None:
+    raw["stages"] = {"hours": "in_progress"}
+    program = validate(raw)
+    assert program.stages.hours is StageStatus.IN_PROGRESS
+    assert program.stages.summary is StageStatus.PENDING
+
+
+def test_stage_statuses_cover_the_stage_enum() -> None:
+    assert set(StageStatuses.model_fields) == set(Stage)
 
 
 def test_question_key_must_match_the_options(raw: Program) -> None:
@@ -116,4 +123,4 @@ def test_json_round_trip(raw: Program) -> None:
     program = validate(raw)
     dumped = program.model_dump(mode="json")
     assert validate(dumped).meta.title == program.meta.title
-    assert [state["stage"] for state in dumped["stages"]] == [stage.value for stage in Stage]
+    assert list(dumped["stages"]) == [stage.value for stage in Stage]
