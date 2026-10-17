@@ -21,8 +21,8 @@
 
   @if (role() === 'user') {
     <a class="button button--main cta h3" routerLink="/create">
-      <svg class="cta__icon" lucidePlus></svg>
-      <span>Новый чат</span>
+      <svg class="cta__icon" lucideSquarePlus></svg>
+      <span>Создать программу</span>
     </a>
   }
   <nav class="navigation" aria-label="Основная навигация">
@@ -43,6 +43,27 @@
       }
     </ul>
   </nav>
+
+  @if (bottomNavItems().length > 0) {
+    <nav class="sidebar__bottom" aria-label="Дополнительно">
+      <ul class="navigation__list">
+        @for (nav of bottomNavItems(); track nav.route) {
+          <li>
+            <a
+              class="navigation__item h3"
+              [routerLink]="nav.route"
+              routerLinkActive="active-link"
+              ariaCurrentWhenActive="page"
+              [attr.title]="collapsed() ? nav.label : null"
+            >
+              <svg class="navigation__icon" [lucideIcon]="nav.icon"></svg>
+              <span>{{ nav.label }}</span>
+            </a>
+          </li>
+        }
+      </ul>
+    </nav>
+  }
 
   <div class="profile">
     @if (avatarLoading()) {

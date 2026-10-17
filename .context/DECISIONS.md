@@ -598,3 +598,20 @@ belongs entirely to the history page.
   and read only by the sidebar's effect, so once the sidebar stopped listing sessions the
   signal had a writer and no reader. Removed along with `bumpHistory` and the now-pointless
   `tap` pipes; the history page never read it, so no refresh behaviour changes.
+
+## User menu rebuilt for the programme product (2026-10-17)
+
+The user sidebar menu was replaced with the product's own vocabulary: Главная, Мои
+программы, Библиотека, Настройки, plus Помощь pinned at the bottom. The top action is now
+"Создать программу" (`SquarePlus`) instead of "Новый чат"; the list is configured in
+`sidebar.config.ts` and the top vs bottom split is a new `bottomNavItems` input that flows
+through `Layout` and route `data`.
+
+- **`/home`, `/programs`, `/library` and `/help` do not exist yet.** The menu was requested
+  ahead of the pages, so those four items render but cannot navigate until the routes land.
+  `/settings` and the CTA's `/create` are the only live targets. This is deliberate, not a
+  regression to "fix" by inventing pages.
+- **"Тариф" is intentionally absent.** It was specified but deferred; only Помощь was added.
+- **The sidebar width is fluid.** `--sidebar-width` is `clamp(340px, 25vw, 380px)` — a modest
+  bump from the fixed 330px that still tracks the viewport. Collapsed stays a fixed 96px icon
+  rail.

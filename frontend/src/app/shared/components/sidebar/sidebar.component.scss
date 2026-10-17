@@ -86,7 +86,7 @@
   &__list {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 5px;
+    row-gap: 5px;
   }
 
   &__item {
@@ -94,7 +94,7 @@
     align-items: center;
     gap: 15px;
 
-    padding: 20px;
+    padding: 12px;
 
     border-radius: 10px;
 
@@ -131,6 +131,12 @@
       max-width: 200px;
     }
   }
+}
+
+.sidebar__bottom {
+  margin-top: 10px;
+
+  flex-shrink: 0;
 }
 
 .profile {

@@ -15,8 +15,8 @@ import {
   LucideMoon,
   LucidePanelLeftClose,
   LucidePanelLeftOpen,
-  LucidePlus,
   LucideShieldCheck,
+  LucideSquarePlus,
   LucideSun
 } from '@lucide/angular';
 import { AuthService } from '../../../core/services/auth.service';
@@ -32,7 +32,7 @@ import type { NavItem, Role } from './sidebar.config';
     LucideDynamicIcon,
     RouterLink,
     RouterLinkActive,
-    LucidePlus,
+    LucideSquarePlus,
     LucideArrowLeft,
     LucidePanelLeftClose,
     LucidePanelLeftOpen,
@@ -61,6 +61,7 @@ export class Sidebar implements OnInit {
   };
 
   readonly navItems = input<NavItem[]>([]);
+  readonly bottomNavItems = input<NavItem[]>([]);
   readonly role = input<Role>();
   private readonly auth = inject(AuthService);
   private readonly notifications = inject(NotificationService);

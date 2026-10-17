@@ -11,5 +11,6 @@ import type { NavItem, Role } from '../sidebar/sidebar.config';
 })
 export class Layout {
   readonly navItems = input<NavItem[]>([]);
+  readonly bottomNavItems = input<NavItem[]>([]);
   readonly role = input<Role>();
 }
