@@ -2,7 +2,7 @@
   display: flex;
   align-items: center;
 
-  gap: 5px;
+  gap: 8px;
 
   min-width: 0;
 
@@ -22,7 +22,7 @@
 .profile__info {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 
   min-width: 0;
 
@@ -30,7 +30,7 @@
 }
 
 .profile__name {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 500;
 
   color: var(--color-text);

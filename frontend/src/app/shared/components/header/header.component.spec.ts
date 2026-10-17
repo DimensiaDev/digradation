@@ -2,10 +2,11 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 
 import { HeaderComponent } from './header.component';
 import { NotificationService } from '../../../core/services/notification.service';
+import { ProfileService } from '../../../core/services/profile.service';
 import { environment } from '../../../../environments/environment';
 
 const AVATAR_URL = `${environment.apiUrl}/users/me/avatar`;
@@ -104,5 +105,45 @@ describe('HeaderComponent', () => {
     fixture.detectChanges();
 
     expect(fixture.debugElement.query(By.css('.header__dropdown'))).toBeNull();
+  });
+
+  it('logs out from the profile menu and returns to the login page', () => {
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    const clear = vi.spyOn(TestBed.inject(ProfileService), 'clear');
+
+    profileButton().nativeElement.click();
+    fixture.detectChanges();
+
+    const logoutButton = fixture.debugElement.query(By.css('.header__menu-item--danger'));
+    expect(logoutButton.nativeElement.textContent.trim()).toBe('Выход');
+
+    logoutButton.nativeElement.click();
+    fixture.detectChanges();
+
+    http.expectOne(`${environment.apiUrl}/auth/logout`).flush({ message: 'ok' });
+    fixture.detectChanges();
+
+    expect(clear).toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith(['/login']);
+  });
+
+  it('reports a failed logout without navigating away', () => {
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    profileButton().nativeElement.click();
+    fixture.detectChanges();
+
+    fixture.debugElement.query(By.css('.header__menu-item--danger')).nativeElement.click();
+    fixture.detectChanges();
+
+    http
+      .expectOne(`${environment.apiUrl}/auth/logout`)
+      .flush({ detail: 'сломалось' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(notifications.notifications().at(-1)?.message).toContain('Не удалось выйти');
   });
 });

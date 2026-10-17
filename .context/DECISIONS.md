@@ -673,9 +673,13 @@ the profile, and the icon-button hover mechanism was extracted out of two duplic
   `NotificationService.notifications`, so there is no persistence and nothing to show once the
   5s auto-dismiss has fired. A real notification centre (persistent history) is a separate
   feature; this is deliberately just a surface over the current toasts.
-- **The profile dropdown intentionally has no logout.** The menu holds a single `/profile`
-  link; sign-out still has no home anywhere in the app (see the sidebar entry). Re-add it here
-  only together with the e2e `signs out` spec.
+- **Sign-out moved into the profile dropdown.** The menu holds a `/profile` link and a red
+  `Выход` action that calls `AuthService.logout()`, clears `ProfileService`, toasts, and
+  navigates to `/login` (mirroring the removed sidebar card). Sign-out had been homeless since
+  the sidebar card went; it now lives here. The e2e `signs out` spec is still to be restored to
+  drive it through the header.
+- **The profile dropdown reuses the toasts, not its own store.** It reads the same
+  `NotificationService`, so a real notification centre is still a separate feature.
 - **`ProfileComponent` is new, not the resurrected sidebar card.** The sidebar deleted its own
   `displayName` / `avatarSrc` / `avatarLoading` / `onAvatarError` and `ngOnInit` avatar load;
   those now live in a reusable `shared/components/profile` component that calls

@@ -16,7 +16,12 @@
       </button>
 
       @if (notificationsOpen()) {
-        <div class="header__dropdown header__dropdown--notifications" role="menu">
+        <div
+          class="header__dropdown header__dropdown--notifications"
+          role="menu"
+          animate.enter="header__dropdown--enter"
+          animate.leave="header__dropdown--leave"
+        >
           @for (notification of notifications(); track notification.id) {
             <div class="header__notice" role="menuitem" [attr.data-type]="notification.type">
               <span class="header__notice-dot" aria-hidden="true"></span>
@@ -47,10 +52,24 @@
       </button>
 
       @if (profileOpen()) {
-        <div class="header__dropdown header__dropdown--profile" role="menu">
+        <div
+          class="header__dropdown header__dropdown--profile"
+          role="menu"
+          animate.enter="header__dropdown--enter"
+          animate.leave="header__dropdown--leave"
+        >
           <a class="header__menu-item" routerLink="/profile" role="menuitem" (click)="closeMenus()">
             Профиль
           </a>
+          <button
+            type="button"
+            class="header__menu-item header__menu-item--danger"
+            role="menuitem"
+            [disabled]="loggingOut()"
+            (click)="logout()"
+          >
+            Выход
+          </button>
         </div>
       }
     </div>
