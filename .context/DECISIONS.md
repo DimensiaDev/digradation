@@ -717,3 +717,27 @@ A review pass over `core/` + `shared/` fixed a batch of accessibility and themin
   exists; the real list-refresh idiom is a per-component local request-id counter, which the
   section now describes.
 
+
+## Base-layer cleanup: icon buttons, textareas, file types (2026-10-18)
+
+A second review pass over `core/` + `shared/` removed duplicate implementations.
+
+- **One icon-button implementation.** The `icon-button` mixin in `_mixins.scss` is now
+  parameterless and reads `--icon-button-radius`, `--icon-button-hover-bg`,
+  `--icon-button-hover-color` and `--icon-button-focus`; `.icon-action` in `_buttons.scss` is
+  just the mixin plus size/colour defaults, and the sidebar overrides the variables with its
+  `--sidebar-*` tokens. The previous mixin took eight parameters and diverged from
+  `.icon-action`, so the same visual control had two sources.
+- **One textarea implementation.** `shared/components/textarea/` is deleted. `app-input`
+  already owned the value accessor, error state and counters, so textarea mode
+  (`asTextarea`, `rows`, `counterVisibleFrom`) moved there; `chat-create` and the admin
+  settings editor now use `app-input`.
+- **One extension list.** `shared/utils/file-types.ts` is the single source for accepted
+  extensions, preview kind, MIME type, icon and style. `file-preview.model.ts`,
+  `file-type-icons.ts` and `ACCEPTED_EXTENSIONS` in `core/models/models.ts` are gone; dropping
+  the list in one place previously left `drag-n-drop` and `file-preview` able to disagree.
+- **`controlErrorSignal` returns a computed signal and is called in `ngOnInit`.** It must not
+  run in a field initializer: for `[formControl]`/`formControlName` the `NgControl` has no
+  `control` until the directive's `ngOnChanges`/`ngOnInit`, so a field-time call captures
+  `null` and freezes at `false`. `ngOnInit` is the earliest point where the control exists and
+  a `computed` over its `events` is still correct.

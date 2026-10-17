@@ -15,7 +15,7 @@ import { InitialChatStateService } from '../../core/services/initial-chat-state.
 import { NotificationService } from '../../core/services/notification.service';
 import { UploadItem } from '../../core/models/models';
 import { DragNDropComponent } from '../../shared/components/drag-n-drop/drag-n-drop.component';
-import { Textarea } from '../../shared/components/textarea/textarea.component';
+import { InputComponent } from '../../shared/components/input/input.component';
 import { getFileExtension } from '../../shared/utils/upload-format';
 import { createId } from '../../shared/utils/create-id';
 import { extractApiErrorMessage } from '../../shared/utils/api-error';
@@ -28,7 +28,7 @@ function trimmedRequired(control: AbstractControl): ValidationErrors | null {
 @Component({
   selector: 'app-chat-create',
   standalone: true,
-  imports: [DragNDropComponent, Textarea, ReactiveFormsModule, LucideArrowRight],
+  imports: [DragNDropComponent, InputComponent, ReactiveFormsModule, LucideArrowRight],
   templateUrl: './chat-create.component.html',
   styleUrl: './chat-create.component.scss'
 })

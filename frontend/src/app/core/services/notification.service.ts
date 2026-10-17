@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { createId } from '../../shared/utils/create-id';
 
 export interface Notification {
   id: string;
@@ -60,7 +61,7 @@ export class NotificationService {
     message: string,
     options: NotificationOptions = {}
   ): void {
-    const id = crypto.randomUUID();
+    const id = createId();
     this.notifications.update((list) => [
       ...list,
       { id, type, message, description: options.description, persistent: options.persistent }

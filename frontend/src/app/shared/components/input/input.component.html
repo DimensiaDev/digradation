@@ -67,4 +67,9 @@
     }
   }
   <ng-content select="[appInputSuffix]" />
+  @if (isCounterVisible()) {
+    <span class="input__counter h5" [class.input__counter--max]="isMaxLengthReached()">
+      {{ symbolsCount() }}/{{ maxLength() }}
+    </span>
+  }
 </div>

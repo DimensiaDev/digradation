@@ -113,11 +113,11 @@
 }
 
 .icon-action {
-  --icon-action-size: 36px;
-  --icon-action-color: var(--sidebar-muted);
-  --icon-action-hover-color: var(--sidebar-accent);
-  --icon-action-hover-bg: var(--sidebar-hover);
-  --icon-action-focus: var(--sidebar-accent);
+  --icon-button-size: 36px;
+  --icon-button-color: var(--sidebar-muted);
+  --icon-button-hover-color: var(--sidebar-accent);
+  --icon-button-hover-bg: var(--sidebar-hover);
+  --icon-button-focus: var(--sidebar-accent);
 
   transition:
     color 0.15s ease,

@@ -10,7 +10,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { finalize } from 'rxjs';
-import { Textarea } from '../../../shared/components/textarea/textarea.component';
+import { InputComponent } from '../../../shared/components/input/input.component';
 import { AdminSettingsService } from '../../../core/services/admin-settings.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { extractApiErrorMessage } from '../../../shared/utils/api-error';
@@ -20,7 +20,7 @@ const COUNTER_VISIBLE_FROM = 7000;
 
 @Component({
   selector: 'app-admin-settings-page',
-  imports: [ReactiveFormsModule, Textarea],
+  imports: [ReactiveFormsModule, InputComponent],
   templateUrl: './settings-page.component.html',
   styleUrl: './settings-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush

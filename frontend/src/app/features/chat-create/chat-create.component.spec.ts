@@ -64,7 +64,7 @@ describe('ChatCreateComponent', () => {
       .componentInstance as ChatCreateComponent;
   const descriptionField = () =>
     fixture.debugElement.query(By.css('#description')).nativeElement as HTMLTextAreaElement;
-  const counter = () => fixture.debugElement.query(By.css('.textarea__counter'));
+  const counter = () => fixture.debugElement.query(By.css('.input__counter'));
   const submitButton = () =>
     fixture.debugElement.query(By.css('button[type="submit"]')).nativeElement as HTMLButtonElement;
   const dropzone = () => fixture.debugElement.query(By.css('.dropzone__area'));

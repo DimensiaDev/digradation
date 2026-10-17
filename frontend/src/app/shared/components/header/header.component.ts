@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -12,6 +13,7 @@ import { LucideBell } from '@lucide/angular';
 import { AuthService } from '../../../core/services/auth.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { ProfileService } from '../../../core/services/profile.service';
+import { extractApiErrorMessage } from '../../utils/api-error';
 import { ProfileComponent } from '../profile/profile.component';
 
 @Component({
@@ -64,10 +66,9 @@ export class HeaderComponent {
         this.notificationService.info('Вы вышли из аккаунта');
         this.router.navigate(['/login']);
       },
-      error: (err: { error?: { detail?: string; message?: string }; message?: string }) => {
+      error: (err: HttpErrorResponse) => {
         this.loggingOut.set(false);
-        const reason = err.error?.detail ?? err.error?.message ?? err.message ?? 'Ошибка сервера';
-        this.notificationService.error('Не удалось выйти: ' + reason);
+        this.notificationService.error('Не удалось выйти: ' + extractApiErrorMessage(err));
       }
     });
   }

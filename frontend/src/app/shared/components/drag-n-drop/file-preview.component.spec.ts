@@ -2,11 +2,10 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Component } from '@angular/core';
 import { By } from '@angular/platform-browser';
 
-import { previewKindFor, mimeTypeFor } from './file-preview.model';
+import { ACCEPTED_EXTENSIONS, previewKindFor, mimeTypeFor } from '../../utils/file-types';
 import { FilePreviewComponent } from './file-preview.component';
 import { DragNDropComponent } from './drag-n-drop.component';
 import { AttachmentUploadService } from '../../../core/services/attachment-upload.service';
-import { ACCEPTED_EXTENSIONS } from '../../../core/models/models';
 import { Observable } from 'rxjs';
 
 function makeFile(name: string, contents: BlobPart = 'x', type = 'application/octet-stream'): File {

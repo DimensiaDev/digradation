@@ -7,6 +7,8 @@
 }
 
 .input-wrapper {
+  position: relative;
+
   display: flex;
   align-items: center;
   gap: 15px;
@@ -94,6 +96,24 @@
 
 .input__icon--right {
   margin-right: -4px;
+}
+
+.input__counter {
+  position: absolute;
+  right: 15px;
+  bottom: 8px;
+
+  color: var(--color-gray);
+
+  pointer-events: none;
+
+  &--max {
+    color: var(--color-danger);
+  }
+
+  :host(.input--textarea) & {
+    bottom: 4px;
+  }
 }
 
 .form-control {

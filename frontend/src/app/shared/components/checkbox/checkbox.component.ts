@@ -8,7 +8,8 @@ import {
   Injector,
   input,
   OnInit,
-  signal
+  signal,
+  Signal
 } from '@angular/core';
 import { ControlValueAccessor, NgControl } from '@angular/forms';
 import { LucideCheck } from '@lucide/angular';
@@ -40,19 +41,19 @@ export class CheckboxComponent implements ControlValueAccessor, OnInit {
   private readonly ngControl = inject(NgControl, { optional: true, self: true });
   private readonly injector = inject(Injector);
 
-  readonly showError = signal(false);
+  showError!: Signal<boolean>;
 
   private onChange: (checked: boolean) => void = noop;
   private onTouched: () => void = noop;
+
+  ngOnInit(): void {
+    this.showError = controlErrorSignal(this.ngControl, this.injector);
+  }
 
   constructor() {
     if (this.ngControl) {
       this.ngControl.valueAccessor = this;
     }
-  }
-
-  ngOnInit(): void {
-    controlErrorSignal(this.ngControl, this.injector, this.showError);
   }
 
   onInput(event: Event): void {

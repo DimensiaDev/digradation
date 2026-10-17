@@ -10,6 +10,7 @@ import {
   OnInit,
   output,
   signal,
+  Signal,
   ViewChild,
   ElementRef
 } from '@angular/core';
@@ -55,6 +56,7 @@ export class InputComponent implements ControlValueAccessor, OnInit {
     transform: (v: boolean | string) => v === true || v === 'true'
   });
   readonly rows = input<number>(1);
+  readonly counterVisibleFrom = input(0);
   readonly value = input<string>('');
   readonly autocomplete = input('off');
   readonly ariaLabel = input('');
@@ -68,6 +70,17 @@ export class InputComponent implements ControlValueAccessor, OnInit {
   private readonly formDisabled = signal(false);
 
   readonly isDisabled = computed(() => this.formDisabled() || this.disabled());
+  readonly symbolsCount = computed(() => this._value().length);
+  readonly isCounterVisible = computed(
+    () =>
+      this.asTextarea() &&
+      this.maxLength() !== undefined &&
+      this.symbolsCount() >= this.counterVisibleFrom()
+  );
+  readonly isMaxLengthReached = computed(() => {
+    const maxLength = this.maxLength();
+    return maxLength !== undefined && this.symbolsCount() >= maxLength;
+  });
 
   @ViewChild('inputRef', { static: false }) inputRef?: ElementRef<
     HTMLInputElement | HTMLTextAreaElement
@@ -76,7 +89,7 @@ export class InputComponent implements ControlValueAccessor, OnInit {
   private readonly ngControl = inject(NgControl, { optional: true, self: true });
   private readonly injector = inject(Injector);
 
-  readonly showError = signal(false);
+  showError!: Signal<boolean>;
 
   private onChange: (value: string) => void = noop;
   private onTouched: () => void = noop;
@@ -99,7 +112,7 @@ export class InputComponent implements ControlValueAccessor, OnInit {
   }
 
   ngOnInit(): void {
-    controlErrorSignal(this.ngControl, this.injector, this.showError);
+    this.showError = controlErrorSignal(this.ngControl, this.injector);
 
     effect(
       () => {

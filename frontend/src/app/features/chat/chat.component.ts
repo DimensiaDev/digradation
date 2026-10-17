@@ -37,7 +37,7 @@ import { AttachmentDownloadService } from '../../core/services/attachment-downlo
 import { extractApiErrorMessage } from '../../shared/utils/api-error';
 import { Router } from '@angular/router';
 import { InputComponent } from '../../shared/components/input/input.component';
-import { fileTypeStyleFor } from '../../shared/components/drag-n-drop/file-type-icons';
+import { fileTypeStyleFor } from '../../shared/utils/file-types';
 import { getFileExtension } from '../../shared/utils/upload-format';
 import { DragOverlayComponent } from '../../shared/components/drag-n-drop/drag-overlay.component';
 
