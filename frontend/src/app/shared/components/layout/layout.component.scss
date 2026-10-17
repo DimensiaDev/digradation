@@ -1,7 +1,7 @@
 @use '../../../scrollbars' as *;
 
 :host {
-  --sidebar-width: 330px;
+  --sidebar-width: clamp(340px, 25vw, 380px);
   --sidebar-collapsed-width: 96px;
 
   display: grid;
