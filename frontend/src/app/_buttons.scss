@@ -30,10 +30,10 @@
   }
 
   &--main {
-    background: var(--color-main);
+    background: var(--button-main-bg, var(--color-main));
 
     &:hover {
-      background: var(--color-hover);
+      background: var(--button-main-bg-hover, var(--color-hover));
     }
   }
 

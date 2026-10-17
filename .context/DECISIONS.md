@@ -554,3 +554,28 @@ reference variables only, so no component needed a hex.
   `var(--color-info, var(--color-main))` fallback for a variable that was never defined, so
   info toasts silently rendered as primary. The token exists now and the `data-type='info'`
   rule uses it directly.
+
+## Dark sidebar via a dedicated token layer (2026-10-17)
+
+The sidebar is now always dark (`--sidebar-bg`, which maps the palette's
+`--color-surface-dark` `#151728`) in both themes, instead of following the light surface.
+A dark subtree cannot reuse the light-on-light globals — `--color-text` is near-black — so
+it gets its own explicit `--sidebar-*` group in `styles.scss` rather than the scoped
+override of the generic tokens that was tried first.
+
+- **The first attempt overrode the generic tokens on `:host`** (`--color-text`, `--color-main`
+  and friends) and relied on custom-property inheritance to re-theme the whole subtree. It
+  worked but read as a lie: inside the sidebar `--color-text` meant "light text", which
+  nothing in the name says. Replaced with named `--sidebar-*` tokens and direct references.
+- **Shared mixins gained parameters, not forks.** `app-scrollbar` and `icon-button` now take
+  their colors as arguments with the old values as defaults, and `.button--main` reads
+  `--button-main-bg` / `--button-main-bg-hover` with `--color-main` / `--color-hover` as
+  fallbacks. Every existing caller is untouched; the sidebar passes its own colors. The
+  alternative — overriding generic values at `:host` — is what we removed.
+- **The skeleton is the one place a scoped override remains.** The history skeleton is a
+  shared child component that reads `--color-skeleton-base` / `--color-skeleton-shimmer`
+  directly, and custom properties are the only channel into it without `::ng-deep`. `.sidebar`
+  retargets just those two to `--sidebar-skeleton-*`. It is scoped to the sidebar element and
+  named so the intent is obvious.
+- **Only `--color-danger` stays generic inside the sidebar.** Red reads the same on light and
+  dark, so the logout hover does not need a sidebar variant.

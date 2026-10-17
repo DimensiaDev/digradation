@@ -8,6 +8,11 @@
 
   height: 100%;
 
+  color: var(--sidebar-text);
+
+  --color-skeleton-base: var(--sidebar-skeleton-base);
+  --color-skeleton-shimmer: var(--sidebar-skeleton-shimmer);
+
   &:not(:has(.cta)) {
     & .navigation {
       margin-top: 40px;
@@ -32,14 +37,14 @@
 }
 
 .sidebar__toggle {
-  @include icon-button;
+  @include icon-button(var(--sidebar-hover), var(--sidebar-accent), var(--sidebar-accent));
 
   width: 36px;
   height: 36px;
 
   margin-left: auto;
 
-  color: var(--color-text);
+  color: var(--sidebar-text);
 }
 
 .logo {
@@ -51,6 +56,9 @@
 }
 
 .cta {
+  --button-main-bg: var(--sidebar-accent);
+  --button-main-bg-hover: var(--sidebar-accent-hover);
+
   width: 100%;
   max-width: 100%;
   margin-top: 40px;
@@ -99,7 +107,7 @@
     font-weight: 600;
     letter-spacing: 0.08em;
 
-    color: var(--color-gray);
+    color: var(--sidebar-muted);
   }
 
   &__list {
@@ -117,7 +125,12 @@
 
     padding: 4px;
 
-    @include app-scrollbar;
+    @include app-scrollbar(
+      var(--sidebar-accent),
+      var(--sidebar-bg),
+      var(--sidebar-border),
+      var(--sidebar-accent-hover)
+    );
   }
 
   & nav {
@@ -139,7 +152,7 @@
 
     padding: 10px 20px 10px 12px;
 
-    color: var(--color-gray);
+    color: var(--sidebar-muted);
   }
 
   &__skeleton {
@@ -164,7 +177,7 @@
 
     font: inherit;
 
-    color: var(--color-text);
+    color: var(--sidebar-text);
     cursor: pointer;
 
     transition:
@@ -174,26 +187,26 @@
     @include reduced-motion;
 
     &:hover {
-      background: var(--color-secondary);
-      color: var(--color-main);
+      background: var(--sidebar-hover);
+      color: var(--sidebar-accent);
     }
 
-    @include focus-ring;
+    @include focus-ring(var(--sidebar-accent));
 
     &--active,
     &--active:hover {
-      background: color-mix(in srgb, var(--color-main) 12%, var(--color-surface));
-      color: var(--color-main);
+      background: var(--sidebar-active);
+      color: var(--sidebar-accent);
     }
 
     &--active .history__icon {
-      color: var(--color-main);
+      color: var(--sidebar-accent);
     }
 
     .history__icon {
       flex-shrink: 0;
 
-      color: var(--color-gray);
+      color: var(--sidebar-muted);
 
       transition: color 0.15s ease;
 
@@ -238,14 +251,15 @@
     @include reduced-motion;
 
     &:hover {
-      background: var(--color-secondary);
+      background: var(--sidebar-hover);
     }
 
-    @include focus-ring;
+    @include focus-ring(var(--sidebar-accent));
 
     &.active-link {
-      border-left: 5px solid var(--color-main);
+      border-left: 5px solid var(--sidebar-accent);
       border-radius: 5px;
+      color: var(--sidebar-accent);
     }
 
     & > span {
@@ -280,14 +294,14 @@
   border-radius: 10px;
 
   &.active {
-    background: var(--color-secondary);
+    background: var(--sidebar-hover);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--color-main);
+    outline: 2px solid var(--sidebar-accent);
     outline-offset: 2px;
 
-    background: var(--color-secondary);
+    background: var(--sidebar-hover);
   }
 
   &__content {
@@ -313,7 +327,7 @@
     height: 36px;
     padding: 0;
 
-    color: var(--color-text);
+    color: var(--sidebar-text);
 
     background: none;
     border: none;
@@ -334,7 +348,7 @@
     }
 
     &:focus-visible {
-      outline: 2px solid var(--color-main);
+      outline: 2px solid var(--sidebar-accent);
       outline-offset: 2px;
     }
 
@@ -371,7 +385,7 @@
   border-radius: 8px;
   cursor: pointer;
 
-  color: var(--color-gray);
+  color: var(--sidebar-muted);
 
   transition:
     color 0.15s ease,
@@ -385,12 +399,12 @@
   }
 
   &:hover {
-    color: var(--color-main);
-    background: var(--color-secondary);
+    color: var(--sidebar-accent);
+    background: var(--sidebar-hover);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--color-main);
+    outline: 2px solid var(--sidebar-accent);
     outline-offset: 2px;
   }
 
@@ -459,8 +473,8 @@
       border-left: none;
       border-radius: 3px;
 
-      box-shadow: inset 5px 0 0 var(--color-main);
-      background: var(--color-secondary);
+      box-shadow: inset 5px 0 0 var(--sidebar-accent);
+      background: var(--sidebar-hover);
     }
   }
 

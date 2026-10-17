@@ -1,4 +1,8 @@
-@mixin icon-button {
+@mixin icon-button(
+  $hover-background: var(--color-secondary),
+  $hover-color: var(--color-main),
+  $focus-color: var(--color-main)
+) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -14,12 +18,12 @@
     background-color 0.15s ease;
 
   &:hover {
-    background: var(--color-secondary);
-    color: var(--color-main);
+    background: $hover-background;
+    color: $hover-color;
   }
 
   &:focus-visible {
-    outline: 2px solid var(--color-main);
+    outline: 2px solid $focus-color;
     outline-offset: 2px;
   }
 
