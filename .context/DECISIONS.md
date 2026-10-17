@@ -602,15 +602,23 @@ belongs entirely to the history page.
 ## User menu rebuilt for the programme product (2026-10-17)
 
 The user sidebar menu was replaced with the product's own vocabulary: Главная, Мои
-программы, Библиотека, Настройки, plus Помощь pinned at the bottom. The top action is now
-"Создать программу" (`SquarePlus`) instead of "Новый чат"; the list is configured in
-`sidebar.config.ts` and the top vs bottom split is a new `bottomNavItems` input that flows
-through `Layout` and route `data`.
+программы, Библиотека, Настройки, plus Помощь pinned at the bottom. The list is configured
+in `sidebar.config.ts` and the top vs bottom split is a new `bottomNavItems` input that
+flows through `Layout` and route `data`.
 
+- **The CTA button was removed, not restyled.** A "Создать программу" CTA briefly stood
+  where "Новый чат" had been; it was then deleted outright, along with its `.cta` styles,
+  the `--sidebar-accent-hover` token, and the `.button--main` `--button-main-bg*` override
+  indirection (reverted to reading `--color-main` / `--color-hover` directly). With no
+  caller left, all of it was dead weight.
 - **`/home`, `/programs`, `/library` and `/help` do not exist yet.** The menu was requested
   ahead of the pages, so those four items render but cannot navigate until the routes land.
-  `/settings` and the CTA's `/create` are the only live targets. This is deliberate, not a
-  regression to "fix" by inventing pages.
+  `/settings` is the only live target. This is deliberate, not a regression to "fix" by
+  inventing pages.
+- **"Тариф" is intentionally absent.** It was specified but deferred; only Помощь was added.
+- **The sidebar width is fluid.** `--sidebar-width` is `clamp(340px, 25vw, 380px)` — a modest
+  bump from the fixed 330px that still tracks the viewport. Collapsed stays a fixed 96px icon
+  rail.
 - **"Тариф" is intentionally absent.** It was specified but deferred; only Помощь was added.
 - **The sidebar width is fluid.** `--sidebar-width` is `clamp(340px, 25vw, 380px)` — a modest
   bump from the fixed 330px that still tracks the viewport. Collapsed stays a fixed 96px icon

@@ -11,12 +11,6 @@
 
   --color-skeleton-base: var(--sidebar-skeleton-base);
   --color-skeleton-shimmer: var(--sidebar-skeleton-shimmer);
-
-  &:not(:has(.cta)) {
-    & .navigation {
-      margin-top: 40px;
-    }
-  }
 }
 
 .sidebar__header {
@@ -48,38 +42,8 @@
   flex-shrink: 0;
 }
 
-.cta {
-  --button-main-bg: var(--sidebar-accent);
-  --button-main-bg-hover: var(--sidebar-accent-hover);
-
-  width: 100%;
-  max-width: 100%;
-  margin-top: 40px;
-  gap: 20px;
-
-  flex-shrink: 0;
-
-  & > span {
-    overflow: hidden;
-    white-space: nowrap;
-
-    max-width: 200px;
-
-    transition:
-      max-width 300ms ease,
-      opacity 250ms ease;
-  }
-
-  &__icon {
-    position: relative;
-    left: 5px;
-
-    transition: left 300ms ease;
-  }
-}
-
 .navigation {
-  margin-top: 10px;
+  margin-top: 40px;
 
   flex-shrink: 0;
 
@@ -125,10 +89,6 @@
         opacity 250ms ease;
 
       @include reduced-motion;
-    }
-
-    &:not(:has(.cta)) & > span {
-      max-width: 200px;
     }
   }
 }
@@ -289,23 +249,6 @@
 
   .sidebar__toggle {
     margin-left: 0;
-  }
-
-  .cta {
-    max-width: 54px;
-
-    margin-inline: auto;
-
-    gap: 0;
-
-    & > span {
-      max-width: 0;
-      opacity: 0;
-    }
-
-    &__icon {
-      left: 0;
-    }
   }
 
   .navigation__item {

@@ -19,12 +19,6 @@
     </button>
   </div>
 
-  @if (role() === 'user') {
-    <a class="button button--main cta h3" routerLink="/create">
-      <svg class="cta__icon" lucideSquarePlus></svg>
-      <span>Создать программу</span>
-    </a>
-  }
   <nav class="navigation" aria-label="Основная навигация">
     <ul class="navigation__list">
       @for (nav of visibleNavItems(); track nav.route) {

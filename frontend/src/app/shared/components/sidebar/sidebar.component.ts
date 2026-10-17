@@ -16,7 +16,6 @@ import {
   LucidePanelLeftClose,
   LucidePanelLeftOpen,
   LucideShieldCheck,
-  LucideSquarePlus,
   LucideSun
 } from '@lucide/angular';
 import { AuthService } from '../../../core/services/auth.service';
@@ -32,7 +31,6 @@ import type { NavItem, Role } from './sidebar.config';
     LucideDynamicIcon,
     RouterLink,
     RouterLinkActive,
-    LucideSquarePlus,
     LucideArrowLeft,
     LucidePanelLeftClose,
     LucidePanelLeftOpen,
