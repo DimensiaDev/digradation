@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Collection
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .program import EducationalProgram, SourceKind
+from .program import EducationalProgram, ProgramStatus, SourceKind
 
 _FINAL_ATTESTATION = "assessment.final"
 _NORMATIVE = (SourceKind.NORMATIVE_ACT, SourceKind.PROFESSIONAL_STANDARD)
@@ -51,23 +53,39 @@ class ProgramConsistencyError(ValueError):
         super().__init__(f"program consistency check failed: {problems}")
 
 
-def check_program(program: EducationalProgram) -> CheckReport:
-    return CheckReport(
-        items=[
-            _hours_item(program),
-            *_coverage_items(program),
-            *_source_items(program),
-            *_completeness_items(program),
-            *_placeholder_items(program),
-        ]
-    )
+def check_program(program: EducationalProgram, confirmed_source_ids: Collection[str] = ()) -> CheckReport:
+    problems = program.problems()
+    items = [CheckItem(code="structure.invalid", severity=CheckSeverity.ERROR, message=problem) for problem in problems]
+    if not problems:
+        items.append(_hours_item(program))
+    items.extend(_coverage_items(program))
+    items.extend(_source_items(program, confirmed_source_ids))
+    items.extend(_completeness_items(program))
+    items.extend(_placeholder_items(program))
+    return CheckReport(items=items)
 
 
-def validate_consistent(program: EducationalProgram) -> CheckReport:
-    report = check_program(program)
+def validate_consistent(program: EducationalProgram, confirmed_source_ids: Collection[str] = ()) -> CheckReport:
+    report = check_program(program, confirmed_source_ids)
     if not report.ok:
         raise ProgramConsistencyError(report)
     return report
+
+
+def verify(program: EducationalProgram, confirmed_source_ids: Collection[str] = ()) -> EducationalProgram:
+    if program.meta.status is not ProgramStatus.APPROVED:
+        raise ValueError(f"verify requires an approved program, got {program.meta.status}")
+    validate_consistent(program, confirmed_source_ids)
+    return program.model_copy(update={"meta": program.meta.model_copy(update={"status": ProgramStatus.VERIFIED})})
+
+
+def load_program(raw: dict[str, Any], confirmed_source_ids: Collection[str] = ()) -> EducationalProgram:
+    meta = raw.get("meta")
+    claims_verified = isinstance(meta, dict) and meta.get("status") == ProgramStatus.VERIFIED
+    if not claims_verified:
+        return EducationalProgram.model_validate(raw)
+    program = EducationalProgram.model_validate({**raw, "meta": {**meta, "status": ProgramStatus.APPROVED.value}})
+    return verify(program, confirmed_source_ids)
 
 
 def _fmt(value: float) -> str:
@@ -114,9 +132,9 @@ def _coverage_items(program: EducationalProgram) -> list[CheckItem]:
     for tool in program.assessment.tools:
         attribute(tool.outcome_ids, tool.id)
     for question in program.assessment.questions:
-        attribute(question.outcome_ids, question.id)
+        attribute(question.outcome_ids, question.tool_id)
     for task in program.assessment.seminar_tasks:
-        attribute(task.outcome_ids, task.id)
+        attribute(task.outcome_ids, task.tool_id or task.id)
     attribute(program.assessment.final.outcome_ids, _FINAL_ATTESTATION)
 
     for outcome in program.iter_outcomes():
@@ -145,8 +163,9 @@ def _coverage_items(program: EducationalProgram) -> list[CheckItem]:
     return items
 
 
-def _source_items(program: EducationalProgram) -> list[CheckItem]:
+def _source_items(program: EducationalProgram, confirmed_source_ids: Collection[str]) -> list[CheckItem]:
     items: list[CheckItem] = []
+    confirmed = set(confirmed_source_ids)
     normative = [source for source in program.sources if source.kind in _NORMATIVE]
     if not normative:
         items.append(
@@ -157,7 +176,7 @@ def _source_items(program: EducationalProgram) -> list[CheckItem]:
             )
         )
     for source in program.sources:
-        if source.confirmed:
+        if source.id in confirmed:
             continue
         if source.kind in _NORMATIVE:
             items.append(
@@ -180,23 +199,28 @@ def _source_items(program: EducationalProgram) -> list[CheckItem]:
 
 def _completeness_items(program: EducationalProgram) -> list[CheckItem]:
     items: list[CheckItem] = []
-    lecture_hours = sum(topic.hours.lecture for module in program.curriculum.modules for topic in module.topics)
-    if lecture_hours > 0 and not program.materials.lecture_plans:
-        items.append(
-            CheckItem(
-                code="materials.lecture_plans",
-                severity=CheckSeverity.ERROR,
-                message=f"Есть лекционные часы ({_fmt(lecture_hours)} ч), но нет ни одного плана лекций",
+    planned_topics = {plan.topic_id for plan in program.materials.lecture_plans}
+    decked_topics = {deck.topic_id for deck in program.materials.slide_decks}
+    for module in program.curriculum.modules:
+        if not {topic.id for topic in module.topics} & decked_topics:
+            items.append(
+                CheckItem(
+                    code="materials.slides",
+                    severity=CheckSeverity.ERROR,
+                    message=f"В модуле {module.id} нет слайдов ни по одной теме",
+                    element_ids=[module.id],
+                )
             )
-        )
-    if not program.materials.slide_decks:
-        items.append(
-            CheckItem(
-                code="materials.slides",
-                severity=CheckSeverity.ERROR,
-                message="Нет слайдов ни для одного модуля",
-            )
-        )
+        for topic in module.topics:
+            if topic.hours.lecture > 0 and topic.id not in planned_topics:
+                items.append(
+                    CheckItem(
+                        code="materials.lecture_plans",
+                        severity=CheckSeverity.ERROR,
+                        message=f"Для темы {topic.id} с {_fmt(topic.hours.lecture)} ч лекций нет плана лекции",
+                        element_ids=[topic.id],
+                    )
+                )
     if not (program.assessment.tools or program.assessment.questions or program.assessment.seminar_tasks):
         items.append(
             CheckItem(

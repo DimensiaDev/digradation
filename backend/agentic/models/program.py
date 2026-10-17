@@ -16,7 +16,7 @@ _TOLERANCE = 1e-9
 
 class SchemaModel(BaseModel):
 
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, frozen=True, revalidate_instances="always")
 
 
 CompetenceId = Annotated[str, StringConstraints(pattern=r"^comp-\d{1,3}$")]
@@ -73,10 +73,10 @@ _PROGRAM_STATUS_LABELS: dict[ProgramStatus, str] = {
 }
 
 STATUS_TRANSITIONS: dict[ProgramStatus, frozenset[ProgramStatus]] = {
-    ProgramStatus.DRAFT: frozenset({ProgramStatus.GENERATING, ProgramStatus.PENDING_APPROVAL}),
-    ProgramStatus.GENERATING: frozenset({ProgramStatus.DRAFT, ProgramStatus.PENDING_APPROVAL, ProgramStatus.VERIFIED}),
+    ProgramStatus.DRAFT: frozenset({ProgramStatus.GENERATING}),
+    ProgramStatus.GENERATING: frozenset({ProgramStatus.DRAFT, ProgramStatus.PENDING_APPROVAL}),
     ProgramStatus.PENDING_APPROVAL: frozenset({ProgramStatus.DRAFT, ProgramStatus.APPROVED}),
-    ProgramStatus.APPROVED: frozenset({ProgramStatus.DRAFT, ProgramStatus.GENERATING, ProgramStatus.VERIFIED}),
+    ProgramStatus.APPROVED: frozenset({ProgramStatus.DRAFT, ProgramStatus.GENERATING}),
     ProgramStatus.VERIFIED: frozenset({ProgramStatus.DRAFT, ProgramStatus.APPROVED}),
 }
 
@@ -306,9 +306,14 @@ class Source(SchemaModel):
         max_length=2000,
         description="Corpus document id and the page or fragment a quote came from",
     )
-    confirmed: bool = Field(default=False, description="True only when the RAG pipeline has found the document")
     primary: bool | None = Field(default=None, description="Literature only: True is основная, False is дополнительная")
     note: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def _require_literature_for_primary(self) -> Self:
+        if self.primary is not None and self.kind is not SourceKind.LITERATURE:
+            raise ValueError(f"source {self.id}: primary is set for literature only")
+        return self
 
 
 class Conditions(SchemaModel):
@@ -364,14 +369,31 @@ class ProgramMeta(SchemaModel):
     status: ProgramStatus = ProgramStatus.DRAFT
     version: int = Field(default=1, ge=1)
 
+    @model_validator(mode="after")
+    def _reject_verified_input(self) -> Self:
+        if self.status is ProgramStatus.VERIFIED:
+            raise ValueError("status verified is assigned only by verify() after a clean check")
+        return self
+
     def can_transition_to(self, new_status: ProgramStatus) -> bool:
         return new_status is self.status or new_status in STATUS_TRANSITIONS[self.status]
 
     def transition_to(self, new_status: ProgramStatus) -> Self:
         if not self.can_transition_to(new_status):
             raise ValueError(f"status transition {self.status} -> {new_status} is not allowed")
-        self.status = new_status
-        return self
+        return self.model_copy(update={"status": new_status})
+
+
+def _tool_binding_problems(
+    label: str, tool: AssessmentTool, outcome_ids: Iterable[str], topic_id: str | None
+) -> list[str]:
+    problems = []
+    outside = sorted(set(outcome_ids) - set(tool.outcome_ids))
+    if outside:
+        problems.append(f"{label}: outcome(s) {', '.join(outside)} are not covered by tool {tool.id}")
+    if topic_id is not None and tool.topic_ids and topic_id not in tool.topic_ids:
+        problems.append(f"{label}: topic {topic_id} is not covered by tool {tool.id}")
+    return problems
 
 
 class EducationalProgram(SchemaModel):
@@ -394,14 +416,28 @@ class EducationalProgram(SchemaModel):
             yield from competence.skills
             yield from competence.experience
 
-    @model_validator(mode="after")
-    def _validate(self) -> Self:
-        problems = [
+    def transition_to(self, new_status: ProgramStatus) -> Self:
+        return self.model_copy(update={"meta": self.meta.transition_to(new_status)})
+
+    def revise(self, **updates: object) -> Self:
+        raw = {**self.model_dump(), **updates}
+        meta = raw["meta"]
+        if isinstance(meta, ProgramMeta):
+            meta = meta.model_dump()
+        raw["meta"] = {**meta, "status": ProgramStatus.DRAFT.value}
+        return type(self).model_validate(raw)
+
+    def problems(self) -> list[str]:
+        return [
             *self._id_problems(),
             *self._reference_problems(),
             *self._template_problems(),
             *self._hours_problems(),
         ]
+
+    @model_validator(mode="after")
+    def _validate(self) -> Self:
+        problems = self.problems()
         if problems:
             raise ValueError("; ".join(problems))
         return self
@@ -453,7 +489,9 @@ class EducationalProgram(SchemaModel):
         outcome_ids = {outcome.id for outcome in self.iter_outcomes()}
         topic_ids = set(self._topic_index())
         tool_ids = {tool.id for tool in self.assessment.tools}
-        plan_ids = {plan.id for plan in self.materials.lecture_plans}
+        tools_by_id = {tool.id: tool for tool in self.assessment.tools}
+        plans_by_id = {plan.id: plan for plan in self.materials.lecture_plans}
+        plan_ids = set(plans_by_id)
         module_ids = {module.id for module in self.curriculum.modules}
 
         problems: list[str] = []
@@ -480,6 +518,13 @@ class EducationalProgram(SchemaModel):
         references.append(("assessment.final.outcome_ids", self.assessment.final.outcome_ids, outcome_ids))
         for question in self.assessment.questions:
             references.append((f"question {question.id}.tool_id", [question.tool_id], tool_ids))
+            tool = tools_by_id.get(question.tool_id)
+            if tool is not None:
+                if tool.kind is not AssessmentKind.TEST:
+                    problems.append(f"question {question.id}: tool {tool.id} is not a test")
+                problems.extend(
+                    _tool_binding_problems(f"question {question.id}", tool, question.outcome_ids, question.topic_id)
+                )
             if question.topic_id is not None:
                 references.append((f"question {question.id}.topic_id", [question.topic_id], topic_ids))
             references.append((f"question {question.id}.outcome_ids", question.outcome_ids, outcome_ids))
@@ -487,6 +532,11 @@ class EducationalProgram(SchemaModel):
             references.append((f"seminar task {task.id}.topic_id", [task.topic_id], topic_ids))
             if task.tool_id is not None:
                 references.append((f"seminar task {task.id}.tool_id", [task.tool_id], tool_ids))
+                tool = tools_by_id.get(task.tool_id)
+                if tool is not None:
+                    problems.extend(
+                        _tool_binding_problems(f"seminar task {task.id}", tool, task.outcome_ids, task.topic_id)
+                    )
             references.append((f"seminar task {task.id}.outcome_ids", task.outcome_ids, outcome_ids))
         for plan in self.materials.lecture_plans:
             references.append((f"lecture plan {plan.id}.topic_id", [plan.topic_id], topic_ids))
@@ -494,6 +544,12 @@ class EducationalProgram(SchemaModel):
             references.append((f"slide deck {deck.id}.topic_id", [deck.topic_id], topic_ids))
             if deck.lecture_plan_id is not None:
                 references.append((f"slide deck {deck.id}.lecture_plan_id", [deck.lecture_plan_id], plan_ids))
+                plan = plans_by_id.get(deck.lecture_plan_id)
+                if plan is not None and plan.topic_id != deck.topic_id:
+                    problems.append(
+                        f"slide deck {deck.id}: lecture plan {plan.id} belongs to topic {plan.topic_id}, "
+                        f"not {deck.topic_id}"
+                    )
         for slot in self.staffing:
             if slot.module_id is not None:
                 references.append((f"staff slot {slot.id}.module_id", [slot.module_id], module_ids))

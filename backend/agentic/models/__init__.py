@@ -6,11 +6,14 @@ from .checks import (
     CheckSeverity,
     ProgramConsistencyError,
     check_program,
+    load_program,
     validate_consistent,
+    verify,
 )
 from .example_72h import PROGRAM_72H
 from .program import (
     STATUS_TRANSITIONS,
+    ApprovalInfo,
     AssessmentKind,
     AssessmentPlan,
     AssessmentTool,
@@ -35,6 +38,7 @@ from .program import (
     Source,
     SourceKind,
     StaffSlot,
+    TestQuestion,
     Topic,
     VolumeSpec,
 )
@@ -42,6 +46,7 @@ from .program import (
 __all__ = [
     "PROGRAM_72H",
     "STATUS_TRANSITIONS",
+    "ApprovalInfo",
     "AssessmentKind",
     "AssessmentPlan",
     "AssessmentTool",
@@ -70,8 +75,11 @@ __all__ = [
     "Source",
     "SourceKind",
     "StaffSlot",
+    "TestQuestion",
     "Topic",
     "VolumeSpec",
     "check_program",
+    "load_program",
     "validate_consistent",
+    "verify",
 ]
