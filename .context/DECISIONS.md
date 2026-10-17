@@ -601,9 +601,10 @@ belongs entirely to the history page.
 ## User menu rebuilt for the programme product (2026-10-17)
 
 The user sidebar menu was replaced with the product's own vocabulary: Главная, Мои
-программы, Библиотека, Настройки, plus Помощь pinned at the bottom. The list is configured
-in `sidebar.config.ts` and the top vs bottom split is a new `bottomNavItems` input that
-flows through `Layout` and route `data`.
+программы and Библиотека in the main list, with Настройки and Помощь pinned at the bottom.
+The list is configured in `sidebar.config.ts` and the top vs bottom split is a new
+`bottomNavItems` input that flows through `Layout` and route `data`.
+(`USER_BOTTOM_NAV_ITEMS` later gained Настройки, which moved down from the main list.)
 
 - **The CTA button was removed, not restyled.** A "Создать программу" CTA briefly stood
   where "Новый чат" had been; it was then deleted outright, along with its `.cta` styles,

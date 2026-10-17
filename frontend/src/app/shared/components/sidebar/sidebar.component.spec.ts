@@ -6,16 +6,17 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter, Router, Routes } from '@angular/router';
 
 import { Sidebar } from './sidebar.component';
-import { USER_NAV_ITEMS, ADMIN_NAV_ITEMS } from './sidebar.config';
+import { USER_BOTTOM_NAV_ITEMS, USER_NAV_ITEMS, ADMIN_NAV_ITEMS } from './sidebar.config';
 import { environment } from '../../../../environments/environment';
 
 @Component({
   selector: 'app-sidebar-test-host',
   imports: [Sidebar],
-  template: `<app-sidebar [navItems]="items" [role]="role" />`
+  template: `<app-sidebar [navItems]="items" [bottomNavItems]="bottomItems" [role]="role" />`
 })
 class TestHost {
   items = USER_NAV_ITEMS;
+  bottomItems = USER_BOTTOM_NAV_ITEMS;
   role: 'user' | 'admin' = 'user';
 }
 
@@ -32,7 +33,10 @@ describe('Sidebar accessibility', () => {
   let router: Router;
   let http: HttpTestingController;
 
-  const getNavLinks = () => fixture.debugElement.queryAll(By.css('.navigation__item'));
+  const getNavLinks = () =>
+    fixture.debugElement.queryAll(By.css('nav.navigation .navigation__item'));
+  const getBottomNavLinks = () =>
+    fixture.debugElement.queryAll(By.css('nav.sidebar__bottom .navigation__item'));
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -66,15 +70,29 @@ describe('Sidebar accessibility', () => {
     });
   });
 
+  it('renders the secondary nav items under a separate landmark', () => {
+    const nav = fixture.debugElement.query(By.css('nav.sidebar__bottom'));
+    expect(nav.nativeElement.getAttribute('aria-label')).toBe('Дополнительно');
+
+    const links = getBottomNavLinks();
+    expect(links.length).toBe(USER_BOTTOM_NAV_ITEMS.length);
+    links.forEach((link, i) => {
+      expect(link.nativeElement.textContent).toContain(USER_BOTTOM_NAV_ITEMS[i].label);
+    });
+  });
+
   it('marks the active route with aria-current="page"', async () => {
     await router.navigateByUrl('/settings');
     fixture.detectChanges();
 
-    const current = getNavLinks().find((link) => link.nativeElement.getAttribute('aria-current'));
+    const current = getBottomNavLinks().find((link) =>
+      link.nativeElement.getAttribute('aria-current')
+    );
     expect(current?.nativeElement.textContent).toContain('Настройки');
     expect(current?.nativeElement.getAttribute('aria-current')).toBe('page');
 
-    const active = getNavLinks().filter((link) => link.nativeElement.hasAttribute('aria-current'));
+    const allLinks = fixture.debugElement.queryAll(By.css('.navigation__item'));
+    const active = allLinks.filter((l) => l.nativeElement.hasAttribute('aria-current'));
     expect(active.length).toBe(1);
   });
 
@@ -82,14 +100,14 @@ describe('Sidebar accessibility', () => {
     await router.navigateByUrl('/create');
     fixture.detectChanges();
 
-    expect(getNavLinks().filter((l) => l.nativeElement.hasAttribute('aria-current')).length).toBe(
-      0
-    );
+    const allLinks = fixture.debugElement.queryAll(By.css('.navigation__item'));
+    expect(allLinks.filter((l) => l.nativeElement.hasAttribute('aria-current')).length).toBe(0);
   });
 
   it('renders admin nav items when the role is admin', () => {
     const adminFixture = TestBed.createComponent(TestHost);
     adminFixture.componentInstance.items = ADMIN_NAV_ITEMS;
+    adminFixture.componentInstance.bottomItems = [];
     adminFixture.componentInstance.role = 'admin';
     adminFixture.detectChanges();
 
@@ -105,7 +123,8 @@ describe('Sidebar tab navigation', () => {
   let router: Router;
   let http: HttpTestingController;
 
-  const getNavLinks = () => fixture.debugElement.queryAll(By.css('.navigation__item'));
+  const getNavLinks = () =>
+    fixture.debugElement.queryAll(By.css('nav.navigation .navigation__item'));
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({

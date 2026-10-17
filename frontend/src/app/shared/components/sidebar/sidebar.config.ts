@@ -21,11 +21,11 @@ export interface NavItem {
 export const USER_NAV_ITEMS: NavItem[] = [
   { label: 'Главная', icon: LucideHouse, route: '/home' },
   { label: 'Мои программы', icon: LucideFolderCode, route: '/programs' },
-  { label: 'Библиотека', icon: LucideLibrary, route: '/library' },
-  { label: 'Настройки', icon: LucideSettings, route: '/settings' }
+  { label: 'Библиотека', icon: LucideLibrary, route: '/library' }
 ];
 
 export const USER_BOTTOM_NAV_ITEMS: NavItem[] = [
+  { label: 'Настройки', icon: LucideSettings, route: '/settings' },
   { label: 'Помощь', icon: LucideCircleHelp, route: '/help' }
 ];
 
