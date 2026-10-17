@@ -32,7 +32,7 @@ models. Nine TaskIQ tasks across the `default` and `network` queues, with hourly
 
 **Frontend.** Angular 21.2 standalone with signals. Reactive forms, cookie auth, 2-second
 polling for generation results, inline preview for PDF, image, docx and xlsx, light/dark
-theme, admin user management, admin prompt-extension editor. 39 colocated `*.spec.ts` files.
+theme, admin user management, admin prompt-extension editor. 38 colocated `*.spec.ts` files.
 
 **Not started or placeholder.** The profile page body, the user settings page body, and two
 admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`.
@@ -65,8 +65,8 @@ first extension point if a feature starts deriving files from an upload.
 |---|---|---|
 | Backend | `poetry -C backend run pytest` | 353 tests; needs a Docker daemon |
 | Backend coverage | `poetry -C backend run pytest --cov` | **99.33%** across 353 tests, gated at 90% by `fail_under` |
-| Frontend | `npm --prefix frontend test` | Vitest, 380 tests in 39 files; runs in `frontend-ci.yml` |
-| Frontend coverage | `npx ng test --coverage` | 91.12% stmts, 86.02% branches, 91.36% funcs; gated at 90% |
+| Frontend | `npm --prefix frontend test` | Vitest, 376 tests in 38 files; runs in `frontend-ci.yml` |
+| Frontend coverage | `npx ng test --coverage` | 91.08% stmts, 85.87% branches, 91.19% funcs; gated at 90% |
 | End-to-end | `./e2e/scripts/run.sh` | Playwright against the Compose stack, `SBER_API_KEY=mock`; 26 tests |
 
 **Both coverage gates are enforced at 90%**, each in exactly one place:

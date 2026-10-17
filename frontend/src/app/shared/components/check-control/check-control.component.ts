@@ -17,17 +17,18 @@ import { noop } from 'rxjs';
 import { controlErrorSignal } from '../../utils/control-error-signal';
 
 @Component({
-  selector: 'app-checkbox',
+  selector: 'app-check-control',
   standalone: true,
   imports: [LucideCheck],
-  templateUrl: './checkbox.component.html',
-  styleUrl: './checkbox.component.scss',
+  templateUrl: './check-control.component.html',
+  styleUrl: './check-control.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    '[class.checkbox--error]': 'showError()'
+    '[class.check-control--error]': 'showError()'
   }
 })
-export class CheckboxComponent implements ControlValueAccessor, OnInit {
+export class CheckControlComponent implements ControlValueAccessor, OnInit {
+  readonly variant = input<'checkbox' | 'switch'>('checkbox');
   readonly label = input('');
   readonly caption = input('');
 

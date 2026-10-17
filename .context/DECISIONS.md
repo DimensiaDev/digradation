@@ -741,3 +741,21 @@ A second review pass over `core/` + `shared/` removed duplicate implementations.
   `control` until the directive's `ngOnChanges`/`ngOnInit`, so a field-time call captures
   `null` and freezes at `false`. `ngOnInit` is the earliest point where the control exists and
   a `computed` over its `events` is still correct.
+
+## Checkbox and toggle merged into `app-check-control` (2026-10-18)
+
+`CheckboxComponent` and `ToggleComponent` were two copies of one control (value accessor,
+label/caption, hidden input) with divergent behaviour, and neither was used outside its spec.
+
+- **One component, `variant: 'checkbox' | 'switch'`.** `shared/components/check-control/`
+  replaces both directories. Disabled state is a `formDisabled` signal bound to `[disabled]`;
+  the old toggle read `checkbox.disabled` from a static `ViewChild`, which does not update in
+  an OnPush component.
+- **Focus is `:focus-visible` on the hidden input, not `:focus-within` on the label.** The
+  label's `:focus-within` lit up on mouse clicks too. The outline is applied to the sibling
+  box/track; note that `@include focus-ring` cannot be used there because the mixin nests its
+  own `&:focus-visible`, which would require focus on the span that never receives it. The old
+  checkbox styles had that bug and their ring never appeared.
+- **Only the variants' markup/styles differ.** The value accessor, `NgControl` error state,
+  blur handling, label/caption and disabled styling are shared, so the switch now also
+  supports validation errors and `aria-label`.
