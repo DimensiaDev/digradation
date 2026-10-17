@@ -579,3 +579,22 @@ override of the generic tokens that was tried first.
   named so the intent is obvious.
 - **Only `--color-danger` stays generic inside the sidebar.** Red reads the same on light and
   dark, so the logout hover does not need a sidebar variant.
+
+## Sidebar no longer lists recent sessions (2026-10-17)
+
+The "ИСТОРИЯ" block is gone: the sidebar is navigation only, and browsing past sessions
+belongs entirely to the history page.
+
+- **The block and everything that existed for it were removed together**, not just hidden:
+  the template section, the `.history*` styles, the `SidebarHistoryItem` mapping, the
+  `chats` / `chatsLoading` / `chatsError` signals, `activeChatId`, `openChat`, the
+  `chatService` injection and its `historyVersion` effect, and the now-unused
+  `SkeletonChatListComponent` plus its `skeleton-item--chat-list*` styles. Leaving the code
+  but not rendering it is how a "removed" feature keeps compiling and confusing.
+- **`.profile` moved to `margin-top: auto`.** It used to be pushed down by the history
+  block's `flex: 1`, so the sidebar layout rule `:not(:has(.history))` became the norm rather
+  than a case.
+- **`ChatService.historyVersion` is gone.** It was bumped on create / send / remove / result
+  and read only by the sidebar's effect, so once the sidebar stopped listing sessions the
+  signal had a writer and no reader. Removed along with `bumpHistory` and the now-pointless
+  `tap` pipes; the history page never read it, so no refresh behaviour changes.

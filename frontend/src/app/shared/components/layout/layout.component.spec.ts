@@ -9,7 +9,6 @@ import { Layout } from './layout.component';
 import { USER_NAV_ITEMS } from '../sidebar/sidebar.config';
 import { environment } from '../../../../environments/environment';
 
-const HISTORY_URL = `${environment.apiUrl}/chats/`;
 const AVATAR_URL = `${environment.apiUrl}/users/me/avatar`;
 
 @Component({ selector: 'app-routed', template: '<p class="routed">Маршрут активирован</p>' })
@@ -36,10 +35,6 @@ describe('Layout', () => {
 
   const createLayout = async (): Promise<void> => {
     fixture = TestBed.createComponent(TestHost);
-    fixture.detectChanges();
-    http
-      .expectOne((r) => r.url === HISTORY_URL && r.method === 'GET')
-      .flush({ items: [], total: 0, page: 0, items_per_page: 10 });
     fixture.detectChanges();
   };
 
