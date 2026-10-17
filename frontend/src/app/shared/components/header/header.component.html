@@ -1,0 +1,58 @@
+<header class="header">
+  <div class="header__actions">
+    <div class="header__block">
+      <button
+        type="button"
+        class="icon-action header__icon-button"
+        [attr.aria-label]="notificationsOpen() ? 'Закрыть уведомления' : 'Открыть уведомления'"
+        [attr.aria-expanded]="notificationsOpen()"
+        aria-haspopup="true"
+        (click)="toggleNotifications()"
+      >
+        <svg size="20" lucideBell aria-hidden="true"></svg>
+        @if (notificationsCount() > 0) {
+          <span class="header__badge">{{ notificationsCount() }}</span>
+        }
+      </button>
+
+      @if (notificationsOpen()) {
+        <div class="header__dropdown header__dropdown--notifications" role="menu">
+          @for (notification of notifications(); track notification.id) {
+            <div class="header__notice" role="menuitem" [attr.data-type]="notification.type">
+              <span class="header__notice-dot" aria-hidden="true"></span>
+              <span class="header__notice-text">
+                <span class="header__notice-title">{{ notification.message }}</span>
+                @if (notification.description) {
+                  <span class="header__notice-description">{{ notification.description }}</span>
+                }
+              </span>
+            </div>
+          } @empty {
+            <p class="header__empty">Нет уведомлений</p>
+          }
+        </div>
+      }
+    </div>
+
+    <div class="header__block">
+      <button
+        type="button"
+        class="header__profile-button"
+        [attr.aria-label]="profileOpen() ? 'Закрыть меню профиля' : 'Открыть меню профиля'"
+        [attr.aria-expanded]="profileOpen()"
+        aria-haspopup="true"
+        (click)="toggleProfile()"
+      >
+        <app-profile />
+      </button>
+
+      @if (profileOpen()) {
+        <div class="header__dropdown header__dropdown--profile" role="menu">
+          <a class="header__menu-item" routerLink="/profile" role="menuitem" (click)="closeMenus()">
+            Профиль
+          </a>
+        </div>
+      }
+    </div>
+  </div>
+</header>

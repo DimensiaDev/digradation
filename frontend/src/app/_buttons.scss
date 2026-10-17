@@ -62,3 +62,46 @@
     opacity: 0.6;
   }
 }
+
+.icon-action {
+  --icon-action-size: 40px;
+  --icon-action-radius: 8px;
+  --icon-action-color: var(--color-text);
+  --icon-action-hover-color: var(--color-main);
+  --icon-action-hover-bg: color-mix(in srgb, var(--color-main) 12%, transparent);
+  --icon-action-focus: var(--color-main);
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  width: var(--icon-action-size);
+  height: var(--icon-action-size);
+
+  flex-shrink: 0;
+
+  background: none;
+  border: none;
+  border-radius: var(--icon-action-radius);
+  cursor: pointer;
+
+  color: var(--icon-action-color);
+
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+
+  @include reduced-motion;
+
+  &:hover {
+    color: var(--icon-action-hover-color);
+    background: var(--icon-action-hover-bg);
+  }
+
+  @include focus-ring(var(--icon-action-focus));
+
+  &:disabled {
+    pointer-events: none;
+    opacity: 0.6;
+  }
+}

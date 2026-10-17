@@ -113,42 +113,16 @@
 }
 
 .icon-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  width: 36px;
-  height: 36px;
-
-  flex-shrink: 0;
-
-  background: none;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-
-  color: var(--sidebar-muted);
+  --icon-action-size: 36px;
+  --icon-action-color: var(--sidebar-muted);
+  --icon-action-hover-color: var(--sidebar-accent);
+  --icon-action-hover-bg: var(--sidebar-hover);
+  --icon-action-focus: var(--sidebar-accent);
 
   transition:
     color 0.15s ease,
     background-color 0.15s ease,
     rotate 0.3s ease;
-
-  @media (prefers-reduced-motion: reduce) {
-    transition:
-      color 0.15s ease,
-      background-color 0.15s ease;
-  }
-
-  &:hover {
-    color: var(--sidebar-accent);
-    background: var(--sidebar-hover);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--sidebar-accent);
-    outline-offset: 2px;
-  }
 
   &:active svg {
     rotate: -30deg;

@@ -659,3 +659,32 @@ toasts gained an optional second line.
 - **`errorOnce` takes an options object** — `errorOnce(message, { windowMs?, description?,
   persistent? })` — instead of a bare `windowMs` number, so the deduped interceptor errors can
   carry a description like every other call.
+
+## Page header, profile component and a shared icon-button class (2026-10-18)
+
+A top header (inside `<main>`, above the router outlet) now hosts the notifications bell and
+the profile, and the icon-button hover mechanism was extracted out of two duplicated copies.
+
+- **The header is white/themed while the sidebar is always dark.** `HeaderComponent` is
+  rendered by `Layout`, not the sidebar, so it can use the themed tokens (`--color-surface`,
+  `--color-text`, `--color-gray`, `--color-outline`) and follow light/dark. Temporary
+  `--header-*` tokens were tried and removed: they added a layer with no second consumer.
+- **The bell is fed by the live toast state, not a separate store.** It reads
+  `NotificationService.notifications`, so there is no persistence and nothing to show once the
+  5s auto-dismiss has fired. A real notification centre (persistent history) is a separate
+  feature; this is deliberately just a surface over the current toasts.
+- **The profile dropdown intentionally has no logout.** The menu holds a single `/profile`
+  link; sign-out still has no home anywhere in the app (see the sidebar entry). Re-add it here
+  only together with the e2e `signs out` spec.
+- **`ProfileComponent` is new, not the resurrected sidebar card.** The sidebar deleted its own
+  `displayName` / `avatarSrc` / `avatarLoading` / `onAvatarError` and `ngOnInit` avatar load;
+  those now live in a reusable `shared/components/profile` component that calls
+  `ProfileService.loadAvatar()`. The name falls back to `username` when first/last are empty.
+- **The icon-button hover mechanism is a single global `.icon-action` class** in
+  `_buttons.scss`, not per-component copies. It exposes `--icon-action-color`,
+  `--icon-action-hover-color`, `--icon-action-hover-bg`, `--icon-action-focus`,
+  `--icon-action-size` and `--icon-action-radius`; lucide SVG recolours via `currentColor`, so
+  hovering changes the glyph colour, not just the background. The sidebar only overrides the
+  variables with its `--sidebar-*` tokens. Previously the sidebar copy recoloured the icon and
+  the header copy only changed the background, which is why the bell "did not animate".
+
