@@ -8,6 +8,7 @@ import {
   ElementRef,
   inject,
   input,
+  OnInit,
   signal,
   viewChild
 } from '@angular/core';
@@ -70,7 +71,7 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.scss'
 })
-export class ChatComponent {
+export class ChatComponent implements OnInit {
   readonly id = input.required<string>();
   readonly isFilesOpen = signal<boolean>(false);
   readonly agentStatus = signal<'thinking' | null>(null);
@@ -222,23 +223,6 @@ export class ChatComponent {
   constructor() {
     inject(DestroyRef).onDestroy(() => this.clearAgentTimers());
 
-    const initial = this.initialChatState.consume();
-    this.hasPendingInitialMessage = initial !== null;
-    if (initial) {
-      this.messages.set([
-        {
-          id: this.nextLocalMessageId--,
-          direction: 'outgoing',
-          text: initial.text,
-          time: this.formatTime(),
-          status: 'sent',
-          attachments: initial.files.length
-            ? initial.files.map((file) => ({ name: file.name, size: file.size, file }))
-            : undefined
-        }
-      ]);
-    }
-
     effect(() => {
       const sessionId = this.id();
       if (!sessionId) {
@@ -264,6 +248,26 @@ export class ChatComponent {
         log.scrollTo({ top: log.scrollHeight, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
       }
     });
+  }
+
+  ngOnInit(): void {
+    const initial = this.initialChatState.consume(this.id());
+
+    this.hasPendingInitialMessage = initial !== null;
+    if (initial) {
+      this.messages.set([
+        {
+          id: this.nextLocalMessageId--,
+          direction: 'outgoing',
+          text: initial.text,
+          time: this.formatTime(),
+          status: 'sent',
+          attachments: initial.files.length
+            ? initial.files.map((file) => ({ name: file.name, size: file.size, file }))
+            : undefined
+        }
+      ]);
+    }
   }
 
   readonly messages = signal<ChatMessage[]>([]);

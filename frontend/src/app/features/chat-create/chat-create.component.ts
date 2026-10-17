@@ -18,7 +18,6 @@ import { DragNDropComponent } from '../../shared/components/drag-n-drop/drag-n-d
 import { InputComponent } from '../../shared/components/input/input.component';
 import { getFileExtension } from '../../shared/utils/upload-format';
 import { createId } from '../../shared/utils/create-id';
-import { extractApiErrorMessage } from '../../shared/utils/api-error';
 import { LucideArrowRight } from '@lucide/angular';
 
 function trimmedRequired(control: AbstractControl): ValidationErrors | null {
@@ -81,13 +80,14 @@ export class ChatCreateComponent {
         ),
         finalize(() => this.isSubmitting.set(false)),
         catchError((err: HttpErrorResponse | Error) => {
-          const msg =
-            err instanceof HttpErrorResponse
-              ? extractApiErrorMessage(err)
-              : (err.message ?? 'Ошибка сервера');
-          this.notifications.error('Не удалось создать чат: ' + msg, {
-            description: 'Проверьте соединение и попробуйте ещё раз.'
-          });
+          if (!(err instanceof HttpErrorResponse)) {
+            this.notifications.error(
+              'Не удалось создать чат: ' + (err.message || 'Ошибка сервера'),
+              {
+                description: 'Проверьте соединение и попробуйте ещё раз.'
+              }
+            );
+          }
           return EMPTY;
         })
       )
@@ -96,7 +96,7 @@ export class ChatCreateComponent {
           this.notifications.success('Новый чат создан', {
             description: 'Агент уже получил ваше сообщение.'
           });
-          this.initialChatState.set({
+          this.initialChatState.set(session_id, {
             text: description.trim(),
             files
           });

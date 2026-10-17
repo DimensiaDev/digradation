@@ -759,3 +759,52 @@ label/caption, hidden input) with divergent behaviour, and neither was used outs
 - **Only the variants' markup/styles differ.** The value accessor, `NgControl` error state,
   blur handling, label/caption and disabled styling are shared, so the switch now also
   supports validation errors and `aria-label`.
+
+## Initial chat handoff is bound to a session id (2026-10-18)
+
+`InitialChatStateService` used to hold one global message. `chat-create` set it, then navigated;
+`chat` consumed it in its constructor without looking at the route. If the navigation did not
+happen, the message survived and the next chat the user opened displayed it as their own.
+
+- **`set(sessionId, message)` and `consume(sessionId)`.** `consume` always clears the pending
+  value and returns it only when the id matches, so a stale handoff is discarded by the next
+  chat rather than injected into it.
+- **The chat consumes in `ngOnInit`, not in the constructor.** `id` is an `input()`, so it is
+  not assigned yet when the constructor runs; reading it there would compare against
+  `undefined` and drop every handoff.
+
+## The error interceptor owns API error notifications (2026-10-18)
+
+`errorInterceptor` showed a toast for every failed request while several callers
+(`chat-create`, `header.logout`) also toasted the same error with their own wording, and
+`errorOnce` could not dedupe them because the messages differed.
+
+- **The interceptor is the single owner of `HttpErrorResponse` notifications.** Callers must
+  not toast an API failure; they only toast errors that never reached the interceptor, such as
+  `Error` from the upload pipeline (XHR, polling timeout) or a non-HTTP failure.
+- **Login stays excluded by URL.** The login page owns its credential-error message, so the
+  interceptor skips `/auth/login` as before; `SKIP_AUTH_ERROR_HANDLING` still opts a request
+  out of both the redirect and the toast.
+
+## The mock interceptor is innermost (2026-10-18)
+
+`app.config.ts` listed `mockApiInterceptor` first, so it answered every request itself and
+`credentialsInterceptor`/`errorInterceptor` never ran in mock mode: no 401 redirect and no
+error toasts, unlike production.
+
+- **Order is `credentials, error, mock`.** Angular runs interceptors left to right; the mock
+  returns its own response instead of calling `next()`, so it must be last for the other two
+  to wrap it.
+- **`createInterceptors(useMocks)` is the single source of the order and is unit-tested.**
+  Do not inline the arrays again; a future interceptor must be inserted before the mock.
+
+## `ProfileService` exposes read-only signals (2026-10-18)
+
+`ProfileComponent` wrote `profile.avatarUrl.set(null)` from its image `error` handler, bypassing
+the service's own state transitions.
+
+- **The writable signals are private; the public handles are `asReadonly()`.** Avatar
+  invalidation goes through `resetAvatar()`, so the service still owns every write and the
+  loading/value pair cannot be desynchronised from outside.
+- **Specs seed state through the HTTP API**, not by writing signals, which also exercises
+  `fetchMe`/`loadAvatar` instead of assuming their internals.

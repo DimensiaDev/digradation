@@ -7,6 +7,7 @@ import { ProfileService } from '../../../core/services/profile.service';
 import { environment } from '../../../../environments/environment';
 
 const AVATAR_URL = `${environment.apiUrl}/users/me/avatar`;
+const ME_URL = `${environment.apiUrl}/users/me`;
 
 describe('ProfileComponent', () => {
   let fixture: ComponentFixture<ProfileComponent>;
@@ -36,8 +37,19 @@ describe('ProfileComponent', () => {
     fixture.detectChanges();
   };
 
+  const seedUser = (user: {
+    id: number;
+    username: string;
+    first_name: string | null;
+    last_name: string | null;
+    role: 'user' | 'admin' | 'superuser';
+  }): void => {
+    profile.fetchMe().subscribe();
+    http.expectOne(ME_URL).flush(user);
+  };
+
   it('shows the full name and role label', () => {
-    profile.user.set({
+    seedUser({
       id: 1,
       username: 'ivan',
       first_name: 'Иван',
@@ -52,7 +64,7 @@ describe('ProfileComponent', () => {
   });
 
   it('falls back to the username when the name is empty', () => {
-    profile.user.set({
+    seedUser({
       id: 1,
       username: 'ivan',
       first_name: null,
@@ -66,10 +78,9 @@ describe('ProfileComponent', () => {
   });
 
   it('falls back to the empty avatar image', () => {
-    profile.avatarLoading.set(false);
-    profile.avatarUrl.set(null);
-
     create();
+    http.expectOne(AVATAR_URL).flush({ avatar_url: null });
+    fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('img')?.getAttribute('src')).toBe(
       '/assets/imgs/empty-avatar.png'
@@ -77,10 +88,10 @@ describe('ProfileComponent', () => {
   });
 
   it('resets the avatar when the image fails to load', () => {
-    profile.avatarLoading.set(false);
-    profile.avatarUrl.set('https://cdn/broken.png');
-
     create();
+    http.expectOne(AVATAR_URL).flush({ avatar_url: 'https://cdn/broken.png' });
+    fixture.detectChanges();
+
     fixture.nativeElement.querySelector('img').dispatchEvent(new Event('error'));
 
     expect(profile.avatarUrl()).toBeNull();

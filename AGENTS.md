@@ -165,6 +165,11 @@ no longer matches, rather than assuming responses arrive in order.
 
 ### API layer
 
+Interceptor order is load-bearing: `credentialsInterceptor`, `errorInterceptor`, then
+`mockApiInterceptor` **last**. The mock answers instead of calling `next()`, so if it is
+outermost the other two never run in mock mode. `createInterceptors()` in `app.config.ts` is
+the single source of the order and is unit-tested.
+
 Services build URLs as `` `${environment.apiUrl}/chats` ``. `apiUrl` comes from
 `src/environments/environment*.ts`, injected at image build time by
 `docker/rewrite-env.mjs` from the `BACKEND_URL` build arg. **Never hardcode a backend

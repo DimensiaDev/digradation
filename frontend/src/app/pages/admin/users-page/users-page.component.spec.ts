@@ -57,7 +57,10 @@ describe('UsersPage', () => {
   /** Set the viewer's own tier, which is what gates role management. */
   const setViewer = (role: UserRole): void => {
     const profile = TestBed.inject(ProfileService);
-    profile.user.set({ id: 99, username: 'viewer', first_name: null, last_name: null, role });
+    profile.fetchMe().subscribe();
+    http
+      .expectOne(`${environment.apiUrl}/users/me`)
+      .flush({ id: 99, username: 'viewer', first_name: null, last_name: null, role });
   };
 
   const createPage = (): void => {

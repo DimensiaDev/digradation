@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
 
@@ -8,6 +8,7 @@ import { HeaderComponent } from './header.component';
 import { NotificationService } from '../../../core/services/notification.service';
 import { ProfileService } from '../../../core/services/profile.service';
 import { environment } from '../../../../environments/environment';
+import { errorInterceptor } from '../../../core/interceptors/error.interceptor';
 
 const AVATAR_URL = `${environment.apiUrl}/users/me/avatar`;
 
@@ -22,7 +23,11 @@ describe('HeaderComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [HeaderComponent],
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()]
+      providers: [
+        provideRouter([]),
+        provideHttpClient(withInterceptors([errorInterceptor])),
+        provideHttpClientTesting()
+      ]
     }).compileComponents();
 
     notifications = TestBed.inject(NotificationService);
@@ -144,6 +149,6 @@ describe('HeaderComponent', () => {
     fixture.detectChanges();
 
     expect(navigate).not.toHaveBeenCalled();
-    expect(notifications.notifications().at(-1)?.message).toContain('Не удалось выйти');
+    expect(notifications.notifications().at(-1)?.message).toBe('Ошибка сервера');
   });
 });

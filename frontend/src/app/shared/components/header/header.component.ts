@@ -13,7 +13,6 @@ import { LucideBell } from '@lucide/angular';
 import { AuthService } from '../../../core/services/auth.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { ProfileService } from '../../../core/services/profile.service';
-import { extractApiErrorMessage } from '../../utils/api-error';
 import { ProfileComponent } from '../profile/profile.component';
 
 @Component({
@@ -66,9 +65,11 @@ export class HeaderComponent {
         this.notificationService.info('Вы вышли из аккаунта');
         this.router.navigate(['/login']);
       },
-      error: (err: HttpErrorResponse) => {
+      error: (err: unknown) => {
         this.loggingOut.set(false);
-        this.notificationService.error('Не удалось выйти: ' + extractApiErrorMessage(err));
+        if (!(err instanceof HttpErrorResponse)) {
+          this.notificationService.error('Не удалось выйти');
+        }
       }
     });
   }

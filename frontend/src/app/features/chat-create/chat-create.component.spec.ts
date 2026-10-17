@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Component } from '@angular/core';
 import { By } from '@angular/platform-browser';
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router, Routes } from '@angular/router';
 import { Observable, of, throwError } from 'rxjs';
@@ -12,6 +12,7 @@ import { AttachmentUploadService } from '../../core/services/attachment-upload.s
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
 import { UploadItem } from '../../core/models/models';
 import { environment } from '../../../environments/environment';
+import { errorInterceptor } from '../../core/interceptors/error.interceptor';
 
 const CHATS_URL = `${environment.apiUrl}/chats/`;
 
@@ -105,7 +106,7 @@ describe('ChatCreateComponent', () => {
       imports: [TestHost],
       providers: [
         provideRouter(TEST_ROUTES),
-        provideHttpClient(),
+        provideHttpClient(withInterceptors([errorInterceptor])),
         provideHttpClientTesting(),
         { provide: AttachmentUploadService, useValue: uploader }
       ]
@@ -190,7 +191,7 @@ describe('ChatCreateComponent', () => {
 
     expect(router.url).toBe('/chats/sess-1');
     expect(notificationText()).toBe('Новый чат создан');
-    expect(initialChatState.consume()).toEqual({
+    expect(initialChatState.consume('sess-1')).toEqual({
       text: 'Нужен резервуар объёмом 10 куб. м.',
       files: []
     });
@@ -246,7 +247,7 @@ describe('ChatCreateComponent', () => {
     http.expectOne(`${CHATS_URL}sess-3`).flush({ message: 'ok' });
     await fixture.whenStable();
 
-    expect(initialChatState.consume()?.files).toEqual([file]);
+    expect(initialChatState.consume('sess-3')?.files).toEqual([file]);
   });
 
   it('reports a server failure and stays on the page', async () => {
@@ -258,7 +259,7 @@ describe('ChatCreateComponent', () => {
     await fixture.whenStable();
     refresh();
 
-    expect(notificationText()).toBe('Не удалось создать чат: Ошибка сервера');
+    expect(notificationText()).toBe('Ошибка сервера');
     expect(router.url).not.toContain('/chats/');
     expect(submitButton().disabled).toBe(false);
   });
@@ -274,7 +275,7 @@ describe('ChatCreateComponent', () => {
     await fixture.whenStable();
     refresh();
 
-    expect(notificationText()).toBe('Не удалось создать чат: Лимит чатов исчерпан');
+    expect(notificationText()).toBe('Лимит чатов исчерпан');
   });
 
   it('reports a file upload failure and does not send the message', async () => {

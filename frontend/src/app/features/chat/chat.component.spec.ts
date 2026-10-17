@@ -702,13 +702,23 @@ describe('Chat behaviour', () => {
     vi.useFakeTimers();
     const state: InitialChatStateService = TestBed.inject(InitialChatStateService);
     const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' });
-    state.set({ text: 'из черновика', files: [file] });
+    state.set(SESSION_ID, { text: 'из черновика', files: [file] });
 
     openSession([]);
 
     expect(component.messages()[0]?.text).toBe('из черновика');
     expect(component.messages()[0]?.attachments?.[0]?.name).toBe('plan.pdf');
     expect(component.agentStatus()).toBe('thinking');
+  });
+
+  it('discards a message handed over for a different session', () => {
+    const state: InitialChatStateService = TestBed.inject(InitialChatStateService);
+    state.set('another-session', { text: 'фантом', files: [] });
+
+    openSession([]);
+
+    expect(component.messages()).toEqual([]);
+    expect(state.consume(SESSION_ID)).toBeNull();
   });
 
   it('forwards dropped files to the drop zone', () => {

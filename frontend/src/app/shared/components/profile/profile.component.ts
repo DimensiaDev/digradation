@@ -34,6 +34,6 @@ export class ProfileComponent implements OnInit {
   }
 
   onAvatarError(): void {
-    this.profile.avatarUrl.set(null);
+    this.profile.resetAvatar();
   }
 }
