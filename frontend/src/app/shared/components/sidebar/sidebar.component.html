@@ -38,82 +38,62 @@
     </ul>
   </nav>
 
-  @if (bottomNavItems().length > 0) {
-    <nav class="sidebar__bottom" aria-label="Дополнительно">
-      <ul class="navigation__list">
-        @for (nav of bottomNavItems(); track nav.route) {
-          <li>
-            <a
-              class="navigation__item h3"
-              [routerLink]="nav.route"
-              routerLinkActive="active-link"
-              ariaCurrentWhenActive="page"
-              [attr.title]="collapsed() ? nav.label : null"
-            >
-              <svg class="navigation__icon" [lucideIcon]="nav.icon"></svg>
-              <span>{{ nav.label }}</span>
-            </a>
-          </li>
-        }
-      </ul>
-    </nav>
-  }
-
-  <div class="profile">
-    @if (avatarLoading()) {
-      <div class="photo skeleton-item skeleton-item--circle" aria-hidden="true"></div>
-    } @else {
-      <img [src]="avatarSrc()" alt="profile photo" class="photo" (error)="onAvatarError()" />
+  <div class="sidebar__bottom-group">
+    @if (bottomNavItems().length > 0) {
+      <nav class="sidebar__bottom" aria-label="Дополнительно">
+        <ul class="navigation__list">
+          @for (nav of bottomNavItems(); track nav.route) {
+            <li>
+              <a
+                class="navigation__item h3"
+                [routerLink]="nav.route"
+                routerLinkActive="active-link"
+                ariaCurrentWhenActive="page"
+                [attr.title]="collapsed() ? nav.label : null"
+              >
+                <svg class="navigation__icon" [lucideIcon]="nav.icon"></svg>
+                <span>{{ nav.label }}</span>
+              </a>
+            </li>
+          }
+        </ul>
+      </nav>
     }
-    <div class="profile__content">
-      <div class="profile__info">
-        <span class="profile__name h3">{{ displayName() }}</span>
-      </div>
+
+    <div class="sidebar__footer">
       <button
         type="button"
-        class="profile__logout"
-        aria-label="Выйти"
-        [disabled]="isLoggingOut()"
-        (click)="logout()"
+        class="icon-action"
+        [attr.aria-label]="theme() === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'"
+        [attr.title]="theme() === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'"
+        (click)="toggleTheme()"
       >
-        <svg size="18" lucideLogOut aria-hidden="true"></svg>
+        @if (theme() === 'dark') {
+          <svg size="18" lucideSun aria-hidden="true"></svg>
+        } @else {
+          <svg size="18" lucideMoon aria-hidden="true"></svg>
+        }
       </button>
-    </div>
-  </div>
-
-  <div class="sidebar__footer">
-    <button
-      type="button"
-      class="icon-action"
-      [attr.aria-label]="theme() === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'"
-      [attr.title]="theme() === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'"
-      (click)="toggleTheme()"
-    >
-      @if (theme() === 'dark') {
-        <svg size="18" lucideSun aria-hidden="true"></svg>
-      } @else {
-        <svg size="18" lucideMoon aria-hidden="true"></svg>
+      @if (userMenuItem(); as item) {
+        <a
+          class="icon-action"
+          [routerLink]="item.route"
+          [attr.aria-label]="item.label"
+          [title]="item.label"
+        >
+          <svg size="18" [lucideIcon]="item.icon" aria-hidden="true"></svg>
+        </a>
       }
-    </button>
-    @if (userMenuItem(); as item) {
-      <a
-        class="icon-action"
-        [routerLink]="item.route"
-        [attr.aria-label]="item.label"
-        [title]="item.label"
-      >
-        <svg size="18" [lucideIcon]="item.icon" aria-hidden="true"></svg>
-      </a>
-    }
-    @if (adminItem(); as admin) {
-      <a
-        class="icon-action"
-        [routerLink]="admin.route"
-        [attr.aria-label]="admin.label"
-        [title]="admin.label"
-      >
-        <svg size="18" [lucideIcon]="admin.icon" aria-hidden="true"></svg>
-      </a>
-    }
+      @if (adminItem(); as admin) {
+        <a
+          class="icon-action"
+          [routerLink]="admin.route"
+          [attr.aria-label]="admin.label"
+          [title]="admin.label"
+        >
+          <svg size="18" [lucideIcon]="admin.icon" aria-hidden="true"></svg>
+        </a>
+      }
+    </div>
   </div>
 </aside>

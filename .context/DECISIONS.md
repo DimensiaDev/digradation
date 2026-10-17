@@ -572,11 +572,10 @@ override of the generic tokens that was tried first.
   `--button-main-bg` / `--button-main-bg-hover` with `--color-main` / `--color-hover` as
   fallbacks. Every existing caller is untouched; the sidebar passes its own colors. The
   alternative — overriding generic values at `:host` — is what we removed.
-- **The skeleton is the one place a scoped override remains.** The history skeleton is a
-  shared child component that reads `--color-skeleton-base` / `--color-skeleton-shimmer`
-  directly, and custom properties are the only channel into it without `::ng-deep`. `.sidebar`
-  retargets just those two to `--sidebar-skeleton-*`. It is scoped to the sidebar element and
-  named so the intent is obvious.
+- **The skeleton scoped override was later dropped.** While the sidebar still held the
+  profile card, `.sidebar` retargeted `--color-skeleton-base` / `--color-skeleton-shimmer`
+  to `--sidebar-skeleton-*` for the avatar placeholder. When the card was removed (see
+  below) the sidebar rendered no skeleton, so the retarget went with it.
 - **Only `--color-danger` stays generic inside the sidebar.** Red reads the same on light and
   dark, so the logout hover does not need a sidebar variant.
 
@@ -619,7 +618,24 @@ flows through `Layout` and route `data`.
 - **The sidebar width is fluid.** `--sidebar-width` is `clamp(340px, 25vw, 380px)` — a modest
   bump from the fixed 330px that still tracks the viewport. Collapsed stays a fixed 96px icon
   rail.
-- **"Тариф" is intentionally absent.** It was specified but deferred; only Помощь was added.
-- **The sidebar width is fluid.** `--sidebar-width` is `clamp(340px, 25vw, 380px)` — a modest
-  bump from the fixed 330px that still tracks the viewport. Collapsed stays a fixed 96px icon
-  rail.
+
+## Sidebar no longer shows the profile card (2026-10-17)
+
+The avatar + name card was removed from the sidebar; it will be shown somewhere else. Only the
+sidebar UI went — the reusable pieces stay.
+
+- **`ProfileService`, `AuthService`, the profile page and the global `.photo` style are
+  untouched.** They are the "component and services" that were explicitly kept for reuse; the
+  sidebar just stopped rendering the card and calling `loadAvatar()`.
+- **Logout was removed from the sidebar and has no replacement yet.** It lived inside the
+  removed card, so it was first re-added to the footer, then dropped on request; the sidebar
+  no longer injects `AuthService` or `Router`. There is currently no sign-out control anywhere,
+  and the e2e `signs out` spec was deleted with it — restore both together when sign-out lands
+  in its new home.
+- **The sidebar's own profile logic went with the card**: `displayName`, `avatarSrc`,
+  `avatarLoading`, `onAvatarError` and the `ngOnInit` avatar load all had exactly one reader
+  (the removed template) and were deleted. `profile.user` stays, because the admin-panel link
+  derives from the role.
+- **The bottom anchor moved to the bottom nav.** With `.profile { margin-top: auto }` gone, the
+  `Помощь` + footer group is pinned by `.sidebar__bottom-group { margin-top: auto }`, so both
+  stay at the bottom for the user (who has a bottom nav) and the admin (who does not).

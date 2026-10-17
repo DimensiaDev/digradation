@@ -1,7 +1,7 @@
 @use '../../../scrollbars' as *;
 
 :host {
-  --sidebar-width: clamp(340px, 25vw, 380px);
+  --sidebar-width: clamp(340px, 20vw, 380px);
   --sidebar-collapsed-width: 96px;
 
   display: grid;
@@ -32,7 +32,7 @@
     height: 100dvh;
     width: var(--sidebar-width);
 
-    padding: 30px 30px;
+    padding: 30px 20px;
 
     position: fixed;
 
@@ -42,6 +42,6 @@
   }
 
   & > app-sidebar.sidebar--collapsed {
-    padding: 30px 20px;
+    padding: 30px 16px;
   }
 }

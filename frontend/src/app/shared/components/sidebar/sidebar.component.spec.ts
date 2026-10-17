@@ -87,16 +87,6 @@ describe('Sidebar accessibility', () => {
     );
   });
 
-  it('leaves the non-interactive profile unmarked on /profile', async () => {
-    await router.navigateByUrl('/profile');
-    fixture.detectChanges();
-
-    expect(fixture.debugElement.query(By.css('.profile a'))).toBeNull();
-    expect(getNavLinks().filter((l) => l.nativeElement.hasAttribute('aria-current')).length).toBe(
-      0
-    );
-  });
-
   it('renders admin nav items when the role is admin', () => {
     const adminFixture = TestBed.createComponent(TestHost);
     adminFixture.componentInstance.items = ADMIN_NAV_ITEMS;

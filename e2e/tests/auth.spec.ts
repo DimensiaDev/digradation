@@ -26,13 +26,4 @@ test.describe("authentication", () => {
     await page.goto("/chats");
     await expect(page).toHaveURL(/\/login/);
   });
-
-  test("signs out", async ({ page }) => {
-    await login(page);
-    await page
-      .getByRole("button", { name: /Выйти|Выход|logout/i })
-      .first()
-      .click();
-    await expect(page).toHaveURL(/\/login/);
-  });
 });
