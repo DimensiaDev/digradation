@@ -4,19 +4,6 @@
       <img src="/assets/imgs/logo.png" alt="logo" width="48" />
       <div class="h1">Digradation</div>
     </div>
-    <button
-      type="button"
-      class="sidebar__toggle"
-      [attr.aria-label]="collapsed() ? 'Развернуть меню' : 'Свернуть меню'"
-      [attr.aria-expanded]="!collapsed()"
-      (click)="toggleCollapsed()"
-    >
-      @if (collapsed()) {
-        <svg size="20" lucidePanelLeftOpen aria-hidden="true"></svg>
-      } @else {
-        <svg size="20" lucidePanelLeftClose aria-hidden="true"></svg>
-      }
-    </button>
   </div>
 
   <nav class="navigation" aria-label="Основная навигация">
@@ -61,6 +48,19 @@
     }
 
     <div class="sidebar__footer">
+      <button
+        type="button"
+        class="icon-action"
+        [attr.aria-label]="collapsed() ? 'Развернуть меню' : 'Свернуть меню'"
+        [attr.aria-expanded]="!collapsed()"
+        (click)="toggleCollapsed()"
+      >
+        @if (collapsed()) {
+          <svg size="20" lucidePanelLeftOpen aria-hidden="true"></svg>
+        } @else {
+          <svg size="20" lucidePanelLeftClose aria-hidden="true"></svg>
+        }
+      </button>
       <button
         type="button"
         class="icon-action"
