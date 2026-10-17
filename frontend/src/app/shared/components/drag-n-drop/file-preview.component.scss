@@ -73,7 +73,7 @@
     padding: 2px 8px;
 
     color: var(--color-main);
-    background: var(--color-hover-secondary);
+    background: var(--color-secondary);
     border-radius: 6px;
   }
 
@@ -258,7 +258,7 @@ html[data-theme='dark'] .file-preview__sheet-tab:hover {
 }
 
 html[data-theme='dark'] .file-preview__sheet-tab-indicator {
-  background: var(--color-hover-secondary);
+  background: var(--color-secondary);
 }
 
 @keyframes file-preview-fade-in {

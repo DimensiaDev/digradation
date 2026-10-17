@@ -174,7 +174,7 @@
     @include reduced-motion;
 
     &:hover {
-      background: var(--color-hover-secondary);
+      background: var(--color-secondary);
       color: var(--color-main);
     }
 
@@ -182,7 +182,7 @@
 
     &--active,
     &--active:hover {
-      background: var(--color-outgoing-message);
+      background: color-mix(in srgb, var(--color-main) 12%, var(--color-surface));
       color: var(--color-main);
     }
 
@@ -238,7 +238,7 @@
     @include reduced-motion;
 
     &:hover {
-      background: var(--color-hover-secondary);
+      background: var(--color-secondary);
     }
 
     @include focus-ring;
@@ -280,14 +280,14 @@
   border-radius: 10px;
 
   &.active {
-    background: var(--color-hover-secondary);
+    background: var(--color-secondary);
   }
 
   &:focus-visible {
     outline: 2px solid var(--color-main);
     outline-offset: 2px;
 
-    background: var(--color-hover-secondary);
+    background: var(--color-secondary);
   }
 
   &__content {
@@ -386,7 +386,7 @@
 
   &:hover {
     color: var(--color-main);
-    background: var(--color-hover-secondary);
+    background: var(--color-secondary);
   }
 
   &:focus-visible {
@@ -460,7 +460,7 @@
       border-radius: 3px;
 
       box-shadow: inset 5px 0 0 var(--color-main);
-      background: var(--color-hover-secondary);
+      background: var(--color-secondary);
     }
   }
 

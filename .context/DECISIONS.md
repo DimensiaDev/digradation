@@ -527,3 +527,30 @@ and why what replaced it is there.
   scripts set `POSTGRES_HOST=localhost`, so 5432 would have meant autogenerating against
   whatever PostgreSQL the developer happens to be running — producing a migration for
   somebody else's schema, silently.
+
+## Frontend design-token palette (2026-10-17)
+
+The palette moved to indigo `#6366F1` as `--color-main`, with `--color-accent` (`#8B5CF6`,
+identity/gradients), `--color-info` (`#22D3EE`, process steps/info icons) and a
+`--color-surface-dark` (`#151728`) reserved for sidebars and underlays. Success, warning and
+danger are `#10B981` / `#F59E0B` / `#EF4444`. All tokens live in `styles.scss`; components
+reference variables only, so no component needed a hex.
+
+- **`--color-hover` is derived, not stored.** It was two hardcoded hexes (a darker blue in
+  light, a lighter one in dark). It is now `color-mix(in srgb, var(--color-main) 85%, black)`
+  in light and `... 80%, white)` in dark — the only asymmetry the two themes need, and it
+  keeps hover in step with whatever `--color-main` becomes.
+- **Four near-duplicate tokens were removed rather than retuned.** `--color-hover-secondary`
+  (a gray almost identical to `--color-secondary`), `--color-outgoing-message` (a blue tint
+  that assumed the old blue), `--color-success-text` (a second green, one use) and the
+  never-defined `--color-info` are gone. Usages now read `--color-secondary`, a
+  `color-mix(... --color-main 12%, --color-surface)` tint, `--color-success` and the new
+  `--color-info` respectively. Fewer tokens than semantics is the point: a hex that exists
+  only because the primary one changed is not a token.
+- **Dark theme overrides only `--color-main` (`#818CF8`) and `--color-hover`.** The accent,
+  info and status hues are legible on both backgrounds, so only the primary needed a lighter
+  dark-theme value; the rest inherit from `:root`.
+- **`--color-info` now feeds notifications.** `notification.component.scss` had a
+  `var(--color-info, var(--color-main))` fallback for a variable that was never defined, so
+  info toasts silently rendered as primary. The token exists now and the `data-type='info'`
+  rule uses it directly.

@@ -208,13 +208,13 @@
 
 .select__option--highlighted,
 .select__option:hover {
-  background: var(--color-hover-secondary);
+  background: var(--color-secondary);
   color: var(--color-main);
   cursor: pointer;
 }
 
 .select__option--selected {
-  background: var(--color-hover-secondary);
+  background: var(--color-secondary);
   color: var(--color-main);
   cursor: default;
 }
