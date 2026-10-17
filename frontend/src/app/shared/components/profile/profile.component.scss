@@ -10,7 +10,7 @@
 }
 
 .profile__photo {
-  width: 42px;
+  width: 46px;
   aspect-ratio: 1 / 1;
 
   flex-shrink: 0;
@@ -30,8 +30,9 @@
 }
 
 .profile__name {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 500;
+  line-height: 1.2;
 
   color: var(--color-text);
 
@@ -41,7 +42,8 @@
 }
 
 .profile__role {
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.2;
 
   color: var(--color-gray);
 
