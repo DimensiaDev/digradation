@@ -6,7 +6,7 @@
         class="icon-action header__icon-button"
         [attr.aria-label]="notificationsOpen() ? 'Закрыть уведомления' : 'Открыть уведомления'"
         [attr.aria-expanded]="notificationsOpen()"
-        aria-haspopup="true"
+        [attr.aria-controls]="notificationsOpen() ? 'header-notifications' : null"
         (click)="toggleNotifications()"
       >
         <svg size="20" lucideBell aria-hidden="true"></svg>
@@ -17,22 +17,26 @@
 
       @if (notificationsOpen()) {
         <div
+          id="header-notifications"
           class="header__dropdown header__dropdown--notifications"
-          role="menu"
           animate.enter="header__dropdown--enter"
           animate.leave="header__dropdown--leave"
         >
-          @for (notification of notifications(); track notification.id) {
-            <div class="header__notice" role="menuitem" [attr.data-type]="notification.type">
-              <span class="header__notice-dot" aria-hidden="true"></span>
-              <span class="header__notice-text">
-                <span class="header__notice-title">{{ notification.message }}</span>
-                @if (notification.description) {
-                  <span class="header__notice-description">{{ notification.description }}</span>
-                }
-              </span>
-            </div>
-          } @empty {
+          @if (notifications().length > 0) {
+            <ul class="header__notices">
+              @for (notification of notifications(); track notification.id) {
+                <li class="header__notice" [attr.data-type]="notification.type">
+                  <span class="header__notice-dot" aria-hidden="true"></span>
+                  <span class="header__notice-text">
+                    <span class="header__notice-title">{{ notification.message }}</span>
+                    @if (notification.description) {
+                      <span class="header__notice-description">{{ notification.description }}</span>
+                    }
+                  </span>
+                </li>
+              }
+            </ul>
+          } @else {
             <p class="header__empty">Нет уведомлений</p>
           }
         </div>
@@ -45,7 +49,7 @@
         class="header__profile-button"
         [attr.aria-label]="profileOpen() ? 'Закрыть меню профиля' : 'Открыть меню профиля'"
         [attr.aria-expanded]="profileOpen()"
-        aria-haspopup="true"
+        [attr.aria-controls]="profileOpen() ? 'header-profile-menu' : null"
         (click)="toggleProfile()"
       >
         <app-profile />
@@ -53,18 +57,15 @@
 
       @if (profileOpen()) {
         <div
+          id="header-profile-menu"
           class="header__dropdown header__dropdown--profile"
-          role="menu"
           animate.enter="header__dropdown--enter"
           animate.leave="header__dropdown--leave"
         >
-          <a class="header__menu-item" routerLink="/profile" role="menuitem" (click)="closeMenus()">
-            Профиль
-          </a>
+          <a class="header__menu-item" routerLink="/profile" (click)="closeMenus()"> Профиль </a>
           <button
             type="button"
             class="header__menu-item header__menu-item--danger"
-            role="menuitem"
             [disabled]="loggingOut()"
             (click)="logout()"
           >

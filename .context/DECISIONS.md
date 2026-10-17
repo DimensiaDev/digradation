@@ -692,3 +692,28 @@ the profile, and the icon-button hover mechanism was extracted out of two duplic
   variables with its `--sidebar-*` tokens. Previously the sidebar copy recoloured the icon and
   the header copy only changed the background, which is why the bell "did not animate".
 
+## Base-layer cleanup: table keyboard rows, header ARIA, theming (2026-10-18)
+
+A review pass over `core/` + `shared/` fixed a batch of accessibility and theming defects.
+
+- **Interactive table rows are now keyboard-operable.** When `interactiveRows` is true the
+  `<tr>` gets `tabindex="0"` and an Enter/Space handler; the handler ignores events from a child
+  (so the per-row link in the history table is not activated twice) and sets a focus ring via a
+  `--color-main` inset on the first cell, because an `outline` on a `tr` is not reliably painted.
+- **The header popups are disclosures, not menus.** The notification panel and the profile
+  popup dropped `role="menu"`/`role="menuitem"`, which promise arrow-key navigation the
+  component does not implement; the bell's `aria-haspopup="true"` went with them. They now use
+  `aria-expanded` + `aria-controls` pointing at the panel id, and the notifications are a plain
+  `<ul>`/`<li>` list. Verified against the requirement, not just lint.
+- **File-preview dark theming moved into a token.** The three global
+  `html[data-theme='dark'] .file-preview__sheet-tab*` rules were replaced by a single
+  `--sheet-tab-indicator-bg` custom property defined per theme in `styles.scss`. The component
+  keeps `ViewEncapsulation.None`, so a global theme selector would leak; the token keeps the
+  colour inside the variable model. Note the old dark rule set the indicator to
+  `--color-secondary`, the same colour as its own container, so the tab was invisible in dark.
+- **`Layout` gained `ChangeDetectionStrategy.OnPush`.** It was the only shared component
+  without it.
+- **`AGENTS.md` no longer documents a `ChatService.historyVersion` signal.** No such signal
+  exists; the real list-refresh idiom is a per-component local request-id counter, which the
+  section now describes.
+

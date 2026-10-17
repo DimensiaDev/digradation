@@ -94,4 +94,15 @@ export class Table<T> {
       this.rowClick.emit(row);
     }
   }
+
+  protected onRowKeydown(row: T, event: KeyboardEvent): void {
+    if (!this.interactiveRows() || event.target !== event.currentTarget) {
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      this.rowClick.emit(row);
+    }
+  }
 }

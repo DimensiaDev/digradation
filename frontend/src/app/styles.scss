@@ -39,6 +39,8 @@ body {
   --color-secondary: #f4f6f9;
   --color-outline: #e5e7eb;
 
+  --sheet-tab-indicator-bg: var(--color-surface);
+
   --color-text: #0f172a;
 
   --color-success: #10b981;
@@ -67,6 +69,8 @@ html[data-theme='dark'] {
   --color-surface: #101a2e;
   --color-secondary: #18233a;
   --color-outline: #263349;
+
+  --sheet-tab-indicator-bg: var(--color-outline);
 
   --color-text: #e2e8f0;
 

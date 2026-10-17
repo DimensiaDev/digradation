@@ -77,7 +77,8 @@
         @include reduced-motion;
       }
 
-      &:hover td {
+      &:hover td,
+      &:focus-visible td {
         background: var(--color-secondary);
 
         &:first-child {
@@ -86,6 +87,14 @@
 
         &:last-child {
           border-radius: 0 8px 8px 0;
+        }
+      }
+
+      &:focus-visible {
+        outline: none;
+
+        & td:first-child {
+          box-shadow: inset 3px 0 0 var(--color-main);
         }
       }
     }
