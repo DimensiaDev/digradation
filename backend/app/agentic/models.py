@@ -403,3 +403,24 @@ class EducationalProgram(SchemaModel):
     conditions: Conditions
     staffing: list[StaffSlot] = Field(min_length=1)
     approval: ApprovalInfo
+
+
+class ProgramDraft(SchemaModel):
+    """Ранние блоки программы, которые методист подтверждает до полной генерации.
+
+    The draft is what the methodist reviews and approves: the programme passport
+    (kind and title), the summary, the competences with their outcomes, the
+    curriculum with its hour split and the sources the agent found. The remaining
+    blocks of :class:`EducationalProgram` — assessment, materials, conditions,
+    staffing, approval — are generated later, from this approved draft, so no
+    later stage has to invent the structure again.
+    """
+
+    kind: ProgramKind = Field(description="Тип программы: повышение квалификации или общеразвивающая")
+    title: str = Field(min_length=1, max_length=500, description="Название программы")
+    summary: ProgramSummary = Field(description="Паспорт программы: цель, аудитория, форма обучения")
+    competencies: list[Competence] = Field(min_length=1, description="Компетенции с результатами освоения")
+    curriculum: Curriculum = Field(description="Учебный план: модули, темы, часы и график")
+    sources: list[Source] = Field(
+        default_factory=list, description="Источники, найденные поиском и использованные в программе"
+    )

@@ -23,6 +23,10 @@ from app.database import Base
 MAX_FILENAME_LENGTH = 128
 MAX_CHAT_NAME_LENGTH = 128
 
+#: Name a chat gets at creation. The agent replaces it with the programme title
+#: once a draft is saved, and only while the chat still carries this one.
+DEFAULT_CHAT_NAME = "Новый чат"
+
 if typing.TYPE_CHECKING:
     from app.models.auth import User
 
@@ -79,7 +83,7 @@ class ChatMessage(Base):
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
 
-    name: Mapped[str] = mapped_column(String(length=MAX_CHAT_NAME_LENGTH), nullable=False, default="Новый чат")
+    name: Mapped[str] = mapped_column(String(length=MAX_CHAT_NAME_LENGTH), nullable=False, default=DEFAULT_CHAT_NAME)
     session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 

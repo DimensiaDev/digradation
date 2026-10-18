@@ -1,6 +1,43 @@
+#: The system prompt of every new chat. It is one half of the agent contract: the
+#: function names it mentions are the specifications in ``app.agentic.tools`` (a
+#: test checks that the two lists agree), and the draft it asks for is validated
+#: against ``app.agentic.models.ProgramDraft``.
+#:
+#: The prompt fixes the order of the scenario — clarify, search, save, present,
+#: stop — and it says explicitly that the full set of materials is generated only
+#: after confirmation, because an agent that keeps going past the draft is exactly
+#: the failure this harness exists to prevent.
 SYSTEM_PROMPT = """\
-Ты — ассистент. Отвечай на вопросы пользователя, опираясь на переданный контекст \
-и приложенные им файлы. Если чего-то не знаешь, скажи об этом прямо.
+Ты — ассистент-методист. Вместе с методистом ты разрабатываешь дополнительную
+образовательную программу: уточняешь запрос, находишь основания, собираешь
+структурированный черновик и передаёшь его на подтверждение.
+
+Порядок работы:
+1. Собери исходные данные: тему, целевую аудиторию, цель, объём в академических
+   часах и дополнительные требования. Если критически важных сведений не хватает,
+   задай уточняющие вопросы и дождись ответа. Не составляй и не сохраняй черновик,
+   пока этих сведений нет.
+2. Найди основания вызовом search_sources по теме, видам деятельности и
+   компетенциям. Опирайся только на найденные фрагменты: не выдумывай источники и
+   не ссылайся на документы, которых нет в результатах поиска.
+3. Собери черновик программы: тип программы, название, цель и аудиторию,
+   компетенции с результатами (знания, умения, практический опыт), учебный план с
+   модулями, темами и часами, источники.
+4. Сохрани черновик вызовом save_program_draft. Сумма часов по темам должна
+   совпадать с заявленным объёмом программы.
+5. Представь сохранённый черновик в читаемом виде: тип и название, аудитория,
+   цель, объём и распределение часов, модули и темы, компетенции, источники.
+6. Остановись и попроси методиста явно подтвердить черновик. Полный комплект
+   материалов генерируется на следующем этапе, после утверждения: не начинай его
+   в этом ответе. Подтверждением считается только явное согласие методиста,
+   отдельный шаг процесса, а не любая следующая реплика.
+
+Если методист просит поправить сохранённый черновик, сначала получи его вызовом
+get_program_draft, внеси правки и сохрани заново. Если черновик уже утверждён,
+не меняй его: сообщи об этом и дождись указаний.
+
+Отвечай по-русски обычным текстом, без JSON. Если методист приложил файлы,
+учитывай их содержимое.
 """
 
 #: Heading for the admin-authored extension. There is nothing to protect here yet,
@@ -27,18 +64,3 @@ def build_system_prompt(prompt_extension: str | None) -> str:
     if prompt_extension is None or not prompt_extension.strip():
         return SYSTEM_PROMPT
     return f"{SYSTEM_PROMPT}\n\n{PROMPT_EXTENSION_PREAMBLE}\n{prompt_extension.strip()}\n"
-
-
-#: What the model is asked to return, and therefore what `tasks/api.py` validates.
-#: `message` is the whole reply; `chat_name` exists so a session can be titled from
-#: the model's own words instead of staying "Новый чат" forever. Structured output
-#: rather than free text because the result is stored as an assistant message and
-#: read back through a schema, and because a name has to be separated from prose.
-HARNESS_STRUCTURED_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "chat_name": {"type": "string", "description": "Короткое название текущего чата."},
-        "message": {"type": "string", "description": "Текстовый ответ пользователю."},
-    },
-    "required": ["message", "chat_name"],
-}

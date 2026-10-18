@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import aliased, selectinload
 
+from app.agentic.models import ProgramDraft, ProgramStatus
 from app.cache import (
     get_attachment_ownership_key,
     get_attachment_status_key,
@@ -39,6 +40,7 @@ from app.models.chat import (
     ProcessingResultUploadable,
     UserRole,
 )
+from app.models.program import ChatProgram
 from app.models.settings import SETTINGS_ROW_ID, Settings
 from app.schemas import MessageResponse
 from app.schemas.chat import (
@@ -61,6 +63,7 @@ from app.schemas.files import (
     S3ChatUploadRequest,
     S3UploadParams,
 )
+from app.schemas.program import ChatProgramSchema
 from app.storage import get_s3_attachment_key
 from app.tasks.api import generate_chat_message
 from app.tasks.files import _s3_try_delete, process_attachment
@@ -434,6 +437,67 @@ async def get_result(
     return ResultSchema(
         running=False,
         result=ResultSchemaContent.model_validate(result, from_attributes=True),
+    )
+
+
+@router.get(
+    "/{session_id}/program",
+    summary="Get the programme draft of the chat and its confirmation state",
+    response_model=ChatProgramSchema,
+    responses={
+        401: {"description": "Not authenticated, or session expired/invalid"},
+        403: {"description": "Chat session not found or does not belong to the user"},
+        429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
+    },
+)
+async def get_chat_program(session_id: VerifiedMessageSession, db: DbSession) -> ChatProgramSchema:
+    """Return the programme draft being built in this chat.
+
+    `status` is `draft` while the agent is still collecting the source data,
+    `pending_approval` once a draft has been saved and is waiting for the
+    methodist, and `approved` after `POST /chats/{session_id}/program/approve`.
+    `draft` is null until something has been saved.
+    """
+    row = await db.get(ChatProgram, session_id)
+    if row is None:
+        return ChatProgramSchema(status=ProgramStatus.DRAFT)
+    return ChatProgramSchema(
+        status=row.status,
+        draft=ProgramDraft.model_validate(row.draft),
+        updated_at=row.updated_at,
+    )
+
+
+@router.post(
+    "/{session_id}/program/approve",
+    summary="Confirm the programme draft and freeze it",
+    response_model=ChatProgramSchema,
+    responses={
+        400: {"description": "No programme draft has been saved in this chat yet"},
+        401: {"description": "Not authenticated, or session expired/invalid"},
+        403: {"description": "Chat session not found or does not belong to the user"},
+        429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
+    },
+)
+async def approve_chat_program(session_id: VerifiedMessageSession, db: DbSession) -> ChatProgramSchema:
+    """Approve the draft: the explicit confirmation the whole flow stops for.
+
+    Confirmation is a state of the process rather than a message in the
+    transcript, which is why it has its own endpoint: until this call the agent
+    keeps presenting the draft, and after it the draft is frozen and the next
+    stage may build on it. Repeating the call is harmless.
+    """
+    row = await db.get(ChatProgram, session_id)
+    if row is None:
+        raise HTTPException(status_code=400, detail="No programme draft to approve")
+    if row.status != ProgramStatus.APPROVED:
+        row.status = ProgramStatus.APPROVED
+        await db.commit()
+        await db.refresh(row)
+    return ChatProgramSchema(
+        status=row.status,
+        draft=ProgramDraft.model_validate(row.draft),
+        updated_at=row.updated_at,
     )
 
 

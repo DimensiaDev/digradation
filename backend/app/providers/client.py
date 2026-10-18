@@ -8,7 +8,7 @@ import structlog.stdlib
 from httpx import AsyncClient, Response
 
 from app.cache import get_redis_client
-from app.providers.models import GenerationResponse, Message, ResponseFormat
+from app.providers.models import GenerationResponse, Message, ResponseFormat, Tool, ToolConfig
 
 Scope = Literal["PERS", "B2B", "CORP"]
 
@@ -49,9 +49,12 @@ class AIClient(ABC):
     async def generate(
         self,
         message_history: list[Message],
-        response_format: ResponseFormat,
         x_client_id: uuid.UUID,
         x_session_id: uuid.UUID,
+        *,
+        response_format: ResponseFormat | None = None,
+        tools: list[Tool] | None = None,
+        tool_config: ToolConfig | None = None,
     ) -> GenerationResponse | None: ...
 
     async def close(self):

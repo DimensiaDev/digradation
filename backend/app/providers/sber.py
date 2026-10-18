@@ -13,6 +13,8 @@ from app.providers.models import (
     Message,
     ModelOptions,
     ResponseFormat,
+    Tool,
+    ToolConfig,
 )
 
 
@@ -59,9 +61,12 @@ class SberProvider(AIClient):
     async def generate(
         self,
         message_history: list[Message],
-        response_format: ResponseFormat,
         x_client_id: uuid.UUID,
         x_session_id: uuid.UUID,
+        *,
+        response_format: ResponseFormat | None = None,
+        tools: list[Tool] | None = None,
+        tool_config: ToolConfig | None = None,
     ) -> GenerationResponse | None:
         x_request_id = str(uuid.uuid4())
         log = self._log.bind(
@@ -74,15 +79,20 @@ class SberProvider(AIClient):
             "X-Session-Id": str(x_session_id),
             "X-Request-Id": x_request_id,
         }
+        # `model_options` is built only when a structured response is requested: a
+        # function-calling round sends `tools` instead, and the endpoint rejects a
+        # `model_options` carrying a null `response_format`.
         data = GenerationRequest(
             model=os.getenv("GIGACHAT_MODEL", "GigaChat-3-Ultra"),
             messages=message_history,
-            model_options=ModelOptions(response_format=response_format),
+            model_options=ModelOptions(response_format=response_format) if response_format is not None else None,
+            tools=tools,
+            tool_config=tool_config,
         )
 
         r = await self._post(
             "/chat/completions",
-            json=data.model_dump(exclude_unset=True, by_alias=True),
+            json=data.model_dump(exclude_unset=True, exclude_none=True, by_alias=True),
             headers=headers,
         )
         if r.status_code != 200:

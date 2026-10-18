@@ -11,6 +11,7 @@ The base-class behaviour in :mod:`app.providers.client` is exercised through
 :class:`SberProvider` because it is the only concrete implementation.
 """
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -19,7 +20,15 @@ import pytest
 import pytest_asyncio
 
 from app.providers.client import AIClient, AuthorizationError
-from app.providers.models import GenerationResponse, Message, ResponseFormat
+from app.providers.models import (
+    FunctionSpecification,
+    GenerationResponse,
+    Message,
+    ResponseFormat,
+    Tool,
+    ToolConfig,
+    ToolFunctions,
+)
 from app.providers.sber import SberProvider
 
 #: The client is built with a ``/v2`` base path, and httpx merges that prefix
@@ -200,9 +209,9 @@ async def test_generate_returns_parsed_response(provider_factory):
 
     result = await provider.generate(
         message_history=[Message(role="user", content=[{"text": "hi"}])],
-        response_format=ResponseFormat(type="text"),
         x_client_id=uuid.uuid4(),
         x_session_id=uuid.uuid4(),
+        response_format=ResponseFormat(type="text"),
     )
 
     assert isinstance(result, GenerationResponse)
@@ -221,9 +230,9 @@ async def test_generate_sends_history_model_and_correlation_headers(provider_fac
 
     await provider.generate(
         message_history=[Message(role="user", content=[{"text": "hi"}])],
-        response_format=ResponseFormat(type="text"),
         x_client_id=client_id,
         x_session_id=session_id,
+        response_format=ResponseFormat(type="text"),
     )
 
     request = captured[-1]
@@ -248,9 +257,9 @@ async def test_generate_failure_returns_none(provider_factory):
 
     result = await provider.generate(
         message_history=[Message(role="user", content=[{"text": "hi"}])],
-        response_format=ResponseFormat(type="text"),
         x_client_id=uuid.uuid4(),
         x_session_id=uuid.uuid4(),
+        response_format=ResponseFormat(type="text"),
     )
 
     assert result is None
@@ -268,10 +277,91 @@ async def test_generate_401_becomes_authorization_error(provider_factory):
     with pytest.raises(AuthorizationError):
         await provider.generate(
             message_history=[Message(role="user", content=[{"text": "hi"}])],
-            response_format=ResponseFormat(type="text"),
             x_client_id=uuid.uuid4(),
             x_session_id=uuid.uuid4(),
+            response_format=ResponseFormat(type="text"),
         )
+
+
+@pytest.mark.asyncio
+async def test_generate_sends_tools_and_tool_config(provider_factory):
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+    tool = Tool(
+        functions=ToolFunctions(
+            specifications=[
+                FunctionSpecification(name="search_sources", description="Find sources", parameters={"type": "object"})
+            ]
+        )
+    )
+
+    await provider.generate(
+        message_history=[Message(role="user", content=[{"text": "hi"}])],
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+        tools=[tool],
+        tool_config=ToolConfig(mode="auto"),
+    )
+
+    body = json.loads(captured[-1].read().decode())
+    assert body["tools"][0]["functions"]["specifications"][0]["name"] == "search_sources"
+    assert body["tool_config"] == {"mode": "auto"}
+
+
+@pytest.mark.asyncio
+async def test_generate_omits_model_options_without_a_response_format(provider_factory):
+    """A function-calling round sends `tools` instead of a structured format."""
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+
+    await provider.generate(
+        message_history=[Message(role="user", content=[{"text": "hi"}])],
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    body = json.loads(captured[-1].read().decode())
+    assert "model_options" not in body
+
+
+@pytest.mark.asyncio
+async def test_generate_parses_function_call_messages(provider_factory):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == AUTH_PATH:
+            return httpx.Response(200, json=auth_body())
+        body = generation_body()
+        body["messages"] = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "function_call": {
+                            "id": "call-1",
+                            "name": "search_sources",
+                            "arguments": {"query": "python"},
+                        }
+                    }
+                ],
+                "tools_state_id": "state-1",
+            }
+        ]
+        body["finish_reason"] = "function_call"
+        return httpx.Response(200, json=body)
+
+    provider = provider_factory(httpx.MockTransport(handler))
+
+    result = await provider.generate(
+        message_history=[Message(role="user", content=[{"text": "hi"}])],
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    assert result.finish_reason == "function_call"
+    call = result.messages[0].content[0].function_call
+    assert call.id == "call-1"
+    assert call.name == "search_sources"
+    assert call.arguments == {"query": "python"}
+    assert result.messages[0].tools_state_id == "state-1"
 
 
 # ---------------------------------------------------------------------------

@@ -39,34 +39,33 @@ def live_provider():
 
 
 async def test_live_generate_against_gigachat(live_provider):
-    """One real completion, verifying the harness schema round-trips."""
-    import json
+    """One real completion with the agent tools attached.
 
-    from app.harness import HARNESS_STRUCTURED_SCHEMA
-    from app.providers.models import Content, Message, ResponseFormat
+    The harness contract is function calling now, so this is what verifies the
+    real endpoint accepts our tools and answers with text or a call.
+    """
+    from app.agentic.tools import AGENT_TOOL
+    from app.providers.models import Content, Message, ToolConfig
 
     messages = [
-        Message(role="system", content=[Content(text="Ты — инженер-сметчик.")]),
+        Message(role="system", content=[Content(text="Ты — ассистент-методист.")]),
         Message(
             role="user",
-            content=[Content(text="Прямоугольная пластина 200x100 мм, ст3 1 мм, 4 отверстия.")],
+            content=[Content(text="Коротко: что нужно, чтобы спроектировать курс по охране труда?")],
         ),
     ]
     response = await live_provider.generate(
         messages,
-        ResponseFormat(
-            type=ResponseFormat.TYPE_JSON_SCHEMA,
-            schema=HARNESS_STRUCTURED_SCHEMA,
-            strict=True,
-        ),
         x_client_id=uuid.uuid4(),
         x_session_id=uuid.uuid4(),
+        tools=[AGENT_TOOL],
+        tool_config=ToolConfig(mode="auto"),
     )
 
     assert response is not None, "the live API returned an error"
-    payload = json.loads(response.messages[0].content[0].text)
-    assert payload["message"]
-    assert set(payload) == {"chat_name", "message"}
+    parts = response.messages[0].content
+    assert parts, "the live API returned an empty message"
+    assert any(part.text or part.function_call for part in parts)
 
 
 async def test_live_upload_and_reflect(live_provider):

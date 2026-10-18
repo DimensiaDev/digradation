@@ -16,13 +16,18 @@ from app.providers.models import (
     AuthResponse,
     Content,
     FileSchema,
+    FunctionCall,
+    FunctionResult,
+    FunctionSpecification,
     GenerationRequest,
     GenerationResponse,
-    HarnessStructuredOutput,
     InputTokenDetails,
     Message,
     ModelOptions,
     ResponseFormat,
+    Tool,
+    ToolConfig,
+    ToolFunctions,
     Usage,
 )
 
@@ -288,29 +293,127 @@ def test_input_token_details_is_a_plain_model():
 
 
 # ---------------------------------------------------------------------------
-# HarnessStructuredOutput
+# FunctionCall / FunctionResult
 # ---------------------------------------------------------------------------
 
 
-def test_harness_structured_output_requires_only_a_message():
-    """`chat_name` is optional so a model that omits it still yields a usable reply.
+def test_function_call_parses_arguments_from_a_json_string():
+    """GigaChat sends `arguments` as an object, but a string is met in the wild."""
+    call = FunctionCall.model_validate({"id": "call-1", "name": "search_sources", "arguments": '{"query": "kotlin"}'})
 
-    The schema asks the provider for both, but a missing name must not cost the user
-    their answer: the session simply keeps its default title.
-    """
-    output = HarnessStructuredOutput(message="ок")
-
-    assert output.message == "ок"
-    assert output.chat_name is None
+    assert call.arguments == {"query": "kotlin"}
 
 
-def test_harness_structured_output_takes_both_fields():
-    output = HarnessStructuredOutput.model_validate({"chat_name": "Заметки", "message": "ок"})
+def test_function_call_defaults_to_empty_arguments():
+    call = FunctionCall.model_validate({"name": "get_program_draft"})
 
-    assert output.chat_name == "Заметки"
-    assert output.message == "ок"
+    assert call.arguments == {}
+    assert call.id is None
 
 
-def test_harness_structured_output_rejects_a_missing_message():
+def test_function_call_requires_a_name():
     with pytest.raises(ValidationError):
-        HarnessStructuredOutput.model_validate({"chat_name": "Заметки"})
+        FunctionCall.model_validate({"arguments": {}})
+
+
+def test_function_call_rejects_malformed_json_arguments():
+    with pytest.raises(ValidationError):
+        FunctionCall.model_validate({"name": "search_sources", "arguments": "{not json"})
+
+
+def test_function_result_keeps_a_dict_payload():
+    result = FunctionResult.model_validate({"id": "call-1", "name": "save_program_draft", "result": {"ok": True}})
+
+    assert result.result == {"ok": True}
+
+
+def test_function_result_allows_a_null_payload():
+    assert FunctionResult.model_validate({"name": "x", "result": None}).result is None
+
+
+# ---------------------------------------------------------------------------
+# Content with function parts
+# ---------------------------------------------------------------------------
+
+
+def test_content_carries_a_function_call_and_no_text():
+    content = Content.model_validate({"function_call": {"id": "call-1", "name": "search_sources", "arguments": {}}})
+
+    assert content.function_call.name == "search_sources"
+    assert content.text is None
+
+
+def test_content_carries_a_function_result():
+    content = Content.model_validate({"function_result": {"id": "call-1", "name": "search_sources", "result": "found"}})
+
+    assert content.function_result.result == "found"
+    assert content.text is None
+
+
+def test_content_serialises_a_function_result_for_the_next_request():
+    content = Content(function_result=FunctionResult(id="call-1", name="search_sources", result={"ok": True}))
+
+    dumped = content.model_dump(exclude_unset=True, exclude_none=True)
+
+    assert dumped == {"function_result": {"id": "call-1", "name": "search_sources", "result": {"ok": True}}}
+
+
+# ---------------------------------------------------------------------------
+# Message.tools_state_id
+# ---------------------------------------------------------------------------
+
+
+def test_message_keeps_the_tools_state_id():
+    message = Message.model_validate(
+        {"role": "tool", "content": [{"function_result": {"name": "x", "result": 1}}], "tools_state_id": "state-1"}
+    )
+
+    assert message.tools_state_id == "state-1"
+
+
+def test_message_omits_the_tools_state_id_by_default():
+    message = Message(role="user", content=[{"text": "hi"}])
+
+    assert message.tools_state_id is None
+    assert "tools_state_id" not in message.model_dump(exclude_none=True)
+
+
+# ---------------------------------------------------------------------------
+# Tool / ToolConfig
+# ---------------------------------------------------------------------------
+
+
+def specification() -> FunctionSpecification:
+    return FunctionSpecification(name="search_sources", description="Find sources", parameters={"type": "object"})
+
+
+def test_tool_wraps_function_specifications():
+    tool = Tool(functions=ToolFunctions(specifications=[specification()]))
+
+    dumped = tool.model_dump(exclude_none=True)
+
+    assert dumped["functions"]["specifications"][0]["name"] == "search_sources"
+
+
+def test_tool_config_defaults_to_auto_mode():
+    assert ToolConfig().mode == "auto"
+
+
+def test_tool_config_rejects_an_unknown_mode():
+    with pytest.raises(ValidationError):
+        ToolConfig(mode="sometimes")
+
+
+def test_generation_request_carries_tools_without_model_options():
+    request = GenerationRequest(
+        model="GigaChat-3-Ultra",
+        messages=[Message(role="user", content=[{"text": "hi"}])],
+        tools=[Tool(functions=ToolFunctions(specifications=[specification()]))],
+        tool_config=ToolConfig(mode="auto"),
+    )
+
+    dumped = request.model_dump(exclude_unset=True, exclude_none=True, by_alias=True)
+
+    assert "model_options" not in dumped
+    assert dumped["tools"][0]["functions"]["specifications"][0]["name"] == "search_sources"
+    assert dumped["tool_config"] == {"mode": "auto"}
