@@ -176,6 +176,16 @@ a {
   gap: 15px;
 }
 
+// `main` is a column flex container (see layout.component.scss), so a routed
+// page is a flex item and would shrink once its content overflows the
+// viewport. Pin every routed page to its natural height instead, so each one
+// keeps the exact box it had when `main` was a block container. The auth gate
+// prompt is deliberately excluded: it is hoisted into `main` by `display:
+// contents` and sizes itself with `flex: 1 1 auto`.
+main router-outlet + * {
+  flex: 0 0 auto;
+}
+
 .card {
   background: var(--color-surface);
 

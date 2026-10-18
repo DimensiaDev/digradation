@@ -17,6 +17,9 @@
     width: calc(100% - var(--sidebar-width));
     height: 100dvh;
 
+    display: flex;
+    flex-direction: column;
+
     overflow-y: auto;
 
     view-transition-name: router-content;
