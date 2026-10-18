@@ -56,6 +56,11 @@ export class ProfileService {
   }
 
   loadAvatar(): void {
+    if (!this.userState()) {
+      this.avatarLoadingState.set(false);
+      return;
+    }
+
     const context = new HttpContext().set(SKIP_AUTH_ERROR_HANDLING, true);
     this.http
       .get<S3AvatarUrl>(`${environment.apiUrl}/users/me/avatar`, { context })

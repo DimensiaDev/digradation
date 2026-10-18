@@ -1,0 +1,66 @@
+<dialog
+  #dialogEl
+  class="auth-dialog"
+  tabindex="-1"
+  aria-labelledby="auth-dialog-title"
+  (cancel)="onCancel($event)"
+  (close)="onNativeClose()"
+  (mousedown)="onBackdropMouseDown($event)"
+>
+  <div class="auth-dialog__panel card card--shadow">
+    <header class="auth-dialog__header">
+      <h1 id="auth-dialog-title" class="h2 auth-dialog__title">Вход в аккаунт</h1>
+
+      <button
+        type="button"
+        class="button button--outline auth-dialog__close"
+        aria-label="Закрыть окно входа"
+        (click)="close()"
+      >
+        <svg size="20" lucideX></svg>
+      </button>
+    </header>
+
+    <form [formGroup]="form" (ngSubmit)="submit()">
+      <div class="field-container">
+        <label for="username">Логин</label>
+        <app-input
+          formControlName="username"
+          inputId="username"
+          type="text"
+          placeholder="ivan"
+          autocomplete="username"
+          [maxLength]="32"
+          [leftIcon]="userIcon"
+          (keydown.enter)="submit()"
+        />
+      </div>
+
+      <div class="field-container">
+        <label for="password">Пароль</label>
+        <app-input
+          formControlName="password"
+          inputId="password"
+          [type]="showPassword() ? 'text' : 'password'"
+          placeholder="••••••••"
+          autocomplete="current-password"
+          [maxLength]="128"
+          [leftIcon]="lockIcon"
+          [rightIcon]="showPassword() ? eyeOffIcon : eyeIcon"
+          [rightIconInteractive]="true"
+          [rightIconLabel]="showPassword() ? 'Скрыть пароль' : 'Показать пароль'"
+          (rightIconClick)="togglePassword()"
+          (keydown.enter)="submit()"
+        />
+      </div>
+
+      <button
+        class="button button--main button--centered h3"
+        type="submit"
+        [disabled]="isSubmitting()"
+      >
+        Войти
+      </button>
+    </form>
+  </div>
+</dialog>

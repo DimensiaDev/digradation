@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { LucideBell } from '@lucide/angular';
+import { AuthModalService } from '../../../core/services/auth-modal.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { ProfileService } from '../../../core/services/profile.service';
@@ -24,11 +25,13 @@ import { ProfileComponent } from '../profile/profile.component';
 })
 export class HeaderComponent {
   private readonly auth = inject(AuthService);
+  private readonly authModal = inject(AuthModalService);
   private readonly notificationService = inject(NotificationService);
   private readonly profileService = inject(ProfileService);
   private readonly router = inject(Router);
   private readonly elementRef = inject(ElementRef<HTMLElement>);
 
+  readonly user = this.profileService.user;
   readonly notifications = this.notificationService.notifications;
   readonly notificationsCount = computed(() => this.notifications().length);
 
@@ -51,6 +54,11 @@ export class HeaderComponent {
     this.profileOpen.set(false);
   }
 
+  openAuthModal(): void {
+    this.closeMenus();
+    this.authModal.open();
+  }
+
   logout(): void {
     if (this.loggingOut()) {
       return;
@@ -63,7 +71,7 @@ export class HeaderComponent {
         this.loggingOut.set(false);
         this.profileService.clear();
         this.notificationService.info('Вы вышли из аккаунта');
-        this.router.navigate(['/login']);
+        this.router.navigate(['/home']);
       },
       error: (err: unknown) => {
         this.loggingOut.set(false);

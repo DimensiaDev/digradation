@@ -12,18 +12,12 @@ import { SettingsPage } from './pages/settings-page/settings-page.component';
 import { ProfilePage } from './pages/profile-page/profile-page.component';
 import { HomePage } from './pages/home-page/home-page.component';
 import { HelpPage } from './pages/help-page/help-page.component';
-import { LoginPageComponent } from './pages/login-page/login-page.component';
-import { adminGuard, authGuard, publicGuard } from './core/guards/auth.guard';
+import { adminGuard, authGuard } from './core/guards/auth.guard';
 import { UsersPage } from './pages/admin/users-page/users-page.component';
 import { AdminSettingsPage } from './pages/admin/settings-page/settings-page.component';
 import { SectionPlaceholder } from './shared/components/section-placeholder/section-placeholder.component';
 
 export const routes: Routes = [
-  {
-    path: 'login',
-    component: LoginPageComponent,
-    canActivate: [publicGuard]
-  },
   {
     path: 'admin',
     component: Layout,

@@ -22,7 +22,9 @@
           animate.enter="header__dropdown--enter"
           animate.leave="header__dropdown--leave"
         >
-          @if (notifications().length > 0) {
+          @if (!user()) {
+            <p class="header__empty">Войдите для получения списка уведомлений</p>
+          } @else if (notifications().length > 0) {
             <ul class="header__notices">
               @for (notification of notifications(); track notification.id) {
                 <li class="header__notice" [attr.data-type]="notification.type">
@@ -62,15 +64,23 @@
           animate.enter="header__dropdown--enter"
           animate.leave="header__dropdown--leave"
         >
-          <a class="header__menu-item" routerLink="/profile" (click)="closeMenus()"> Профиль </a>
-          <button
-            type="button"
-            class="header__menu-item header__menu-item--danger"
-            [disabled]="loggingOut()"
-            (click)="logout()"
-          >
-            Выход
-          </button>
+          @if (user()) {
+            <a class="header__menu-item" routerLink="/profile" (click)="closeMenus()">
+              Профиль
+            </a>
+            <button
+              type="button"
+              class="header__menu-item header__menu-item--danger"
+              [disabled]="loggingOut()"
+              (click)="logout()"
+            >
+              Выход
+            </button>
+          } @else {
+            <button type="button" class="header__menu-item" (click)="openAuthModal()">
+              Войти
+            </button>
+          }
         </div>
       }
     </div>

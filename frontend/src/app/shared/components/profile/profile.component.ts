@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject } from '@angular/core';
 import { ProfileService } from '../../../core/services/profile.service';
 import { ROLE_LABELS } from '../../../core/models/models';
 
@@ -9,8 +9,9 @@ import { ROLE_LABELS } from '../../../core/models/models';
   styleUrl: './profile.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class ProfileComponent implements OnInit {
+export class ProfileComponent {
   private static readonly EMPTY_AVATAR = '/assets/imgs/empty-avatar.png';
+  private static readonly GUEST_NAME = 'Гость';
 
   private readonly profile = inject(ProfileService);
 
@@ -19,7 +20,7 @@ export class ProfileComponent implements OnInit {
   readonly displayName = computed(() => {
     const user = this.profile.user();
     if (!user) {
-      return '';
+      return ProfileComponent.GUEST_NAME;
     }
     const name = `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim();
     return name || user.username;
@@ -29,8 +30,8 @@ export class ProfileComponent implements OnInit {
     return user ? ROLE_LABELS[user.role] : '';
   });
 
-  ngOnInit(): void {
-    this.profile.loadAvatar();
+  constructor() {
+    effect(() => this.profile.loadAvatar());
   }
 
   onAvatarError(): void {

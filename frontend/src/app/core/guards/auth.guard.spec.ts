@@ -51,7 +51,7 @@ describe('Auth guards', () => {
     http.verify();
   });
 
-  it('authGuard redirects to /login with return param when me() fails', async () => {
+  it('authGuard redirects to /home when me() fails', async () => {
     const result = runGuard(authGuard);
     const tree$ = firstValueFrom(result as Observable<UrlTree>);
 
@@ -59,8 +59,7 @@ describe('Auth guards', () => {
     req.flush({ detail: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
 
     const tree = await tree$;
-    expect(tree.toString()).toContain('/login');
-    expect(tree.toString()).toContain('return=%2Fcreate');
+    expect(tree.toString()).toBe('/home');
     expect(profile.user()).toBeNull();
   });
 
@@ -89,16 +88,16 @@ describe('Auth guards', () => {
 
     http.expectOne(ME_URL).flush({ ...testUser, role: 'user' });
 
-    expect((await result).toString()).toBe('/create');
+    expect((await result).toString()).toBe('/home');
   });
 
-  it('adminGuard redirects to /login when the profile fetch fails', async () => {
+  it('adminGuard redirects to /home when the profile fetch fails', async () => {
     const tree$ = firstValueFrom(runGuard(adminGuard) as Observable<UrlTree>);
 
     const req = http.expectOne(ME_URL);
     req.flush({ detail: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
 
-    expect((await tree$).toString()).toBe('/login');
+    expect((await tree$).toString()).toBe('/home');
     expect(profile.user()).toBeNull();
   });
 
@@ -107,7 +106,7 @@ describe('Auth guards', () => {
     http.expectOne(ME_URL).flush({ ...testUser, role: 'user' });
 
     const result = runGuard(adminGuard);
-    expect(result.toString()).toBe('/create');
+    expect(result.toString()).toBe('/home');
   });
 
   it('adminGuard allows superusers', () => {
