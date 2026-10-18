@@ -130,13 +130,38 @@ export const test = base.extend({
 
 export { expect };
 
-/** Log in through the real form and wait for the app shell. */
-export async function login(page: Page): Promise<void> {
-  await page.goto("/login");
-  await page.locator("#username").fill(E2E_USER);
-  await page.locator("#password").fill(E2E_PASSWORD);
-  await page.getByRole("button", { name: "Войти" }).click();
+/**
+ * Open the sign-in dialog from the header and return it.
+ *
+ * Both dialogs in the app are named, and several "Войти" buttons exist at
+ * once (the header item, the gate prompt, the dialog submit), so every lookup
+ * is scoped: the menu by id, the buttons by their dialog.
+ */
+export async function openSignInDialog(page: Page) {
+  await page.getByRole("button", { name: "Открыть меню профиля" }).click();
+  await page.locator("#header-profile-menu").getByRole("button", { name: "Войти" }).click();
+  const dialog = page.getByRole("dialog", { name: "Вход в аккаунт" });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+/** Sign in through the dialog and wait until the header shows the account. */
+export async function loginAs(page: Page, username: string, password: string): Promise<void> {
+  await page.goto("/");
   await expect(page.locator('.h1:has-text("Digradation")')).toBeVisible();
+
+  const dialog = await openSignInDialog(page);
+  await dialog.locator("#username").fill(username);
+  await dialog.locator("#password").fill(password);
+  await dialog.getByRole("button", { name: "Войти" }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect(page.locator(".profile__role")).not.toHaveText("");
+}
+
+/** Log in as the seeded superuser. */
+export async function login(page: Page): Promise<void> {
+  await loginAs(page, E2E_USER, E2E_PASSWORD);
 }
 
 /**

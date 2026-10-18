@@ -1,4 +1,4 @@
-import { expect, login, test } from "./helpers";
+import { expect, login, loginAs, test } from "./helpers";
 
 /**
  * Issue #23: role tiers in the admin area.
@@ -93,11 +93,7 @@ test.describe("admin role tiers", () => {
     // Now sign in as that account in a fresh context.
     const ctx = await browser.newContext();
     const other = await ctx.newPage();
-    await other.goto("/login");
-    await other.locator("#username").fill(username);
-    await other.locator("#password").fill("e2ecreated12345");
-    await other.getByRole("button", { name: "Войти" }).click();
-    await expect(other.locator('.h1:has-text("Digradation")')).toBeVisible();
+    await loginAs(other, username, "e2ecreated12345");
 
     // An admin can reach the area, but must not see the tier control.
     await other.goto("/admin/users");
@@ -130,14 +126,10 @@ test.describe("admin role tiers", () => {
     });
 
     await page.context().clearCookies();
-    await page.goto("/login");
-    await page.locator("#username").fill(username);
-    await page.locator("#password").fill("e2ecreated12345");
-    await page.getByRole("button", { name: "Войти" }).click();
-    await expect(page.locator('.h1:has-text("Digradation")')).toBeVisible();
+    await loginAs(page, username, "e2ecreated12345");
 
-    // authGuard + adminGuard send a non-admin away from /admin/users.
+    // adminGuard sends a non-admin away from /admin/users.
     await page.goto("/admin/users");
-    await expect(page).toHaveURL(/\/(create|chats)/);
+    await expect(page).toHaveURL(/\/home$/);
   });
 });
