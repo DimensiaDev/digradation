@@ -53,7 +53,11 @@ jobs:
       # target in frontend/angular.json, which the builder enforces and which
       # exits non-zero. This step names no percentage, so the two cannot
       # disagree. Branch coverage is deliberately not gated.
+      #
+      # Uploaded even when the build below fails, so a green suite's report
+      # survives a red production build.
       - name: Upload coverage summary
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: frontend-coverage

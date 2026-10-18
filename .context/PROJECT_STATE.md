@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-16** (repurposed from a quotation engine to a bare chat application)
+Last updated: **2026-10-18** (CI: one test run per suite, browser and Docker layer caches)
 
 ---
 
@@ -89,12 +89,17 @@ PostgreSQL, Redis and Garage are real testcontainers in the backend suite. The L
 
 | Workflow | Runs |
 |---|---|
-| `e2e.yml` | Playwright against the Compose stack, `SBER_API_KEY=mock` |
+| `e2e.yml` | Playwright against the Compose stack, `SBER_API_KEY=mock`, with the Playwright browser and Docker build-layer caches |
 | Isolation | e2e runs under Compose project `digradation-e2e`, so its volumes are `digradation-e2e_*` and never the developer's |
 | `backend-ci.yml` | black, ruff, `pytest --cov` (Python 3.14), uploads `coverage.json` |
 | `frontend-ci.yml` | `ng lint`, `npx ng test --watch=false`, `ng build --configuration production` (Node 22), uploads the coverage summary |
 | `commitlint.yml` | Conventional Commits on push and PR |
 | `pre-commit.yml` | generic yaml, json, toml, eof and whitespace checks |
+
+Each package suite runs **once** per PR: coverage is collected in the same `pytest` and
+`ng test` run rather than by a second coverage workflow. Coverage artifacts upload even
+after a failing test or build, so a red run still leaves its report behind. The Docker
+build cache is CI-only (`docker-compose.build-cache.yml`), see `AGENTS.md`.
 
 There is no deploy workflow; CI only.
 

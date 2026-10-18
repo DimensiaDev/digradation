@@ -202,6 +202,13 @@ read from the environment.
 | `~/.cache/ms-playwright` | OS + `e2e/package-lock.json` | browsers are fetched per Playwright revision, so a version bump must not reuse the old download; `restore-keys` covers unrelated lockfile edits |
 | Docker build layers | build scope + source paths | see `docker-compose.build-cache.yml` |
 
+**The Docker layer cache only exists because `e2e.yml` exposes the Actions runtime.**
+Buildx reads the `ACTIONS_*` token and cache URL from its process environment, and the
+runner injects them into an action, not a `run` step, so
+`crazy-max/ghaction-github-runtime` runs before the build. Without it the `type=gha`
+entries in `docker-compose.build-cache.yml` are dropped **silently** and every run rebuilds
+from scratch; a build log with no `importing cache manifest from gha` line is the symptom.
+
 **A mismatched browser cache is harmless, not a correctness risk.** The install step always
 runs; Playwright skips the download only when it finds the exact revision directory it
 wants. So a stale entry costs bandwidth, never a wrong test result.

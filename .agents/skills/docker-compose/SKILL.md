@@ -103,13 +103,15 @@ The `.dev` override is what makes `backend/makemigrations.sh` work, because Alem
 the host and needs the database published.
 
 `docker-compose.build-cache.yml` is a third `-f` file that `e2e/scripts/setup.sh` appends
-**only when `CI` is set**. It must not be folded into the `.e2e` or `.dev` overrides: the
-`gha` cache backend requires Buildx and the `ACTIONS_CACHE_URL` / `ACTIONS_RUNTIME_TOKEN`
-variables that GitHub injects into a workflow step, so locally the same config produces a
-hard build failure rather than a slow one. `.github/workflows/e2e.yml` runs
-`docker/setup-buildx-action` before anything is built. Every service sharing
-`backend/Dockerfile` shares `scope=backend`, since a per-service scope would make them all
-miss on each other's layers.
+**only when `CI` is set**. It is CI-only because the `gha` backend can only work inside an
+Actions job: it needs a builder from `docker/setup-buildx-action` *and* the `ACTIONS_*`
+variables that authenticate against the Actions cache service. The runner gives those to an
+*action*, not to a `run` step, so `.github/workflows/e2e.yml` runs
+`crazy-max/ghaction-github-runtime` before `setup.sh`. Missing them does not fail the
+build — Buildx drops the `type=gha` entries silently, and the cache is simply never used.
+Every service sharing `backend/Dockerfile` shares `scope=backend`, since a per-service
+scope would make them all miss on each other's layers; `garage-bootstrap` has its own
+scope. Compose 2.38+ delegates builds to Bake by default, so no `COMPOSE_BAKE` is needed.
 
 ```bash
 cp docker-compose.override.yml{.dev,}    # linux/macOS

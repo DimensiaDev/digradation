@@ -2,10 +2,10 @@ name: E2E
 
 on:
   pull_request:
-    paths: ["e2e/**", "backend/**", "frontend/**", "docker-compose*.yaml", "conf/**"]
+    paths: ["e2e/**", "backend/**", "frontend/**", "docker-compose*", "conf/**"]
   push:
     branches: [main]
-    paths: ["e2e/**", "backend/**", "frontend/**", "docker-compose*.yaml", "conf/**"]
+    paths: ["e2e/**", "backend/**", "frontend/**", "docker-compose*", "conf/**"]
   workflow_dispatch:
 
 permissions:
@@ -27,7 +27,21 @@ jobs:
       # read or write `type=gha` cache, so this has to come before any build.
       # The cache itself is configured in docker-compose.build-cache.yml, which
       # setup.sh adds to the `-f` list when CI is set.
+      #
+      # Compose 2.38+ delegates `build` and `up --build` to Bake by default, so
+      # it uses this builder without `COMPOSE_BAKE` being set; `#1 [internal]
+      # load local bake definitions` in the build log is the proof it did.
       - uses: docker/setup-buildx-action@v3
+
+      # BuildKit's `gha` cache backend authenticates with `ACTIONS_RUNTIME_TOKEN`
+      # and a cache URL. The runner injects those into an action's environment,
+      # not into a `run` step, so a shell buildx invocation sees neither, and
+      # buildx drops the `type=gha` entries from docker-compose.build-cache.yml
+      # *silently*: the build succeeds, no cache is read, no cache is written.
+      # Re-exporting every `ACTIONS_*` variable to the shell steps below is
+      # Docker's documented fix for using buildx from an inline step.
+      - name: Expose the GitHub Actions cache runtime
+        uses: crazy-max/ghaction-github-runtime@v4
 
       - uses: actions/setup-python@v5
         with:

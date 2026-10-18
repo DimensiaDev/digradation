@@ -693,3 +693,17 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   config. **Symptom to recognise: a generated file that a hook "fixes" differently on every
   run.** Note also that `scripts/precommit-*.py` pass `check=False`, so these hooks modify
   files without ever failing the commit they belong to.
+- **Buildx drops a `type=gha` cache entry silently when the `ACTIONS_*` variables are
+  missing.** Buildx fills the cache token and URL from `ACTIONS_RUNTIME_TOKEN` and the cache
+  URL in its own process environment, and the runner injects those into an *action*, not
+  into a `run` step. So `cache_from` / `cache_to` in `docker-compose.build-cache.yml` were
+  inert while the build looked perfectly healthy: no import, no export, no warning. The fix
+  is `crazy-max/ghaction-github-runtime` before the shell steps. **Verify with an
+  `importing cache manifest from gha` line in the build log, never by the build
+  succeeding.** Found 2026-10-18 on PR #21.
+- **Compose 2.38+ delegates `build` / `up --build` to Bake by default.** `buildWithBake`
+  reads `COMPOSE_BAKE` and an *unset* variable means `true` (2.38.2); earlier releases
+  defaulted to the classic path. `COMPOSE_BAKE` therefore does not need to be set for the
+  `setup-buildx-action` builder to be used, and `#1 [internal] load local bake definitions`
+  in the log proves Bake ran. The classic path ignores `cache_from` / `cache_to` entirely
+  rather than failing on them.

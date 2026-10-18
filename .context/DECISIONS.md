@@ -527,3 +527,21 @@ and why what replaced it is there.
   scripts set `POSTGRES_HOST=localhost`, so 5432 would have meant autogenerating against
   whatever PostgreSQL the developer happens to be running — producing a migration for
   somebody else's schema, silently.
+
+## CI caches build layers through a CI-only Compose override (2026-10-18)
+
+- **`docker-compose.build-cache.yml` is appended as a third `-f` only when `CI` is set.**
+  The `gha` backend is meaningless outside an Actions job: it authenticates with the
+  `ACTIONS_*` variables and needs a builder from `docker/setup-buildx-action`. Keeping it
+  out of the dev and e2e overrides means a developer's stack never carries settings it
+  cannot use.
+- **The workflow must re-expose the `ACTIONS_*` variables itself.** The runner hands them
+  to an *action*, not to a `run` step, so a `docker compose up --build` from a shell step
+  sees none of them, and Buildx drops the cache entries silently instead of failing. That
+  is why `e2e.yml` runs `crazy-max/ghaction-github-runtime` before `setup.sh`. The first
+  run of PR #21 had the cache file but not the action: everything rebuilt from scratch and
+  the log contained no cache import or export.
+- **One scope per Dockerfile, not per service.** `backend`, `migrate`, `scheduler`,
+  `worker_default`, `worker_network` and `garage-config` all build `backend/Dockerfile` and
+  share `scope=backend`; per-service scopes would make each miss on the others' layers.
+  `garage-bootstrap` builds `conf/garage.Dockerfile` and gets its own scope.

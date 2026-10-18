@@ -281,14 +281,21 @@ from `conf/`. Nothing builds from the repository root, so there is no root
 ### Build caching is CI-only
 
 `docker-compose.build-cache.yml` carries the BuildKit `type=gha` cache settings and is
-added as a third `-f` file by `e2e/scripts/setup.sh` **only when `CI` is set**. It cannot
-live in the e2e or dev override, because the `gha` backend needs Buildx plus the
-`ACTIONS_*` variables GitHub injects into a workflow step; both are absent locally, so a
-developer would get a build failure rather than a slower build. `e2e.yml` runs
-`docker/setup-buildx-action` before anything builds.
+added as a third `-f` file by `e2e/scripts/setup.sh` **only when `CI` is set**. The `gha`
+backend can only work inside an Actions job, so a dev stack has nothing to gain from it. It
+needs both a Buildx builder (`docker/setup-buildx-action`) and the `ACTIONS_*` variables
+that authenticate against the Actions cache service. Those variables exist in an *action's*
+environment, not in a `run` step, which is why `e2e.yml` also runs
+`crazy-max/ghaction-github-runtime` before `setup.sh`. Without them Buildx drops the
+`type=gha` entries **silently**: the build succeeds and no cache is read or written, so
+check the log for an `importing cache manifest from gha` line rather than assuming.
 
-All services built from `backend/Dockerfile` share `scope=backend`, or they would each
-miss on each other's layers.
+All services built from `backend/Dockerfile` — `garage-config` included — share
+`scope=backend`, or they would each miss on each other's layers. `garage-bootstrap` builds
+`conf/garage.Dockerfile` and has its own scope.
+
+Compose 2.38+ delegates `build` and `up --build` to Bake by default, so the builder from
+`docker/setup-buildx-action` is used without `COMPOSE_BAKE` being set.
 
 ### `.env` is secret
 
