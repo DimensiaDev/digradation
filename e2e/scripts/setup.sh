@@ -32,6 +32,16 @@ E2E_PROJECT="${E2E_PROJECT:-digradation-e2e}"
 export E2E_PROJECT
 DC=(docker compose -p "$E2E_PROJECT" -f docker-compose.yaml -f docker-compose.override.yml.e2e)
 
+# In CI, add the build-layer cache. It is a third `-f` file rather than part of
+# the e2e override because the `gha` cache backend needs Buildx plus the
+# `ACTIONS_*` variables GitHub injects into a workflow step; both are absent
+# locally, so including it unconditionally would break this script for anyone
+# not running in CI. `.github/workflows/e2e.yml` runs `docker/setup-buildx-action`
+# first, which is what makes `type=gha` resolvable.
+if [ "${CI:-false}" = "true" ]; then
+    DC+=(-f docker-compose.build-cache.yml)
+fi
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 cd "$REPO_ROOT"

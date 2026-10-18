@@ -278,6 +278,18 @@ resource file.
 from `conf/`. Nothing builds from the repository root, so there is no root
 `.dockerignore`; each context carries its own.
 
+### Build caching is CI-only
+
+`docker-compose.build-cache.yml` carries the BuildKit `type=gha` cache settings and is
+added as a third `-f` file by `e2e/scripts/setup.sh` **only when `CI` is set**. It cannot
+live in the e2e or dev override, because the `gha` backend needs Buildx plus the
+`ACTIONS_*` variables GitHub injects into a workflow step; both are absent locally, so a
+developer would get a build failure rather than a slower build. `e2e.yml` runs
+`docker/setup-buildx-action` before anything builds.
+
+All services built from `backend/Dockerfile` share `scope=backend`, or they would each
+miss on each other's layers.
+
 ### `.env` is secret
 
 Never commit `.env`; use `.env.example`. Generate secrets with `openssl rand -hex 48`,

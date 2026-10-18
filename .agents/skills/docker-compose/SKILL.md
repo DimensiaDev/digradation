@@ -97,9 +97,19 @@ Three overrides ship, and the resulting `docker-compose.override.yml` is **gitig
 | `docker-compose.override.yml.dev` | bind mounts `./backend` and `./frontend`, forced polling watchers, and publishes PostgreSQL on host port **5433** (never 5432: a developer may already be running PostgreSQL there, and the host-side migration scripts would then target the wrong database) |
 | `docker-compose.override.yml.memlim` | per-service `mem_limit` values; no limits by default |
 | `docker-compose.override.yml.e2e` | never copied over `docker-compose.override.yml`, only passed with `-f`; moves the frontend to 18080, publishes Garage's S3 port on `${E2E_S3_PORT:-13900}` so the browser can follow the presigned URLs, and forces `SBER_API_KEY=mock` |
+| `docker-compose.build-cache.yml` | BuildKit `type=gha` layer cache, **CI only** — see below |
 
 The `.dev` override is what makes `backend/makemigrations.sh` work, because Alembic runs from
 the host and needs the database published.
+
+`docker-compose.build-cache.yml` is a third `-f` file that `e2e/scripts/setup.sh` appends
+**only when `CI` is set**. It must not be folded into the `.e2e` or `.dev` overrides: the
+`gha` cache backend requires Buildx and the `ACTIONS_CACHE_URL` / `ACTIONS_RUNTIME_TOKEN`
+variables that GitHub injects into a workflow step, so locally the same config produces a
+hard build failure rather than a slow one. `.github/workflows/e2e.yml` runs
+`docker/setup-buildx-action` before anything is built. Every service sharing
+`backend/Dockerfile` shares `scope=backend`, since a per-service scope would make them all
+miss on each other's layers.
 
 ```bash
 cp docker-compose.override.yml{.dev,}    # linux/macOS

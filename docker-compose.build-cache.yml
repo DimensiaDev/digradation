@@ -1,0 +1,71 @@
+# Build layer caching for CI, and nothing else.
+#
+# Passed to Compose as a third `-f` file by `e2e/scripts/setup.sh` when `CI` is
+# set, and by the two diagnostic steps in `.github/workflows/e2e.yml`. It is not
+# copied to `docker-compose.override.yml` and is not used by a local dev stack.
+#
+# Why a separate file: the `gha` cache backend needs Buildx *and* the
+# `ACTIONS_CACHE_URL` / `ACTIONS_RUNTIME_TOKEN` variables that GitHub injects
+# into a workflow step. Both are absent locally, so `docker compose build` here
+# would fail on a developer machine. Putting this in the e2e or dev override
+# would therefore break `setup.sh` for anyone not running in CI.
+#
+# Why it is worth it: `setup.sh` runs `up -d --build`, and without this every run
+# rebuilds the Angular production bundle and the Poetry install from scratch.
+# That build, not the browser download, is the largest cost in the job.
+
+services:
+  backend:
+    build:
+      # One shared scope: every service built from `backend/Dockerfile` is the
+      # same image, so they must share a cache namespace or they would each
+      # miss on each other's layers.
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,mode=max,scope=backend
+
+  frontend:
+    build:
+      cache_from:
+        - type=gha,scope=frontend
+      cache_to:
+        - type=gha,mode=max,scope=frontend
+
+  # Same build definition as `backend`, so same scopes. Listed explicitly
+  # because a `cache_from` is not inherited across services that merely share a
+  # build anchor.
+  migrate:
+    build:
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,mode=max,scope=backend
+
+  scheduler:
+    build:
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,mode=max,scope=backend
+
+  worker_default:
+    build:
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,mode=max,scope=backend
+
+  worker_network:
+    build:
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,mode=max,scope=backend
+
+  garage-config:
+    build:
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,mode=max,scope=backend

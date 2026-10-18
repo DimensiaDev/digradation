@@ -23,6 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Buildx with the GitHub Actions cache backend. The stock builder cannot
+      # read or write `type=gha` cache, so this has to come before any build.
+      # The cache itself is configured in docker-compose.build-cache.yml, which
+      # setup.sh adds to the `-f` list when CI is set.
+      - uses: docker/setup-buildx-action@v3
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
@@ -111,12 +117,15 @@ jobs:
 
       # setup.sh runs the stack under the digradation-e2e project, so plain
       # `docker compose` here would target a project that does not exist.
+      # The build-cache file is included for consistency with the `up` that
+      # created the stack; `logs` and `down` do not build, so it is not required.
       - name: Dump logs on failure
         if: failure()
         run: >-
           docker compose -p digradation-e2e
           -f docker-compose.yaml
           -f docker-compose.override.yml.e2e
+          -f docker-compose.build-cache.yml
           logs --no-color --tail 200
 
       # No `-v`: the volumes belong to the e2e project alone, but destroying
@@ -127,4 +136,5 @@ jobs:
           docker compose -p digradation-e2e
           -f docker-compose.yaml
           -f docker-compose.override.yml.e2e
+          -f docker-compose.build-cache.yml
           down
