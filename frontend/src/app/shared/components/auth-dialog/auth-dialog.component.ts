@@ -79,6 +79,9 @@ export class AuthDialogComponent {
   }
 
   close(): void {
+    // The instance outlives each open/close cycle, so clear the form here: a
+    // dismissed wrong password must not sit in memory and reappear on reopen.
+    this.resetForm();
     this.modal.close();
   }
 
@@ -89,7 +92,7 @@ export class AuthDialogComponent {
 
   onNativeClose(): void {
     if (this.modal.isOpen()) {
-      this.modal.close();
+      this.close();
     }
   }
 
@@ -151,15 +154,18 @@ export class AuthDialogComponent {
   }
 
   private finishLogin(): void {
-    this.isSubmitting.set(false);
-    this.form.reset();
-    this.showPassword.set(false);
     const target = this.modal.returnUrl();
-    this.modal.close();
+    this.close();
     this.notifications.success('Вы вошли в систему', {
       description: 'Сейчас откроется рабочая область.'
     });
     this.router.navigateByUrl(target);
+  }
+
+  private resetForm(): void {
+    this.form.reset();
+    this.showPassword.set(false);
+    this.isSubmitting.set(false);
   }
 
   private openDialog(dialog: HTMLDialogElement): void {

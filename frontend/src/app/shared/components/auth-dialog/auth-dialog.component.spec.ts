@@ -187,6 +187,22 @@ describe('AuthDialogComponent', () => {
       expect(page().isSubmitting()).toBe(false);
       expect(page().form.controls.username.hasError('credentials')).toBe(false);
     });
+
+    it('clears the entered credentials when the dialog is dismissed', () => {
+      createPage();
+      openModal();
+      fillCredentials('ivan', 'wrong-password');
+      page().togglePassword();
+
+      // Escape and backdrop dismissals both go through close().
+      dialogEl()?.dispatchEvent(new Event('cancel', { cancelable: true }));
+      fixture.detectChanges();
+      openModal();
+
+      expect(page().form.controls.username.value).toBeNull();
+      expect(page().form.controls.password.value).toBeNull();
+      expect(page().showPassword()).toBe(false);
+    });
   });
 
   describe('rendering', () => {

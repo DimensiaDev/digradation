@@ -754,3 +754,8 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   validation toast. Rely on the native implicit submission and drop the extra handler — the
   admin user form already does. Guarded by a spec that dispatches `keydown` then `submit`.
   (2026-10-18)
+- **`@if (isOpen())` around a `<dialog>` hides it, but the component instance and its reactive
+  form outlive the cycle.** Resetting the form only in the success path left a dismissed wrong
+  password in memory, re-rendered on the next open. Clear it on every close path (button,
+  Escape, backdrop, native `close`) — centralise them through one `close()` that resets first.
+  (2026-10-18)
