@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { HttpContext, HttpClient } from '@angular/common/http';
-import { Observable, finalize, share, tap } from 'rxjs';
+import { Observable, catchError, finalize, of, share, tap } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { S3AvatarUrl, User } from '../models/models';
 import { SKIP_AUTH_ERROR_HANDLING } from '../interceptors/skip-auth-error-handling';
@@ -14,13 +14,22 @@ export class ProfileService {
   private readonly userState = signal<User | null>(null);
   private readonly avatarUrlState = signal<string | null>(null);
   private readonly avatarLoadingState = signal(true);
+  private readonly sessionCheckedState = signal(false);
 
   readonly user = this.userState.asReadonly();
   readonly avatarUrl = this.avatarUrlState.asReadonly();
   readonly avatarLoading = this.avatarLoadingState.asReadonly();
+  readonly sessionChecked = this.sessionCheckedState.asReadonly();
 
   private meRequest$: Observable<User> | null = null;
   private requestGeneration = 0;
+
+  ensureSession(): Observable<User | null> {
+    return this.fetchMe().pipe(
+      catchError(() => of(null)),
+      tap(() => this.sessionCheckedState.set(true))
+    );
+  }
 
   fetchMe(): Observable<User> {
     if (this.meRequest$) {
@@ -67,5 +76,6 @@ export class ProfileService {
     this.userState.set(null);
     this.avatarUrlState.set(null);
     this.avatarLoadingState.set(true);
+    this.sessionCheckedState.set(true);
   }
 }
