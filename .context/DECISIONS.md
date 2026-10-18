@@ -833,7 +833,10 @@ A visitor could see nothing before signing in. Guest mode replaces all of that.
   after a successful login refreshes the profile, closes, toasts and restores the url. The
   header, the gate prompt and future surfaces share it instead of navigating the user away.
   The dialog is rendered under `@if (isOpen())` exactly to keep its form controls out of the
-  document while closed — see `LESSONS.md`.
+  document while closed — see `LESSONS.md`. Escape closes it through the native `cancel` event
+  and the "Войти" button drives `ngSubmit`; Enter in either field is the browser's implicit
+  submission, so there is deliberately no `keydown.enter` handler. Both are proven end-to-end in
+  `auth.spec.ts`, not in jsdom, which cannot emulate them (see `LESSONS.md`).
 - **The guest chip opens the dialog directly, without a menu.** A guest's profile menu held a
   single "Войти" item — a dropdown that exists to be clicked once. `toggleProfile()` routes a
   guest straight to `AuthModalService.open()`; the chip's accessible name becomes "Войти в

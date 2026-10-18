@@ -765,6 +765,12 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   a cycle, so an eager `inject` added anywhere on that path detonates it. Report the event on a
   dependency-free carrier (`SessionEventsService.unauthorized$`) and let the owner subscribe.
   (2026-10-18)
+- **jsdom's `HTMLDialogElement` exposes only `open`.** `showModal` and `close` do not exist on it,
+  so a unit test never opens a modal dialog: `openDialog` falls through to `setAttribute('open')`,
+  and calling `dialog.close()` in app code throws `close is not a function` and takes the whole
+  submit path down with it. Do not paper over that with a `typeof dialog.close === 'function'`
+  guard — the dialog's Escape and Enter behaviour cannot be asserted in jsdom at all and belongs
+  in `auth.spec.ts`. (2026-10-18)
 - **A stale test count is not fixed by refreshing it.** `PROJECT_STATE.md` carried test counts
   and coverage figures that a branch dutifully updated, in the same file whose footer says they
   are deliberately not recorded — the two paragraphs then contradicted each other. When you

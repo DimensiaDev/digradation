@@ -13,6 +13,23 @@ test.describe("authentication", () => {
       page.getByText("Перепроверьте правильность введённого логина и пароля"),
     ).toBeVisible();
     await expect(dialog).toBeVisible();
+
+    // Escape is a cancel request: the dialog must close.
+    await dialog.press("Escape");
+    await expect(dialog).toBeHidden();
+  });
+
+  test("submits the sign-in form by pressing Enter", async ({ page }) => {
+    await page.goto("/");
+    const dialog = await openSignInDialog(page);
+    await dialog.locator("#username").fill(E2E_USER);
+    await dialog.locator("#password").fill(E2E_PASSWORD);
+
+    // Native implicit submission: Enter in a field submits the form.
+    await dialog.locator("#password").press("Enter");
+
+    await expect(dialog).toBeHidden();
+    await expect(page).toHaveURL(/\/home$/);
   });
 
   test("signs in through the dialog and lands on the app", async ({ page }) => {
