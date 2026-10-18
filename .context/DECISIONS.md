@@ -574,3 +574,15 @@ endpoints, the worker and the frontend belong to other changes.
 - **The chat is renamed only after the draft commits.** `save_program_draft` returns the name
   and records it in `ctx.renamed_to` after `commit()`, so a failed save cannot leave a renamed
   chat behind without the draft it was named for.
+
+## The branch is cut back to the agentic package (2026-10-18)
+
+- **`feat/gen-cicle` differs from `main` only in `backend/app/agentic/` and
+  `tests/test_agentic_*`.** The harness prompt, the provider tool-call types, the
+  `chat_programs` model and its migration, the routes and the worker were returned to `main`;
+  other zones own them. The package does not import on its own: `tools.py` reads
+  `DEFAULT_CHAT_NAME` and `ChatProgram`, `loop.py` reads the tool-call types, and
+  `test_agentic_loop.py`/`test_agentic_tools.py` fail at collection until those zones land.
+- **The first-run `ng` analytics prompt is answered per machine, not in the repository.**
+  The `cli.analytics` flag left `frontend/angular.json`; `LESSONS.md` carries the trap and
+  the remedy.
