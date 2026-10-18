@@ -11,9 +11,14 @@ import { SKIP_AUTH_ERROR_HANDLING } from '../interceptors/skip-auth-error-handli
 export class ProfileService {
   private readonly http = inject(HttpClient);
 
-  readonly user = signal<User | null>(null);
-  readonly avatarUrl = signal<string | null>(null);
-  readonly avatarLoading = signal(true);
+  private readonly userState = signal<User | null>(null);
+  private readonly avatarUrlState = signal<string | null>(null);
+  private readonly avatarLoadingState = signal(true);
+
+  readonly user = this.userState.asReadonly();
+  readonly avatarUrl = this.avatarUrlState.asReadonly();
+  readonly avatarLoading = this.avatarLoadingState.asReadonly();
+
   private meRequest$: Observable<User> | null = null;
   private requestGeneration = 0;
 
@@ -27,7 +32,7 @@ export class ProfileService {
     const request = this.http.get<User>(`${environment.apiUrl}/users/me`, { context }).pipe(
       tap((user) => {
         if (generation === this.requestGeneration) {
-          this.user.set(user);
+          this.userState.set(user);
         }
       }),
       finalize(() => {
@@ -45,18 +50,22 @@ export class ProfileService {
     const context = new HttpContext().set(SKIP_AUTH_ERROR_HANDLING, true);
     this.http
       .get<S3AvatarUrl>(`${environment.apiUrl}/users/me/avatar`, { context })
-      .pipe(finalize(() => this.avatarLoading.set(false)))
+      .pipe(finalize(() => this.avatarLoadingState.set(false)))
       .subscribe({
-        next: (response) => this.avatarUrl.set(response.avatar_url),
-        error: () => this.avatarUrl.set(null)
+        next: (response) => this.avatarUrlState.set(response.avatar_url),
+        error: () => this.avatarUrlState.set(null)
       });
+  }
+
+  resetAvatar(): void {
+    this.avatarUrlState.set(null);
   }
 
   clear(): void {
     this.requestGeneration++;
     this.meRequest$ = null;
-    this.user.set(null);
-    this.avatarUrl.set(null);
-    this.avatarLoading.set(true);
+    this.userState.set(null);
+    this.avatarUrlState.set(null);
+    this.avatarLoadingState.set(true);
   }
 }

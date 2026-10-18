@@ -136,7 +136,7 @@ export async function login(page: Page): Promise<void> {
   await page.locator("#username").fill(E2E_USER);
   await page.locator("#password").fill(E2E_PASSWORD);
   await page.getByRole("button", { name: "Войти" }).click();
-  await expect(page.locator('.h1:has-text("di:gradation")')).toBeVisible();
+  await expect(page.locator('.h1:has-text("Digradation")')).toBeVisible();
 }
 
 /**

@@ -103,14 +103,16 @@ describe('Auth guards', () => {
   });
 
   it('adminGuard blocks non-superusers', () => {
-    profile.user.set({ ...testUser, role: 'user' });
+    profile.fetchMe().subscribe();
+    http.expectOne(ME_URL).flush({ ...testUser, role: 'user' });
 
     const result = runGuard(adminGuard);
     expect(result.toString()).toBe('/create');
   });
 
   it('adminGuard allows superusers', () => {
-    profile.user.set(testUser);
+    profile.fetchMe().subscribe();
+    http.expectOne(ME_URL).flush(testUser);
 
     expect(runGuard(adminGuard)).toBe(true);
   });

@@ -1,0 +1,53 @@
+:host {
+  display: flex;
+  align-items: center;
+
+  gap: 8px;
+
+  min-width: 0;
+
+  color: var(--color-text);
+}
+
+.profile__photo {
+  width: 46px;
+  aspect-ratio: 1 / 1;
+
+  flex-shrink: 0;
+
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.profile__info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  min-width: 0;
+
+  text-align: left;
+}
+
+.profile__name {
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.2;
+
+  color: var(--color-text);
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile__role {
+  font-size: 13px;
+  line-height: 1.2;
+
+  color: var(--color-gray);
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

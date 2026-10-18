@@ -73,7 +73,7 @@
     padding: 2px 8px;
 
     color: var(--color-main);
-    background: var(--color-hover-secondary);
+    background: var(--color-secondary);
     border-radius: 6px;
   }
 
@@ -194,7 +194,7 @@
 
     border-radius: 8px;
 
-    background: var(--color-surface);
+    background: var(--sheet-tab-indicator-bg);
 
     transition:
       left 0.25s cubic-bezier(0.22, 1, 0.36, 1),
@@ -209,6 +209,7 @@
 
     padding: 6px 14px;
 
+    color: var(--color-text);
     font: inherit;
     font-size: 13px;
   }
@@ -258,7 +259,7 @@ html[data-theme='dark'] .file-preview__sheet-tab:hover {
 }
 
 html[data-theme='dark'] .file-preview__sheet-tab-indicator {
-  background: var(--color-hover-secondary);
+  background: var(--color-secondary);
 }
 
 @keyframes file-preview-fade-in {

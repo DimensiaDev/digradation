@@ -21,7 +21,7 @@ Everything described below is working and running via Docker Compose.
 |---|---|
 | `backend/` | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness |
 | `frontend/` | Complete: login, chat create, chat with polling and file panel, history, profile, admin users, admin settings |
-| `e2e/` | Complete: Playwright specs against the real Compose stack with the offline provider |
+| `e2e/` | Complete: 8 spec files, 27 tests against the real Compose stack with the offline provider |
 | Infra | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
@@ -68,11 +68,11 @@ first extension point if a feature starts deriving files from an upload.
 
 | Suite | Command | Needs |
 |---|---|---|
-| Backend | `poetry -C backend run pytest` | a Docker daemon |
-| Backend coverage | `poetry -C backend run pytest --cov` | a Docker daemon |
-| Frontend | `npm --prefix frontend test` | nothing |
-| Frontend coverage | `npx ng test --coverage --watch=false` | nothing |
-| End-to-end | `./e2e/scripts/run.sh` | the Compose stack |
+| Backend | `poetry -C backend run pytest` | 353 tests; needs a Docker daemon |
+| Backend coverage | `poetry -C backend run pytest --cov` | **99.33%** across 353 tests, gated at 90% by `fail_under` |
+| Frontend | `npm --prefix frontend test` | Vitest, 382 tests in 40 files; runs in `frontend-ci.yml` |
+| Frontend coverage | `npx ng test --coverage` | 92.13% stmts, 86.29% branches, 92.46% funcs; gated at 90% |
+| End-to-end | `./e2e/scripts/run.sh` | Playwright against the Compose stack, `SBER_API_KEY=mock`; 27 tests |
 
 **Both coverage gates are enforced at 90%**, each in exactly one place:
 `fail_under` in `backend/pyproject.toml` and `coverageThresholds` on the `test` target in
@@ -164,9 +164,8 @@ Ordered by value, not by commitment:
 - `TEST_INSTANCE_MODE` is absent from `.env.example`.
 - The frontend dev override bind-mounts `./frontend` over `/app`. If `node_modules` inside it
   is stale or partially populated, `ng serve` fails in ways that look like source errors.
-- **Frontend statement coverage has little headroom over the 90% gate**, and branches are not
-  gated at all. Any new uncovered component can therefore fail CI on its own. Run
-  `npx ng test --coverage` before pushing rather than discovering it in CI.
+- Frontend statement coverage (91.27%) sits close to the 90% gate. Any new uncovered
+  component will fail CI, and branches at 85.94% have little headroom.
 - **`cleanup_orphan_attachments` in `app/tasks/files.py` iterates an already exhausted
   `ScalarResult`,** so it logs `count=0` and never deletes an S3 object. Rows are still
   deleted; the objects fall to the 7-day lifecycle rule. Reported, not fixed. See

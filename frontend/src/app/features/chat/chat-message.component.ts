@@ -10,7 +10,7 @@ import {
   LucideRefreshCw
 } from '@lucide/angular';
 import type { LucideIconData } from '@lucide/angular';
-import { fileTypeStyleFor } from '../../shared/components/drag-n-drop/file-type-icons';
+import { fileTypeStyleFor } from '../../shared/utils/file-types';
 import { formatBytes, getFileExtension } from '../../shared/utils/upload-format';
 import { renderMarkdown } from '../../shared/utils/markdown';
 import { ChatMessage, ChatMessageAttachment } from './chat-message.model';

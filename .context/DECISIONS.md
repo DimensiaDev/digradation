@@ -528,6 +528,287 @@ and why what replaced it is there.
   whatever PostgreSQL the developer happens to be running — producing a migration for
   somebody else's schema, silently.
 
+## Frontend design-token palette (2026-10-17)
+
+The palette moved to indigo `#6366F1` as `--color-main`, with `--color-accent` (`#8B5CF6`,
+identity/gradients), `--color-info` (`#22D3EE`, process steps/info icons) and a
+`--color-surface-dark` (`#151728`) reserved for sidebars and underlays. Success, warning and
+danger are `#10B981` / `#F59E0B` / `#EF4444`. All tokens live in `styles.scss`; components
+reference variables only, so no component needed a hex.
+
+- **`--color-hover` is derived, not stored.** It was two hardcoded hexes (a darker blue in
+  light, a lighter one in dark). It is now `color-mix(in srgb, var(--color-main) 85%, black)`
+  in light and `... 80%, white)` in dark — the only asymmetry the two themes need, and it
+  keeps hover in step with whatever `--color-main` becomes.
+- **Four near-duplicate tokens were removed rather than retuned.** `--color-hover-secondary`
+  (a gray almost identical to `--color-secondary`), `--color-outgoing-message` (a blue tint
+  that assumed the old blue), `--color-success-text` (a second green, one use) and the
+  never-defined `--color-info` are gone. Usages now read `--color-secondary`, a
+  `color-mix(... --color-main 12%, --color-surface)` tint, `--color-success` and the new
+  `--color-info` respectively. Fewer tokens than semantics is the point: a hex that exists
+  only because the primary one changed is not a token.
+- **Dark theme overrides only `--color-main` (`#818CF8`) and `--color-hover`.** The accent,
+  info and status hues are legible on both backgrounds, so only the primary needed a lighter
+  dark-theme value; the rest inherit from `:root`.
+- **`--color-info` now feeds notifications.** `notification.component.scss` had a
+  `var(--color-info, var(--color-main))` fallback for a variable that was never defined, so
+  info toasts silently rendered as primary. The token exists now and the `data-type='info'`
+  rule uses it directly.
+
+## Dark sidebar via a dedicated token layer (2026-10-17)
+
+The sidebar is now always dark (`--sidebar-bg`, which maps the palette's
+`--color-surface-dark` `#151728`) in both themes, instead of following the light surface.
+A dark subtree cannot reuse the light-on-light globals — `--color-text` is near-black — so
+it gets its own explicit `--sidebar-*` group in `styles.scss` rather than the scoped
+override of the generic tokens that was tried first.
+
+- **The first attempt overrode the generic tokens on `:host`** (`--color-text`, `--color-main`
+  and friends) and relied on custom-property inheritance to re-theme the whole subtree. It
+  worked but read as a lie: inside the sidebar `--color-text` meant "light text", which
+  nothing in the name says. Replaced with named `--sidebar-*` tokens and direct references.
+- **Shared mixins gained parameters, not forks.** `app-scrollbar` and `icon-button` now take
+  their colors as arguments with the old values as defaults, and `.button--main` reads
+  `--button-main-bg` / `--button-main-bg-hover` with `--color-main` / `--color-hover` as
+  fallbacks. Every existing caller is untouched; the sidebar passes its own colors. The
+  alternative — overriding generic values at `:host` — is what we removed.
+- **The skeleton scoped override was later dropped.** While the sidebar still held the
+  profile card, `.sidebar` retargeted `--color-skeleton-base` / `--color-skeleton-shimmer`
+  to `--sidebar-skeleton-*` for the avatar placeholder. When the card was removed (see
+  below) the sidebar rendered no skeleton, so the retarget went with it.
+- **Only `--color-danger` stays generic inside the sidebar.** Red reads the same on light and
+  dark, so the logout hover does not need a sidebar variant.
+
+## Sidebar no longer lists recent sessions (2026-10-17)
+
+The "ИСТОРИЯ" block is gone: the sidebar is navigation only, and browsing past sessions
+belongs entirely to the history page.
+
+- **The block and everything that existed for it were removed together**, not just hidden:
+  the template section, the `.history*` styles, the `SidebarHistoryItem` mapping, the
+  `chats` / `chatsLoading` / `chatsError` signals, `activeChatId`, `openChat`, the
+  `chatService` injection and its `historyVersion` effect, and the now-unused
+  `SkeletonChatListComponent` plus its `skeleton-item--chat-list*` styles. Leaving the code
+  but not rendering it is how a "removed" feature keeps compiling and confusing.
+- **`.profile` moved to `margin-top: auto`.** It used to be pushed down by the history
+  block's `flex: 1`, so the sidebar layout rule `:not(:has(.history))` became the norm rather
+  than a case.
+- **`ChatService.historyVersion` is gone.** It was bumped on create / send / remove / result
+  and read only by the sidebar's effect, so once the sidebar stopped listing sessions the
+  signal had a writer and no reader. Removed along with `bumpHistory` and the now-pointless
+  `tap` pipes; the history page never read it, so no refresh behaviour changes.
+
+## User menu rebuilt for the programme product (2026-10-17)
+
+The user sidebar menu was replaced with the product's own vocabulary: Главная, Мои
+программы and Библиотека in the main list, with Настройки and Помощь pinned at the bottom.
+The list is configured in `sidebar.config.ts` and the top vs bottom split is a new
+`bottomNavItems` input that flows through `Layout` and route `data`.
+(`USER_BOTTOM_NAV_ITEMS` later gained Настройки, which moved down from the main list.)
+
+- **The CTA button was removed, not restyled.** A "Создать программу" CTA briefly stood
+  where "Новый чат" had been; it was then deleted outright, along with its `.cta` styles,
+  the `--sidebar-accent-hover` token, and the `.button--main` `--button-main-bg*` override
+  indirection (reverted to reading `--color-main` / `--color-hover` directly). With no
+  caller left, all of it was dead weight.
+- **`/home`, `/programs`, `/library` and `/help` do not exist yet.** The menu was requested
+  ahead of the pages, so those four items render but cannot navigate until the routes land.
+  `/settings` is the only live target. This is deliberate, not a regression to "fix" by
+  inventing pages.
+- **"Тариф" is intentionally absent.** It was specified but deferred; only Помощь was added.
+- **The sidebar width is fluid.** `--sidebar-width` is `clamp(340px, 25vw, 380px)` — a modest
+  bump from the fixed 330px that still tracks the viewport. Collapsed stays a fixed 96px icon
+  rail.
+
+## Sidebar no longer shows the profile card (2026-10-17)
+
+The avatar + name card was removed from the sidebar; it will be shown somewhere else. Only the
+sidebar UI went — the reusable pieces stay.
+
+- **`ProfileService`, `AuthService`, the profile page and the global `.photo` style are
+  untouched.** They are the "component and services" that were explicitly kept for reuse; the
+  sidebar just stopped rendering the card and calling `loadAvatar()`.
+- **Logout was removed from the sidebar and has no replacement yet.** It lived inside the
+  removed card, so it was first re-added to the footer, then dropped on request; the sidebar
+  no longer injects `AuthService` or `Router`. There is currently no sign-out control anywhere,
+  and the e2e `signs out` spec was deleted with it — restore both together when sign-out lands
+  in its new home.
+- **The sidebar's own profile logic went with the card**: `displayName`, `avatarSrc`,
+  `avatarLoading`, `onAvatarError` and the `ngOnInit` avatar load all had exactly one reader
+  (the removed template) and were deleted. `profile.user` stays, because the admin-panel link
+  derives from the role.
+- **The bottom anchor moved to the bottom nav.** With `.profile { margin-top: auto }` gone, the
+  `Помощь` + footer group is pinned by `.sidebar__bottom-group { margin-top: auto }`, so both
+  stay at the bottom for the user (who has a bottom nav) and the admin (who does not).
+
+## Notification toasts reworked: stacking, soft tint, descriptions (2026-10-17)
+
+The toast stack went from single to multi, the card stopped being a hard white box, and
+toasts gained an optional second line.
+
+- **Toasts now stack.** `NotificationService.add` appends instead of replacing, and
+  `NotificationsComponent` renders the whole list, giving each toast its own auto-dismiss
+  timer (and its own leave animation). The old replace semantics made it impossible to see,
+  say, a warning and the success that followed it side by side.
+- **The card background is a tint, not white.** `background` and `border` use
+  `color-mix(in srgb, <type> 6%|38%, var(--color-surface))`. A pure white card with a fully
+  saturated border read as too harsh in the light theme; the tint keeps the type readable
+  while softening the surface. The type is still carried by the icon and the border hue.
+- **`Notification` gained an optional `description`.** Meaningful action results and errors
+  set one; terse field validations and pure info toasts deliberately do not, to avoid noise.
+- **`errorOnce` takes an options object** — `errorOnce(message, { windowMs?, description?,
+  persistent? })` — instead of a bare `windowMs` number, so the deduped interceptor errors can
+  carry a description like every other call.
+
+## Page header, profile component and a shared icon-button class (2026-10-18)
+
+A top header (inside `<main>`, above the router outlet) now hosts the notifications bell and
+the profile, and the icon-button hover mechanism was extracted out of two duplicated copies.
+
+- **The header is white/themed while the sidebar is always dark.** `HeaderComponent` is
+  rendered by `Layout`, not the sidebar, so it can use the themed tokens (`--color-surface`,
+  `--color-text`, `--color-gray`, `--color-outline`) and follow light/dark. Temporary
+  `--header-*` tokens were tried and removed: they added a layer with no second consumer.
+- **The bell is fed by the live toast state, not a separate store.** It reads
+  `NotificationService.notifications`, so there is no persistence and nothing to show once the
+  5s auto-dismiss has fired. A real notification centre (persistent history) is a separate
+  feature; this is deliberately just a surface over the current toasts.
+- **Sign-out moved into the profile dropdown.** The menu holds a `/profile` link and a red
+  `Выход` action that calls `AuthService.logout()`, clears `ProfileService`, toasts, and
+  navigates to `/login` (mirroring the removed sidebar card). Sign-out had been homeless since
+  the sidebar card went; it now lives here. The e2e `signs out` spec is still to be restored to
+  drive it through the header.
+- **The profile dropdown reuses the toasts, not its own store.** It reads the same
+  `NotificationService`, so a real notification centre is still a separate feature.
+- **`ProfileComponent` is new, not the resurrected sidebar card.** The sidebar deleted its own
+  `displayName` / `avatarSrc` / `avatarLoading` / `onAvatarError` and `ngOnInit` avatar load;
+  those now live in a reusable `shared/components/profile` component that calls
+  `ProfileService.loadAvatar()`. The name falls back to `username` when first/last are empty.
+- **The icon-button hover mechanism is a single global `.icon-action` class** in
+  `_buttons.scss`, not per-component copies. It exposes `--icon-action-color`,
+  `--icon-action-hover-color`, `--icon-action-hover-bg`, `--icon-action-focus`,
+  `--icon-action-size` and `--icon-action-radius`; lucide SVG recolours via `currentColor`, so
+  hovering changes the glyph colour, not just the background. The sidebar only overrides the
+  variables with its `--sidebar-*` tokens. Previously the sidebar copy recoloured the icon and
+  the header copy only changed the background, which is why the bell "did not animate".
+
+## Base-layer cleanup: table keyboard rows, header ARIA, theming (2026-10-18)
+
+A review pass over `core/` + `shared/` fixed a batch of accessibility and theming defects.
+
+- **Interactive table rows are now keyboard-operable.** When `interactiveRows` is true the
+  `<tr>` gets `tabindex="0"` and an Enter/Space handler; the handler ignores events from a child
+  (so the per-row link in the history table is not activated twice) and sets a focus ring via a
+  `--color-main` inset on the first cell, because an `outline` on a `tr` is not reliably painted.
+- **The header popups are disclosures, not menus.** The notification panel and the profile
+  popup dropped `role="menu"`/`role="menuitem"`, which promise arrow-key navigation the
+  component does not implement; the bell's `aria-haspopup="true"` went with them. They now use
+  `aria-expanded` + `aria-controls` pointing at the panel id, and the notifications are a plain
+  `<ul>`/`<li>` list. Verified against the requirement, not just lint.
+- **File-preview dark theming moved into a token.** The three global
+  `html[data-theme='dark'] .file-preview__sheet-tab*` rules were replaced by a single
+  `--sheet-tab-indicator-bg` custom property defined per theme in `styles.scss`. The component
+  keeps `ViewEncapsulation.None`, so a global theme selector would leak; the token keeps the
+  colour inside the variable model. Note the old dark rule set the indicator to
+  `--color-secondary`, the same colour as its own container, so the tab was invisible in dark.
+- **`Layout` gained `ChangeDetectionStrategy.OnPush`.** It was the only shared component
+  without it.
+- **`AGENTS.md` no longer documents a `ChatService.historyVersion` signal.** No such signal
+  exists; the real list-refresh idiom is a per-component local request-id counter, which the
+  section now describes.
+
+
+## Base-layer cleanup: icon buttons, textareas, file types (2026-10-18)
+
+A second review pass over `core/` + `shared/` removed duplicate implementations.
+
+- **One icon-button implementation.** The `icon-button` mixin in `_mixins.scss` is now
+  parameterless and reads `--icon-button-radius`, `--icon-button-hover-bg`,
+  `--icon-button-hover-color` and `--icon-button-focus`; `.icon-action` in `_buttons.scss` is
+  just the mixin plus size/colour defaults, and the sidebar overrides the variables with its
+  `--sidebar-*` tokens. The previous mixin took eight parameters and diverged from
+  `.icon-action`, so the same visual control had two sources.
+- **One textarea implementation.** `shared/components/textarea/` is deleted. `app-input`
+  already owned the value accessor, error state and counters, so textarea mode
+  (`asTextarea`, `rows`, `counterVisibleFrom`) moved there; `chat-create` and the admin
+  settings editor now use `app-input`.
+- **One extension list.** `shared/utils/file-types.ts` is the single source for accepted
+  extensions, preview kind, MIME type, icon and style. `file-preview.model.ts`,
+  `file-type-icons.ts` and `ACCEPTED_EXTENSIONS` in `core/models/models.ts` are gone; dropping
+  the list in one place previously left `drag-n-drop` and `file-preview` able to disagree.
+- **`controlErrorSignal` returns a computed signal and is called in `ngOnInit`.** It must not
+  run in a field initializer: for `[formControl]`/`formControlName` the `NgControl` has no
+  `control` until the directive's `ngOnChanges`/`ngOnInit`, so a field-time call captures
+  `null` and freezes at `false`. `ngOnInit` is the earliest point where the control exists and
+  a `computed` over its `events` is still correct.
+
+## Checkbox and toggle merged into `app-check-control` (2026-10-18)
+
+`CheckboxComponent` and `ToggleComponent` were two copies of one control (value accessor,
+label/caption, hidden input) with divergent behaviour, and neither was used outside its spec.
+
+- **One component, `variant: 'checkbox' | 'switch'`.** `shared/components/check-control/`
+  replaces both directories. Disabled state is a `formDisabled` signal bound to `[disabled]`;
+  the old toggle read `checkbox.disabled` from a static `ViewChild`, which does not update in
+  an OnPush component.
+- **Focus is `:focus-visible` on the hidden input, not `:focus-within` on the label.** The
+  label's `:focus-within` lit up on mouse clicks too. The outline is applied to the sibling
+  box/track; note that `@include focus-ring` cannot be used there because the mixin nests its
+  own `&:focus-visible`, which would require focus on the span that never receives it. The old
+  checkbox styles had that bug and their ring never appeared.
+- **Only the variants' markup/styles differ.** The value accessor, `NgControl` error state,
+  blur handling, label/caption and disabled styling are shared, so the switch now also
+  supports validation errors and `aria-label`.
+
+## Initial chat handoff is bound to a session id (2026-10-18)
+
+`InitialChatStateService` used to hold one global message. `chat-create` set it, then navigated;
+`chat` consumed it in its constructor without looking at the route. If the navigation did not
+happen, the message survived and the next chat the user opened displayed it as their own.
+
+- **`set(sessionId, message)` and `consume(sessionId)`.** `consume` always clears the pending
+  value and returns it only when the id matches, so a stale handoff is discarded by the next
+  chat rather than injected into it.
+- **The chat consumes in `ngOnInit`, not in the constructor.** `id` is an `input()`, so it is
+  not assigned yet when the constructor runs; reading it there would compare against
+  `undefined` and drop every handoff.
+
+## The error interceptor owns API error notifications (2026-10-18)
+
+`errorInterceptor` showed a toast for every failed request while several callers
+(`chat-create`, `header.logout`) also toasted the same error with their own wording, and
+`errorOnce` could not dedupe them because the messages differed.
+
+- **The interceptor is the single owner of `HttpErrorResponse` notifications.** Callers must
+  not toast an API failure; they only toast errors that never reached the interceptor, such as
+  `Error` from the upload pipeline (XHR, polling timeout) or a non-HTTP failure.
+- **Login stays excluded by URL.** The login page owns its credential-error message, so the
+  interceptor skips `/auth/login` as before; `SKIP_AUTH_ERROR_HANDLING` still opts a request
+  out of both the redirect and the toast.
+
+## The mock interceptor is innermost (2026-10-18)
+
+`app.config.ts` listed `mockApiInterceptor` first, so it answered every request itself and
+`credentialsInterceptor`/`errorInterceptor` never ran in mock mode: no 401 redirect and no
+error toasts, unlike production.
+
+- **Order is `credentials, error, mock`.** Angular runs interceptors left to right; the mock
+  returns its own response instead of calling `next()`, so it must be last for the other two
+  to wrap it.
+- **`createInterceptors(useMocks)` is the single source of the order and is unit-tested.**
+  Do not inline the arrays again; a future interceptor must be inserted before the mock.
+
+## `ProfileService` exposes read-only signals (2026-10-18)
+
+`ProfileComponent` wrote `profile.avatarUrl.set(null)` from its image `error` handler, bypassing
+the service's own state transitions.
+
+- **The writable signals are private; the public handles are `asReadonly()`.** Avatar
+  invalidation goes through `resetAvatar()`, so the service still owns every write and the
+  loading/value pair cannot be desynchronised from outside.
+- **Specs seed state through the HTTP API**, not by writing signals, which also exercises
+  `fetchMe`/`loadAvatar` instead of assuming their internals.
+
 ## CI caches build layers through a CI-only Compose override (2026-10-18)
 
 - **`docker-compose.build-cache.yml` is appended as a third `-f` only when `CI` is set.**

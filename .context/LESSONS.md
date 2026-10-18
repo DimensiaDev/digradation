@@ -14,7 +14,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   `scripts/precommit-ruff.py` pass `check=False` to `subprocess.run`. A clean-looking hook
   run proves nothing, so always run `black --check` and `ruff check` explicitly.
 - `.pre-commit-config.yaml` is the single source of truth for all hooks, but
-  `.github/workflows/pre-commit.yml` only runs the *generic* hooks (yaml, json, toml, eof,
+  `.github/workflows/pre-commit.yml` only runs the _generic_ hooks (yaml, json, toml, eof,
   whitespace). Real lint and test coverage comes from `backend-ci.yml` and
   `processing-ci.yml`.
 - `frontend-ci.yml` runs `ng lint` and `ng build` but **not** `ng test`. Vitest failures only
@@ -45,8 +45,8 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 ## Python and backend
 
 - `app/providers/containers.py` builds a module-level `SberProvider(...)` **at import time**
-  from `os.environ["SBER_API_KEY"]` and `os.environ["SBER_API_SCOPE"]`. Therefore *importing
-  any route or task module* requires both env vars to exist. This is why
+  from `os.environ["SBER_API_KEY"]` and `os.environ["SBER_API_SCOPE"]`. Therefore _importing
+  any route or task module_ requires both env vars to exist. This is why
   `tests/conftest.py` has an autouse `env` fixture monkeypatching them to mock values:
   without it, every test errors on import rather than on assertion.
 - **Redis `.get()` and `db.execute(...).scalar()` return `Any` or untyped values**, so type
@@ -73,7 +73,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 - `conftest.py` builds the schema with `Base.metadata.create_all`, **not** migrations. Only
   `test_migrations.py` exercises the Alembic path.
 - The `httpx.AsyncClient` in tests carries cookies between requests, mirroring a browser. A
-  test that logs in and then calls an admin route without re-logging in *will* pass auth. This
+  test that logs in and then calls an admin route without re-logging in _will_ pass auth. This
   is intentional, but it means "logged out" assertions need a fresh client.
 - `@pytest.mark.asyncio` is still written explicitly even though `asyncio_mode = "auto"`.
   Both work; match the surrounding file rather than "fixing" the inconsistency.
@@ -86,7 +86,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 - **An empty `positions` list means "ask clarifying questions"**, not "generation failed". The
   prose in `message` is the question. Distinguishing the two in the UI, for example by showing
   an error, is a bug.
-- The prompt-injection guard is a *model-level* control in `SYSTEM_REMINDER`, not a parser
+- The prompt-injection guard is a _model-level_ control in `SYSTEM_REMINDER`, not a parser
   check. It can be talked around, so do not describe it in docs as a security boundary.
 - GigaChat PERS-scope calls take a **global Redis lock** (`api:global:lock`). Concurrent
   requests queue for up to 60 s and then raise, so a burst of generation requests looks like
@@ -163,9 +163,9 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 - **Diagnose from the FIRST error in the file, not the summary.** The `TestBed` message
   looked like a test-structure problem and would have sent you to `resetTestingModule()`. A
   throwaway probe spec printed `typeof window === 'object'`, `document.URL ===
-  'http://localhost:3000/'`, and `typeof localStorage === 'undefined'`, which located the
+'http://localhost:3000/'`, and `typeof localStorage === 'undefined'`, which located the
   real cause in one run. jsdom sets `window._localStorage` unconditionally in its
-  constructor, so a *bare* `new JSDOM(url)` returns a working `Storage`; the gap comes
+  constructor, so a _bare_ `new JSDOM(url)` returns a working `Storage`; the gap comes
   from how the environment is built for Vitest, not from jsdom.
 - **Fix an environment gap in the environment, not in production code.** The shim lives in
   `src/test-setup.ts`, registered via the builder's `setupFiles` option, and only installs
@@ -211,6 +211,8 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 - Colours must come from CSS custom properties; light and dark is `html[data-theme='dark']`
   plus `localStorage['theme']`. A hardcoded hex in a component is invisible to the theme
   toggle.
+- **Explanatory comments in the code are strictly forbidden (typical "AI-style").** The only allowed type of comments
+  in TS/HTML/SCSS is `// TODO: ...` for temporary notes and tasks. Self-documenting code and clear naming are prioritized over comments.
 
 ## Test infrastructure
 
@@ -225,14 +227,14 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   connection, so it cannot see pending rows at all. Tests that appeared to pass were
   silently asserting against an empty database until they committed through the engine.
 - **`app.storage` and `app.providers.containers` read `os.environ` at import time**, so
-  the test env must be set at the top of `conftest.py` *before* any `app` import. An
+  the test env must be set at the top of `conftest.py` _before_ any `app` import. An
   autouse fixture is too late: fixtures run after collection, and these modules import
   during it. This surfaced as `KeyError: S3_SECRET_KEY` at collection.
 - **`get_redis_pool` and friends are `@cache`d, so tests that change the environment must
   call `cache_clear()`.** `get_debug` returned a stale value across every value of `DEBUG`
   until the cache was cleared, which looked like the truthiness logic being wrong.
 - **`redis-py` 8 made `ConnectionPool.get_connection()` a coroutine.** `async with
-  pool.get_connection()` is a `TypeError`; it must be awaited.
+pool.get_connection()` is a `TypeError`; it must be awaited.
 - **A failing suite silently suppresses the coverage report.** With failures present,
   `pytest --cov` writes an empty `coverage/` directory and prints no summary, so a coverage
   number can look like "no change" when in fact nothing was measured.
@@ -249,7 +251,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 
 - **A rate-limited backend makes an e2e suite trip its own limiter.** `chats:post` allows 5
   per minute per user for both chat creation and message sending. One run creates several
-  chats as a single shared user, so the limit is reached *within* the suite. The failure is
+  chats as a single shared user, so the limit is reached _within_ the suite. The failure is
   far from the cause: the chat is created (202), the send is rejected (429), and the create
   page never navigates, so the assertion reports "expected URL to match /chats/.+".
   `workers: 1` plus clearing `ratelimit:*` in Redis before each test is the fix; parallel
@@ -299,7 +301,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   direction builds an image whose shell fails with `exec /bin/sh: no such file or directory`
   even though the binary is present and executable, because those binaries expect a loader
   and directory layout the distroless base lacks. Base on busybox and copy the garage binary
-  *in* instead.
+  _in_ instead.
 - **`GARAGE_RPC_SECRET` and `GARAGE_ADMIN_TOKEN` must be exactly 32 bytes of hex (64
   characters).** The failure is `Invalid RPC secret key: expected 32 bytes of random hex`, which
   does not say the value is the wrong length. `openssl rand -hex 48`, used for every other
@@ -317,7 +319,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   already passes `tmpfs=self.tmpfs`. Use `with_tmpfs_mount(path, size)` instead.
 - **Garage will not start without `/etc/garage.toml`, even when every setting is supplied as a
   `GARAGE_` environment variable**; it exits with `Failed to read config file /etc/garage.toml:
-  No such file or directory`. Compose only sets two secrets that way and keeps the file, which is
+No such file or directory`. Compose only sets two secrets that way and keeps the file, which is
   why env-only configuration looks viable until you try it.
 - **A presigned POST rejects any form field that is not also a policy condition**, with
   `Key 'content-type' is not allowed in policy`. The upload routes pass `Content-Type` in both
@@ -343,7 +345,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   and `anthropics/skills` have no FastAPI/Angular/Docker/Python-testing entries, but
   `samuelpkg/skills`, `xfstudio/skills` and `github/awesome-copilot` do. Install with
   `~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py --repo
-  <owner>/<repo> --path <dir> --dest <dest>`. A hand-written flat `SKILL.md` cannot carry
+<owner>/<repo> --path <dir> --dest <dest>`. A hand-written flat `SKILL.md` cannot carry
   real framework depth, and guessing at framework APIs is where an agent invents things.
 - **An installed vendor skill silently contradicts a project-specific one.** The Angular
   skill assumes SSR, hydration and zoneless change detection; this app has none of them. The
@@ -351,7 +353,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   `Annotated` aliases used as parameter types. Installing without an override file makes the
   harness actively wrong.
 - **A `references/` file nothing links to will never be read.** An agent loads `SKILL.md` and
-  stops. Point at the overrides from the frontmatter `description` *and* a callout at the
+  stops. Point at the overrides from the frontmatter `description` _and_ a callout at the
   top of the body, or it is dead documentation.
 - **A skill's own `metadata` can misdescribe the project.** `xfstudio/skills:angular`
   declares `organization: "Antigravity Awesome Skills"` while living in a repo by a
@@ -397,7 +399,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 ## Cross-cutting
 
 - **`pytest-cov` needs to be a dev-group dependency, not a global install.** `poetry add
-  --group dev pytest-cov` from `backend/` is the only correct route; the pre-push hook runs
+--group dev pytest-cov` from `backend/` is the only correct route; the pre-push hook runs
   `poetry -C backend run pytest --cov`, which resolves the plugin from the backend venv.
   A globally installed `pytest-cov` will not be visible there.
 - **`--cov` alone does not produce `coverage.json`.** Coverage is configured in
@@ -468,8 +470,8 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   than papered over; one of the two is a bug.
 - **Verify claims against the source before reporting them, and verify your own corrections.**
   The misdiagnosis above was first rejected with the wrong reason ("the review misread a
-  wrapped tuple") and only later traced to PEP 758. Confirming *that* a file parses is not the
-  same as confirming *why* it parses, and a confident wrong explanation is worse than the
+  wrapped tuple") and only later traced to PEP 758. Confirming _that_ a file parses is not the
+  same as confirming _why_ it parses, and a confident wrong explanation is worse than the
   original false positive.
 - **`PurePath` does not split on a backslash when running on POSIX.** `PurePath("..\\..\\x.pdf").suffix`
   is `.pdf` and `PurePath("/etc/passwd.pdf").suffix` is `.pdf` too, so an extension check built
@@ -517,7 +519,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 
 - **A Compose override cannot isolate volumes; only the project name can.** Compose prefixes
   named volumes with the project name, and volume names are not overridable per service. The
-  e2e suite therefore ran against the *developer's* `digradation_postgres_data` and had written
+  e2e suite therefore ran against the _developer's_ `digradation_postgres_data` and had written
   13 users and 278 seeded chat sessions into it. Fixed with `-p digradation-e2e`. Anything that
   shells out to Docker from a test must repeat that `-p`, or it silently targets the dev
   stack — which is exactly how `clearRateLimits` ended up clearing the developer's Redis
@@ -525,7 +527,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 
 - **Compose MERGES a service's `ports` across files; it does not replace them.** A plain
   list in an override leaves the base file's binding in place, so `docker-compose.override
-  .yml.e2e` requesting 18080 still tried to bind the base file's 8080 and the container
+.yml.e2e` requesting 18080 still tried to bind the base file's 8080 and the container
   refused to start whenever a dev stack held it. Use the `!override` tag when you mean to
   replace. `ports: !reset []` is the same idea for clearing.
 
@@ -550,9 +552,8 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   backend performs a preflight, and presigned POST and GET both succeed server-side.
 
 - **Garage resolves `OPTIONS` against the bucket's CORS config only, never the key.** It calls
-  `resolve_global_bucket_fast` on an unauthenticated request, so a *local* alias gets a
-  permissive allow-everything answer while a *global* bucket with no CORS config gets a hard
-  403. The failure therefore depends on how the bucket was created, not on what the client did.
+  `resolve_global_bucket_fast` on an unauthenticated request, so a _local_ alias gets a
+  permissive allow-everything answer while a _global_ bucket with no CORS config gets a hard 403. The failure therefore depends on how the bucket was created, not on what the client did.
 
 - **`garage bucket` has no `cors` subcommand.** Subcommands are alias, allow,
   cleanup-incomplete-uploads, create, delete, deny, info, inspect-object, list, set-quotas,
@@ -562,10 +563,10 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 
 - **The e2e attachment specs pass even when the upload never reaches object storage.** The row
   in "Загруженные файлы" and the `GET /chats/{id}/attachments` listing are both satisfied by the
-  backend registering the attachment, which happens *before* the browser performs the presigned
+  backend registering the attachment, which happens _before_ the browser performs the presigned
   POST. A run on 2026-10-09 passed all three specs with zero `POST` requests in the Garage log.
   Two causes stacked: the e2e override resets Garage's published ports, so the browser has no S3
-  endpoint in the e2e project at all, and on a developer machine it would reach the *dev* Garage
+  endpoint in the e2e project at all, and on a developer machine it would reach the _dev_ Garage
   instead, because both stacks read the same `S3_ACCESS_KEY`/`S3_SECRET_KEY` from `.env`. So
   neither the CORS regression nor a dead store is covered. Asserting the upload finished
   requires waiting for the status to leave `queued`, and the e2e project needs its own published
@@ -591,7 +592,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   detail. The response then fails to serialise. Fixed by a handler in `app.main` that replaces
   non-finite floats with their text form and then applies `jsonable_encoder` — omitting the
   latter breaks any error detail containing a Pydantic model, including pre-existing routes.
-  `httpx` cannot *encode* these values, so a test using `json=` proves nothing; send the raw body.
+  `httpx` cannot _encode_ these values, so a test using `json=` proves nothing; send the raw body.
 - **A test that builds a request body from a dict of values can silently omit the wrapper key,
   and the endpoint then reports success while changing nothing.** The 422-vs-200 confusion while
   adding the rates was entirely this: the body was the bare rate object, `AdminSettingsUpdate`
@@ -606,7 +607,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   concurrency fix: the recovery path re-applied the update after rolling back and touched
   `admin.id`, which the rollback had expired. The attribute read is a synchronous implicit
   refresh, and async SQLAlchemy only performs IO inside awaited session methods. Copy anything
-  you need off ORM objects *before* the rollback, or the retry cannot run at all.
+  you need off ORM objects _before_ the rollback, or the retry cannot run at all.
 - **A template can hold the rate a setting appears to configure.** `res/calc.xlsx` ships
   `=E{row}/5.53` in the painting-hours cell, so `Parameters.painting_rate_m2_per_hour` was
   accepted by the API and ignored by the calculator; the other three rates were applied because
@@ -625,17 +626,17 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 - **A green DOM is not a quiet backend: wait for `chat:generation:*` between e2e tests.**
   `POST /chats/` answers 409 while the previous test's generation is still draining the
   worker pipeline, and a test that only asserts on the DOM finishes long before that. The
-  failure then lands on the *next* test's `createChat` navigation with no mention of a lock.
+  failure then lands on the _next_ test's `createChat` navigation with no mention of a lock.
   The auto fixture in `tests/helpers.ts` polls the key out of the e2e Redis before every
   test (bounded, 120 s); on a fast machine it is one round trip. The 429 rate-limit
   clearing next to it fixes a different symptom — check the backend log for which one fired
   before debugging the test.
 - **Open the users slide-over before touching the form in e2e.** The admin specs were
   written when the form was always visible; since it became a panel, its controls exist in
-   the DOM while closed, so visibility assertions fail and count assertions pass vacuously.
-   Click `Новый пользователь` (or the row edit action) first.
+  the DOM while closed, so visibility assertions fail and count assertions pass vacuously.
+  Click `Новый пользователь` (or the row edit action) first.
 - **Renaming the project silently orphans every Compose volume and the Garage key name.**
-  `digraduation` -> `digradation` changed the *defaults* of `POSTGRES_USER` / `POSTGRES_DB`,
+  `digraduation` -> `digradation` changed the _defaults_ of `POSTGRES_USER` / `POSTGRES_DB`,
   and Compose derives both the volume names and the container names from the project
   directory name. After the rename a developer gets a fresh, empty database and a fresh
   `garage-bootstrap` that imports the key as `digradation-app`; the old
@@ -643,13 +644,13 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   whatever accounts and chats it held. Nothing errors and nothing warns. The data is
   recoverable by pointing `POSTGRES_*` at the old names, so **do not `docker volume prune`
   after a rename** (see the "never destroy volumes you did not create" rule).
-- **The Garage key's *name* is cosmetic, its id and secret are identity.** `garage key import`
+- **The Garage key's _name_ is cosmetic, its id and secret are identity.** `garage key import`
   with the same id and secret is idempotent, so renaming the key label in `conf/garage-init.sh` from `digraduation-app` to
   `digradation-app` changes only the display name. This is the opposite of `S3_ACCESS_KEY`,
   where Garage refuses to reuse an id with a different secret.
 - **The brand mark is duplicated in three places, and two e2e specs assert on its text.**
   `frontend/src/index.html` (`<title>`), `frontend/src/app/shared/components/sidebar/
-  sidebar.component.html` (a `div.h1`, not a heading) and the locator
+sidebar.component.html` (a `div.h1`, not a heading) and the locator
   `.h1:has-text("di:gradation")` in `e2e/tests/helpers.ts` and `e2e/tests/admin-roles.spec.ts`.
   A rename that touches only the frontend shows up as a failing e2e suite, not as a stale
   label.
@@ -676,7 +677,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 - **Garage refuses a key id whose secret changed, which makes a stale e2e volume look like a
   bootstrap bug.** Re-running `setup.sh` with a freshly generated `S3_SECRET_KEY` against an
   existing `digradation-e2e_garage_metadata` volume fails with `key ... exists but does not
-  match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the e2e project
+match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the e2e project
   from empty volumes (`down -v`, which is safe only for a project you brought up yourself).
 - **An `exclude` entry does not survive a pre-commit hook that passes filenames
   explicitly.** The hooks here call `black <files>` and `ruff check --fix <files>`, and both

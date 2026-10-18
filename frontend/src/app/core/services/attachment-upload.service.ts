@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable, Subscription } from 'rxjs';
-import { mimeTypeFor } from '../../shared/components/drag-n-drop/file-preview.model';
+import { mimeTypeFor } from '../../shared/utils/file-types';
 import { UploadItem } from '../models/models';
 import { ChatService } from './chat.service';
 

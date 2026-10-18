@@ -83,7 +83,7 @@
     @include focus-ring;
 
     &:hover:not(:disabled) {
-      background: var(--color-hover-secondary);
+      background: var(--color-secondary);
     }
 
     &:disabled {

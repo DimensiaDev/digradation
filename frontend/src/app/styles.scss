@@ -19,50 +19,60 @@ body {
 :root {
   --color-black: #000000;
   --color-white: #ffffff;
-  --color-gray: #475569;
+  --color-gray: #6b7280;
 
-  --color-main: #2563eb;
+  --color-main: #6366f1;
+  --color-accent: #8b5cf6;
+  --color-info: #22d3ee;
   --color-main-shadow: color-mix(in srgb, var(--color-main) 25%, transparent);
+  --color-hover: color-mix(in srgb, var(--color-main) 85%, black);
 
   --color-surface: #ffffff;
+  --color-surface-dark: #151b28;
   --color-skeleton-base: #e8e8e8;
   --color-skeleton-shimmer: #ffffff;
 
   --color-code-bg: #0f172a;
   --color-code-muted: #94a3b8;
 
-  --color-hover: #1d4edb;
   --color-background: #f8fafc;
   --color-secondary: #f4f6f9;
-  --color-hover-secondary: #eef2fa;
-  --color-outgoing-message: #e8effd;
-  --color-outline: #e2e8f0;
+  --color-outline: #e5e7eb;
+
+  --sheet-tab-indicator-bg: var(--color-surface);
 
   --color-text: #0f172a;
 
-  --color-success: #16a34a;
-  --color-success-text: #107a37;
+  --color-success: #10b981;
   --color-warning: #f59e0b;
   --color-danger: #ef4444;
+
+  --sidebar-bg: var(--color-surface-dark);
+  --sidebar-text: #e2e8f0;
+  --sidebar-muted: #94a3b8;
+  --sidebar-accent: #818cf8;
+  --sidebar-hover: rgb(255 255 255 / 8%);
+  --sidebar-active: color-mix(in srgb, var(--sidebar-accent) 18%, var(--sidebar-bg));
+  --sidebar-border: #2a2d45;
+  --sidebar-skeleton-base: #232838;
+  --sidebar-skeleton-shimmer: #2f3650;
 }
 
 html[data-theme='dark'] {
   --color-gray: #94a3b8;
 
-  --color-main: #3b82f6;
+  --color-main: #818cf8;
   --color-main-shadow: color-mix(in srgb, var(--color-main) 30%, transparent);
+  --color-hover: color-mix(in srgb, var(--color-main) 80%, white);
 
-  --color-hover: #60a5fa;
   --color-background: #0b1120;
   --color-surface: #101a2e;
   --color-secondary: #18233a;
-  --color-hover-secondary: #1d2a44;
-  --color-outgoing-message: #1d2c4f;
   --color-outline: #263349;
 
-  --color-text: #e2e8f0;
+  --sheet-tab-indicator-bg: var(--color-outline);
 
-  --color-success-text: #4ade80;
+  --color-text: #e2e8f0;
 
   --color-code-bg: #1e293b;
 

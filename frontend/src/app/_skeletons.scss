@@ -53,47 +53,6 @@
   content: none;
 }
 
-.skeleton-item--chat-list {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-}
-
-.skeleton-item--chat-list-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-
-  width: 100%;
-  padding: 10px 16px;
-  border-radius: 10px;
-
-  .skeleton-item--circle {
-    flex-shrink: 0;
-
-    width: 16px;
-    height: 16px;
-  }
-
-  .skeleton-item--rect {
-    flex: 1;
-
-    height: 18px;
-  }
-
-  &:nth-child(3n + 2) .skeleton-item--rect {
-    flex: none;
-
-    width: 65%;
-  }
-
-  &:nth-child(3n) .skeleton-item--rect {
-    flex: none;
-
-    width: 82%;
-  }
-}
-
 .skeleton-item--users-table {
   display: flex;
   flex-direction: column;

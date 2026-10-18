@@ -1,0 +1,262 @@
+@use '../../../mixins' as *;
+
+:host {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+
+  display: block;
+}
+
+.header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+
+  padding: 12px 24px;
+
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-outline);
+}
+
+.header__actions {
+  display: flex;
+  align-items: center;
+
+  gap: 12px;
+}
+
+.header__block {
+  position: relative;
+}
+
+.header__icon-button {
+  position: relative;
+}
+
+.header__badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 18px;
+  height: 18px;
+
+  padding: 0 5px;
+
+  border-radius: 9px;
+  background: var(--color-main);
+
+  color: var(--color-white);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.header__profile-button {
+  display: flex;
+  align-items: center;
+
+  padding: 6px 12px;
+
+  background: none;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+
+  color: var(--color-text);
+
+  transition: background-color 0.15s ease;
+
+  @include reduced-motion;
+
+  &:hover {
+    background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  }
+
+  @include focus-ring;
+}
+
+.header__dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+
+  min-width: 220px;
+
+  padding: 8px;
+
+  border: 1px solid var(--color-outline);
+  border-radius: 12px;
+  background: var(--color-surface);
+
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--color-black) 12%, transparent);
+
+  &--notifications {
+    width: 340px;
+  }
+
+  &--profile {
+    min-width: 180px;
+  }
+}
+
+.header__dropdown--enter {
+  animation: header-dropdown-in 0.15s ease both;
+}
+
+.header__dropdown--leave {
+  animation: header-dropdown-out 0.12s ease both;
+}
+
+@keyframes header-dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes header-dropdown-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header__dropdown--enter,
+  .header__dropdown--leave {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .header__dropdown {
+    transform-origin: top right;
+  }
+}
+
+.header__notice {
+  --notification-color: var(--color-info);
+
+  display: flex;
+
+  gap: 10px;
+
+  padding: 10px 12px;
+
+  border-radius: 8px;
+
+  &[data-type='success'] {
+    --notification-color: var(--color-success);
+  }
+
+  &[data-type='error'] {
+    --notification-color: var(--color-danger);
+  }
+
+  &[data-type='warning'] {
+    --notification-color: var(--color-warning);
+  }
+}
+
+.header__notice-dot {
+  width: 8px;
+  height: 8px;
+
+  margin-top: 6px;
+
+  flex-shrink: 0;
+
+  border-radius: 50%;
+  background: var(--notification-color);
+}
+
+.header__notice-text {
+  display: flex;
+  flex-direction: column;
+
+  gap: 2px;
+
+  min-width: 0;
+}
+
+.header__notice-title {
+  font-size: 14px;
+
+  color: var(--color-text);
+}
+
+.header__notice-description {
+  font-size: 12px;
+
+  color: var(--color-gray);
+}
+
+.header__empty {
+  padding: 12px;
+
+  color: var(--color-gray);
+  font-size: 14px;
+  text-align: center;
+}
+
+.header__menu-item {
+  display: block;
+
+  padding: 10px 12px;
+
+  border-radius: 8px;
+
+  color: var(--color-text);
+  font-size: 16px;
+  text-decoration: none;
+
+  transition: background-color 0.15s ease;
+
+  @include reduced-motion;
+
+  &:hover {
+    background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  }
+
+  @include focus-ring;
+}
+
+.header__menu-item--danger {
+  width: 100%;
+
+  background: none;
+  border: none;
+
+  font: inherit;
+  font-size: 16px;
+  text-align: left;
+
+  color: var(--color-danger);
+  cursor: pointer;
+
+  &:hover {
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+  }
+
+  &:disabled {
+    pointer-events: none;
+    opacity: 0.6;
+  }
+}
