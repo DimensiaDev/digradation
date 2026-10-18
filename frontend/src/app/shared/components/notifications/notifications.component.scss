@@ -5,5 +5,14 @@
   translate: -50% 0;
   z-index: 1000;
 
-  width: min(480px, calc(100vw - 48px));
+  width: min(560px, calc(100vw - 48px));
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  margin: 0;
+  padding: 0;
+
+  list-style: none;
 }

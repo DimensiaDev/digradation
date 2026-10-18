@@ -15,7 +15,9 @@
       <form class="settings-form" [formGroup]="promptForm" (ngSubmit)="save()">
         <div class="settings-form__field">
           <label class="settings-form__label" for="system-prompt">Текст промпта</label>
-          <app-textarea
+          <app-input
+            [asTextarea]="true"
+            [rows]="12"
             formControlName="prompt"
             inputId="system-prompt"
             placeholder="Введите дополнительные указания для агента..."

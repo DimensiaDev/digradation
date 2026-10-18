@@ -149,8 +149,9 @@ No NgRx or Redux. **Signals only**: `signal()`, `computed()`, `effect()`,
 `@Injectable({ providedIn: 'root' })`. Cross-component handoff uses small one-shot "state
 services" (`set()` / `consume()`).
 
-The list-refresh idiom is a version signal: `ChatService.historyVersion = signal(0)`, bumped
-by the service and read by the sidebar to re-fetch.
+A list that reloads from a user action guards against out-of-order responses with a local
+request-id counter (`const requestId = ++this.lastRequestId`) and drops a stale response that
+no longer matches, rather than assuming responses arrive in order.
 
 ### Templates and styles
 
@@ -163,6 +164,11 @@ by the service and read by the sidebar to re-fetch.
 - `@use '...' as *` with relative paths and **no file extension**.
 
 ### API layer
+
+Interceptor order is load-bearing: `credentialsInterceptor`, `errorInterceptor`, then
+`mockApiInterceptor` **last**. The mock answers instead of calling `next()`, so if it is
+outermost the other two never run in mock mode. `createInterceptors()` in `app.config.ts` is
+the single source of the order and is unit-tested.
 
 Services build URLs as `` `${environment.apiUrl}/chats` ``. `apiUrl` comes from
 `src/environments/environment*.ts`, injected at image build time by

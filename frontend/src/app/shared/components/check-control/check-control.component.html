@@ -1,0 +1,26 @@
+<label class="check-control" [class.check-control--disabled]="isDisabled()">
+  <input
+    #input
+    type="checkbox"
+    class="check-control__input"
+    [disabled]="isDisabled()"
+    [attr.aria-label]="label() || null"
+    (change)="onInput($event)"
+    (blur)="onBlur()"
+  />
+  @if (variant() === 'checkbox') {
+    <span class="check-control__box" aria-hidden="true">
+      <svg class="check-control__check" lucideCheck size="14" aria-hidden="true"></svg>
+    </span>
+  } @else {
+    <span class="check-control__track" aria-hidden="true">
+      <span class="check-control__thumb" aria-hidden="true"></span>
+    </span>
+  }
+  @if (label()) {
+    <span class="check-control__label">{{ label() }}</span>
+  }
+  @if (caption()) {
+    <span class="check-control__caption">{{ caption() }}</span>
+  }
+</label>

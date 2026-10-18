@@ -173,7 +173,8 @@ export class UsersPage {
         next: (users) => this.users.set(users),
         error: (err: HttpErrorResponse) => {
           this.notifications.error(
-            'Не удалось загрузить пользователей: ' + extractApiErrorMessage(err)
+            'Не удалось загрузить пользователей: ' + extractApiErrorMessage(err),
+            { description: 'Обновите страницу, чтобы попробовать снова.' }
           );
         }
       });
@@ -334,18 +335,23 @@ export class UsersPage {
             list.map((item) => (item.id === updated.id ? updated : item))
           );
           if (!password) {
-            this.notifications.success('Пользователь обновлён');
+            this.notifications.success('Пользователь обновлён', {
+              description: 'Изменения сохранены.'
+            });
             this.closeIfCurrent(seq);
             return;
           }
           this.adminUsersService.setPassword(selected.id, password).subscribe({
             next: () => {
-              this.notifications.success('Пользователь обновлён');
+              this.notifications.success('Пользователь обновлён', {
+                description: 'Изменения и новый пароль сохранены.'
+              });
               this.closeIfCurrent(seq);
             },
             error: (err: HttpErrorResponse) => {
               this.notifications.error(
-                'Профиль сохранён, но пароль изменить не удалось: ' + extractApiErrorMessage(err)
+                'Профиль сохранён, но пароль изменить не удалось: ' + extractApiErrorMessage(err),
+                { description: 'Пароль остался прежним.' }
               );
               this.closeIfCurrent(seq);
             }
@@ -353,7 +359,8 @@ export class UsersPage {
         },
         error: (err: HttpErrorResponse) => {
           this.notifications.error(
-            'Не удалось сохранить пользователя: ' + extractApiErrorMessage(err)
+            'Не удалось сохранить пользователя: ' + extractApiErrorMessage(err),
+            { description: 'Изменения не применены.' }
           );
         }
       });
@@ -367,13 +374,16 @@ export class UsersPage {
       .pipe(finalize(() => this.isSubmitting.set(false)))
       .subscribe({
         next: (user) => {
-          this.notifications.success('Пользователь создан');
+          this.notifications.success('Пользователь создан', {
+            description: 'Пользователь появился в списке.'
+          });
           this.users.update((list) => [...list, user]);
           this.closeIfCurrent(seq);
         },
         error: (err: HttpErrorResponse) => {
           this.notifications.error(
-            'Не удалось создать пользователя: ' + extractApiErrorMessage(err)
+            'Не удалось создать пользователя: ' + extractApiErrorMessage(err),
+            { description: 'Проверьте данные и попробуйте снова.' }
           );
         }
       });
@@ -396,11 +406,14 @@ export class UsersPage {
           if (this.selectedUser()?.id === user.id) {
             this.resetForm();
           }
-          this.notifications.success('Пользователь удалён');
+          this.notifications.success('Пользователь удалён', {
+            description: 'Учётная запись удалена без возможности восстановления.'
+          });
         },
         error: (err: HttpErrorResponse) => {
           this.notifications.error(
-            'Не удалось удалить пользователя: ' + extractApiErrorMessage(err)
+            'Не удалось удалить пользователя: ' + extractApiErrorMessage(err),
+            { description: 'Пользователь не был удалён.' }
           );
         }
       });

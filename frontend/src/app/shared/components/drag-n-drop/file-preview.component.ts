@@ -18,7 +18,7 @@ import { DomSanitizer } from '@angular/platform-browser';
 import { LucideFileWarning, LucideX } from '@lucide/angular';
 import { getFileExtension } from '../../utils/upload-format';
 import { SkeletonFilePreviewComponent } from '../skeleton/skeleton-file-preview/skeleton-file-preview.component';
-import { PreviewKind, mimeTypeFor, previewKindFor } from './file-preview.model';
+import { PreviewKind, mimeTypeFor, previewKindFor } from '../../utils/file-types';
 
 type XLSXModule = typeof import('xlsx');
 type HyperFormulaCtor = typeof import('hyperformula').HyperFormula;
