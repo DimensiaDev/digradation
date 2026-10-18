@@ -9,7 +9,15 @@ DEFAULT_OVERLAP = 150
 
 
 def _safe_tail(text: str, overlap: int) -> str:
-    """Take last ~overlap chars of text, snapped forward to a word boundary."""
+    """Take last ~overlap chars of text, snapped forward to a word boundary.
+
+    Returns an empty string when ``overlap <= 0``. Without this guard,
+    ``text[-0:]`` would equal ``text[0:]`` (the whole string) and the
+    entire buffer would be carried into the next chunk, duplicating
+    content and blowing past ``max_size``.
+    """
+    if overlap <= 0:
+        return ""
     if len(text) <= overlap:
         return text
     tail = text[-overlap:]
@@ -48,10 +56,21 @@ def chunk_paragraphs(
 ) -> list[TextChunk]:
     """Accumulate paragraph texts into chunks of ~max_size with overlap.
 
-    Every non-empty trailing buffer is always emitted. Earlier versions
-    accepted a ``min_size`` parameter that silently dropped short tails —
-    that caused data loss and was removed.
+    Every non-empty trailing buffer is always emitted.
+
+    ``overlap`` is clamped to ``[0, max_size // 2]``. This prevents two
+    pathological cases:
+
+    * ``overlap == 0`` would cause ``_safe_tail`` to return the whole
+      buffer (``text[-0:] == text[0:]``), duplicating content.
+    * ``overlap >= max_size`` would cause every chunk after the first to
+      exceed ``max_size``, breaking the size contract.
     """
+    if overlap < 0:
+        overlap = 0
+    elif overlap >= max_size:
+        overlap = max(0, max_size // 2)
+
     chunks: list[TextChunk] = []
     buffer = ""
     ordinal = start_ordinal
@@ -80,7 +99,8 @@ def chunk_paragraphs(
             if buffer and len(buffer) + len(piece) + 2 > max_size:
                 emit(buffer, ordinal)
                 ordinal += 1
-                buffer = (_safe_tail(buffer, overlap) + "\n\n" + piece).strip()
+                tail = _safe_tail(buffer, overlap)
+                buffer = (tail + "\n\n" + piece).strip() if tail else piece
             else:
                 buffer = (buffer + "\n\n" + piece).strip() if buffer else piece
 

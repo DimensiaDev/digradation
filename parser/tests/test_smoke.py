@@ -85,9 +85,7 @@ def test_parse_docx_smoke(tmp_path: Path):
     d.save(src)
 
     doc = parse_docx(src, doc_id="d1", source_path="sample.docx")
-    assert any(
-        c.section_title and "Section 1" in c.section_title for c in doc.text_chunks
-    )
+    assert any(c.section_title and "Section 1" in c.section_title for c in doc.text_chunks)
     assert len(doc.tables) == 1
     assert doc.tables[0].rows[0][0] == "Competency"
 
@@ -161,3 +159,55 @@ def test_doc_id_includes_input_root(tmp_path: Path):
     root_a.mkdir()
     root_b.mkdir()
     assert _doc_id_for("x.docx", root_a) != _doc_id_for("x.docx", root_b)
+
+
+def test_chunk_overlap_zero_does_not_duplicate():
+    """Regression: overlap=0 must not carry the whole buffer forward."""
+    paras = [f"Paragraph {i} with some body text." for i in range(20)]
+    chunks = chunk_paragraphs(
+        paragraphs=paras,
+        doc_id="d1",
+        source_path="x.docx",
+        section_title=None,
+        page_number=None,
+        max_size=200,
+        overlap=0,
+    )
+    assert len(chunks) > 1
+    for i in range(1, len(chunks)):
+        assert chunks[i - 1].text not in chunks[i].text
+
+
+def test_chunk_overlap_larger_than_max_is_clamped():
+    """Regression: overlap >= max_size must be clamped, not blow up chunks."""
+    paras = [f"Para {i}: " + ("x" * 100) for i in range(20)]
+    chunks = chunk_paragraphs(
+        paragraphs=paras,
+        doc_id="d1",
+        source_path="x.docx",
+        section_title=None,
+        page_number=None,
+        max_size=300,
+        overlap=1000,
+    )
+    assert len(chunks) > 1
+    for c in chunks:
+        assert len(c.text) <= 500
+
+
+def test_chunk_negative_overlap_clamped_to_zero():
+    """Regression: negative overlap must not raise and must not duplicate."""
+    paras = ["A" * 100, "B" * 100]
+    chunks = chunk_paragraphs(
+        paragraphs=paras,
+        doc_id="d1",
+        source_path="x.docx",
+        section_title=None,
+        page_number=None,
+        max_size=150,
+        overlap=-50,
+    )
+    assert len(chunks) >= 1
+    joined = "\n".join(c.text for c in chunks)
+    assert "A" * 100 in joined
+    assert "B" * 100 in joined
