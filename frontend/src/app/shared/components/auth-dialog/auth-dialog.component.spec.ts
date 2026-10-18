@@ -48,7 +48,7 @@ describe('AuthDialogComponent', () => {
     fixture.debugElement.query(By.directive(AuthDialogComponent))
       .componentInstance as AuthDialogComponent;
   const dialogEl = () =>
-    fixture.nativeElement.querySelector('dialog.auth-dialog') as HTMLDialogElement;
+    fixture.nativeElement.querySelector('dialog.auth-dialog') as HTMLDialogElement | null;
   const usernameInput = () =>
     fixture.debugElement.query(By.css('#username')).nativeElement as HTMLInputElement;
   const passwordInput = () =>
@@ -112,11 +112,11 @@ describe('AuthDialogComponent', () => {
       createPage();
 
       expect(modal.isOpen()).toBe(false);
-      expect(dialogEl().hasAttribute('open')).toBe(false);
+      expect(dialogEl()).toBeNull();
 
       openModal();
 
-      expect(dialogEl().hasAttribute('open')).toBe(true);
+      expect(dialogEl()?.hasAttribute('open')).toBe(true);
     });
 
     it('closes when the modal service closes and when the close button is clicked', () => {
@@ -125,13 +125,13 @@ describe('AuthDialogComponent', () => {
 
       modal.close();
       fixture.detectChanges();
-      expect(dialogEl().hasAttribute('open')).toBe(false);
+      expect(dialogEl()).toBeNull();
 
       openModal();
       fixture.debugElement.query(By.css('.auth-dialog__close')).nativeElement.click();
       fixture.detectChanges();
       expect(modal.isOpen()).toBe(false);
-      expect(dialogEl().hasAttribute('open')).toBe(false);
+      expect(dialogEl()).toBeNull();
     });
 
     it('closes on a backdrop press but keeps the panel presses', () => {
@@ -143,9 +143,10 @@ describe('AuthDialogComponent', () => {
         .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       expect(modal.isOpen()).toBe(true);
 
-      dialogEl().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      dialogEl()?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       fixture.detectChanges();
       expect(modal.isOpen()).toBe(false);
+      expect(dialogEl()).toBeNull();
     });
 
     it('treats a cancel event as a close request', () => {
@@ -153,7 +154,7 @@ describe('AuthDialogComponent', () => {
       openModal();
 
       const event = new Event('cancel', { cancelable: true });
-      dialogEl().dispatchEvent(event);
+      dialogEl()?.dispatchEvent(event);
       fixture.detectChanges();
 
       expect(event.defaultPrevented).toBe(true);
@@ -164,7 +165,7 @@ describe('AuthDialogComponent', () => {
       createPage();
       openModal();
 
-      dialogEl().dispatchEvent(new Event('close'));
+      dialogEl()?.dispatchEvent(new Event('close'));
 
       expect(modal.isOpen()).toBe(false);
     });
@@ -301,11 +302,14 @@ describe('AuthDialogComponent', () => {
 
       req.flush({ message: 'ok' });
       await fixture.whenStable();
+      expect(submitButton().disabled).toBe(true);
+
       flushProfile();
       await fixture.whenStable();
       fixture.detectChanges();
 
-      expect(submitButton().disabled).toBe(false);
+      expect(page().isSubmitting()).toBe(false);
+      expect(dialogEl()).toBeNull();
     });
 
     it('ignores a second submit while the first request is in flight', () => {

@@ -45,6 +45,8 @@ export class AuthDialogComponent {
   readonly eyeIcon = LucideEye;
   readonly eyeOffIcon = LucideEyeOff;
 
+  readonly isOpen = this.modal.isOpen;
+
   private readonly dialogRef = viewChild<ElementRef<HTMLDialogElement>>('dialogEl');
 
   readonly form = this.fb.group({
@@ -68,11 +70,7 @@ export class AuthDialogComponent {
       if (!dialog) {
         return;
       }
-      if (this.modal.isOpen()) {
-        this.openDialog(dialog);
-      } else {
-        this.closeDialog(dialog);
-      }
+      this.openDialog(dialog);
     });
   }
 
@@ -174,17 +172,6 @@ export class AuthDialogComponent {
       dialog.showModal();
     } else {
       dialog.setAttribute('open', '');
-    }
-  }
-
-  private closeDialog(dialog: HTMLDialogElement): void {
-    if (!dialog.hasAttribute('open')) {
-      return;
-    }
-    if (typeof dialog.close === 'function' && dialog.open) {
-      dialog.close();
-    } else {
-      dialog.removeAttribute('open');
     }
   }
 
