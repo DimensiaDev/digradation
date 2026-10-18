@@ -830,6 +830,12 @@ A visitor could see nothing before signing in. Guest mode replaces all of that.
   header, the gate prompt and future surfaces share it instead of navigating the user away.
   The dialog is rendered under `@if (isOpen())` exactly to keep its form controls out of the
   document while closed — see `LESSONS.md`.
+- **The guest chip opens the dialog directly, without a menu.** A guest's profile menu held a
+  single "Войти" item — a dropdown that exists to be clicked once. `toggleProfile()` routes a
+  guest straight to `AuthModalService.open()`; the chip's accessible name becomes "Войти в
+  аккаунт" and it drops `aria-expanded`/`aria-controls` (there is no popup to control),
+  keeping only `aria-haspopup="dialog"`. The profile menu itself (Профиль, Выход) renders
+  only for a signed-in user.
 - **Protected routes are wrapped, not guarded.** A pathless `AuthGate` renders the child routes
   for a signed-in user and, for a guest, an inline prompt in the page content whose "Войти"
   button opens the shared sign-in dialog. The url is preserved, and the prompt is the only

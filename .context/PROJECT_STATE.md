@@ -73,7 +73,7 @@ first extension point if a feature starts deriving files from an upload.
 | Backend | `poetry -C backend run pytest` | 353 tests; needs a Docker daemon |
 | Backend coverage | `poetry -C backend run pytest --cov` | **99.33%** across 353 tests, gated at 90% by `fail_under` |
 | Frontend | `npm --prefix frontend test` | Vitest, 412 tests in 47 files; runs in `frontend-ci.yml` |
-| Frontend coverage | `npx ng test --coverage` | 91.4% stmts, 86.42% branches, 91.37% funcs; gated at 90% |
+| Frontend coverage | `npx ng test --coverage` | 91.41% stmts, 86.44% branches, 91.37% funcs; gated at 90% |
 | End-to-end | `./e2e/scripts/run.sh` | Playwright against the Compose stack, `SBER_API_KEY=mock`; 28 tests |
 
 **Both coverage gates are enforced at 90%**, each in exactly one place:
@@ -159,8 +159,8 @@ Ordered by value, not by commitment:
 - `TEST_INSTANCE_MODE` is absent from `.env.example`.
 - The frontend dev override bind-mounts `./frontend` over `/app`. If `node_modules` inside it
   is stale or partially populated, `ng serve` fails in ways that look like source errors.
-- Frontend statement coverage (91.4%) sits close to the 90% gate. Any new uncovered
-  component will fail CI, and branches at 86.42% have little headroom.
+- Frontend statement coverage (91.41%) sits close to the 90% gate. Any new uncovered
+  component will fail CI, and branches at 86.44% have little headroom.
 - **`cleanup_orphan_attachments` in `app/tasks/files.py` iterates an already exhausted
   `ScalarResult`,** so it logs `count=0` and never deletes an S3 object. Rows are still
   deleted; the objects fall to the 7-day lifecycle rule. Reported, not fixed. See

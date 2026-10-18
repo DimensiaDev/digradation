@@ -707,11 +707,11 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
 - **A click handler on `<dialog>` trips `@angular-eslint/template/click-events-have-key-events`.**
   Use `(mousedown)` for the backdrop press: Escape already closes a modal dialog natively, and
   the rule only watches click events — no `eslint-disable` needed (the repo has none). (2026-10-18)
-- **Guest mode puts several "Войти" buttons on screen at once** (the header menu item, the gate
-  prompt, the sign-in dialog submit), so a bare Playwright `getByRole("button", { name: "Войти" })`
-  violates strict mode. Scope lookups by their container: `page.locator(".login-prompt")` for
-  the gate prompt, `getByRole("dialog", { name: "Вход в аккаунт" })` for the dialog, and
-  `#header-profile-menu` for the header item. (2026-10-18)
+- **Guest mode puts several "Войти" buttons on screen at once** (the gate prompt and the
+  sign-in dialog submit; the header chip is a third entry point, labelled "Войти в аккаунт"),
+  so a bare Playwright `getByRole("button", { name: "Войти" })` violates strict mode. Scope
+  lookups by their container: `page.locator(".login-prompt")` for the gate prompt and
+  `getByRole("dialog", { name: "Вход в аккаунт" })` for the dialog. (2026-10-18)
 - **`provideAppInitializer` blocks the initial navigation, so route guards may be synchronous.**
   The default `enabledBlocking` navigation waits for initializers, so `adminGuard` reads
   `ProfileService.user()` without a fetch, a `catchError` or a race. The same guarantee applies
