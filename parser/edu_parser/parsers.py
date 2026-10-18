@@ -7,6 +7,13 @@ import zipfile
 from collections.abc import Iterator
 from pathlib import Path
 
+from docx import Document
+from docx.document import Document as _Document
+from docx.oxml.table import CT_Tbl
+from docx.oxml.text.paragraph import CT_P
+from docx.table import Table, _Cell
+from docx.text.paragraph import Paragraph
+
 from .chunker import chunk_paragraphs, table_to_markdown
 from .models import ParsedDocument, ParsedImage, ParsedTable
 
@@ -37,7 +44,7 @@ _HEADING_PREFIXES = (
 
 
 # ------------------------------------------------------------------------- DOCX
-def _is_docx_heading(para) -> bool:
+def _is_docx_heading(para: Paragraph) -> bool:
     style = getattr(para, "style", None)
     if style is None:
         return False
@@ -46,7 +53,7 @@ def _is_docx_heading(para) -> bool:
     return any(needle in sid or needle in name for needle in ("heading", "заголовок", "title", "название"))
 
 
-def _heading_level(para) -> int:
+def _heading_level(para: Paragraph) -> int:
     sid = (getattr(para.style, "style_id", "") or "").lower()
     name = (getattr(para.style, "name", "") or "").lower()
     for s in (sid, name):
@@ -82,15 +89,9 @@ def _fallback_heading_level(text: str) -> int:
 
 def _iter_block_items(parent) -> Iterator:
     """Yield Paragraph / Table in document order."""
-    from docx.document import Document as _Document
-    from docx.oxml.table import CT_Tbl
-    from docx.oxml.text.paragraph import CT_P
-    from docx.table import Table, _Cell
-    from docx.text.paragraph import Paragraph
-
     if isinstance(parent, _Document):
         parent_elm = parent.element.body
-    elif isinstance(parent, _Cell):  # pragma: no cover — nested tables, see issue #18
+    elif isinstance(parent, _Cell):  # pragma: no cover — nested tables, issue #18
         parent_elm = parent._tc
     else:  # pragma: no cover — defensive
         raise ValueError(f"Unsupported parent: {type(parent)}")
@@ -102,7 +103,7 @@ def _iter_block_items(parent) -> Iterator:
             yield Table(child, parent)
 
 
-def _docx_table_rows(table) -> list[list[str]]:
+def _docx_table_rows(table: Table) -> list[list[str]]:
     rows: list[list[str]] = []
     for row in table.rows:
         cells = [(cell.text or "").strip() for cell in row.cells]
@@ -127,58 +128,58 @@ def _ext_to_mime(ext: str) -> str:
 
 
 def _extract_docx_images(path: Path, doc_id: str, source_path: str, errors: list[str]) -> list[ParsedImage]:
+    """Extract images from word/media/.
+
+    ``BadZipFile`` is intentionally not caught here: ``parse_docx`` calls
+    ``Document(path)`` first, which already validates the zip container.
+    If this function still hits a broken archive, that is a programming
+    error or a race with an external file modification — let it bubble up
+    to ``process_directory`` and mark the whole file as failed.
+    """
     images: list[ParsedImage] = []
-    try:
-        with zipfile.ZipFile(path) as zf:
-            ordinal = 0
-            for info in zf.infolist():
-                if not info.filename.startswith("word/media/"):
-                    continue
-                if info.file_size > MAX_IMAGE_BYTES_CAP:
-                    msg = (
-                        f"skipped oversized image {info.filename} "
-                        f"({info.file_size} bytes > cap {MAX_IMAGE_BYTES_CAP})"
-                    )
-                    logger.warning(msg)
-                    errors.append(msg)
-                    continue
-                if info.file_size < MIN_IMAGE_BYTES:
-                    continue
-                data = zf.read(info.filename)
-                if len(data) > MAX_IMAGE_BYTES_CAP:
-                    msg = f"skipped oversized image {info.filename} after read"
-                    logger.warning(msg)
-                    errors.append(msg)
-                    continue
-                if len(data) < MIN_IMAGE_BYTES:
-                    continue
-                ext = info.filename.rsplit(".", 1)[-1].lower()
-                images.append(
-                    ParsedImage(
-                        doc_id=doc_id,
-                        source_path=source_path,
-                        page_number=None,
-                        ordinal=ordinal,
-                        data=data,
-                        ext=ext,
-                        mime=_ext_to_mime(ext),
-                        metadata={"zip_name": info.filename},
-                    )
+    with zipfile.ZipFile(path) as zf:
+        ordinal = 0
+        for info in zf.infolist():
+            if not info.filename.startswith("word/media/"):
+                continue
+            if info.file_size > MAX_IMAGE_BYTES_CAP:
+                msg = (
+                    f"skipped oversized image {info.filename} " f"({info.file_size} bytes > cap {MAX_IMAGE_BYTES_CAP})"
                 )
-                ordinal += 1
-    except zipfile.BadZipFile:
-        msg = f"DOCX is not a valid zip: {path}"
-        logger.warning(msg)
-        errors.append(msg)
+                logger.warning(msg)
+                errors.append(msg)
+                continue
+            if info.file_size < MIN_IMAGE_BYTES:
+                continue
+            data = zf.read(info.filename)
+            if len(data) > MAX_IMAGE_BYTES_CAP:
+                msg = f"skipped oversized image {info.filename} after read"
+                logger.warning(msg)
+                errors.append(msg)
+                continue
+            if len(data) < MIN_IMAGE_BYTES:
+                continue
+            ext = info.filename.rsplit(".", 1)[-1].lower()
+            images.append(
+                ParsedImage(
+                    doc_id=doc_id,
+                    source_path=source_path,
+                    page_number=None,
+                    ordinal=ordinal,
+                    data=data,
+                    ext=ext,
+                    mime=_ext_to_mime(ext),
+                    metadata={"zip_name": info.filename},
+                )
+            )
+            ordinal += 1
     return images
 
 
 def parse_docx(path: Path, doc_id: str, source_path: str) -> ParsedDocument:
     """Parse a DOCX file into a ParsedDocument."""
-    from docx import Document
-
     doc = Document(str(path))
-    parsed = ParsedDocument(doc_id=doc_id, source_path=source_path, title=Path(path).stem)
+    parsed = ParsedDocument(doc_id=doc_id, source_path=source_path, title=path.stem)
 
     section_stack: dict[int, str] = {}
     para_buffer: list[str] = []
@@ -208,9 +209,6 @@ def parse_docx(path: Path, doc_id: str, source_path: str) -> ParsedDocument:
         para_buffer = []
 
     for block in _iter_block_items(doc):
-        from docx.table import Table
-        from docx.text.paragraph import Paragraph
-
         if isinstance(block, Paragraph):
             text = (block.text or "").strip()
             if not text:
@@ -336,7 +334,7 @@ def _extract_pdf_images(
     ordinal = start_ordinal
     try:
         refs = page.get_images(full=True)
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover — pyMuPDF rarely fails here
         msg = f"PDF image listing failed on page {page_num}: {exc}"
         logger.warning(msg)
         errors.append(msg)
@@ -346,7 +344,7 @@ def _extract_pdf_images(
         xref = ref[0]
         try:
             info = doc.extract_image(xref)
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover — corrupt embedded image
             msg = f"PDF image xref={xref} extraction failed: {exc}"
             logger.warning(msg)
             errors.append(msg)
@@ -385,11 +383,11 @@ def parse_pdf(path: Path, doc_id: str, source_path: str) -> ParsedDocument:
     import pymupdf
 
     doc = pymupdf.open(str(path))
-    parsed = ParsedDocument(doc_id=doc_id, source_path=source_path, title=Path(path).stem)
+    parsed = ParsedDocument(doc_id=doc_id, source_path=source_path, title=path.stem)
 
     try:
         toc = doc.get_toc() or []
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover — corrupt TOC
         msg = f"PDF TOC extraction failed: {exc}"
         logger.warning(msg)
         parsed.errors.append(msg)
@@ -462,7 +460,7 @@ def parse_pdf(path: Path, doc_id: str, source_path: str) -> ParsedDocument:
                     )
                 )
                 ordinal_table += 1
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover — pyMuPDF find_tables glitch
             msg = f"table extraction failed on page {page_num}: {exc}"
             logger.warning(msg)
             parsed.errors.append(msg)

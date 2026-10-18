@@ -8,7 +8,7 @@ import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 
-from .models import ParsedDocument, ParsedImage
+from .models import ParsedDocument
 from .parsers import parse_docx, parse_pdf
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ def _doc_id_for(rel_path: str, input_root: Path) -> str:
 
     Including the input root name prevents two different source trees
     with the same relative path from silently overwriting each other
-    in a shared output directory (#4).
+    in a shared output directory.
     """
     key = f"{input_root.resolve().name}/{rel_path}"
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
@@ -52,39 +52,15 @@ def _md_escape_inline(text: str) -> str:
 
 
 def _serialize(doc: ParsedDocument, images_dir: Path | None) -> dict:
-    def _img_dict(img: ParsedImage, saved_rel: str | None) -> dict:
-        return {
-            "ordinal": img.ordinal,
-            "page_number": img.page_number,
-            "ext": img.ext,
-            "mime": img.mime,
-            "bytes_size": len(img.data),
-            "path": saved_rel,
-            "metadata": img.metadata,
-        }
+    """Build the JSON payload for a parsed document.
 
-    text = [
-        {
-            "ordinal": c.ordinal,
-            "kind": c.kind,
-            "section_title": c.section_title,
-            "page_number": c.page_number,
-            "text": c.text,
-            "metadata": c.metadata,
-        }
-        for c in doc.text_chunks
-    ]
-    tables = [
-        {
-            "ordinal": t.ordinal,
-            "section_title": t.section_title,
-            "page_number": t.page_number,
-            "rows": t.rows,
-            "as_text": t.as_text,
-            "metadata": t.metadata,
-        }
-        for t in doc.tables
-    ]
+    ``ParsedDocument.model_dump`` handles all plain fields
+    (``doc_id``, ``source_path``, ``title``, ``text_chunks``, ``tables``,
+    ``errors``). ``images`` are excluded from the dump because their raw
+    bytes must be written to disk first, and the JSON only carries the
+    relative path plus metadata.
+    """
+    payload = doc.model_dump(mode="python", exclude={"images"})
 
     images: list[dict] = []
     for img in doc.images:
@@ -94,26 +70,29 @@ def _serialize(doc: ParsedDocument, images_dir: Path | None) -> dict:
             fname = f"{img.ordinal:04d}.{img.ext}"
             (images_dir / fname).write_bytes(img.data)
             saved_rel = str((images_dir / fname).relative_to(images_dir.parent))
-        images.append(_img_dict(img, saved_rel))
+        images.append(
+            {
+                "ordinal": img.ordinal,
+                "page_number": img.page_number,
+                "ext": img.ext,
+                "mime": img.mime,
+                "bytes_size": len(img.data),
+                "path": saved_rel,
+                "metadata": img.metadata,
+            }
+        )
 
-    return {
-        "doc_id": doc.doc_id,
-        "source_path": doc.source_path,
-        "title": doc.title,
-        "errors": doc.errors,
-        "counts": {
-            "text_chunks": len(doc.text_chunks),
-            "tables": len(doc.tables),
-            "images": len(doc.images),
-        },
-        "text_chunks": text,
-        "tables": tables,
-        "images": images,
+    payload["images"] = images
+    payload["counts"] = {
+        "text_chunks": len(doc.text_chunks),
+        "tables": len(doc.tables),
+        "images": len(doc.images),
     }
+    return payload
 
 
 def _write_preview_md(doc: ParsedDocument, out_path: Path) -> None:
-    lines = [
+    lines: list[str] = [
         f"# {doc.title}",
         "",
         f"- **doc_id**: `{doc.doc_id}`",
@@ -129,29 +108,37 @@ def _write_preview_md(doc: ParsedDocument, out_path: Path) -> None:
             head += f" · page {c.page_number}"
         if c.section_title:
             head += f" · {_md_escape_inline(c.section_title)}"
-        lines.append(head)
-        lines.append("")
-        lines.append("```text")
-        lines.append(c.text)
-        lines.append("```")
-        lines.append("")
+        lines.extend(
+            [
+                head,
+                "",
+                "```text",
+                c.text,
+                "```",
+                "",
+            ]
+        )
     for t in doc.tables:
         head = f"## table #{t.ordinal}"
         if t.page_number is not None:
             head += f" · page {t.page_number}"
         if t.section_title:
             head += f" · {_md_escape_inline(t.section_title)}"
-        lines.append(head)
-        lines.append("")
-        lines.append("```markdown")
-        lines.append(t.as_text)
-        lines.append("```")
-        lines.append("")
+        lines.extend(
+            [
+                head,
+                "",
+                "```markdown",
+                t.as_text,
+                "```",
+                "",
+            ]
+        )
     out_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def _save(doc: ParsedDocument, out_root: Path) -> dict:
-    """Write all artifacts atomically via a temp directory (#5)."""
+    """Write all artifacts atomically via a temp directory."""
     final_dir = out_root / doc.doc_id
     tmp_dir = Path(tempfile.mkdtemp(prefix=f".{doc.doc_id}.", dir=out_root))
 
@@ -182,7 +169,7 @@ def _save(doc: ParsedDocument, out_root: Path) -> dict:
 
 
 def _prune_stale(out_root: Path, keep_ids: set[str]) -> None:
-    """Remove doc directories that weren't produced by the current run (#8)."""
+    """Remove doc directories that weren't produced by the current run."""
     for entry in out_root.iterdir():
         if entry.name == "manifest.json":
             continue
@@ -203,9 +190,9 @@ def process_directory(
     """Parse every supported file; never raise on per-file errors.
 
     Raises ``NotADirectoryError`` if ``input_root`` is missing or is not a
-    directory (#13). Pass ``prune_stale=True`` to delete doc dirs that are
-    not produced by this run (#8). Only use ``prune_stale`` when a full
-    sweep is intended — with ``limit`` set, unrelated dirs would be wiped.
+    directory. Pass ``prune_stale=True`` to delete doc dirs that are not
+    produced by this run. Only use ``prune_stale`` when a full sweep is
+    intended — with ``limit`` set, unrelated dirs would be wiped.
     """
     input_root = input_root.resolve()
     if not input_root.is_dir():

@@ -1,50 +1,46 @@
 """Data models for RAG document parsing."""
 
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 
 
-@dataclass
-class TextChunk:
+class TextChunk(BaseModel):
     doc_id: str
     source_path: str
-    section_title: str | None
-    page_number: int | None
+    section_title: str | None = None
+    page_number: int | None = None
     ordinal: int
     text: str
-    kind: str = "text"  # "text" | "table"
-    metadata: dict = field(default_factory=dict)
+    kind: str = "text"
+    metadata: dict = Field(default_factory=dict)
 
 
-@dataclass
-class ParsedTable:
+class ParsedTable(BaseModel):
     doc_id: str
     source_path: str
-    section_title: str | None
-    page_number: int | None
+    section_title: str | None = None
+    page_number: int | None = None
     ordinal: int
     rows: list[list[str]]
     as_text: str
-    metadata: dict = field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
 
 
-@dataclass
-class ParsedImage:
+class ParsedImage(BaseModel):
     doc_id: str
     source_path: str
-    page_number: int | None
+    page_number: int | None = None
     ordinal: int
     data: bytes
     ext: str
     mime: str
-    metadata: dict = field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
 
 
-@dataclass
-class ParsedDocument:
+class ParsedDocument(BaseModel):
     doc_id: str
     source_path: str
     title: str
-    text_chunks: list[TextChunk] = field(default_factory=list)
-    tables: list[ParsedTable] = field(default_factory=list)
-    images: list[ParsedImage] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
+    text_chunks: list[TextChunk] = Field(default_factory=list)
+    tables: list[ParsedTable] = Field(default_factory=list)
+    images: list[ParsedImage] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)

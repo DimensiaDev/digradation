@@ -3,6 +3,7 @@
 import zipfile
 from pathlib import Path
 
+import pytest
 from docx import Document
 
 from edu_parser import parsers
@@ -60,13 +61,12 @@ def test_ext_to_mime_unknown():
 
 
 def test_extract_docx_images_bad_zip(tmp_path: Path):
+    """BadZipFile bubbles up — parse_docx relies on Document() to validate first."""
     src = tmp_path / "bad.docx"
     src.write_bytes(b"not a zip")
     errors: list[str] = []
-    imgs = _extract_docx_images(src, "d1", "bad.docx", errors)
-    assert imgs == []
-    assert len(errors) == 1
-    assert "not a valid zip" in errors[0]
+    with pytest.raises(zipfile.BadZipFile):
+        _extract_docx_images(src, "d1", "bad.docx", errors)
 
 
 def test_extract_docx_images_oversized(tmp_path: Path, monkeypatch):
