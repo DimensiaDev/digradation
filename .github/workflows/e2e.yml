@@ -37,6 +37,28 @@ jobs:
         working-directory: e2e
         run: npm ci
 
+      # Chromium is several hundred megabytes and does not change unless the
+      # Playwright version does, so it is cached rather than re-downloaded.
+      #
+      # The key pins the OS and the lockfile, because browsers are fetched per
+      # Playwright revision: a different `@playwright/test` means a different
+      # download and must not reuse the old one. `restore-keys` means an unrelated
+      # lockfile edit still reuses the previous download instead of starting over.
+      #
+      # A stale or mismatched cache is harmless rather than a correctness risk:
+      # the install step below still runs, and Playwright only skips the download
+      # when it finds the exact revision directory it wants. `--with-deps` (the apt
+      # layer) is deliberately not cached, being an install transaction rather than
+      # a downloadable artifact; it is idempotent and mostly preinstalled on
+      # ubuntu-latest.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
       # Chromium and its OS libraries. Kept after `npm ci` so the Playwright
       # version being installed is the one that fetches the browser.
       - name: Install Chromium
