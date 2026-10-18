@@ -164,7 +164,7 @@ describe('HeaderComponent', () => {
     expect(fixture.debugElement.query(By.css('.header__dropdown'))).toBeNull();
   });
 
-  it('logs out from the profile menu and returns to the home page', () => {
+  it('logs out from the profile menu without leaving the current page', () => {
     seedUser();
     const router = TestBed.inject(Router);
     const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
@@ -183,7 +183,7 @@ describe('HeaderComponent', () => {
     fixture.detectChanges();
 
     expect(clear).toHaveBeenCalled();
-    expect(navigate).toHaveBeenCalledWith(['/home']);
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('reports a failed logout without navigating away', () => {

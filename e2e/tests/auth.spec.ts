@@ -65,14 +65,19 @@ test.describe("authentication", () => {
     await expect(page.getByRole("heading", { name: "Помощь" })).toBeVisible();
   });
 
-  test("signs out, returns home and protects the app again", async ({ page }) => {
+  test("signs out in place without leaving the page and protects it again", async ({
+    page,
+  }) => {
     await login(page);
 
+    await page.goto("/profile");
     await page.getByRole("button", { name: "Открыть меню профиля" }).click();
     await page.getByRole("button", { name: "Выход" }).click();
 
-    await expect(page).toHaveURL(/\/home$/);
+    // Logout no longer forces a redirect: the gate takes over on the same url.
+    await expect(page).toHaveURL(/\/profile$/);
     await expect(page.getByText("Вы вышли из аккаунта")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Требуется вход" })).toBeVisible();
 
     // The cookie is gone: a protected route stays put and asks for a login.
     await page.goto("/create");

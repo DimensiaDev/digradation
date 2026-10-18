@@ -8,7 +8,7 @@ import {
   inject,
   signal
 } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { LucideBell } from '@lucide/angular';
 import { AuthModalService } from '../../../core/services/auth-modal.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -28,7 +28,6 @@ export class HeaderComponent {
   private readonly authModal = inject(AuthModalService);
   private readonly notificationService = inject(NotificationService);
   private readonly profileService = inject(ProfileService);
-  private readonly router = inject(Router);
   private readonly elementRef = inject(ElementRef<HTMLElement>);
 
   readonly user = this.profileService.user;
@@ -76,7 +75,8 @@ export class HeaderComponent {
         this.loggingOut.set(false);
         this.profileService.clear();
         this.notificationService.info('Вы вышли из аккаунта');
-        this.router.navigate(['/home']);
+        // Deliberately no redirect: the current page stays, and the AuthGate
+        // swaps in the sign-in prompt if the route was protected.
       },
       error: (err: unknown) => {
         this.loggingOut.set(false);

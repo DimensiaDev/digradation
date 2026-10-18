@@ -674,10 +674,9 @@ the profile, and the icon-button hover mechanism was extracted out of two duplic
   5s auto-dismiss has fired. A real notification centre (persistent history) is a separate
   feature; this is deliberately just a surface over the current toasts.
 - **Sign-out moved into the profile dropdown.** The menu holds a `/profile` link and a red
-  `Выход` action that calls `AuthService.logout()`, clears `ProfileService`, toasts, and
-  navigates to `/login` (mirroring the removed sidebar card). Sign-out had been homeless since
-  the sidebar card went; it now lives here. The e2e `signs out` spec is still to be restored to
-  drive it through the header.
+  `Выход` action that calls `AuthService.logout()`, clears `ProfileService` and toasts.
+  Sign-out had been homeless since the sidebar card went; it now lives here. It no longer
+  redirects; see the guest-mode note on staying in place.
 - **The profile dropdown reuses the toasts, not its own store.** It reads the same
   `NotificationService`, so a real notification centre is still a separate feature.
 - **`ProfileComponent` is new, not the resurrected sidebar card.** The sidebar deleted its own
@@ -855,6 +854,10 @@ A visitor could see nothing before signing in. Guest mode replaces all of that.
   subscribes and calls `clear()`, the interceptor shows the toast once, and the gate or the
   header offer the dialog. `clear()` marks the session checked, so the shell re-renders as a
   guest instead of waiting on a fetch that will fail again.
+- **Sign-out stays in place.** `HeaderComponent.logout()` clears the profile and toasts but does
+  not navigate. The page a user logs out from keeps its url; if it was protected the `AuthGate`
+  swaps in the "Требуется вход" prompt, the same thing a guest sees on arrival. Sending them to
+  `/home` threw away their location and made the gate's url-preserving behaviour pointless.
 - **The sidebar is deliberately untouched.** Items stay enabled and clickable; `programs` and
   `library` render `SectionPlaceholder` behind the gate so a guest discovers the sections'
   existence. Locks or disabled items were explicitly rejected: the prompt explains, a lock does
