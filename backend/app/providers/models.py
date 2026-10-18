@@ -1,5 +1,6 @@
+import json
 from datetime import UTC, datetime
-from typing import ClassVar, Literal, Self
+from typing import Any, ClassVar, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -20,6 +21,48 @@ class AuthResponse(BaseModel):
 
 class FileSchema(BaseModel):
     id: str
+
+
+class FunctionCall(BaseModel):
+    """One function call requested by the model, as it arrives in a content part."""
+
+    id: str | None = None
+    name: str
+    arguments: dict = Field(default_factory=dict)
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def parse_arguments(cls, v):
+        """The v2 endpoint sends an object; an older one may send a JSON string."""
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
+
+
+class FunctionResult(BaseModel):
+    """The value of a function call, sent back as a `tool` message part."""
+
+    id: str | None = None
+    name: str
+    result: Any
+
+
+class FunctionSpecification(BaseModel):
+    """Declaration of one function the model is allowed to call."""
+
+    name: str
+    description: str
+    parameters: dict
+
+
+class ToolFunctions(BaseModel):
+    specifications: list[FunctionSpecification]
+
+
+class Tool(BaseModel):
+    """A tool available to the model; its functions are grouped under ``functions``."""
+
+    functions: ToolFunctions
 
 
 class Content(BaseModel):

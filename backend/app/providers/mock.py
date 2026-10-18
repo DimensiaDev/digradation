@@ -28,6 +28,45 @@ DEFAULT_MODE: Mode = "ok"
 
 MOCK_CHAT_NAME = "Чат (mock)"
 
+#: Canned arguments of the ``save_program_draft`` call the offline scenario makes:
+#: a complete, schema-valid draft, so the real handler runs rather than a
+#: shortcut around it.
+MOCK_DRAFT_ARGUMENTS: dict = {
+    "kind": "general_development",
+    "title": "Интенсив по искусственному интеллекту (mock)",
+    "summary": {
+        "goal": "Научить собирать работающий прототип на основе готовых ИИ-моделей.",
+        "target_audience": "Взрослые слушатели без опыта в машинном обучении.",
+        "form": "очно-заочная с применением ЭО и ДОТ",
+        "issued_document": "сертификат об освоении программы",
+    },
+    "competencies": [
+        {
+            "id": "comp-01",
+            "statement": "Способен собрать работающий прототип на основе готовых ИИ-моделей",
+            "knowledge": [{"id": "ro-k-01", "statement": "Знает принципы работы больших языковых моделей"}],
+            "skills": [{"id": "ro-s-01", "statement": "Умеет вызывать готовые модели через API"}],
+        }
+    ],
+    "curriculum": {
+        "modules": [
+            {
+                "id": "m-01",
+                "title": "Погружение в кейс",
+                "topics": [
+                    {
+                        "id": "t-01.1",
+                        "title": "Обзор готовых ИИ-моделей и их API",
+                        "hours": {"lecture": 2, "practice": 2, "self_study": 2},
+                    }
+                ],
+            }
+        ],
+        "schedule": {"days": 15, "hours_per_day": 1.6},
+    },
+    "sources": [],
+}
+
 
 def get_mock_mode() -> Mode:
     """Read the mode from the environment, falling back to the happy path.
