@@ -21,7 +21,7 @@ Everything described below is working and running via Docker Compose.
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness                                               |
 | `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings |
-| `e2e/`      | Complete: 8 spec files, 28 tests against the real Compose stack with the offline provider                                          |
+| `e2e/`      | Complete: specs against the real Compose stack with the offline provider                                                           |
 | Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup                                                     |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
@@ -37,7 +37,6 @@ route renders behind an `AuthGate` prompt, and `/login` is gone in favour of a s
 results, inline preview for PDF, image, docx and xlsx, light/dark theme, admin user
 management, admin prompt-extension editor. Section switches animate through the browser's
 View Transitions API (`withViewTransitions`), direction derived from the sidebar order.
-47 `*.spec.ts` files.
 
 **Not started or placeholder.** The profile page body, the user settings page body, and two
 admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`. The public
@@ -68,18 +67,19 @@ first extension point if a feature starts deriving files from an upload.
 
 ## Tests
 
-| Suite             | Command                              | Needs                                                               |
-| ----------------- | ------------------------------------ | ------------------------------------------------------------------- |
-| Backend           | `poetry -C backend run pytest`       | 353 tests; needs a Docker daemon                                    |
-| Backend coverage  | `poetry -C backend run pytest --cov` | **99.33%** across 353 tests, gated at 90% by `fail_under`           |
-| Frontend          | `npm --prefix frontend test`         | Vitest, 412 tests in 47 files; runs in `frontend-ci.yml`            |
-| Frontend coverage | `npx ng test --coverage`             | 91.41% stmts, 86.44% branches, 91.37% funcs; gated at 90%           |
-| End-to-end        | `./e2e/scripts/run.sh`               | Playwright against the Compose stack, `SBER_API_KEY=mock`; 28 tests |
+| Suite             | Command                              | Needs                                                     |
+| ----------------- | ------------------------------------ | --------------------------------------------------------- |
+| Backend           | `poetry -C backend run pytest`       | needs a Docker daemon (testcontainers)                    |
+| Backend coverage  | `poetry -C backend run pytest --cov` | gated by `fail_under` in `backend/pyproject.toml`         |
+| Frontend          | `npm --prefix frontend test`         | Vitest; runs in `frontend-ci.yml`                         |
+| Frontend coverage | `npx ng test --coverage`             | gated by `coverageThresholds` in `frontend/angular.json`  |
+| End-to-end        | `./e2e/scripts/run.sh`               | Playwright against the Compose stack, `SBER_API_KEY=mock` |
 
-**Both coverage gates are enforced at 90%**, each in exactly one place:
-`fail_under` in `backend/pyproject.toml` and `coverageThresholds` on the `test` target in
-`frontend/angular.json`. Neither a pre-commit hook nor a workflow names a percentage, so
-they cannot drift apart. Frontend branches are deliberately not gated.
+**Both coverage gates are enforced**, each in exactly one place: `fail_under` in
+`backend/pyproject.toml` and `coverageThresholds` on the `test` target in
+`frontend/angular.json`. Read the figure off the `TOTAL` line or the builder's summary; neither
+a pre-commit hook nor a workflow names a percentage, so they cannot drift apart. Frontend
+branches are deliberately not gated.
 
 Test counts and coverage percentages are deliberately not recorded here: they are
 deterministic, the commands above print them in seconds, and a recorded copy goes stale
@@ -159,8 +159,8 @@ Ordered by value, not by commitment:
 - `TEST_INSTANCE_MODE` is absent from `.env.example`.
 - The frontend dev override bind-mounts `./frontend` over `/app`. If `node_modules` inside it
   is stale or partially populated, `ng serve` fails in ways that look like source errors.
-- Frontend statement coverage (91.41%) sits close to the 90% gate. Any new uncovered
-  component will fail CI, and branches at 86.44% have little headroom.
+- Frontend statement coverage sits close to the gate. Any new uncovered component will fail
+  CI, and branches are deliberately ungated, so they have little headroom.
 - **`cleanup_orphan_attachments` in `app/tasks/files.py` iterates an already exhausted
   `ScalarResult`,** so it logs `count=0` and never deletes an S3 object. Rows are still
   deleted; the objects fall to the 7-day lifecycle rule. Reported, not fixed. See
