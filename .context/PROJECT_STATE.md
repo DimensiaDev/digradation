@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-18** (CI: one test run per suite, browser and Docker layer caches)
+Last updated: **2026-10-18** (the agentic package: schema, tools, tests; loop and sources wait on #26 and #11)
 
 ---
 
@@ -24,10 +24,16 @@ Everything described below is working and running via Docker Compose.
 | `e2e/` | Complete: Playwright specs against the real Compose stack with the offline provider |
 | Infra | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup |
 
+**Agentic programme drafting.** `backend/app/agentic/` holds the АЦР document schema, the
+provider function specifications and the tool handlers — search sources, save a draft, read
+it back — with their tests. Two seams are open on purpose: the loop around the provider
+waits for the tool-call types of #26, and `sources.py` answers from an empty catalog until
+the RAG index (#11) fills it.
+
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
 sessions with async generation, attachment upload / list / delete, presigned S3 results.
-Alembic is a **single squashed `initial` revision** (`d7e256a71a55`) generated from the new
-models. Nine TaskIQ tasks across the `default` and `network` queues, with hourly and
+Alembic: the squashed `initial` revision (`d7e256a71a55`) and the `chat_programs` addition
+(`c7536ab12114`). Nine TaskIQ tasks across the `default` and `network` queues, with hourly and
 10-minute cleanup crons.
 
 **Frontend.** Angular 21.2 standalone with signals. Reactive forms, cookie auth, 2-second
@@ -47,11 +53,12 @@ the quotation UI and nothing imports them.
 
 ## Database
 
-One revision, eight tables (`users`, `sessions`, `chat_sessions`, `chat_messages`,
-`attachments`, `generation_results`, `processing_result_uploadables`, `settings`) and two
-enums (`userrole`, `generationresulttype`). The TaskIQ dashboard keeps its own separate
-`taskiq_dashboard` database on the same PostgreSQL instance, created by
-`conf/postgres-init/01-taskiq-dashboard.sql`.
+Two revisions: the squashed `initial` (`d7e256a71a55`) and `add chat programmes`
+(`c7536ab12114`). Nine tables (`users`, `sessions`, `chat_sessions`, `chat_messages`,
+`attachments`, `generation_results`, `processing_result_uploadables`, `settings`,
+`chat_programs`) and three enums (`userrole`, `generationresulttype`, `programstatus`).
+The TaskIQ dashboard keeps its own separate `taskiq_dashboard` database on the same
+PostgreSQL instance, created by `conf/postgres-init/01-taskiq-dashboard.sql`.
 
 `processing_result_uploadables` is the artifact store a processed upload can write into. The
 `artifacts` bucket exists and the model is there, but **nothing writes rows yet** — that is the

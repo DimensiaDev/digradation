@@ -586,3 +586,33 @@ endpoints, the worker and the frontend belong to other changes.
 - **The first-run `ng` analytics prompt is answered per machine, not in the repository.**
   The `cli.analytics` flag left `frontend/angular.json`; `LESSONS.md` carries the trap and
   the remedy.
+
+## The agentic package stands on `main` again (2026-10-18)
+
+Review follow-up on `feat/gen-cicle`: the branch keeps only what `main` can build and test
+today, and what needs another zone waits for it instead of being stubbed hard. This
+supersedes the "does not import on its own" half of the previous entry.
+
+- **The source materials moved to the RAG zone.** `app/agentic/materials/` was a byte copy of
+  the root `edu_materials/` dataset, and RAG (#11) owns both the corpus and the search over
+  it. `sources.py` keeps only the seam the handlers call — `SourceFragment`, `get_source` and
+  `search` with unchanged signatures — over an empty catalog: a search reports nothing found,
+  and every citation is refused as unknown. The tests that needed a populated catalog were
+  replaced by tests of that contract; they return with the index.
+- **The loop module is deferred to the tool-call work (#26).** There `FunctionCall` is
+  attached to `GenerationResponse`, which retires the helpers that scanned message contents
+  for calls, so `loop.py` and its tests left the branch rather than being rewritten twice. The
+  review points for the re-implementation: errors inherit from `Exception` rather than
+  `RuntimeError`, `message.role` compares through the existing enum, and no helper scans
+  messages for calls.
+- **What the package imports is restored additively.** `providers/models.py` carries the tool
+  types (`FunctionCall`, `FunctionResult`, `FunctionSpecification`, `ToolFunctions`, `Tool`),
+  `chat.py` the `DEFAULT_CHAT_NAME` constant, `mock.py` the `MOCK_DRAFT_ARGUMENTS` payload,
+  and `models/program.py` with its migration the `chat_programs` table. Nothing that `main`
+  already defines was reshaped — `HarnessStructuredOutput` and the provider `generate`
+  signatures stay — so the suite runs and the coverage gate holds until #26 and the worker
+  zone replace those pieces on their own terms.
+- **The base commit's subject was reworded, not the rule relaxed.** `commitlint` validates
+  every commit of a pull request, so `feat(ala): Tools, tests, harness…` failed the PR check
+  while the push check for the same range passed. The branch was rebased to
+  `feat(ala): add tools, tests and harness for the agent model` and `subject-case` stays on.

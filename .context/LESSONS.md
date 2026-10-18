@@ -730,3 +730,27 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   inserts NULL and dies with a `NotNullViolation`; nothing has ever requested it.
   `tests/test_agentic_tools.py` builds its own `chat` fixture with an explicit `uuid4()`.
   Found 2026-10-18 on `feat/gen-cicle`.
+- **A `.ruff_cache` verdict can outlive the tree it was computed on.** `ruff check` reported
+  "All checks passed" on a tree where a clean checkout of the same commit failed I001 in
+  `tests/test_agentic_tools.py`: the cache entry was written while `app/models/program.py`
+  still existed, and the cache key does not include which modules are on disk. Run
+  `ruff check --no-cache` (or delete `.ruff_cache`) after moving modules out of the tree.
+  Found 2026-10-18 on `feat/gen-cicle`.
+- **An import of a module the tree does not contain is re-sorted as third-party by ruff's
+  isort — in `tests/`, but not inside `app/`.** With `app/models/program.py` missing,
+  `from app.models.program import ChatProgram` was flagged as an import-order error in
+  `tests/test_agentic_tools.py` while the identical import in `app/agentic/tools.py` passed:
+  inside the `app` package the file's own package prefix keeps the import first-party. So a
+  module absent from the tree shows up as a lint error in the tests and nowhere else, and
+  "fixing" the order locally only makes the error move to CI. Found 2026-10-18 on
+  `feat/gen-cicle`.
+- **`commitlint` validates every commit of a pull request, not just the new push.** A
+  sentence-case subject in the branch's first commit failed the `pull_request` check while
+  the `push` check for the same range passed. The only fix is to rewrite that commit's
+  message (rebase + force-push); a new commit on top cannot clear it, and relaxing
+  `subject-case` would weaken the gate for the whole repository. Found 2026-10-18 on
+  `feat/gen-cicle`.
+- **A failed `git push` can leave the pre-push `ruff` auto-fix in the working tree.** The
+  hook reported "files were modified" and aborted the push, but its import reorder stayed
+  behind after the message "Rolling back fixes...", so the next `git status` decides whether
+  the change was wanted. Found 2026-10-18 on `feat/gen-cicle`.
