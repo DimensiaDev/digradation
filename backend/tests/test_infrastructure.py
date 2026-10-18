@@ -46,6 +46,9 @@ def test_provider_selection(monkeypatch):
     assert isinstance(build("real-key", "mock"), MockProvider)
     # `SBER_API_KEY=mock` wins over the scope, `openai` included.
     assert isinstance(build("mock", "openai"), MockProvider)
+    # The container hands its (currently empty) tool list to the real providers.
+    assert build("real-key").tools == []
+    assert build("real-key", "openai").tools == []
     # Leave the module holding the offline provider so later tests do not inherit
     # a real client.
     assert isinstance(build("mock"), MockProvider)

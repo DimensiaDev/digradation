@@ -617,3 +617,17 @@ and why what replaced it is there.
 - **The GigaChat live tool test lives in `test_live_gigachat.py`.** It builds a real
   `SberProvider` from `real_provider_env` instead of reusing the container's module-level
   instance, which was built with the mock key at import time.
+- **`strict` is rejected, not dropped, on GigaChat.** The v2 `CustomFunction` schema has no
+  strict flag, so `SberProvider` raises `ValueError` rather than accepting a promise it
+  cannot keep. The check runs at construction and again in `_tools_payload`, because tests
+  and callers may replace `provider.tools` afterwards. The OpenAI client still passes
+  `strict` through.
+- **Missing GigaChat `arguments` become `"{}"`.** A function-call content part without
+  arguments used to surface `""`, which is not JSON. `ContentFunctionCall` normalises
+  `None` and the empty string to `{}` before the call reaches `FunctionCall`.
+- **The OpenAI payload keeps attachments as content parts.** Text-only messages stay a
+  plain string; `Content.files` become `file` parts carrying `file_id`, and `inline_data`
+  becomes an `image_url` with a `data:` URL. Dropping them silently made the model answer
+  without the supplied context.
+- **The container's tool list is a single empty `TOOLS` placeholder.** Both real providers
+  receive it, so the wiring exists before a tool registry does.

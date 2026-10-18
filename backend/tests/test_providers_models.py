@@ -213,6 +213,18 @@ def test_content_serializes_object_function_call_arguments():
     assert content.function_call.arguments == '{"q": "x"}'
 
 
+def test_content_function_call_defaults_missing_arguments_to_an_empty_object():
+    content = Content.model_validate({"function_call": {"name": "lookup"}})
+
+    assert content.function_call.arguments == "{}"
+
+
+def test_content_function_call_normalizes_null_arguments():
+    content = Content.model_validate({"function_call": {"name": "lookup", "arguments": None}})
+
+    assert content.function_call.arguments == "{}"
+
+
 def test_content_function_call_requires_a_name():
     with pytest.raises(ValidationError):
         Content.model_validate({"function_call": {"arguments": "{}"}})

@@ -28,16 +28,19 @@ class ContentFunctionCall(BaseModel):
 
     It carries its own ``id`` (the OpenAI shape keeps the id on the tool call) and
     ``arguments`` may arrive either as a JSON object or as a JSON string, so it is
-    normalised to a string to match :class:`FunctionCall`.
+    normalised to a string to match :class:`FunctionCall`. A missing or empty
+    value becomes ``"{}"``, so callers always receive valid JSON.
     """
 
     id: str | None = None
     name: str
-    arguments: str | None = None
+    arguments: str = "{}"
 
     @field_validator("arguments", mode="before")
     @classmethod
     def stringify_arguments(cls, v):
+        if not v:
+            return "{}"
         if isinstance(v, (dict, list)):
             return json.dumps(v, ensure_ascii=False)
         return v

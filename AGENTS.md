@@ -367,6 +367,10 @@ The two real providers use different wire shapes, and the internal model hides t
   `tool_config.mode`, and the reply nests `function_call` inside `content[]` with
   `arguments` as a JSON *object*. `SberProvider` normalises both back to `ToolCall`.
 
+The container passes one module-level `TOOLS` list (currently empty) to every provider, so
+registering a tool later means filling that list. `SberProvider` rejects `strict=True` tools
+at construction because GigaChat v2 has no strict mode; the OpenAI client honours `strict`.
+
 ### The mock provider
 
 `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) selects `app/providers/mock.py` instead of the

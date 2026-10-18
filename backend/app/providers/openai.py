@@ -98,14 +98,41 @@ class OpenAIProvider(AIClient):
         return result.id
 
     @staticmethod
-    def _message_to_openai(message: Message) -> dict:
-        # The internal format carries a list of text/file parts; the OpenAI wire
-        # format takes a single string. Attachments are dropped: the hub has no
-        # file reference in a chat message, unlike GigaChat.
-        text = "\n".join(part.text for part in message.content if part.text)
+    def _text(contents: list[Content]) -> str:
+        return "\n".join(part.text for part in contents if part.text)
+
+    @classmethod
+    def _content_parts(cls, contents: list[Content]) -> list[dict] | None:
+        """Build multimodal parts when a message carries files or inline data.
+
+        A text-only message keeps the plain string form, which every endpoint
+        accepts. A file id becomes a ``file`` part, the shape OpenAI-compatible
+        servers use for uploaded documents; inline data becomes a ``data:`` URL.
+        """
+        if not any(part.files or part.inline_data for part in contents):
+            return None
+
+        parts: list[dict] = []
+        for part in contents:
+            if part.text:
+                parts.append({"type": "text", "text": part.text})
+            parts.extend({"type": "file", "file": {"file_id": file.id}} for file in part.files)
+            parts.extend(
+                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{data}"}}
+                for mime, data in (part.inline_data or {}).items()
+            )
+        return parts
+
+    @classmethod
+    def _message_to_openai(cls, message: Message) -> dict:
         if message.role == "tool":
-            return {"role": "tool", "content": text, "tool_call_id": message.tool_call_id or ""}
-        return {"role": message.role, "content": text}
+            return {
+                "role": "tool",
+                "content": cls._text(message.content),
+                "tool_call_id": message.tool_call_id or "",
+            }
+        parts = cls._content_parts(message.content)
+        return {"role": message.role, "content": parts if parts is not None else cls._text(message.content)}
 
     @staticmethod
     def _tools_payload(tools: list[Tool]) -> list[dict]:

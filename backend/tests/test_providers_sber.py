@@ -164,6 +164,13 @@ def test_init_accepts_documented_scopes(scope):
     assert provider.token_expires_at is None
 
 
+def test_init_rejects_strict_tools():
+    tool = Tool(function=FunctionDefinition(name="lookup", strict=True))
+
+    with pytest.raises(ValueError, match="does not support strict tools: lookup"):
+        SberProvider(api_key="key", scope="PERS", tools=[tool])
+
+
 def test_sber_provider_implements_the_abstract_interface():
     assert issubclass(SberProvider, AIClient)
     assert AIClient.__abstractmethods__ == frozenset({"auth", "upload", "generate"})
@@ -398,6 +405,31 @@ async def test_generate_tolerates_a_missing_function_call_id(provider_factory):
     result = await _generate(provider)
 
     assert result.tool_calls[0].id is None
+
+
+@pytest.mark.asyncio
+async def test_generate_defaults_missing_arguments_to_an_empty_object(provider_factory):
+    body = tool_call_body()
+    del body["messages"][0]["content"][0]["function_call"]["arguments"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == AUTH_PATH:
+            return httpx.Response(200, json=auth_body())
+        return httpx.Response(200, json=body)
+
+    provider = provider_factory(httpx.MockTransport(handler))
+
+    result = await _generate(provider)
+
+    assert result.tool_calls[0].function.arguments == "{}"
+
+
+@pytest.mark.asyncio
+async def test_generate_rejects_strict_tools_added_after_construction(provider):
+    provider.tools = [Tool(function=FunctionDefinition(name="lookup", strict=True))]
+
+    with pytest.raises(ValueError, match="does not support strict tools: lookup"):
+        await _generate(provider)
 
 
 @pytest.mark.asyncio

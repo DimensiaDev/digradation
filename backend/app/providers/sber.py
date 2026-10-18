@@ -28,6 +28,7 @@ class SberProvider(AIClient):
         if scope not in ("PERS", "B2B", "CORP"):
             raise ValueError("Scope must be PERS, B2B or CORP")
         super().__init__(api_key, scope, tools)
+        self._reject_strict_tools()
 
         self._client = AsyncClient(
             base_url="https://api.giga.chat/v2",
@@ -116,7 +117,7 @@ class SberProvider(AIClient):
                 id=part.function_call.id,
                 function=FunctionCall(
                     name=part.function_call.name,
-                    arguments=part.function_call.arguments or "",
+                    arguments=part.function_call.arguments,
                 ),
             )
             for message in response.messages
@@ -125,8 +126,15 @@ class SberProvider(AIClient):
         ]
         return response
 
+    def _reject_strict_tools(self) -> None:
+        """GigaChat has no strict-schema mode for tools, so refuse rather than drop it."""
+        strict = [tool.function.name for tool in self.tools if tool.function.strict]
+        if strict:
+            raise ValueError(f"GigaChat does not support strict tools: {', '.join(strict)}")
+
     def _tools_payload(self) -> list[ToolsFunctions] | None:
         """Translate the provider's tools into the GigaChat v2 ``tools`` shape."""
+        self._reject_strict_tools()
         if not self.tools:
             return None
         specifications = [

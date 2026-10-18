@@ -323,6 +323,43 @@ async def test_generate_flattens_content_and_maps_tool_messages(make_provider):
 
 
 @pytest.mark.asyncio
+async def test_generate_sends_file_references_as_file_parts(make_provider):
+    provider, client = make_provider(make_completion())
+    messages = [Message(role="user", content=[Content(text="look", files=[{"id": "file-1"}])])]
+
+    await provider.generate(
+        messages,
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    sent = client.chat.completions.create.call_args.kwargs["messages"]
+    assert sent[0]["content"] == [
+        {"type": "text", "text": "look"},
+        {"type": "file", "file": {"file_id": "file-1"}},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_generate_sends_inline_data_as_a_data_url(make_provider):
+    provider, client = make_provider(make_completion())
+    messages = [Message(role="user", content=[Content(text="", inline_data={"image/png": "abc"})])]
+
+    await provider.generate(
+        messages,
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    sent = client.chat.completions.create.call_args.kwargs["messages"]
+    assert sent[0]["content"] == [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_generate_uses_the_model_from_the_environment(make_provider, monkeypatch):
     monkeypatch.setenv("OPENAI_MODEL", "ai-sage/GigaChat3.5-432B-A28B-Reasoning")
     provider, client = make_provider(make_completion())
