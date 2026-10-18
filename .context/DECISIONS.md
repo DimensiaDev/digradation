@@ -602,7 +602,7 @@ belongs entirely to the history page.
 
 The user sidebar menu was replaced with the product's own vocabulary: Главная, Мои
 программы and Библиотека in the main list, with Настройки and Помощь pinned at the bottom.
-The list is configured in `sidebar.config.ts` and the top vs bottom split is a new
+The list is configured in `navigation.config.ts` (formerly `sidebar.config.ts`) and the top vs bottom split is a new
 `bottomNavItems` input that flows through `Layout` and route `data`.
 (`USER_BOTTOM_NAV_ITEMS` later gained Настройки, which moved down from the main list.)
 
@@ -848,9 +848,13 @@ A visitor could see nothing before signing in. Guest mode replaces all of that.
   asked for exactly one popup (the sign-in window) and for the "Требуется вход" message to
   live in the content. `/home` and `/help` are public with real routes, and `**` falls back to `/home`, so
   every sidebar link resolves.
-- **A 401 no longer navigates.** The error interceptor clears the profile and shows the toast
-  once; the gate or the header offer the dialog. `clear()` marks the session checked, so the
-  shell re-renders as a guest instead of waiting on a fetch that will fail again.
+- **A 401 no longer navigates.** The error interceptor reports the rejection on
+  `SessionEventsService.unauthorized$` instead of reaching into `ProfileService` directly —
+  that would close the `ProfileService -> HttpClient -> interceptor -> ProfileService` loop,
+  which only resolves today because the interceptor's inject is lazy. `ProfileService`
+  subscribes and calls `clear()`, the interceptor shows the toast once, and the gate or the
+  header offer the dialog. `clear()` marks the session checked, so the shell re-renders as a
+  guest instead of waiting on a fetch that will fail again.
 - **The sidebar is deliberately untouched.** Items stay enabled and clickable; `programs` and
   `library` render `SectionPlaceholder` behind the gate so a guest discovers the sections'
   existence. Locks or disabled items were explicitly rejected: the prompt explains, a lock does
@@ -869,9 +873,12 @@ dependency and no wrapper element.
 - **`skipInitialTransition: true`, direction decided in `onViewTransitionCreated`.** The
   callback runs before the DOM swap, so the old page is `router.url` and the target is
   `router.getCurrentNavigation()?.finalUrl?.toString()`. The direction is the sign of the
-  index delta between the two sections, with the order derived from the sidebar's own item
-  lists (`USER_NAV_ITEMS`, `USER_BOTTOM_NAV_ITEMS`, `ADMIN_NAV_ITEMS`), so a down-move
-  animates down and an up-move animates up without a second source of truth.
+  index delta between the two sections, with the order derived from the shared item lists
+  (`USER_NAV_ITEMS`, `USER_BOTTOM_NAV_ITEMS`, `ADMIN_NAV_ITEMS`), so a down-move
+  animates down and an up-move animates up without a second source of truth. The lists live
+  in `shared/navigation/navigation.config.ts`, not in the sidebar component folder, so a
+  `shared/utils` module does not import from `shared/components`; the sidebar, Layout and the
+  router all read the same config instead.
 - **The named element is `main` in the layout, not a wrapper.** `view-transition-name:
   router-content` sits on the layout's `<main>`. A wrapper element was rejected because the
   chat page relies on `:host { height: 100% }` and collapses inside an auto-height wrapper.

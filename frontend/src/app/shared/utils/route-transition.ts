@@ -2,7 +2,7 @@ import {
   ADMIN_NAV_ITEMS,
   USER_BOTTOM_NAV_ITEMS,
   USER_NAV_ITEMS
-} from '../components/sidebar/sidebar.config';
+} from '../navigation/navigation.config';
 
 export type SectionDirection = 'forward' | 'backward' | 'none';
 

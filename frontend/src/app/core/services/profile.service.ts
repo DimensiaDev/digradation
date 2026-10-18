@@ -1,10 +1,12 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpContext, HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, catchError, finalize, of, share, tap } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { S3AvatarUrl, User } from '../models/models';
 import { SKIP_AUTH_ERROR_HANDLING } from '../interceptors/skip-auth-error-handling';
 import { NotificationService } from './notification.service';
+import { SessionEventsService } from './session-events.service';
 import { extractApiErrorMessage } from '../../shared/utils/api-error';
 
 @Injectable({
@@ -13,6 +15,17 @@ import { extractApiErrorMessage } from '../../shared/utils/api-error';
 export class ProfileService {
   private readonly http = inject(HttpClient);
   private readonly notifications = inject(NotificationService);
+  private readonly sessionEvents = inject(SessionEventsService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  constructor() {
+    // The interceptor reports an unauthorized response as an event instead of
+    // reaching into this service, which keeps the `ProfileService -> HttpClient
+    // -> interceptor -> ProfileService` loop out of the graph.
+    this.sessionEvents.unauthorized$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.clear());
+  }
 
   private readonly userState = signal<User | null>(null);
   private readonly avatarUrlState = signal<string | null>(null);

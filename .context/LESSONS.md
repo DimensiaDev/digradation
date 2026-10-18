@@ -759,3 +759,9 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   password in memory, re-rendered on the next open. Clear it on every close path (button,
   Escape, backdrop, native `close`) — centralise them through one `close()` that resets first.
   (2026-10-18)
+- **An HTTP interceptor that injects the service which owns `HttpClient` is a latent NG0200.**
+  `ProfileService -> HttpClient -> errorInterceptor -> ProfileService` resolved only because
+  the interceptor's `inject()` runs per request (the service is already constructed). It stays
+  a cycle, so an eager `inject` added anywhere on that path detonates it. Report the event on a
+  dependency-free carrier (`SessionEventsService.unauthorized$`) and let the owner subscribe.
+  (2026-10-18)

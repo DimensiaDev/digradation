@@ -2,13 +2,13 @@ import { HttpInterceptorFn, HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { catchError, throwError } from 'rxjs';
 import { NotificationService } from '../services/notification.service';
-import { ProfileService } from '../services/profile.service';
+import { SessionEventsService } from '../services/session-events.service';
 import { extractApiErrorMessage } from '../../shared/utils/api-error';
 import { SKIP_AUTH_ERROR_HANDLING } from './skip-auth-error-handling';
 
 export const errorInterceptor: HttpInterceptorFn = (req, next) => {
   const notifications = inject(NotificationService);
-  const profile = inject(ProfileService);
+  const sessionEvents = inject(SessionEventsService);
 
   return next(req).pipe(
     catchError((error: HttpErrorResponse) => {
@@ -19,7 +19,7 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
       const message = extractApiErrorMessage(error);
 
       if (error.status === 401) {
-        profile.clear();
+        sessionEvents.notifyUnauthorized();
         notifications.errorOnce('Вы не авторизованы', {
           description: 'Войдите в систему, чтобы продолжить.'
         });

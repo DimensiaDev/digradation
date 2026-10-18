@@ -11,7 +11,7 @@ import {
   USER_NAV_ITEMS,
   ADMIN_NAV_ITEMS,
   type NavItem
-} from './sidebar.config';
+} from '../../navigation/navigation.config';
 import { environment } from '../../../../environments/environment';
 
 @Component({

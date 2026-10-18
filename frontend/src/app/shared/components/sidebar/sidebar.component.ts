@@ -13,7 +13,7 @@ import { NotificationService } from '../../../core/services/notification.service
 import { ProfileService } from '../../../core/services/profile.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { isAdminRole } from '../../../core/models/models';
-import type { NavItem, Role } from './sidebar.config';
+import type { NavItem, Role } from '../../navigation/navigation.config';
 
 @Component({
   selector: 'app-sidebar',

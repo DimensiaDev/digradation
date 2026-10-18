@@ -6,7 +6,7 @@ import {
   ADMIN_NAV_ITEMS,
   USER_BOTTOM_NAV_ITEMS,
   USER_NAV_ITEMS
-} from './shared/components/sidebar/sidebar.config';
+} from './shared/navigation/navigation.config';
 import { HistoryPage } from './pages/history-page/history-page.component';
 import { SettingsPage } from './pages/settings-page/settings-page.component';
 import { ProfilePage } from './pages/profile-page/profile-page.component';
