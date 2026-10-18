@@ -47,8 +47,15 @@ export class Sidebar {
     route: '/chats'
   };
 
-  readonly navItems = input<NavItem[]>([]);
-  readonly bottomNavItems = input<NavItem[]>([]);
+  // The router's componentInputBinding sets every declared input from the
+  // route data, and a missing key arrives as undefined — which would wipe the
+  // default. The transforms keep the lists arrays no matter who binds them.
+  readonly navItems = input<NavItem[], NavItem[] | undefined>([], {
+    transform: (items) => items ?? []
+  });
+  readonly bottomNavItems = input<NavItem[], NavItem[] | undefined>([], {
+    transform: (items) => items ?? []
+  });
   readonly role = input<Role>();
   private readonly notifications = inject(NotificationService);
   private readonly profile = inject(ProfileService);

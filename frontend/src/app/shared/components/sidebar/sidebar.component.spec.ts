@@ -6,7 +6,12 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter, Router, Routes } from '@angular/router';
 
 import { Sidebar } from './sidebar.component';
-import { USER_BOTTOM_NAV_ITEMS, USER_NAV_ITEMS, ADMIN_NAV_ITEMS } from './sidebar.config';
+import {
+  USER_BOTTOM_NAV_ITEMS,
+  USER_NAV_ITEMS,
+  ADMIN_NAV_ITEMS,
+  type NavItem
+} from './sidebar.config';
 import { environment } from '../../../../environments/environment';
 
 @Component({
@@ -15,8 +20,8 @@ import { environment } from '../../../../environments/environment';
   template: `<app-sidebar [navItems]="items" [bottomNavItems]="bottomItems" [role]="role" />`
 })
 class TestHost {
-  items = USER_NAV_ITEMS;
-  bottomItems = USER_BOTTOM_NAV_ITEMS;
+  items: NavItem[] | undefined = USER_NAV_ITEMS;
+  bottomItems: NavItem[] | undefined = USER_BOTTOM_NAV_ITEMS;
   role: 'user' | 'admin' = 'user';
 }
 
@@ -115,6 +120,18 @@ describe('Sidebar accessibility', () => {
       .queryAll(By.css('.navigation__item'))
       .map((l) => l.nativeElement.textContent.trim());
     expect(labels).toEqual(ADMIN_NAV_ITEMS.map((item) => item.label));
+  });
+
+  it('falls back to empty lists when the route data omits them', () => {
+    const fallbackFixture = TestBed.createComponent(TestHost);
+    fallbackFixture.componentInstance.items = undefined;
+    fallbackFixture.componentInstance.bottomItems = undefined;
+    fallbackFixture.detectChanges();
+
+    const debug = fallbackFixture.debugElement;
+    expect(debug.queryAll(By.css('nav.navigation .navigation__item')).length).toBe(0);
+    expect(debug.queryAll(By.css('nav.sidebar__bottom .navigation__item')).length).toBe(0);
+    expect(debug.query(By.css('nav.navigation'))).toBeTruthy();
   });
 });
 
