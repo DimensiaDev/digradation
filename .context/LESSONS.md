@@ -717,3 +717,20 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   `ProfileService.user()` without a fetch, a `catchError` or a race. The same guarantee applies
   to anything added to the initializer — and so does the cost: every reload waits for it.
   (2026-10-18)
+- **`withComponentInputBinding` writes every declared input from the route data, and a key
+  the data omits arrives as `undefined` — wiping the input's default.** The admin routes
+  never carried `bottomNavItems`, so the sidebar read `undefined.length` in its template on
+  every change detection that touched it, the cycle aborted, and interactions later in the
+  same cycle silently never rendered — the admin role select stayed open over the save
+  button and two e2e tests timed out. The fix is not route data: the inputs run a
+  `transform: (v) => v ?? []` so the lists stay arrays whoever binds them. (2026-10-18)
+- **The layout's `main` is the scroll container (`overflow-y: auto`), not the window.**
+  Playwright scrolls it while clicking, and the select closes any dropdown whose trigger
+  scrolls out of view — the admin user form is taller than the viewport, so the two fought
+  and the listbox detached mid-click. Drive such selects from the keyboard in e2e
+  (`ArrowDown` + `Enter` — a first-class path of the component); it touches no scrolling and
+  no hit-testing. (2026-10-18)
+- **`::view-transition-old(root)` / `new(root)` cross-fade the entire page by default.**
+  Without `animation: none` on the root pair, naming one element does not stop the sidebar
+  and header from fading on every navigation. Only the named-element pair should carry
+  keyframes. (2026-10-18)

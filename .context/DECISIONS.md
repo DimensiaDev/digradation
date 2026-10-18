@@ -848,3 +848,27 @@ A visitor could see nothing before signing in. Guest mode replaces all of that.
   `resetAvatar()` short-circuit for a guest, and `ProfileComponent` drives them from an effect
   on `user()` rather than `ngOnInit`, so a login or logout mid-session re-loads or clears the
   avatar without a remount.
+
+## Route transitions are CSS view transitions on `main` (2026-10-18)
+
+Switching sidebar sections should read as a move, not a replace. The work rides on the
+browser's View Transitions API through `withViewTransitions()` in `app.config.ts` — no new
+dependency and no wrapper element.
+
+- **`skipInitialTransition: true`, direction decided in `onViewTransitionCreated`.** The
+  callback runs before the DOM swap, so the old page is `router.url` and the target is
+  `router.getCurrentNavigation()?.finalUrl?.toString()`. The direction is the sign of the
+  index delta between the two sections, with the order derived from the sidebar's own item
+  lists (`USER_NAV_ITEMS`, `USER_BOTTOM_NAV_ITEMS`, `ADMIN_NAV_ITEMS`), so a down-move
+  animates down and an up-move animates up without a second source of truth.
+- **The named element is `main` in the layout, not a wrapper.** `view-transition-name:
+  router-content` sits on the layout's `<main>`. A wrapper element was rejected because the
+  chat page relies on `:host { height: 100% }` and collapses inside an auto-height wrapper.
+- **The root group is deliberately not animated.** `::view-transition-old(root)` /
+  `new(root)` get `animation: none`; the default cross-fade would animate the whole page,
+  sidebar and header included, on every navigation.
+- **The trigger appends nothing to the DOM.** Direction travels as
+  `document.documentElement.dataset['navDirection']`, cleaned up in `transition.finished` —
+  guarded so a newer direction set mid-flight is not wiped by the previous transition.
+- **Query-only navigations and reduced motion skip the animation.** Search/filter changes
+  are not section switches; `prefers-reduced-motion` disables the keyframes wholesale.
