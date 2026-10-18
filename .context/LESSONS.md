@@ -693,3 +693,27 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   config. **Symptom to recognise: a generated file that a hook "fixes" differently on every
   run.** Note also that `scripts/precommit-*.py` pass `check=False`, so these hooks modify
   files without ever failing the commit they belong to.
+- **A closed `<dialog>` kept in the DOM still contributes its form controls to the document.**
+  The sign-in dialog was mounted permanently and hidden with `display: none`, which did not stop
+  Playwright strict mode from resolving `#username` to two elements: the hidden dialog input and
+  the admin user form's own `#username`. Four admin specs failed with a strict-mode violation
+  that never shows up in the browser. Fixed by rendering the dialog under `@if (isOpen())`.
+  **Hidden form markup is still duplicate markup; scoping the specs would only have hidden the
+  duplicate ids.** (2026-10-18)
+- **jsdom implements `<dialog>` without `showModal`/`close`, and that is the environment CI runs
+  in.** Every dialog needs the two-line fallback (`showModal` exists ? `showModal()` :
+  `setAttribute('open', '')`) or its unit specs cannot even prove it opens. The real-browser path
+  is covered by e2e, not by the unit suite. (2026-10-18)
+- **A click handler on `<dialog>` trips `@angular-eslint/template/click-events-have-key-events`.**
+  Use `(mousedown)` for the backdrop press: Escape already closes a modal dialog natively, and
+  the rule only watches click events — no `eslint-disable` needed (the repo has none). (2026-10-18)
+- **Guest mode puts several "Войти" buttons on screen at once** (the header menu item, the gate
+  prompt, the sign-in dialog submit), so a bare Playwright `getByRole("button", { name: "Войти" })`
+  violates strict mode. Scope lookups by their container: `getByRole("dialog", { name:
+  "Требуется вход" })` for the gate, `{ name: "Вход в аккаунт" }` for the sign-in dialog, and
+  `#header-profile-menu` for the header item. (2026-10-18)
+- **`provideAppInitializer` blocks the initial navigation, so route guards may be synchronous.**
+  The default `enabledBlocking` navigation waits for initializers, so `adminGuard` reads
+  `ProfileService.user()` without a fetch, a `catchError` or a race. The same guarantee applies
+  to anything added to the initializer — and so does the cost: every reload waits for it.
+  (2026-10-18)

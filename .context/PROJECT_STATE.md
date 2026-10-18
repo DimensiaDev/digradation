@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-16** (repurposed from a quotation engine to a bare chat application)
+Last updated: **2026-10-18** (guest mode: the panel is browsable without a session)
 
 ---
 
@@ -20,8 +20,8 @@ Everything described below is working and running via Docker Compose.
 | Component | State |
 |---|---|
 | `backend/` | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness |
-| `frontend/` | Complete: login, chat create, chat with polling and file panel, history, profile, admin users, admin settings |
-| `e2e/` | Complete: 8 spec files, 27 tests against the real Compose stack with the offline provider |
+| `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings |
+| `e2e/` | Complete: 8 spec files, 28 tests against the real Compose stack with the offline provider |
 | Infra | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
@@ -30,12 +30,17 @@ Alembic is a **single squashed `initial` revision** (`d7e256a71a55`) generated f
 models. Nine TaskIQ tasks across the `default` and `network` queues, with hourly and
 10-minute cleanup crons.
 
-**Frontend.** Angular 21.2 standalone with signals. Reactive forms, cookie auth, 2-second
-polling for generation results, inline preview for PDF, image, docx and xlsx, light/dark
-theme, admin user management, admin prompt-extension editor. 40 colocated `*.spec.ts` files.
+**Frontend.** Angular 21.2 standalone with signals. The panel is browsable as a guest: the
+session is resolved by a `provideAppInitializer`, `/home` and `/help` are public, every other
+route renders behind an `AuthGate` prompt, and `/login` is gone in favour of a shared
+`AuthModalService` dialog. Reactive forms, cookie auth, 2-second polling for generation
+results, inline preview for PDF, image, docx and xlsx, light/dark theme, admin user
+management, admin prompt-extension editor. 46 `*.spec.ts` files.
 
 **Not started or placeholder.** The profile page body, the user settings page body, and two
-admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`.
+admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`. The public
+`/home` and `/help` pages are intentional `SectionPlaceholder` hosts, and `programs` /
+`library` render the same placeholder behind the auth gate.
 
 **Two dead placeholder directories** are still tracked: `frontend/src/app/shared/components/
 chat-widget/` and `.../param-table/`, each holding only a `.gitkeep`. They are leftovers from
@@ -65,9 +70,9 @@ first extension point if a feature starts deriving files from an upload.
 |---|---|---|
 | Backend | `poetry -C backend run pytest` | 353 tests; needs a Docker daemon |
 | Backend coverage | `poetry -C backend run pytest --cov` | **99.33%** across 353 tests, gated at 90% by `fail_under` |
-| Frontend | `npm --prefix frontend test` | Vitest, 382 tests in 40 files; runs in `frontend-ci.yml` |
-| Frontend coverage | `npx ng test --coverage` | 92.13% stmts, 86.29% branches, 92.46% funcs; gated at 90% |
-| End-to-end | `./e2e/scripts/run.sh` | Playwright against the Compose stack, `SBER_API_KEY=mock`; 27 tests |
+| Frontend | `npm --prefix frontend test` | Vitest, 404 tests in 46 files; runs in `frontend-ci.yml` |
+| Frontend coverage | `npx ng test --coverage` | 91.42% stmts, 86.34% branches, 91.56% funcs; gated at 90% |
+| End-to-end | `./e2e/scripts/run.sh` | Playwright against the Compose stack, `SBER_API_KEY=mock`; 28 tests |
 
 **Both coverage gates are enforced at 90%**, each in exactly one place:
 `fail_under` in `backend/pyproject.toml` and `coverageThresholds` on the `test` target in
@@ -120,8 +125,9 @@ Ordered by value, not by commitment:
 1. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
    where per-content-type preparation belongs. The first content type that needs work is the
    first thing that goes in it, offloaded with `asyncio.to_thread`.
-2. **Extend the e2e suite.** It covers authentication, the chat journey, a follow-up
-   message, attachments, the paginated history list, admin roles and the admin prompt editor.
+2. **Extend the e2e suite.** It covers authentication (including the guest path and the
+   sign-in dialog), the chat journey, a follow-up message, attachments, the paginated history
+   list, admin roles and the admin prompt editor.
    Not yet covered: the docx/xlsx preview, avatar upload, the theme toggle, and the error
    paths (a generation that fails, a session deleted mid-flight).
 3. **Fill the placeholder sections:** profile, user settings, the admin action log
@@ -151,8 +157,8 @@ Ordered by value, not by commitment:
 - `TEST_INSTANCE_MODE` is absent from `.env.example`.
 - The frontend dev override bind-mounts `./frontend` over `/app`. If `node_modules` inside it
   is stale or partially populated, `ng serve` fails in ways that look like source errors.
-- Frontend statement coverage (91.27%) sits close to the 90% gate. Any new uncovered
-  component will fail CI, and branches at 85.94% have little headroom.
+- Frontend statement coverage (91.42%) sits close to the 90% gate. Any new uncovered
+  component will fail CI, and branches at 86.34% have little headroom.
 - **`cleanup_orphan_attachments` in `app/tasks/files.py` iterates an already exhausted
   `ScalarResult`,** so it logs `count=0` and never deletes an S3 object. Rows are still
   deleted; the objects fall to the 7-day lifecycle rule. Reported, not fixed. See

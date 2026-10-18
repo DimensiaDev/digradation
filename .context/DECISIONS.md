@@ -808,3 +808,41 @@ the service's own state transitions.
   loading/value pair cannot be desynchronised from outside.
 - **Specs seed state through the HTTP API**, not by writing signals, which also exercises
   `fetchMe`/`loadAvatar` instead of assuming their internals.
+
+## Guest mode: the panel is browsable, protected sections ask for a login (2026-10-18, #17)
+
+The panel used to be unreachable without a session: `authGuard` on the whole user tree, a
+`publicGuard`-protected `/login`, and the error interceptor bouncing an expired session to it.
+A visitor could see nothing before signing in. Guest mode replaces all of that.
+
+- **The session is resolved once at startup, not per navigation.**
+  `provideAppInitializer(() => inject(ProfileService).ensureSession())` resolves `GET /users/me`
+  before the first render and never errors (a 401 resolves to `null`), so the shell always knows
+  whether it renders for a guest. This is also what lets `adminGuard` be a plain synchronous
+  check: the blocking initial navigation has already waited for the fetch. The cost is one
+  request on every reload, guest or not.
+- **A guest is a first-class state, not an error path.** There is no registration anywhere in
+  the product (accounts are created by an admin), so the only action a guest has is signing in.
+  `ProfileService.user() === null` after `sessionChecked()` is the whole definition.
+- **`/login` became a dialog.** `AuthModalService.open(returnUrl?)` drives one native `<dialog>`
+  mounted in the root shell; it remembers a sanitised return url (leading `/`, not `//`), and
+  after a successful login refreshes the profile, closes, toasts and restores the url. The
+  header, the gate prompt and future surfaces share it instead of navigating the user away.
+  The dialog is rendered under `@if (isOpen())` exactly to keep its form controls out of the
+  document while closed — see `LESSONS.md`.
+- **Protected routes are wrapped, not guarded.** A pathless `AuthGate` renders the child routes
+  for a signed-in user and, for a guest, an inline prompt plus a centred `<dialog>` that opens
+  itself. The url is preserved; Escape or a backdrop press dismisses the dialog and leaves the
+  prompt. `/home` and `/help` are public with real routes, and `**` falls back to `/home`, so
+  every sidebar link resolves.
+- **A 401 no longer navigates.** The error interceptor clears the profile and shows the toast
+  once; the gate or the header offer the dialog. `clear()` marks the session checked, so the
+  shell re-renders as a guest instead of waiting on a fetch that will fail again.
+- **The sidebar is deliberately untouched.** Items stay enabled and clickable; `programs` and
+  `library` render `SectionPlaceholder` behind the gate so a guest discovers the sections'
+  existence. Locks or disabled items were explicitly rejected: the prompt explains, a lock does
+  not.
+- **The guest profile chip never fires the avatar request.** `ProfileService.loadAvatar()` and
+  `resetAvatar()` short-circuit for a guest, and `ProfileComponent` drives them from an effect
+  on `user()` rather than `ngOnInit`, so a login or logout mid-session re-loads or clears the
+  avatar without a remount.
