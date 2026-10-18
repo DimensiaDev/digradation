@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { firstValueFrom } from 'rxjs';
 
 import { ProfileService } from './profile.service';
+import { NotificationService } from './notification.service';
 import { environment } from '../../../environments/environment';
 import { User } from '../models/models';
 
@@ -19,6 +20,7 @@ const testUser: User = {
 
 describe('ProfileService', () => {
   let service: ProfileService;
+  let notifications: NotificationService;
   let http: HttpTestingController;
 
   beforeEach(() => {
@@ -26,6 +28,7 @@ describe('ProfileService', () => {
       providers: [provideHttpClient(), provideHttpClientTesting()]
     });
     service = TestBed.inject(ProfileService);
+    notifications = TestBed.inject(NotificationService);
     http = TestBed.inject(HttpTestingController);
   });
 
@@ -58,6 +61,29 @@ describe('ProfileService', () => {
     expect(await result$).toBeNull();
     expect(service.user()).toBeNull();
     expect(service.sessionChecked()).toBe(true);
+    expect(notifications.notifications()).toHaveLength(0);
+  });
+
+  it('reports a server failure instead of passing it off as a guest session', async () => {
+    const result$ = firstValueFrom(service.ensureSession());
+
+    http.expectOne(ME_URL).flush(null, { status: 500, statusText: 'Server Error' });
+
+    expect(await result$).toBeNull();
+    expect(service.sessionChecked()).toBe(true);
+    expect(notifications.notifications()[0].message).toBe('Не удалось проверить сессию');
+    expect(notifications.notifications()[0].description).toContain('Ошибка сервера');
+  });
+
+  it('reports an unreachable server instead of passing it off as a guest session', async () => {
+    const result$ = firstValueFrom(service.ensureSession());
+
+    http.expectOne(ME_URL).error(new ProgressEvent('error'));
+
+    expect(await result$).toBeNull();
+    expect(notifications.notifications()[0].description).toContain(
+      'Не удалось связаться с сервером'
+    );
   });
 
   it('drops the user but keeps the session checked after clear', async () => {
