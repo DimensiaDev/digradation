@@ -32,6 +32,10 @@ class ToolCallFailed(RuntimeError):
     """The model's function call came back malformed (``function_call_error``)."""
 
 
+class AnswerTruncated(RuntimeError):
+    """The model stopped at the token limit, so its text is half-written."""
+
+
 class ToolLoopExceeded(RuntimeError):
     """The model kept calling functions without ever writing an answer."""
 
@@ -46,6 +50,18 @@ def _answer_text(messages: list[Message]) -> str:
     return "".join(
         part.text or "" for message in messages if message.role == "assistant" for part in message.content
     ).strip()
+
+
+def _answer(response: GenerationResponse) -> str:
+    """The answer of a turn, refusing one the provider cut off mid-writing.
+
+    ``length`` means generation stopped at the token limit: the text is real,
+    but half-written, and returning it would present an unfinished answer as
+    the model's final word.
+    """
+    if response.finish_reason == "length":
+        raise AnswerTruncated()
+    return _answer_text(response.messages)
 
 
 async def run_tool_loop(
@@ -71,7 +87,7 @@ async def run_tool_loop(
 
         calls = [call for message in response.messages for call in _function_calls(message)]
         if not calls:
-            return _answer_text(response.messages)
+            return _answer(response)
 
         messages.extend(response.messages)
         for message in response.messages:
