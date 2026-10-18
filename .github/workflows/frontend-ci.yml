@@ -37,7 +37,32 @@ jobs:
       # added. --watch=false is passed explicitly: the builder defaults it to
       # true in TTY environments, and pinning it keeps the run from hanging if
       # that heuristic ever changes or a step is run interactively.
+      #
+      # No `--coverage` flag, because angular.json already sets `coverage: true`
+      # as the default on the test target, so this run collects coverage and
+      # enforces `coverageThresholds` whether or not the flag is passed. There
+      # used to be a second workflow running the same suite with an explicit
+      # `--coverage`, which doubled the cost of every frontend PR to produce one
+      # result. The report below is taken from this run instead.
       - name: Test
         run: npx ng test --watch=false
       - name: Build
         run: npx ng build --configuration production
+
+      # The threshold lives in ONE place: `coverageThresholds` on the `test`
+      # target in frontend/angular.json, which the builder enforces and which
+      # exits non-zero. This step names no percentage, so the two cannot
+      # disagree. Branch coverage is deliberately not gated.
+      #
+      # Uploaded even when the build above fails, so a green suite's report
+      # survives a red production build.
+      - name: Upload coverage summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: |
+            frontend/coverage/**/coverage-summary.json
+            frontend/coverage/**/*.html
+          retention-days: 14
+          if-no-files-found: warn

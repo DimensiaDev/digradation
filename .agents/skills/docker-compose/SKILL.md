@@ -97,9 +97,23 @@ Three overrides ship, and the resulting `docker-compose.override.yml` is **gitig
 | `docker-compose.override.yml.dev` | bind mounts `./backend` and `./frontend`, forced polling watchers, and publishes PostgreSQL on host port **5433** (never 5432: a developer may already be running PostgreSQL there, and the host-side migration scripts would then target the wrong database) |
 | `docker-compose.override.yml.memlim` | per-service `mem_limit` values; no limits by default |
 | `docker-compose.override.yml.e2e` | never copied over `docker-compose.override.yml`, only passed with `-f`; moves the frontend to 18080, publishes Garage's S3 port on `${E2E_S3_PORT:-13900}` so the browser can follow the presigned URLs, and forces `SBER_API_KEY=mock` |
+| `docker-compose.build-cache.yml` | BuildKit `type=gha` layer cache, **CI only** — see below |
 
 The `.dev` override is what makes `backend/makemigrations.sh` work, because Alembic runs from
 the host and needs the database published.
+
+`docker-compose.build-cache.yml` is a third `-f` file that `e2e/scripts/setup.sh` appends
+**only when `CI` is set**. It is CI-only because the `gha` backend can only work inside an
+Actions job: it needs a builder from `docker/setup-buildx-action` *and* the `ACTIONS_*`
+variables that authenticate against the Actions cache service. The runner gives those to an
+*action*, not to a `run` step, so `.github/workflows/e2e.yml` runs
+`crazy-max/ghaction-github-runtime` before `setup.sh`. Missing them does not fail the
+build — Buildx drops the `type=gha` entries silently, and the cache is simply never used.
+Every service sharing `backend/Dockerfile` shares `scope=backend`, since a per-service
+scope would make them all miss on each other's layers; `garage-bootstrap` has its own
+scope. Bake is the code path that carries `cache_from` / `cache_to`; `e2e.yml` sets
+`COMPOSE_BAKE=true` explicitly so an older Compose cannot fall back to the classic builder,
+which ignores both.
 
 ```bash
 cp docker-compose.override.yml{.dev,}    # linux/macOS

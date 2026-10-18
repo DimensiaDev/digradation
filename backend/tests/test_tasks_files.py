@@ -1,7 +1,7 @@
 """Tests for the file workers in :mod:`app.tasks.files`.
 
 Every test here drives a real task body through ``tests.helpers.run_task``,
-against a real PostgreSQL, a real Redis and a real MinIO. Nothing is enqueued to
+against a real PostgreSQL, a real Redis and a real Garage. Nothing is enqueued to
 RabbitMQ: the tasks that fan out to siblings call ``.kiq`` on a decorated task,
 so every such attribute is monkeypatched with an ``AsyncMock``.
 
