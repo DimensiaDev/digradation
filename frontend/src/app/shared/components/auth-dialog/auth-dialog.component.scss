@@ -9,6 +9,8 @@
   background: transparent;
   overflow: visible;
 
+  color: var(--color-text);
+
   &[open] {
     animation: auth-card-enter 0.4s ease-out backwards;
   }
