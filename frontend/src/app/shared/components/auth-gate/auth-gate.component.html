@@ -1,0 +1,17 @@
+@if (user()) {
+  <router-outlet />
+} @else {
+  <div class="auth-gate__prompt">
+    <app-login-prompt />
+  </div>
+
+  <dialog
+    #gateDialog
+    class="auth-gate__dialog"
+    tabindex="-1"
+    aria-label="Требуется вход"
+    (mousedown)="onBackdropMouseDown($event)"
+  >
+    <app-login-prompt />
+  </dialog>
+}
