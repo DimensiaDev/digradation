@@ -8,6 +8,7 @@ Generation progress is tracked per stage.
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 from datetime import date
 from enum import StrEnum
 from math import isclose
@@ -413,13 +414,10 @@ _HOURS_TOLERANCE = 1e-6
 
 def _duplicate_ids(ids: list[str]) -> list[str]:
     """The ids that appear more than once, each reported a single time."""
-    seen: set[str] = set()
-    duplicates: list[str] = []
+    counts: defaultdict[str, int] = defaultdict(int)
     for item_id in ids:
-        if item_id in seen and item_id not in duplicates:
-            duplicates.append(item_id)
-        seen.add(item_id)
-    return duplicates
+        counts[item_id] += 1
+    return [item_id for item_id, count in counts.items() if count > 1]
 
 
 def _declared_outcomes(draft: ProgramDraft) -> list[Outcome]:
