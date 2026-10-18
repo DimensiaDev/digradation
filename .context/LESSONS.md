@@ -734,3 +734,9 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   Without `animation: none` on the root pair, naming one element does not stop the sidebar
   and header from fading on every navigation. Only the named-element pair should carry
   keyframes. (2026-10-18)
+- **A `calc(100dvh - Npx)` "fill the rest of the viewport" rule is a bet on a number that no
+  one owns.** `min-height: calc(100dvh - 80px)` on the auth gate missed the header's real
+  83px (its height comes from the avatar, not from a constant) and produced a 3px scrollbar
+  on every gated route. Let the layout hand the space over instead: `main` is a column flex
+  container, the header is `flex-shrink: 0`, the filler is `flex: 1 1 auto; min-height: 0`.
+  Check the free space at more than one viewport size. (2026-10-18)

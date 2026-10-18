@@ -878,3 +878,24 @@ dependency and no wrapper element.
   guarded so a newer direction set mid-flight is not wiped by the previous transition.
 - **Query-only navigations and reduced motion skip the animation.** Search/filter changes
   are not section switches; `prefers-reduced-motion` disables the keyframes wholesale.
+
+## The layout shell is a column flex container (2026-10-18)
+
+The auth gate prompt wanted the free space under the header and asked for it with
+`min-height: calc(100dvh - 80px)`. The header is 83px tall (12px padding, 1px border, a
+46px avatar), so the prompt overshot the viewport by exactly 3px and every gated route
+showed a scrollbar with nothing to scroll to.
+
+- **`main` is `display: flex; flex-direction: column`.** The prompt is
+  `flex: 1 1 auto` with `min-height: 0` and the header is `flex-shrink: 0`, so the browser
+  computes "the rest of the viewport" from the header's real height. No arithmetic, no
+  constant to keep in sync with the avatar size.
+- **Every routed page is pinned with `flex: 0 0 auto`.** A routed host defaults to
+  `flex-shrink: 1`, so the chat page (720px) and the long admin tables would have been
+  squashed inside a 720px `main`. The rule lives in `styles.scss` as
+  `main router-outlet + *` because the routed host is not part of the layout's template and
+  emulated encapsulation cannot reach it.
+- **The chat page's own 83px overflow is acknowledged, not fixed.** `:host { height: 100% }`
+  is 100% of `main`, header included, so that page still scrolls by the header height. It
+  predates this change and needs its internal `calc(100dvh - 40px)` reworked, which is a
+  separate piece of work.
