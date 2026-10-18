@@ -455,7 +455,8 @@ async def get_chat_program(session_id: VerifiedMessageSession, db: DbSession) ->
 
     `status` is `draft` while the agent is still collecting the source data,
     `pending_approval` once a draft has been saved and is waiting for the
-    methodist, and `approved` after `POST /chats/{session_id}/program/approve`.
+    methodist, `approved` after `POST /chats/{session_id}/program/approve`, and
+    `verified` once a later stage has checked the approved programme.
     `draft` is null until something has been saved.
     """
     row = await db.get(ChatProgram, session_id)
@@ -485,12 +486,15 @@ async def approve_chat_program(session_id: VerifiedMessageSession, db: DbSession
     Confirmation is a state of the process rather than a message in the
     transcript, which is why it has its own endpoint: until this call the agent
     keeps presenting the draft, and after it the draft is frozen and the next
-    stage may build on it. Repeating the call is harmless.
+    stage may build on it. Repeating the call is harmless: a proposal that has
+    reached ``verified`` is left as it is, because the later status includes the
+    confirmation and overwriting it would undo a check the methodist already
+    passed.
     """
     row = await db.get(ChatProgram, session_id)
     if row is None:
         raise HTTPException(status_code=400, detail="No programme draft to approve")
-    if row.status != ProgramStatus.APPROVED:
+    if row.status not in (ProgramStatus.APPROVED, ProgramStatus.VERIFIED):
         row.status = ProgramStatus.APPROVED
         await db.commit()
         await db.refresh(row)
