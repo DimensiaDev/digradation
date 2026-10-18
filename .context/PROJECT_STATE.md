@@ -30,9 +30,14 @@ Alembic is a **single squashed `initial` revision** (`d7e256a71a55`) generated f
 models. Nine TaskIQ tasks across the `default` and `network` queues, with hourly and
 10-minute cleanup crons.
 
-**Frontend.** Angular 21.2 standalone with signals. Reactive forms, cookie auth, 2-second
-polling for generation results, inline preview for PDF, image, docx and xlsx, light/dark
-theme, admin user management, admin prompt-extension editor. 40 colocated `*.spec.ts` files.
+**Frontend.** Angular 21.2 standalone with signals. The panel is browsable as a guest: the
+session is resolved by a `provideAppInitializer`, `/home` and `/help` are public, every other
+route renders behind an `AuthGate` prompt, and `/login` is gone in favour of a shared
+`AuthModalService` dialog. Reactive forms, cookie auth, 2-second polling for generation
+results, inline preview for PDF, image, docx and xlsx, light/dark theme, admin user
+management, admin prompt-extension editor. Section switches animate through the browser's
+View Transitions API (`withViewTransitions`), direction derived from the sidebar order.
+47 `*.spec.ts` files.
 
 **Not started or placeholder.** The profile page body, the user settings page body, and two
 admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`. The public
