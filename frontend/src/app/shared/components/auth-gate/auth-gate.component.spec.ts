@@ -24,9 +24,6 @@ describe('AuthGate', () => {
   let profile: ProfileService;
   let http: HttpTestingController;
 
-  const dialogEl = () =>
-    fixture.nativeElement.querySelector('dialog.auth-gate__dialog') as HTMLDialogElement | null;
-
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [AuthGate],
@@ -44,12 +41,11 @@ describe('AuthGate', () => {
     http.verify();
   });
 
-  it('shows the inline prompt and opens the gate dialog for a guest', () => {
+  it('shows the inline prompt for a guest without a dialog', () => {
     expect(
       fixture.nativeElement.querySelector('.auth-gate__prompt app-login-prompt')
     ).not.toBeNull();
-    expect(dialogEl()?.getAttribute('aria-label')).toBe('Требуется вход');
-    expect(dialogEl()?.hasAttribute('open')).toBe(true);
+    expect(fixture.nativeElement.querySelector('dialog')).toBeNull();
     expect(fixture.debugElement.query(By.css('router-outlet'))).toBeNull();
   });
 
@@ -59,17 +55,6 @@ describe('AuthGate', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('.auth-gate__prompt')).toBeNull();
-    expect(dialogEl()).toBeNull();
     expect(fixture.debugElement.query(By.css('router-outlet'))).not.toBeNull();
-  });
-
-  it('closes the gate dialog on a backdrop press but keeps the prompt', () => {
-    expect(dialogEl()?.hasAttribute('open')).toBe(true);
-
-    dialogEl()?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    fixture.detectChanges();
-
-    expect(dialogEl()?.hasAttribute('open')).toBe(false);
-    expect(fixture.nativeElement.querySelector('.auth-gate__prompt')).not.toBeNull();
   });
 });

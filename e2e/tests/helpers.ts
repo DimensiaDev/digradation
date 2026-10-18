@@ -133,9 +133,10 @@ export { expect };
 /**
  * Open the sign-in dialog from the header and return it.
  *
- * Both dialogs in the app are named, and several "Войти" buttons exist at
- * once (the header item, the gate prompt, the dialog submit), so every lookup
- * is scoped: the menu by id, the buttons by their dialog.
+ * The sign-in dialog is the only dialog in the app, but several "Войти"
+ * buttons exist at once (the header item, the gate prompt, the dialog
+ * submit), so every lookup is scoped: the menu by id, the prompt by its
+ * card, the dialog button by its dialog.
  */
 export async function openSignInDialog(page: Page) {
   await page.getByRole("button", { name: "Открыть меню профиля" }).click();

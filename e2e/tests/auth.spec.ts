@@ -29,18 +29,19 @@ test.describe("authentication", () => {
     await page.goto("/chats");
 
     await expect(page).toHaveURL(/\/chats$/);
-    await expect(page.getByRole("dialog", { name: "Требуется вход" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Требуется вход" })).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 
-  test("a guest signs in from the gate and gets the page they asked for", async ({
+  test("a guest signs in from the gate prompt and gets the page they asked for", async ({
     page,
   }) => {
     await page.context().clearCookies();
     await page.goto("/create");
 
-    const gate = page.getByRole("dialog", { name: "Требуется вход" });
-    await expect(gate).toBeVisible();
-    await gate.getByRole("button", { name: "Войти" }).click();
+    const prompt = page.locator(".login-prompt");
+    await expect(prompt.getByRole("heading", { name: "Требуется вход" })).toBeVisible();
+    await prompt.getByRole("button", { name: "Войти" }).click();
 
     const dialog = page.getByRole("dialog", { name: "Вход в аккаунт" });
     await dialog.locator("#username").fill(E2E_USER);
@@ -56,7 +57,9 @@ test.describe("authentication", () => {
 
     await page.goto("/home");
     await expect(page.getByRole("heading", { name: "Главная" })).toBeVisible();
-    await expect(page.getByRole("dialog", { name: "Требуется вход" })).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Требуется вход" }),
+    ).toHaveCount(0);
 
     await page.goto("/help");
     await expect(page.getByRole("heading", { name: "Помощь" })).toBeVisible();
@@ -74,6 +77,7 @@ test.describe("authentication", () => {
     // The cookie is gone: a protected route stays put and asks for a login.
     await page.goto("/create");
     await expect(page).toHaveURL(/\/create$/);
-    await expect(page.getByRole("dialog", { name: "Требуется вход" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Требуется вход" })).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 });
