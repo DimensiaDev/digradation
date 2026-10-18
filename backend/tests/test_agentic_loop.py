@@ -10,9 +10,11 @@ from datetime import UTC, datetime
 import pytest
 
 from app.agentic.loop import (
+    MAX_TOOL_ROUNDS,
     AnswerTruncated,
     ProviderDidNotRespond,
     ToolCallFailed,
+    ToolLoopExceeded,
     run_tool_loop,
 )
 from app.providers.models import Content, FunctionCall, GenerationResponse, InputTokenDetails, Message, Usage
@@ -114,3 +116,27 @@ async def test_function_calls_are_executed_and_their_results_sent_back():
     assert result is not None
     assert result.name == "search_sources"
     assert result.result == {"ok": True, "echo": "search_sources"}
+
+
+async def test_the_model_still_answers_after_the_last_tool_round():
+    """The bound counts tool rounds, so the results of the last one are answered."""
+    provider = ScriptedProvider(
+        *[call_turn("search_sources", call_id=f"call-{number}") for number in range(MAX_TOOL_ROUNDS)],
+        text_turn("Итог по найденным источникам"),
+    )
+    tools = RecordingTools()
+
+    answer = await run_tool_loop(HISTORY, generate=provider.generate, call_tool=tools.call_tool)
+
+    assert answer == "Итог по найденным источникам"
+    assert len(tools.calls) == MAX_TOOL_ROUNDS
+    assert len(provider.histories) == MAX_TOOL_ROUNDS + 1
+
+
+async def test_another_call_after_the_last_round_is_an_error():
+    provider = ScriptedProvider(
+        *[call_turn("search_sources", call_id=f"call-{number}") for number in range(MAX_TOOL_ROUNDS + 1)]
+    )
+
+    with pytest.raises(ToolLoopExceeded, match="kept calling functions"):
+        await run_tool_loop(HISTORY, generate=provider.generate, call_tool=RecordingTools().call_tool)

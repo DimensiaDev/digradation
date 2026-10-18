@@ -45,6 +45,11 @@ def _function_calls(message: Message) -> list[FunctionCall]:
     return [part.function_call for part in message.content if part.function_call is not None]
 
 
+def _function_calls_of(messages: list[Message]) -> list[FunctionCall]:
+    """Every function call the messages of one turn carry."""
+    return [call for message in messages for call in _function_calls(message)]
+
+
 def _answer_text(messages: list[Message]) -> str:
     """The text the model wrote, assembling the parts of its messages."""
     return "".join(
@@ -64,6 +69,18 @@ def _answer(response: GenerationResponse) -> str:
     return _answer_text(response.messages)
 
 
+async def _generate_turn(
+    generate: Callable[[list[Message]], Awaitable[GenerationResponse | None]], messages: list[Message]
+) -> GenerationResponse:
+    """One provider turn, with the provider-side failure modes checked."""
+    response = await generate(messages)
+    if response is None:
+        raise ProviderDidNotRespond()
+    if response.finish_reason == "function_call_error":
+        raise ToolCallFailed()
+    return response
+
+
 async def run_tool_loop(
     message_history: list[Message],
     *,
@@ -76,16 +93,16 @@ async def run_tool_loop(
     calls already made and their results — because the v2 endpoint expects the
     assistant message that requested a function and the ``tool`` message carrying
     its result to be sent back before the model continues.
+
+    The bound counts tool rounds, not model turns: after the last round the model
+    still gets one turn to answer from the results it already has, and only a
+    turn that reacts with another call is a model stuck in a loop.
     """
     messages = list(message_history)
     for round_number in range(1, MAX_TOOL_ROUNDS + 1):
-        response = await generate(messages)
-        if response is None:
-            raise ProviderDidNotRespond()
-        if response.finish_reason == "function_call_error":
-            raise ToolCallFailed()
+        response = await _generate_turn(generate, messages)
 
-        calls = [call for message in response.messages for call in _function_calls(message)]
+        calls = _function_calls_of(response.messages)
         if not calls:
             return _answer(response)
 
@@ -103,4 +120,7 @@ async def run_tool_loop(
             messages.append(Message(role="tool", content=results, tools_state_id=message.tools_state_id))
         log.info("tool_round", round=round_number, calls=[call.name for call in calls])
 
-    raise ToolLoopExceeded(f"the model did not answer within {MAX_TOOL_ROUNDS} tool rounds")
+    response = await _generate_turn(generate, messages)
+    if _function_calls_of(response.messages):
+        raise ToolLoopExceeded(f"the model kept calling functions after {MAX_TOOL_ROUNDS} tool rounds")
+    return _answer(response)
