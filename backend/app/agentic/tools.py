@@ -177,13 +177,20 @@ def _chat_name(title: str) -> str:
     return title[: MAX_CHAT_NAME_LENGTH - 3].rstrip() + "..."
 
 
-async def _name_session_after_draft(db: AsyncSession, ctx: ToolContext, title: str) -> None:
-    """Name the chat after the draft, unless the methodist named it themselves."""
+async def _name_session_after_draft(db: AsyncSession, ctx: ToolContext, title: str) -> str | None:
+    """Name the chat after the draft, unless the methodist named it themselves.
+
+    Returns the new name rather than recording it in the context: a rename is
+    only real once the transaction commits, and ``ctx.renamed_to`` is what the
+    worker forwards to ``process_response``. Returning the name lets the caller
+    set it after the commit has actually succeeded, so a failed save cannot
+    leave the transcript renamed without the draft.
+    """
     session = await db.get(ChatSession, ctx.session_id)
     if session is None or session.name != DEFAULT_CHAT_NAME:
-        return
+        return None
     session.name = _chat_name(title)
-    ctx.renamed_to = session.name
+    return session.name
 
 
 async def save_program_draft(ctx: ToolContext, arguments: dict) -> dict:
@@ -229,8 +236,12 @@ async def save_program_draft(ctx: ToolContext, arguments: dict) -> dict:
         else:
             row.status = ProgramStatus.PENDING_APPROVAL
             row.draft = payload
-        await _name_session_after_draft(db, ctx, draft.title)
+        renamed_to = await _name_session_after_draft(db, ctx, draft.title)
         await db.commit()
+        # Recorded only now, when the rename is durable: an exception above
+        # rolls the name back with the rest of the transaction.
+        if renamed_to is not None:
+            ctx.renamed_to = renamed_to
 
     log.info("program_draft_saved", chat_session_id=str(ctx.session_id), title=draft.title, sources=len(sources))
     return {
