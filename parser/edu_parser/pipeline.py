@@ -57,8 +57,8 @@ def _serialize(doc: ParsedDocument, images_dir: Path | None) -> dict:
     ``ParsedDocument.model_dump`` handles all plain fields
     (``doc_id``, ``source_path``, ``title``, ``text_chunks``, ``tables``,
     ``errors``). ``images`` are excluded from the dump because their raw
-    bytes must be written to disk first, and the JSON only carries the
-    relative path plus metadata.
+    bytes must be written to disk first, and ``ParsedImage.to_payload``
+    builds the on-disk representation (path + bytes_size + metadata).
     """
     payload = doc.model_dump(mode="python", exclude={"images"})
 
@@ -70,17 +70,7 @@ def _serialize(doc: ParsedDocument, images_dir: Path | None) -> dict:
             fname = f"{img.ordinal:04d}.{img.ext}"
             (images_dir / fname).write_bytes(img.data)
             saved_rel = str((images_dir / fname).relative_to(images_dir.parent))
-        images.append(
-            {
-                "ordinal": img.ordinal,
-                "page_number": img.page_number,
-                "ext": img.ext,
-                "mime": img.mime,
-                "bytes_size": len(img.data),
-                "path": saved_rel,
-                "metadata": img.metadata,
-            }
-        )
+        images.append(img.to_payload(saved_rel))
 
     payload["images"] = images
     payload["counts"] = {

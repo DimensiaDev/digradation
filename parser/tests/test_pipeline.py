@@ -280,3 +280,43 @@ def test_write_preview_md_chunk_without_section(tmp_path: Path):
     assert "## chunk #0" in content
     assert "page 3" in content
     assert "Section" in content
+
+
+def test_parsed_image_to_payload_excludes_data():
+    """ParsedImage.to_payload drops raw bytes and identity fields."""
+    from edu_parser.models import ParsedImage
+
+    img = ParsedImage(
+        doc_id="d1",
+        source_path="x.pdf",
+        page_number=3,
+        ordinal=0,
+        data=b"\x89PNG\r\n\x1a\n" + b"x" * 600,
+        ext="png",
+        mime="image/png",
+    )
+    payload = img.to_payload("images/0000.png")
+    assert "data" not in payload
+    assert "doc_id" not in payload
+    assert "source_path" not in payload
+    assert payload["page_number"] == 3
+    assert payload["ext"] == "png"
+    assert payload["mime"] == "image/png"
+    assert payload["bytes_size"] == 608
+    assert payload["path"] == "images/0000.png"
+
+
+def test_parsed_image_to_payload_without_path():
+    """When image was not written to disk, path is None."""
+    from edu_parser.models import ParsedImage
+
+    img = ParsedImage(
+        doc_id="d1",
+        source_path="x.pdf",
+        ordinal=0,
+        data=b"x" * 600,
+        ext="png",
+        mime="image/png",
+    )
+    payload = img.to_payload(None)
+    assert payload["path"] is None
