@@ -1,0 +1,28 @@
+name: gitea sync
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  push-to-gitea:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # full history so the push is clean
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name  "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Force-push main to Gitea
+        run: |
+          git remote add gitea "https://${{ secrets.GITEA_TOKEN }}@${{ secrets.GITEA_REMOTE }}"
+          git push --force gitea main
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          GITEA_URL:   ${{ secrets.GITEA_URL }}
