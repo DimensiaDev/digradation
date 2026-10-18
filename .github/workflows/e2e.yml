@@ -2,10 +2,10 @@ name: E2E
 
 on:
   pull_request:
-    paths: ["e2e/**", "backend/**", "frontend/**", "docker-compose*.yaml", "conf/**"]
+    paths: ["e2e/**", "backend/**", "frontend/**", "docker-compose*", "conf/**"]
   push:
     branches: [main]
-    paths: ["e2e/**", "backend/**", "frontend/**", "docker-compose*.yaml", "conf/**"]
+    paths: ["e2e/**", "backend/**", "frontend/**", "docker-compose*", "conf/**"]
   workflow_dispatch:
 
 permissions:
@@ -20,8 +20,34 @@ jobs:
     name: Playwright against the Compose stack
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # `cache_from` / `cache_to` are only read in the Bake code path; the classic
+    # builder ignores both. Compose 2.38+ already defaults `COMPOSE_BAKE` to
+    # true when it is unset, but an explicit value means an older Compose cannot
+    # fall back to the classic builder and silently drop the cache.
+    env:
+      COMPOSE_BAKE: "true"
     steps:
       - uses: actions/checkout@v4
+
+      # Buildx with the GitHub Actions cache backend. The stock builder cannot
+      # read or write `type=gha` cache, so this has to come before any build.
+      # The cache itself is configured in docker-compose.build-cache.yml, which
+      # setup.sh adds to the `-f` list when CI is set.
+      #
+      # Bake is the code path that reaches this builder for `up --build`, and
+      # `#1 [internal] load local bake definitions` in the build log proves it
+      # ran; the job's `COMPOSE_BAKE` env selects it explicitly.
+      - uses: docker/setup-buildx-action@v3
+
+      # BuildKit's `gha` cache backend authenticates with `ACTIONS_RUNTIME_TOKEN`
+      # and a cache URL. The runner injects those into an action's environment,
+      # not into a `run` step, so a shell buildx invocation sees neither, and
+      # buildx drops the `type=gha` entries from docker-compose.build-cache.yml
+      # *silently*: the build succeeds, no cache is read, no cache is written.
+      # Re-exporting every `ACTIONS_*` variable to the shell steps below is
+      # Docker's documented fix for using buildx from an inline step.
+      - name: Expose the GitHub Actions cache runtime
+        uses: crazy-max/ghaction-github-runtime@v4
 
       - uses: actions/setup-python@v5
         with:
@@ -36,6 +62,28 @@ jobs:
       - name: Install e2e dependencies
         working-directory: e2e
         run: npm ci
+
+      # Chromium is several hundred megabytes and does not change unless the
+      # Playwright version does, so it is cached rather than re-downloaded.
+      #
+      # The key pins the OS and the lockfile, because browsers are fetched per
+      # Playwright revision: a different `@playwright/test` means a different
+      # download and must not reuse the old one. `restore-keys` means an unrelated
+      # lockfile edit still reuses the previous download instead of starting over.
+      #
+      # A stale or mismatched cache is harmless rather than a correctness risk:
+      # the install step below still runs, and Playwright only skips the download
+      # when it finds the exact revision directory it wants. `--with-deps` (the apt
+      # layer) is deliberately not cached, being an install transaction rather than
+      # a downloadable artifact; it is idempotent and mostly preinstalled on
+      # ubuntu-latest.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
       # Chromium and its OS libraries. Kept after `npm ci` so the Playwright
       # version being installed is the one that fetches the browser.
@@ -89,12 +137,15 @@ jobs:
 
       # setup.sh runs the stack under the digradation-e2e project, so plain
       # `docker compose` here would target a project that does not exist.
+      # The build-cache file is included for consistency with the `up` that
+      # created the stack; `logs` and `down` do not build, so it is not required.
       - name: Dump logs on failure
         if: failure()
         run: >-
           docker compose -p digradation-e2e
           -f docker-compose.yaml
           -f docker-compose.override.yml.e2e
+          -f docker-compose.build-cache.yml
           logs --no-color --tail 200
 
       # No `-v`: the volumes belong to the e2e project alone, but destroying
@@ -105,4 +156,5 @@ jobs:
           docker compose -p digradation-e2e
           -f docker-compose.yaml
           -f docker-compose.override.yml.e2e
+          -f docker-compose.build-cache.yml
           down

@@ -66,7 +66,6 @@ repos:
         stages: [pre-push]
         files: ^backend/.*\.py$
         pass_filenames: false
-        always_run: true
 
       - id: vitest-coverage
         name: vitest coverage report (frontend)
@@ -75,4 +74,3 @@ repos:
         stages: [pre-push]
         files: ^frontend/.*\.(ts|html|json)$
         pass_filenames: false
-        always_run: true

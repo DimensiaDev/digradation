@@ -97,7 +97,7 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 > The `processing/` package (PDF rasteriser, DXF parser, Excel calculator) no longer exists.
 > These lessons are kept for the history: if a template, a parser or a pricing behaviour is
 > ever reintroduced, they are the traps that were already paid for once. `res/calc.xlsx` is
-> gone too, and so are the `processing` coverage hooks and workflows.
+> gone too.
 
 - **Two copies of `calc.xlsx` existed on purpose**: `backend/res/calc.xlsx` (read by
   `tasks/api.py`) and `processing/src/processing/calculator/res/calc.xlsx` (packaged with the
@@ -147,11 +147,11 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   `frontend/coverage/`. A CI upload path pointing at `coverage/coverage-summary.json` will
   find nothing. Already gitignored by `frontend/.gitignore`'s `/coverage`.
 - **Omitting `coverageInclude` inflates the number.** V8 then reports only files a test
-  actually imported, so untouched files vanish from the denominator. The same suite reads
-  78.15% implicitly and 67.6% with an explicit include; the lower figure is the honest one.
-- **A failing suite suppresses the coverage report entirely.** With 14 failures in
-  `sidebar.component.spec.ts`, `ng test --coverage` wrote an empty `coverage/` directory and
-  printed no summary. To measure a red suite, exclude the broken spec with
+  actually imported, so untouched files vanish from the denominator and the figure reads far
+  higher than the project is. The lower, explicit-include number is the honest one.
+- **A failing suite suppresses the coverage report entirely.** A red suite makes
+  `ng test --coverage` write an empty `coverage/` directory and print no summary, so the run
+  looks like it measured nothing. To measure a red suite, exclude the broken spec with
   `--exclude "**/<name>.spec.ts"` and treat the result as provisional.
 - **`sidebar.component.spec.ts` was red on `main`: the jsdom test environment has no
   `localStorage` at all.** The visible error was misleading. The reported failure was
@@ -175,10 +175,10 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
 - **`Sidebar` is the only consumer of `localStorage` in the app**, which is why exactly one
   spec file failed and the other 19 passed. A failure isolated to a single spec is often a
   clue about which service it pulls in, not about that spec.
-- **Verify a test fix with a mutation, not just green output.** After the shim made 14 tests
-  pass, the assertions could have been vacuous. Renaming the history title in the sidebar
-  template to `MUTANT` correctly failed 1 test, proving the spec really exercises the
-  component. Reverted after checking.
+- **Verify a test fix with a mutation, not just green output.** Once a suite turns green, the
+  assertions could have been vacuous. Renaming the history title in the sidebar template to
+  `MUTANT` correctly failed a test, proving the spec really exercises the component. Reverted
+  after checking.
 
 ## Frontend
 
@@ -283,9 +283,9 @@ pool.get_connection()` is a `TypeError`; it must be awaited.
   fake-timer test that skips teardown leaves hundreds of queued HTTP requests. Flushing
   them is also wrong: the subscription is already unsubscribed, so it throws
   `Cannot flush a cancelled request`.
-- **jsdom exposes no `localStorage` at all**, which broke every spec touching `ThemeService`
-  (the sidebar's 14 tests). Fixed in `src/test-setup.ts` via the builder's `setupFiles`,
-  not by guarding application code.
+- **jsdom exposes no `localStorage` at all**, which broke every spec touching `ThemeService`.
+  Fixed in `src/test-setup.ts` via the builder's `setupFiles`, not by guarding application
+  code.
 - **`extractApiErrorMessage` collapses every 5xx to `Ошибка сервера`**, so a test asserting
   the backend's `detail` string on a 500 fails. Assert the normalised message, or use a 4xx
   where `detail` is passed through.
@@ -410,10 +410,10 @@ No such file or directory`. Compose only sets two secrets that way and keeps the
 - **`pytest-cov` is silent about a missing threshold, which is fine.** With `fail_under = 0`
   the run exits 0 and still prints `TOTAL`. Do not read "exit 0" as "no coverage"; read the
   `TOTAL` line.
-- **Coverage of untested code should be read as a work list, not a score.** The
-  `Missing` column of the terminal report is the actionable output: it points at
-  `routes/chat.py`, `tasks/files.py`, `tasks/api.py`, `routes/users.py` and
-  `providers/sber.py`, which is the same gap `.context/PROJECT_STATE.md` already records.
+- **Coverage of untested code should be read as a work list, not a score.** The `Missing`
+  column of the terminal report is the actionable output: it names the exact lines. This is
+  also why no coverage figure is written into `.context/` — the report is regenerated on
+  demand, so a recorded number only goes stale.
 - **A pre-push hook that needs a Docker daemon will fail on a machine without one.** The
   coverage hook inherits the backend suite's testcontainers requirement, so a developer
   without Docker cannot push. This is the same constraint as the existing `pytest` hook and
@@ -572,10 +572,11 @@ No such file or directory`. Compose only sets two secrets that way and keeps the
   requires waiting for the status to leave `queued`, and the e2e project needs its own published
   S3 port and matching `S3_PUBLIC_URL`.
 
-- **A `--cov` run started before an edit finishes measures a half-written tree.** Reading 88.83%
-  and a failing `alembic check` mid-change looked like a collapsed coverage gate; the clean run
-  after the migration landed was 99.34%. Coverage measured concurrently with your own edits is
-  not a baseline, and the `alembic check` failure in it is expected rather than a real drift.
+- **A `--cov` run started before an edit finishes measures a half-written tree.** A run kicked
+  off before an edit and read afterwards showed a far lower figure than the same tree once
+  settled, alongside a failing `alembic check` that looked like real model drift. Coverage
+  measured concurrently with your own edits is not a baseline; re-run it after the tree is
+  quiet, and treat the `alembic check` failure as expected rather than as drift.
 - **On a 4 GB Docker Desktop, bring the e2e stack down before running Compose tooling.** With
   `digradation-e2e` up, `docker compose up -d db` and even a bare `docker compose ps` hung for
   minutes, in the bash script and in the PowerShell one alike. The giveaway was a
@@ -693,3 +694,17 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   config. **Symptom to recognise: a generated file that a hook "fixes" differently on every
   run.** Note also that `scripts/precommit-*.py` pass `check=False`, so these hooks modify
   files without ever failing the commit they belong to.
+- **Buildx drops a `type=gha` cache entry silently when the `ACTIONS_*` variables are
+  missing.** Buildx fills the cache token and URL from `ACTIONS_RUNTIME_TOKEN` and the cache
+  URL in its own process environment, and the runner injects those into an *action*, not
+  into a `run` step. So `cache_from` / `cache_to` in `docker-compose.build-cache.yml` were
+  inert while the build looked perfectly healthy: no import, no export, no warning. The fix
+  is `crazy-max/ghaction-github-runtime` before the shell steps. **Verify with an
+  `importing cache manifest from gha` line in the build log, never by the build
+  succeeding.** Found 2026-10-18 on PR #21.
+- **Bake is the code path that carries `cache_from` / `cache_to`; the classic builder
+  ignores both.** `buildWithBake` reads `COMPOSE_BAKE` and, in 2.38.2, an *unset* variable
+  means `true`; earlier releases defaulted to the classic path. `e2e.yml` sets
+  `COMPOSE_BAKE=true` explicitly so the fallback cannot happen on an older runner either,
+  and `#1 [internal] load local bake definitions` in the log proves Bake ran. Found
+  2026-10-18 on PR #21.

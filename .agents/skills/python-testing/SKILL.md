@@ -23,18 +23,21 @@ poetry -C backend run pytest tests/test_migrations.py         # the migration dr
 - `pytest-cov` is a `dev` dependency of the backend package. `source = ["app"]` with
   `branch = true`.
 - The threshold is `fail_under` in `backend/pyproject.toml`, currently **90**, so coverage
-  is enforced. It reads 99.33% today. To change the gate, edit that one value; the pre-push
-  hook and the CI workflow name no percentage.
+  is enforced. To change the gate, edit that one value; the pre-push
+  hook and the CI workflow name no percentage. Run `pytest --cov` for the current figure
+  rather than expecting one to be written down — see the rule in `AGENTS.md`.
 - `addopts = "-m 'not live'"` deselects the `live` tests, which hit the real GigaChat and
   cost money. Opt in with `SBER_API_KEY=<real> poetry -C backend run pytest -m live`.
 - `--cov` alone prints the terminal report and writes no file. Add
   `--cov-report=json` when a `coverage.json` artifact is wanted, since
   `[tool.coverage.json] output` only applies when that report is actually requested.
-- Read the `Missing` column as a work list, not the percentage as a score. It points at the
-  untested chat routes and TaskIQ workers.
-- A `pre-push` pre-commit hook and `.github/workflows/backend-coverage.yml` both run this.
-  After adding a pre-push hook, run `pre-commit install --hook-type pre-push`, otherwise a
-  clone that installed only `pre-commit` and `commit-msg` silently skips it.
+- Read the `Missing` column as a work list, not the percentage as a score: it names the exact
+  uncovered lines.
+- A `pre-push` pre-commit hook and `.github/workflows/backend-ci.yml` both run this. The
+  workflow runs the suite **once** with `--cov` and uploads `coverage.json` from that run;
+  there is no separate coverage workflow, because a second run would only reproduce the
+  first. After adding a pre-push hook, run `pre-commit install --hook-type pre-push`,
+  otherwise a clone that installed only `pre-commit` and `commit-msg` silently skips it.
 
 ## Layout and naming
 

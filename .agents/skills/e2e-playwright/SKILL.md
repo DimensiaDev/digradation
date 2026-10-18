@@ -192,6 +192,35 @@ read from the environment.
   `xlsx` dependency.
 - The e2e directory is its own npm project, separate from `frontend/`.
 
+## What CI caches
+
+`.github/workflows/e2e.yml` caches three things, and the split matters:
+
+| Cached | Key | Why the key is what it is |
+|---|---|---|
+| `~/.npm` (`setup-node`) | `e2e/package-lock.json` | standard npm download cache |
+| `~/.cache/ms-playwright` | OS + `e2e/package-lock.json` | browsers are fetched per Playwright revision, so a version bump must not reuse the old download; `restore-keys` covers unrelated lockfile edits |
+| Docker build layers | build scope + source paths | see `docker-compose.build-cache.yml` |
+
+**The Docker layer cache only exists because `e2e.yml` exposes the Actions runtime.**
+Buildx reads the `ACTIONS_*` token and cache URL from its process environment, and the
+runner injects them into an action, not a `run` step, so
+`crazy-max/ghaction-github-runtime` runs before the build. Without it the `type=gha`
+entries in `docker-compose.build-cache.yml` are dropped **silently** and every run rebuilds
+from scratch; a build log with no `importing cache manifest from gha` line is the symptom.
+
+**A mismatched browser cache is harmless, not a correctness risk.** The install step always
+runs; Playwright skips the download only when it finds the exact revision directory it
+wants. So a stale entry costs bandwidth, never a wrong test result.
+
+**The apt layer is deliberately not cached.** `playwright install --with-deps` runs an
+install transaction, not a download, so there is no artifact to store. It is idempotent and
+mostly preinstalled on `ubuntu-latest`.
+
+**The browser cache is the second-largest cost, not the largest.** The dominant one is the
+Docker build: `setup.sh` runs `up -d --build`, which rebuilds the Angular production bundle
+and the Poetry install from nothing unless the build cache is present.
+
 ## Verify
 
 ```bash
