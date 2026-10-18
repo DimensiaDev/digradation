@@ -129,24 +129,20 @@ describe('HeaderComponent', () => {
     expect(item.nativeElement.getAttribute('href')).toBe('/profile');
   });
 
-  it('opens the sign-in dialog from the guest profile menu', () => {
+  it('opens the sign-in dialog straight from the guest profile button', () => {
     const modal = TestBed.inject(AuthModalService);
 
     profileButton().nativeElement.click();
     fixture.detectChanges();
 
-    const item = fixture.debugElement.query(By.css('.header__menu-item'));
-    expect(item.nativeElement.textContent.trim()).toBe('Войти');
-
-    item.nativeElement.click();
-    fixture.detectChanges();
-
+    expect(profileButton().nativeElement.getAttribute('aria-label')).toBe('Войти в аккаунт');
     expect(modal.isOpen()).toBe(true);
     expect(modal.returnUrl()).toBe('/');
     expect(fixture.debugElement.query(By.css('.header__dropdown--profile'))).toBeNull();
   });
 
   it('keeps only one menu open at a time', () => {
+    seedUser();
     bell().nativeElement.click();
     fixture.detectChanges();
     expect(fixture.debugElement.query(By.css('.header__dropdown--notifications'))).not.toBeNull();

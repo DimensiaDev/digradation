@@ -45,6 +45,11 @@ export class HeaderComponent {
   }
 
   toggleProfile(): void {
+    if (!this.user()) {
+      this.openAuthModal();
+      return;
+    }
+
     this.notificationsOpen.set(false);
     this.profileOpen.update((open) => !open);
   }

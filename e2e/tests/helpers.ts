@@ -133,14 +133,13 @@ export { expect };
 /**
  * Open the sign-in dialog from the header and return it.
  *
- * The sign-in dialog is the only dialog in the app, but several "Войти"
- * buttons exist at once (the header item, the gate prompt, the dialog
- * submit), so every lookup is scoped: the menu by id, the prompt by its
- * card, the dialog button by its dialog.
+ * The guest chip opens the dialog directly; a signed-in user's chip opens
+ * the profile menu instead. Several "Войти" buttons still exist at once
+ * (the gate prompt, the dialog submit), so every lookup is scoped: the
+ * prompt by its card, the dialog button by its dialog.
  */
 export async function openSignInDialog(page: Page) {
-  await page.getByRole("button", { name: "Открыть меню профиля" }).click();
-  await page.locator("#header-profile-menu").getByRole("button", { name: "Войти" }).click();
+  await page.getByRole("button", { name: "Войти в аккаунт" }).click();
   const dialog = page.getByRole("dialog", { name: "Вход в аккаунт" });
   await expect(dialog).toBeVisible();
   return dialog;
