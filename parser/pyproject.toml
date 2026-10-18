@@ -1,0 +1,66 @@
+[tool.poetry]
+name = "edu-parser"
+version = "0.1.0"
+description = "PDF/DOCX → RAG chunks parser for educational materials"
+authors = ["AXRay"]
+packages = [{ include = "edu_parser" }]
+
+[tool.poetry.dependencies]
+python = ">=3.14,<4"
+pymupdf = ">=1.24.0,<2.0.0"
+python-docx = ">=1.1.0,<2.0.0"
+pydantic = ">=2.13.5,<3.0.0"
+
+[tool.poetry.group.dev.dependencies]
+black = ">=26.5.1,<27.0.0"
+ruff = ">=0.16.6,<0.17.0"
+pytest = ">=9.1.1,<10.0.0"
+pytest-cov = ">=7.1.0,<8.0.0"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+target-version = ["py314"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "F", "E", "W", "I", "N", "UP", "B", "ASYNC",
+    "C4", "PIE", "T20", "Q", "RET", "SIM", "ARG", "PTH", "RUF",
+]
+ignore = [
+    "PIE796", "B028", "RUF018", "N818", "B905",
+    "RUF012", "B008", "RUF001", "RUF200",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ARG001"]
+"edu_parser/cli.py" = ["T201"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=edu_parser --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["edu_parser"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 2
+fail_under = 90
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+]
+
+[tool.coverage.json]
+output = "coverage.json"
