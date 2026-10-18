@@ -913,72 +913,64 @@ the service's own state transitions.
 - **The container's tool list is a single empty `TOOLS` placeholder.** Both real providers
   receive it, so the wiring exists before a tool registry does.
 
-## The agent draft contract: sources, hours and the tool loop (2026-10-18)
+## The agentic package ships without storage (2026-10-18)
 
-Review fixes on `feat/gen-cicle`, scoped to `app/agentic` (tools, loop, models): the
-endpoints, the worker and the frontend belong to other changes.
+`feat/gen-cicle` differs from `main` only in `backend/app/agentic/` and `tests/test_agentic_*`,
+and the package imports nothing outside itself and `app/providers/models.py`:
 
+| File | Holds |
+|---|---|
+| `app/agentic/models.py` | the АЦР programme schema: the blocks of the final document, validated |
+| `app/agentic/sources.py` | the catalog seam — `SourceFragment`, `get_source`, `search` — over an empty catalog |
+| `app/agentic/tools.py` | the tool specifications and their handlers |
+
+- **The schema is the documented validation diagram, as the branch's first commit implemented
+  it.** The later refinements of the draft — `requested_hours`, the hour-ceiling rule, the
+  duplicate-id and declared-outcome validators — belonged to the storage and the loop, and went
+  back with them. They return with the work that needs them.
+- **The handlers keep no storage of their own.** `save_program_draft` validates the arguments
+  against the schema, binds the cited sources to their catalog records and leaves the draft on
+  `ToolContext`; `get_program_draft` reads it back for a revision. Persisting it belongs to the
+  zone that owns the table: the `chat_programs` model, its migration, `DEFAULT_CHAT_NAME` in
+  `app/models/chat.py` and `MOCK_DRAFT_ARGUMENTS` in `providers/mock.py` were removed, so the
+  branch touches no other zone, needs no migration, and its handler tests need no database.
 - **Only sources the run has shown the model may be cited.** `search_sources` widens
-  `ToolContext.known_source_ids`, and `get_program_draft` re-widens it with the sources of a
-  stored draft, so a revision can cite what it just read back. The refusals stay distinct —
-  an id the catalog does not know is an invented document, a catalog id this run never
-  returned is a guess — because the model corrects itself differently for each.
-- **`ProgramDraft.requested_hours` is optional evidence, and the schedule is a ceiling.**
-  The prompt tells the model the topic hours must equal the declared volume, so the validator
-  enforces `total == requested_hours` when the field is present. It stays optional because
-  the volume is often known only from the conversation, and a required field would just be
-  copied from nowhere. Without it, `days × hours_per_day` is a ceiling rather than an
-  equality: the final attestation lives outside the curriculum — the example document fills
-  66 of its 72 scheduled hours — so only over-capacity is an error, and when both the volume
-  and the schedule are known they must agree exactly.
+  `ToolContext.known_source_ids`, and a citation the catalog knows but this run has not returned
+  is refused as well as one the catalog does not know — the model corrects itself differently
+  for each. While the catalog is empty every citation is refused as unknown, which is the
+  honest answer until the RAG index lands.
+- **A failed call is an answer, not an exception.** Every handler failure comes back as
+  `ok: false` with an explanation, so the model can correct itself inside the same reply, and
+  `execute_tool` turns malformed JSON and unknown function names into the same shape.
+- **The tools adopt the types #26 merged.** `AGENT_TOOLS: list[Tool]` is built from
+  `Tool(function=FunctionDefinition(...))`, which is what a provider takes at construction, and
+  `execute_tool` reads `FunctionCall.arguments` as the JSON string the providers normalise to.
+  The interim `FunctionCall` block that had briefly been restored into `providers/models.py` is
+  gone with it.
+
+## The agent draft contract: what waits for the loop (2026-10-18)
+
+The loop, the storage and the hour rules are not in the tree. These are the review-driven
+decisions for whoever picks them up in #26, recorded so that the round does not have to be
+repeated.
+
+- **The hour rule is a ceiling, not an equality.** Once the draft carries the volume the
+  methodist stated, `total == requested_hours` when it is present; without it,
+  `days x hours_per_day` is only a ceiling, because the final attestation lives outside the
+  curriculum — the example document fills 66 of its 72 scheduled hours.
 - **The tool-round bound counts rounds, not model turns.** After the last executed round the
   model still gets one turn to answer from the results it already has, and only a turn that
-  reacts with another call is `ToolLoopExceeded`. The bound catches a model that loops instead
-  of answering; failing because it finally answered wastes the whole run.
+  reacts with another call is `ToolLoopExceeded`.
 - **A truncated answer is a failure, not an answer.** `finish_reason == "length"` means the
-  provider stopped at the token limit, so the loop raises `AnswerTruncated` instead of storing
+  provider stopped at the token limit, so the loop raises `AnswerTruncated` rather than storing
   a half-written reply as the model's final word.
-- **The chat is renamed only after the draft commits.** `save_program_draft` returns the name
-  and records it in `ctx.renamed_to` after `commit()`, so a failed save cannot leave a renamed
+- **The chat is renamed only after the draft commits**, so a failed save cannot leave a renamed
   chat behind without the draft it was named for.
-
-## The branch is cut back to the agentic package (2026-10-18)
-
-- **`feat/gen-cicle` differs from `main` only in `backend/app/agentic/` and
-  `tests/test_agentic_*`.** The harness prompt, the provider tool-call types, the
-  `chat_programs` model and its migration, the routes and the worker were returned to `main`;
-  other zones own them. The package does not import on its own: `tools.py` reads
-  `DEFAULT_CHAT_NAME` and `ChatProgram`, `loop.py` reads the tool-call types, and
-  `test_agentic_loop.py`/`test_agentic_tools.py` fail at collection until those zones land.
-- **The first-run `ng` analytics prompt is answered per machine, not in the repository.**
-  The `cli.analytics` flag left `frontend/angular.json`; `LESSONS.md` carries the trap and
-  the remedy.
-
-## The agentic package stands on `main` again (2026-10-18)
-
-Review follow-up on `feat/gen-cicle`: the branch keeps only what `main` can build and test
-today, and what needs another zone waits for it instead of being stubbed hard.
-
-- **The source materials moved to the RAG zone.** `app/agentic/materials/` was a byte copy of
-  the root `edu_materials/` dataset, and RAG (#11) owns both the corpus and the search over
-  it. `sources.py` keeps only the seam the handlers call — `SourceFragment`, `get_source` and
-  `search` with unchanged signatures — over an empty catalog: a search reports nothing found,
-  and every citation is refused as unknown. The tests that needed a populated catalog were
-  replaced by tests of that contract; they return with the index.
-- **The loop module waits for the tool-call work rather than being stubbed.** It was written
-  against a `FunctionCall` of its own, and `GenerationResponse.tool_calls` (merged in #26)
-  retires exactly the helpers that scanned message contents for calls, so the round trip is
-  worth writing once. Review points for that implementation: errors inherit from `Exception`
-  rather than `RuntimeError`, `message.role` compares through the existing enum, and no
-  helper scans messages for calls.
-- **The agentic tools adopt the merged provider types.** `Tool(function=FunctionDefinition(...))`
-  is what a provider takes at construction, so the package exports `AGENT_TOOLS: list[Tool]`
-  instead of building the v2 wire payload itself, and `execute_tool` reads
-  `FunctionCall.arguments` as the JSON string the providers normalise to. The interim
-  `FunctionCall` / `FunctionResult` / `ToolFunctions` block that had briefly been restored
-  into `providers/models.py` is gone — only `DEFAULT_CHAT_NAME` in `models/chat.py` and
-  `MOCK_DRAFT_ARGUMENTS` in `providers/mock.py` remain as additions to other zones.
-- **The base commit's subject was reworded, not the rule relaxed.** `commitlint` validates
-  every commit of a pull request, so `feat(ala): Tools, tests, harness…` failed the PR check
-  while the push check for the same range passed. The branch was rebased to
-  `feat(ala): add tools, tests and harness for the agent model` and `subject-case` stays on.
+- **The loop is worth writing once, against the merged types.** It had been written against a
+  `FunctionCall` of its own, and `GenerationResponse.tool_calls` (#26) retires exactly the
+  helpers that scanned message contents for calls. Review points for that implementation:
+  errors inherit from `Exception` rather than `RuntimeError`, `message.role` compares through
+  the existing enum, and no helper scans messages for calls.
+- **The source materials stayed with the RAG zone.** `app/agentic/materials/` was a byte copy
+  of the root `edu_materials/` dataset; RAG (#11) owns both the corpus and the search over it,
+  and `sources.py` keeps the seam with unchanged signatures.

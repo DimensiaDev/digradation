@@ -26,8 +26,8 @@ Everything described below is working and running via Docker Compose.
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
 sessions with async generation, attachment upload / list / delete, presigned S3 results.
-Alembic: the squashed `initial` revision (`d7e256a71a55`) and the `chat_programs` addition
-(`c7536ab12114`). Nine TaskIQ tasks across the `default` and `network` queues, with hourly and
+Alembic is a **single squashed `initial` revision** (`d7e256a71a55`) generated from the new
+models. Nine TaskIQ tasks across the `default` and `network` queues, with hourly and
 10-minute cleanup crons.
 
 **Frontend.** Angular 21.2 standalone with signals. Reactive forms, cookie auth, 2-second
@@ -42,7 +42,8 @@ the OpenAI-compatible client and the GigaChat v2 client surface the calls the mo
 on `GenerationResponse.tool_calls`. `backend/app/agentic/` is the beginning of the registry:
 the АЦР programme schema, the agent's tools and their handlers. Nothing executes a call yet —
 the loop that answers or runs one is the next step, and the source catalog behind
-`sources.py` waits for the RAG index.
+`sources.py` waits for the RAG index. The handlers keep no storage of their own: the validated
+draft travels on `ToolContext` until the zone that owns the database has a table for it.
 
 **Two dead placeholder directories** are still tracked: `frontend/src/app/shared/components/
 chat-widget/` and `.../param-table/`, each holding only a `.gitkeep`. They are leftovers from
@@ -54,12 +55,11 @@ the quotation UI and nothing imports them.
 
 ## Database
 
-Two revisions: the squashed `initial` (`d7e256a71a55`) and `add chat programmes`
-(`c7536ab12114`). Nine tables (`users`, `sessions`, `chat_sessions`, `chat_messages`,
-`attachments`, `generation_results`, `processing_result_uploadables`, `settings`,
-`chat_programs`) and three enums (`userrole`, `generationresulttype`, `programstatus`).
-The TaskIQ dashboard keeps its own separate `taskiq_dashboard` database on the same
-PostgreSQL instance, created by `conf/postgres-init/01-taskiq-dashboard.sql`.
+One revision, eight tables (`users`, `sessions`, `chat_sessions`, `chat_messages`,
+`attachments`, `generation_results`, `processing_result_uploadables`, `settings`) and two
+enums (`userrole`, `generationresulttype`). The TaskIQ dashboard keeps its own separate
+`taskiq_dashboard` database on the same PostgreSQL instance, created by
+`conf/postgres-init/01-taskiq-dashboard.sql`.
 
 `processing_result_uploadables` is the artifact store a processed upload can write into. The
 `artifacts` bucket exists and the model is there, but **nothing writes rows yet** — that is the
