@@ -593,3 +593,27 @@ and why what replaced it is there.
   accept every scope the container can hand it; `MockProvider.MOCK_SCOPES` derives from the
   `Scope` literal rather than listing them, so adding a provider cannot leave a scope that
   the mock rejects at import.
+
+## GigaChat v2 tool calling (2026-10-18)
+
+- **GigaChat v2 is the tool-capable endpoint, and its wire shape differs from OpenAI's.**
+  `/v2/chat/completions` takes `tools: [{"functions": {"specifications": [...]}}]` and a
+  separate `tool_config: {"mode": "auto"}`, not OpenAI's `tools[].function` array. The reply
+  nests `function_call` inside `content[]` (with its own `id`) rather than a top-level
+  `tool_calls` array. `SberProvider` translates both directions so callers keep seeing the
+  internal `Tool` / `ToolCall` models.
+- **`ContentFunctionCall` normalises `arguments` from an object to a JSON string.** The
+  schema says "JSON wrapped in a string", but the live API returns a JSON *object*; OpenAI
+  returns a string. Accepting both in a `mode="before"` validator is cheaper than two
+  response paths, and it matches the internal `FunctionCall.arguments: str`.
+- **`Content.text` defaults to `""` and `ToolCall.id` is optional.** A v2 function-call
+  content part has no `text` key, so the shared `Content` model would reject the real
+  response otherwise. GigaChat may omit `function_call.id` (it correlates a result by name
+  and `tool_state_id`), so `ToolCall.id` became optional; the OpenAI provider still always
+  sets it.
+- **`parameters` is required on the GigaChat side**, so a tool without one is sent with an
+  empty object rather than omitted. GigaChat's own examples also omit `type: "object"`, so
+  the provider passes the caller's schema through untouched.
+- **The GigaChat live tool test lives in `test_live_gigachat.py`.** It builds a real
+  `SberProvider` from `real_provider_env` instead of reusing the container's module-level
+  instance, which was built with the mock key at import time.

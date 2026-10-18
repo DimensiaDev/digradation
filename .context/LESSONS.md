@@ -747,3 +747,13 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   `MockProvider` then receives scopes it used to reject, so `MOCK_SCOPES` derives from the
   `Scope` literal instead of listing the GigaChat scopes by hand. Found 2026-10-18 against a
   `.env` that sets `SBER_API_SCOPE=openai`.
+- **GigaChat v2 returns `function_call.arguments` as a JSON object, not a string**, and
+  nests it inside `messages[].content[]` rather than a top-level `tool_calls`. A parser that
+  trusts the spec's "wrapped in a string" wording ends up with a `dict` where `FunctionCall`
+  expects `str`. Normalise in a `mode="before"` validator. Found 2026-10-18 against the live
+  API.
+- **A PERS-scope live run needs the stack's Redis**, because every `_authed_request` takes
+  `api:global:lock` through the hardcoded `redis://redis:6379`. On a bare host the call dies
+  with `Timeout connecting to server` before it reaches GigaChat. Run PERS live tests inside
+  the Compose network, or replace `_pers_api_lock` with a no-op for a one-off probe.
+  B2B/CORP skip the lock entirely.

@@ -356,9 +356,16 @@ e2e stacks set. The OpenAI-compatible client takes its token from `SBER_API_KEY`
 endpoint from `OPENAI_URL` (empty = official OpenAI) and its model from `OPENAI_MODEL`.
 
 Tools are defined once, at provider construction: pass `tools=[Tool(...)]` to any provider.
-Only `OpenAIProvider` implements them today. It advertises them on every request and maps
-the model's requests onto `GenerationResponse.tool_calls`; nothing executes a call yet.
-`mock` and `sber` accept `tools=` and ignore them.
+`OpenAIProvider` and `SberProvider` implement them; each advertises the set on every request
+and maps the model's requests onto `GenerationResponse.tool_calls`. `mock` accepts `tools=`
+and ignores it. Nothing executes a call yet.
+
+The two real providers use different wire shapes, and the internal model hides the difference:
+
+- **OpenAI**: `tools[].function` with `arguments` as a JSON *string*.
+- **GigaChat v2** (`/v2/chat/completions`): `tools[].functions.specifications[]` plus
+  `tool_config.mode`, and the reply nests `function_call` inside `content[]` with
+  `arguments` as a JSON *object*. `SberProvider` normalises both back to `ToolCall`.
 
 ### The mock provider
 

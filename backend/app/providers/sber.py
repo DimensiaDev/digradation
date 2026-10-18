@@ -8,12 +8,18 @@ from httpx import AsyncClient, Timeout
 from app.providers.client import AIClient, AuthorizationError
 from app.providers.models import (
     AuthResponse,
+    FunctionCall,
+    FunctionSpecification,
+    FunctionsSpecifications,
     GenerationRequest,
     GenerationResponse,
     Message,
     ModelOptions,
     ResponseFormat,
     Tool,
+    ToolCall,
+    ToolConfig,
+    ToolsFunctions,
 )
 
 
@@ -75,21 +81,26 @@ class SberProvider(AIClient):
             "X-Session-Id": str(x_session_id),
             "X-Request-Id": x_request_id,
         }
+        tools = self._tools_payload()
         data = GenerationRequest(
             model=os.getenv("GIGACHAT_MODEL", "GigaChat-3-Ultra"),
             messages=message_history,
             model_options=ModelOptions(response_format=response_format),
+            tools=tools,
+            # ``auto`` lets the model decide; GigaChat defaults to it, but being
+            # explicit keeps a tool-less request from inheriting the mode.
+            tool_config=ToolConfig(mode="auto") if tools else None,
         )
 
         r = await self._post(
             "/chat/completions",
-            json=data.model_dump(exclude_unset=True, by_alias=True),
+            json=data.model_dump(exclude_unset=True, exclude_none=True, by_alias=True),
             headers=headers,
         )
         if r.status_code != 200:
             log.error(
                 "completion_failure",
-                data=data.model_dump(by_alias=True),
+                data=data.model_dump(exclude_none=True, by_alias=True),
                 response=r.json(),
                 status_code=r.status_code,
             )
@@ -97,7 +108,36 @@ class SberProvider(AIClient):
 
         json_data = r.json()
         log.debug("completion_response", data=json_data)
-        return GenerationResponse.model_validate(json_data)
+        response = GenerationResponse.model_validate(json_data)
+        # v2 nests the requested calls inside the content parts; the shared
+        # response model surfaces them at the top level, as the OpenAI client does.
+        response.tool_calls = [
+            ToolCall(
+                id=part.function_call.id,
+                function=FunctionCall(
+                    name=part.function_call.name,
+                    arguments=part.function_call.arguments or "",
+                ),
+            )
+            for message in response.messages
+            for part in message.content
+            if part.function_call is not None
+        ]
+        return response
+
+    def _tools_payload(self) -> list[ToolsFunctions] | None:
+        """Translate the provider's tools into the GigaChat v2 ``tools`` shape."""
+        if not self.tools:
+            return None
+        specifications = [
+            FunctionSpecification(
+                name=tool.function.name,
+                description=tool.function.description,
+                parameters=tool.function.parameters or {},
+            )
+            for tool in self.tools
+        ]
+        return [ToolsFunctions(functions=FunctionsSpecifications(specifications=specifications))]
 
     async def upload(
         self,

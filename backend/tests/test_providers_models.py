@@ -15,9 +15,12 @@ from app.models.chat import ChatMessage, UserRole
 from app.providers.models import (
     AuthResponse,
     Content,
+    ContentFunctionCall,
     FileSchema,
     FunctionCall,
     FunctionDefinition,
+    FunctionSpecification,
+    FunctionsSpecifications,
     GenerationRequest,
     GenerationResponse,
     HarnessStructuredOutput,
@@ -27,6 +30,8 @@ from app.providers.models import (
     ResponseFormat,
     Tool,
     ToolCall,
+    ToolConfig,
+    ToolsFunctions,
     Usage,
 )
 
@@ -183,6 +188,69 @@ def test_tool_call_rejects_a_missing_function_name():
         ToolCall(id="call_1", function={"arguments": "{}"})
 
 
+def test_tool_call_id_is_optional():
+    assert ToolCall(function={"name": "lookup", "arguments": "{}"}).id is None
+
+
+def test_content_defaults_to_empty_text_and_no_function_call():
+    content = Content()
+
+    assert content.text == ""
+    assert content.function_call is None
+
+
+def test_content_keeps_a_string_function_call_argument():
+    content = Content(function_call=ContentFunctionCall(id="call_1", name="lookup", arguments='{"q": "x"}'))
+
+    assert content.function_call.id == "call_1"
+    assert content.function_call.name == "lookup"
+    assert content.function_call.arguments == '{"q": "x"}'
+
+
+def test_content_serializes_object_function_call_arguments():
+    content = Content.model_validate({"function_call": {"name": "lookup", "arguments": {"q": "x"}}})
+
+    assert content.function_call.arguments == '{"q": "x"}'
+
+
+def test_content_function_call_requires_a_name():
+    with pytest.raises(ValidationError):
+        Content.model_validate({"function_call": {"arguments": "{}"}})
+
+
+def test_tool_config_defaults_to_auto():
+    config = ToolConfig()
+
+    assert config.mode == "auto"
+    assert config.tool_name is None
+    assert config.function_name is None
+
+
+def test_tool_config_rejects_an_unknown_mode():
+    with pytest.raises(ValidationError):
+        ToolConfig(mode="always")
+
+
+def test_tools_functions_dump_to_the_gigachat_v2_shape():
+    functions = ToolsFunctions(
+        functions=FunctionsSpecifications(
+            specifications=[
+                FunctionSpecification(
+                    name="lookup",
+                    description="Look something up",
+                    parameters={"type": "object"},
+                )
+            ]
+        )
+    )
+
+    assert functions.model_dump(exclude_none=True) == {
+        "functions": {
+            "specifications": [{"name": "lookup", "description": "Look something up", "parameters": {"type": "object"}}]
+        }
+    }
+
+
 # ---------------------------------------------------------------------------
 # ResponseFormat
 # ---------------------------------------------------------------------------
@@ -271,6 +339,43 @@ def test_generation_request_requires_a_model():
             messages=[Message(role="user", content=[{"text": "hi"}])],
             model_options=ModelOptions(response_format=ResponseFormat(type="text")),
         )
+
+
+def test_generation_request_carries_gigachat_v2_tools():
+    request = GenerationRequest(
+        model="GigaChat-3-Ultra",
+        messages=[Message(role="user", content=[{"text": "hi"}])],
+        model_options=ModelOptions(response_format=ResponseFormat(type="text")),
+        tool_config=ToolConfig(mode="auto"),
+        tools=[
+            ToolsFunctions(
+                functions=FunctionsSpecifications(
+                    specifications=[FunctionSpecification(name="lookup", parameters={"type": "object"})]
+                )
+            )
+        ],
+    )
+
+    dumped = request.model_dump(exclude_unset=True, exclude_none=True, by_alias=True)
+
+    assert dumped["tool_config"] == {"mode": "auto"}
+    specification = dumped["tools"][0]["functions"]["specifications"][0]
+    assert specification["name"] == "lookup"
+    assert specification["parameters"] == {"type": "object"}
+    assert "description" not in specification
+
+
+def test_generation_request_drops_tool_fields_when_unset():
+    request = GenerationRequest(
+        model="GigaChat-3-Ultra",
+        messages=[Message(role="user", content=[{"text": "hi"}])],
+        model_options=ModelOptions(response_format=ResponseFormat(type="text")),
+    )
+
+    dumped = request.model_dump(exclude_unset=True, exclude_none=True, by_alias=True)
+
+    assert "tools" not in dumped
+    assert "tool_config" not in dumped
 
 
 # ---------------------------------------------------------------------------
