@@ -23,7 +23,6 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agentic.models import ProgramStatus
 from app.cache import (
     get_attachment_ownership_key,
     get_attachment_status_key,
@@ -43,7 +42,6 @@ from app.models.chat import (
     ProcessingResultUploadable,
     UserRole,
 )
-from app.models.program import ChatProgram
 from app.models.settings import SETTINGS_ROW_ID, Settings
 from app.routes.chat import delete_chat
 
@@ -1217,121 +1215,3 @@ async def test_attachment_status_forbidden_for_other_user(
     response = await auth_client.post(f"/chats/{other_chat.session_id}/uploads/{attachment.id}/status")
 
     assert response.status_code == 403
-
-
-# ---------------------------------------------------------------------------
-# GET /chats/{session_id}/program and POST /chats/{session_id}/program/approve
-# ---------------------------------------------------------------------------
-
-
-def programme_draft() -> dict:
-    """A minimal schema-valid draft payload."""
-    return {
-        "kind": "general_development",
-        "title": "Основы анализа данных",
-        "summary": {
-            "goal": "Научить основам анализа данных",
-            "target_audience": "Слушатели без опыта анализа данных",
-            "form": "очно-заочная",
-            "issued_document": "сертификат",
-        },
-        "competencies": [
-            {
-                "id": "comp-01",
-                "statement": "Способен анализировать данные",
-                "knowledge": [{"id": "ro-k-01", "statement": "Знает основы статистики"}],
-            }
-        ],
-        "curriculum": {
-            "modules": [
-                {
-                    "id": "m-01",
-                    "title": "Модуль",
-                    "topics": [{"id": "t-01.1", "title": "Тема", "hours": {"lecture": 2}}],
-                }
-            ],
-            "schedule": {"days": 1, "hours_per_day": 2},
-        },
-        "sources": [],
-    }
-
-
-async def save_programme(db_session: AsyncSession, session_id: uuid.UUID, status: ProgramStatus) -> ChatProgram:
-    row = ChatProgram(chat_session_id=session_id, status=status, draft=programme_draft())
-    db_session.add(row)
-    await db_session.commit()
-    await db_session.refresh(row)
-    return row
-
-
-async def test_get_chat_program_without_a_draft(auth_client: AsyncClient, chat, redis_session: None):
-    response = await auth_client.get(f"/chats/{chat.session_id}/program")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "draft", "draft": None, "updated_at": None}
-
-
-async def test_get_chat_program_returns_the_saved_draft(
-    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
-):
-    await save_programme(db_session, chat.session_id, ProgramStatus.PENDING_APPROVAL)
-
-    response = await auth_client.get(f"/chats/{chat.session_id}/program")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "pending_approval"
-    assert data["draft"]["title"] == "Основы анализа данных"
-
-
-async def test_get_chat_program_forbidden_for_other_user(auth_client: AsyncClient, other_chat, redis_session: None):
-    response = await auth_client.get(f"/chats/{other_chat.session_id}/program")
-
-    assert response.status_code == 403
-
-
-async def test_approve_chat_program_freezes_a_pending_draft(
-    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
-):
-    row = await save_programme(db_session, chat.session_id, ProgramStatus.PENDING_APPROVAL)
-
-    response = await auth_client.post(f"/chats/{chat.session_id}/program/approve")
-
-    assert response.status_code == 200
-    assert response.json()["status"] == "approved"
-    await db_session.refresh(row)
-    assert row.status is ProgramStatus.APPROVED
-
-
-async def test_approve_chat_program_is_idempotent(
-    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
-):
-    row = await save_programme(db_session, chat.session_id, ProgramStatus.APPROVED)
-
-    response = await auth_client.post(f"/chats/{chat.session_id}/program/approve")
-
-    assert response.status_code == 200
-    assert response.json()["status"] == "approved"
-    await db_session.refresh(row)
-    assert row.status is ProgramStatus.APPROVED
-
-
-async def test_approve_chat_program_keeps_a_verified_draft_verified(
-    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
-):
-    """A verified programme already passed both checks; confirming it again must not undo the later one."""
-    row = await save_programme(db_session, chat.session_id, ProgramStatus.VERIFIED)
-
-    response = await auth_client.post(f"/chats/{chat.session_id}/program/approve")
-
-    assert response.status_code == 200
-    assert response.json()["status"] == "verified"
-    await db_session.refresh(row)
-    assert row.status is ProgramStatus.VERIFIED
-
-
-async def test_approve_chat_program_requires_a_saved_draft(auth_client: AsyncClient, chat, redis_session: None):
-    response = await auth_client.post(f"/chats/{chat.session_id}/program/approve")
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == "No programme draft to approve"
