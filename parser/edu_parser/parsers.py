@@ -90,9 +90,9 @@ def _iter_block_items(parent) -> Iterator:
 
     if isinstance(parent, _Document):
         parent_elm = parent.element.body
-    elif isinstance(parent, _Cell):
+    elif isinstance(parent, _Cell):  # pragma: no cover — nested tables, see issue #18
         parent_elm = parent._tc
-    else:
+    else:  # pragma: no cover — defensive
         raise ValueError(f"Unsupported parent: {type(parent)}")
 
     for child in parent_elm.iterchildren():

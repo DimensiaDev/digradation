@@ -71,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         if not r["ok"]:
             print(f"  ✗ {r['source_path']}: {r['error']}")
     print(f"\nManifest: {Path(args.output).resolve() / 'manifest.json'}")
-    return 0 if failed == 0 else 1
+    return int(failed > 0)
 
 
 if __name__ == "__main__":

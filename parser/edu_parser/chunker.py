@@ -15,16 +15,21 @@ def _safe_tail(text: str, overlap: int) -> str:
     ``text[-0:]`` would equal ``text[0:]`` (the whole string) and the
     entire buffer would be carried into the next chunk, duplicating
     content and blowing past ``max_size``.
+
+    ``strip()`` at the end trims trailing whitespace that survives the
+    word-boundary snap. It does *not* replace the regex: cutting the
+    tail at the first space is what prevents a truncated leading word
+    ("...интеллек" -> "интеллекта") from leaking into the next chunk.
     """
     if overlap <= 0:
         return ""
     if len(text) <= overlap:
-        return text
+        return text.strip()
     tail = text[-overlap:]
     m = re.search(r"\s", tail)
     if m:
         tail = tail[m.start() + 1 :]
-    return tail
+    return tail.strip()
 
 
 def _split_long(text: str, max_size: int) -> list[str]:
