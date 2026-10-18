@@ -740,3 +740,9 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   on every gated route. Let the layout hand the space over instead: `main` is a column flex
   container, the header is `flex-shrink: 0`, the filler is `flex: 1 1 auto; min-height: 0`.
   Check the free space at more than one viewport size. (2026-10-18)
+- **"These two icons are a slightly different colour" is usually a stroke-width illusion.** The
+  sidebar's collapse and theme buttons both resolved `color` to `--sidebar-muted`
+  (`rgb(148,163,184)`, byte-identical), yet looked different: Lucide's stroke is 2 *viewBox*
+  units, so a `size="20"` icon drew a 1.67px stroke where a `size="18"` one drew 1.5px, and the
+  thinner stroke antialiases lighter against the sidebar. Compare the rendered stroke px
+  (`size / 24 × 2`) before reaching for the colour token. (2026-10-18)
