@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 import pytest_asyncio
+from structlog.testing import capture_logs
 
 from app.agentic.models import ProgramStatus
 from app.agentic.sources import get_source
@@ -222,3 +223,13 @@ async def test_a_stored_draft_makes_its_sources_citable_again(tool_context, db_s
     saved_again = await execute_tool(fresh, save_call(draft))
 
     assert saved_again["ok"] is True
+
+
+async def test_the_draft_title_is_not_written_to_the_logs(tool_context):
+    """The title is user content; a trace needs the session and the source count."""
+    with capture_logs() as logs:
+        result = await execute_tool(tool_context, save_call())
+
+    assert result["ok"] is True
+    saved = next(entry for entry in logs if entry["event"] == "program_draft_saved")
+    assert MOCK_DRAFT_ARGUMENTS["title"] not in str(saved)

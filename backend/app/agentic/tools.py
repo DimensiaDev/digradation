@@ -264,7 +264,7 @@ async def save_program_draft(ctx: ToolContext, arguments: dict) -> dict:
         if renamed_to is not None:
             ctx.renamed_to = renamed_to
 
-    log.info("program_draft_saved", chat_session_id=str(ctx.session_id), title=draft.title, sources=len(sources))
+    log.info("program_draft_saved", chat_session_id=str(ctx.session_id), sources=len(sources))
     return {
         "ok": True,
         "status": ProgramStatus.PENDING_APPROVAL,
