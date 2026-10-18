@@ -6,14 +6,13 @@ The offline provider is production code (it ships in the image whenever
 directly rather than only through the worker that uses it.
 """
 
+import json
 import uuid
 
 import pytest
 
 from app.providers.mock import (
     DEFAULT_MODE,
-    MOCK_DRAFT_ARGUMENTS,
-    MOCK_SAVE_FUNCTION,
     MODES,
     MockProvider,
     _seed,
@@ -69,49 +68,36 @@ def _messages(text: str):
     return [Message(role="user", content=[Content(text=text)])]
 
 
-async def _generate(provider, text: str = "hello", **kwargs):
+async def _generate(provider, text: str = "hello"):
+    from app.providers.models import ResponseFormat
+
     return await provider.generate(
         _messages(text),
+        ResponseFormat(type="text"),
         x_client_id=uuid.uuid4(),
         x_session_id=uuid.uuid4(),
-        **kwargs,
     )
 
 
-def _reply(response) -> str:
-    return response.messages[0].content[0].text
+def _payload(response) -> dict:
+    return json.loads(response.messages[0].content[0].text)
 
 
-def _tools():
-    from app.providers.models import FunctionSpecification, Tool, ToolFunctions
-
-    return [
-        Tool(
-            functions=ToolFunctions(
-                specifications=[
-                    FunctionSpecification(
-                        name=MOCK_SAVE_FUNCTION, description="Save the draft", parameters={"type": "object"}
-                    )
-                ]
-            )
-        )
-    ]
-
-
-async def test_mock_ok_mode_returns_a_plain_reply(monkeypatch):
+async def test_mock_ok_mode_returns_the_chat_contract(monkeypatch):
     monkeypatch.setenv("MOCK_PROVIDER_MODE", "ok")
-    response = await _generate(MockProvider("mock", "PERS"))
+    provider = MockProvider("mock", "PERS")
+    payload = _payload(await _generate(provider))
 
-    assert response is not None
-    assert response.messages[0].content[0].function_call is None
-    assert _reply(response)
+    assert set(payload) == {"chat_name", "message"}
+    assert payload["message"]
+    assert payload["chat_name"]
 
 
 async def test_mock_ok_mode_is_deterministic(monkeypatch):
     """The same conversation must produce the same reply, or e2e assertions drift."""
     monkeypatch.setenv("MOCK_PROVIDER_MODE", "ok")
-    first = _reply(await _generate(MockProvider("mock", "PERS")))
-    second = _reply(await _generate(MockProvider("mock", "PERS")))
+    first = _payload(await _generate(MockProvider("mock", "PERS")))
+    second = _payload(await _generate(MockProvider("mock", "PERS")))
     assert first == second
 
 
@@ -127,51 +113,13 @@ async def test_mock_empty_mode_returns_a_message_with_no_content(monkeypatch):
     assert response.messages[0].content == []
 
 
-async def test_mock_draft_mode_asks_to_save_the_draft(monkeypatch):
-    """Without tools the draft mode has nothing to call, so it answers with text."""
-    monkeypatch.setenv("MOCK_PROVIDER_MODE", "draft")
-
-    response = await _generate(MockProvider("mock", "PERS"), tools=_tools())
-
-    assert response.finish_reason == "function_call"
-    call = response.messages[0].content[0].function_call
-    assert call.name == MOCK_SAVE_FUNCTION
-    assert call.arguments == MOCK_DRAFT_ARGUMENTS
-    assert response.messages[0].tools_state_id == "mock-tools-state"
-
-
-async def test_mock_draft_mode_answers_with_text_after_the_function_result(monkeypatch):
-    """The round after the saved draft is what the methodist reads."""
-    from app.providers.models import Content, FunctionCall, FunctionResult, Message
-
-    monkeypatch.setenv("MOCK_PROVIDER_MODE", "draft")
-    history = [
-        *_messages("Сделай программу по искусственному интеллекту"),
-        Message(role="assistant", content=[Content(function_call=FunctionCall(id="call-1", name=MOCK_SAVE_FUNCTION))]),
-        Message(
-            role="tool",
-            content=[
-                Content(function_result=FunctionResult(id="call-1", name=MOCK_SAVE_FUNCTION, result={"ok": True}))
-            ],
-        ),
-    ]
-
-    response = await MockProvider("mock", "PERS").generate(
-        history, x_client_id=uuid.uuid4(), x_session_id=uuid.uuid4(), tools=_tools()
-    )
-
-    assert response.finish_reason == "stop"
-    assert response.messages[0].content[0].function_call is None
-    assert _reply(response)
-
-
 async def test_mock_output_is_deterministic():
     provider = MockProvider("mock", "PERS")
-    first = _reply(await _generate(provider, "same input"))
-    second = _reply(await _generate(provider, "same input"))
+    first = _payload(await _generate(provider, "same input"))
+    second = _payload(await _generate(provider, "same input"))
     assert first == second
 
-    different = _reply(await _generate(provider, "other input"))
+    different = _payload(await _generate(provider, "other input"))
     assert different != first
 
 

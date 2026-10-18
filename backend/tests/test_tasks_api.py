@@ -6,6 +6,7 @@ only thing stubbed out is the enqueue itself (``process_response.kiq``), which
 would otherwise need a live RabbitMQ.
 """
 
+import json
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -17,11 +18,11 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from app.agentic.models import ProgramStatus
 from app.auth import hash_password
 from app.cache import get_deletion_key, get_generation_key, get_redis_client
 from app.models.auth import User
 from app.models.chat import (
+    MAX_CHAT_NAME_LENGTH,
     Attachment,
     ChatMessage,
     ChatSession,
@@ -29,11 +30,41 @@ from app.models.chat import (
     GenerationResultType,
     UserRole,
 )
-from app.models.program import ChatProgram
-from app.providers.mock import MOCK_DRAFT_ARGUMENTS
 from app.providers.models import Message
 from app.tasks import api
 from tests.helpers import run_task
+
+# --------------------------------------------------------------------------------------
+# payload helpers
+# --------------------------------------------------------------------------------------
+
+
+def payload(
+    *,
+    chat_name: str | None = "Расчёт детали",
+    message: str = "Готово.",
+) -> str:
+    return json.dumps(
+        {
+            "chat_name": chat_name,
+            "message": message,
+        },
+        ensure_ascii=False,
+    )
+
+
+class FalsyResponse:
+    """A provider response object that is falsy but not ``None``.
+
+    ``generate_chat_message`` guards its provider output twice: once with
+    ``is None`` (which raises and is reported as an internal error) and once with
+    a plain truthiness check, which only a response that is falsy without being
+    ``None`` can reach.
+    """
+
+    def __bool__(self) -> bool:
+        return False
+
 
 # --------------------------------------------------------------------------------------
 # fixtures
@@ -194,18 +225,16 @@ class ProviderRecorder:
     """Wraps ``provider.generate`` and keeps every history it was handed.
 
     The real (mock) provider still answers, so the task under test runs to
-    completion; only the message list and the call arguments are captured, which
-    is what the retry and tool-passing regression tests assert on.
+    completion; only the message list is captured, which is what the retry
+    regression tests assert on.
     """
 
     def __init__(self, original) -> None:
         self._original = original
         self.histories: list[list[Message]] = []
-        self.calls: list[dict] = []
 
     async def __call__(self, messages: list[Message], *args, **kwargs):
         self.histories.append(messages)
-        self.calls.append({"args": args, "kwargs": kwargs})
         return await self._original(messages, *args, **kwargs)
 
     @property
@@ -298,31 +327,12 @@ async def test_generate_chat_message_enqueues_process_response(task_db, rows, re
     args = kiq_spy.await_args.args
     assert args[0] == user.uuid
     assert args[1] == session.session_id
-    assert isinstance(args[2], str) and args[2]
-    # The `ok` reply names nothing, so there is no rename to forward.
-    assert args[3] is None
+    forwarded = json.loads(args[2])
+    assert set(forwarded) == {"chat_name", "message"}
+    assert forwarded["message"]
     # No result is written by this task: that is process_response's job.
     async with rows.session() as db:
         assert await db.scalar(select(func.count()).select_from(GenerationResult)) == 0
-
-
-async def test_generate_chat_message_sends_the_agent_tools(
-    task_db, rows, redis_keys, kiq_spy, mock_mode, provider_recorder
-):
-    """Every round of the loop offers the same user functions to the model."""
-    mock_mode("ok")
-    user = await rows.user()
-    session = await rows.chat_session(user)
-    await rows.message(session.session_id)
-
-    await run_task(api.generate_chat_message, session.session_id)
-
-    assert provider_recorder.calls
-    kwargs = provider_recorder.calls[0]["kwargs"]
-    assert kwargs["tool_config"].mode == "auto"
-    names = [spec.name for spec in kwargs["tools"][0].functions.specifications]
-    assert names == ["search_sources", "save_program_draft", "get_program_draft"]
-    assert kwargs["x_session_id"] == session.session_id
 
 
 async def test_generate_chat_message_clears_a_stale_result_and_takes_the_lock(
@@ -404,41 +414,27 @@ async def test_generate_chat_message_with_contentless_response_writes_an_error(
     kiq_spy.assert_not_awaited()
 
 
-async def test_generate_chat_message_saves_the_draft_and_forwards_the_name(
-    task_db, rows, redis_keys, kiq_spy, mock_mode, provider_recorder
+async def test_generate_chat_message_with_falsy_provider_response_writes_an_error(
+    task_db, rows, redis_keys, kiq_spy, monkeypatch
 ):
-    """The `draft` mock runs a whole methodist turn: call, execute, answer.
-
-    The model asks for ``save_program_draft``, the loop executes it against the
-    real database and hands the result back, and the reply that reaches
-    ``process_response`` carries the name the handler gave the chat.
-    """
-    mock_mode("draft")
+    monkeypatch.setattr(api.provider, "generate", AsyncMock(return_value=FalsyResponse()))
     user = await rows.user()
     session = await rows.chat_session(user)
-    await rows.message(session.session_id, "Сделай программу по искусственному интеллекту")
+    await rows.message(session.session_id)
+    key = redis_keys.track(get_generation_key(user.uuid))
 
     await run_task(api.generate_chat_message, session.session_id)
 
     async with rows.session() as db:
-        program = await db.get(ChatProgram, session.session_id)
-        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
-    assert program is not None
-    assert program.status == ProgramStatus.PENDING_APPROVAL
-    assert program.draft["title"] == MOCK_DRAFT_ARGUMENTS["title"]
-    assert stored is not None
-    assert stored.name == MOCK_DRAFT_ARGUMENTS["title"]
-
-    # The second round is the one that sees the function result.
-    assert len(provider_recorder.histories) == 2
-    tool_message = provider_recorder.histories[1][-1]
-    assert tool_message.role == "tool"
-    assert tool_message.content[0].function_result.name == "save_program_draft"
-    assert tool_message.content[0].function_result.result["ok"] is True
-
-    kiq_spy.assert_awaited_once()
-    args = kiq_spy.await_args.args
-    assert args[3] == MOCK_DRAFT_ARGUMENTS["title"]
+        result = await db.get(GenerationResult, session.session_id)
+    assert result is not None
+    assert result.type == GenerationResultType.ERROR
+    assert result.content == "Internal server error occurred, please try again later or contact support."
+    # This branch writes the result inline instead of going through
+    # ``_add_error_result``, so nothing releases the generation lock here. It only
+    # expires on its own TTL, which is what the assertion below pins down.
+    assert await redis_keys.get(key) == "1"
+    kiq_spy.assert_not_awaited()
 
 
 async def test_generate_chat_message_stops_on_a_deletion_tombstone(task_db, rows, redis_keys, kiq_spy, mock_mode):
@@ -530,7 +526,7 @@ def test_history_is_cut_after_the_last_user_message():
     rows = [
         stored(UserRole.SYSTEM, "system"),
         stored(UserRole.USER, "спроси"),
-        stored(UserRole.ASSISTANT, "уточните"),
+        stored(UserRole.ASSISTANT, '{"message": "уточните"}'),
     ]
 
     kept = api._history_up_to_last_user_message(rows)
@@ -543,13 +539,13 @@ def test_history_keeps_assistant_turns_before_the_last_user_message():
     rows = [
         stored(UserRole.SYSTEM, "system"),
         stored(UserRole.USER, "посчитай"),
-        stored(UserRole.ASSISTANT, "старый ответ"),
+        stored(UserRole.ASSISTANT, '{"message": "старый ответ"}'),
         stored(UserRole.USER, "а теперь пересчитай"),
     ]
 
     kept = api._history_up_to_last_user_message(rows)
 
-    assert [m.content for m in kept] == ["system", "посчитай", "старый ответ", "а теперь пересчитай"]
+    assert [m.content for m in kept] == ["system", "посчитай", '{"message": "старый ответ"}', "а теперь пересчитай"]
 
 
 def test_history_drops_every_trailing_assistant_message():
@@ -590,8 +586,9 @@ async def test_generate_chat_message_does_not_resend_the_assistant_turn_being_re
     await rows.message(session.session_id, "Посчитай кронштейн")
     await rows.message(
         session.session_id,
-        "Прошлый, неудачный ответ.",
+        payload(message="Прошлый, неудачный ответ."),
         role=UserRole.ASSISTANT,
+        display_text="Прошлый, неудачный ответ.",
     )
     await rows.result(session.session_id, type=GenerationResultType.ERROR, content="Internal server error occurred")
 
@@ -610,7 +607,7 @@ async def test_generate_chat_message_keeps_an_assistant_turn_that_precedes_the_l
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id, "Посчитай кронштейн")
-    await rows.message(session.session_id, "Готово.", role=UserRole.ASSISTANT)
+    await rows.message(session.session_id, payload(), role=UserRole.ASSISTANT, display_text="Готово.")
     await rows.message(session.session_id, "И пересчитай с другой толщиной")
 
     await run_task(api.generate_chat_message, session.session_id)
@@ -618,7 +615,7 @@ async def test_generate_chat_message_keeps_an_assistant_turn_that_precedes_the_l
     kiq_spy.assert_awaited_once()
     # The first answer is legitimate context; only the trailing one is dropped.
     assert provider_recorder.roles() == [UserRole.USER, UserRole.ASSISTANT, UserRole.USER]
-    assert provider_recorder.texts() == ["Посчитай кронштейн", "Готово.", "И пересчитай с другой толщиной"]
+    assert provider_recorder.texts() == ["Посчитай кронштейн", payload(), "И пересчитай с другой толщиной"]
 
 
 async def test_generate_chat_message_keeps_the_whole_history_of_a_healthy_session(
@@ -630,7 +627,7 @@ async def test_generate_chat_message_keeps_the_whole_history_of_a_healthy_sessio
     session = await rows.chat_session(user)
     await rows.message(session.session_id, "system prompt", role=UserRole.SYSTEM)
     await rows.message(session.session_id, "Посчитай кронштейн")
-    await rows.message(session.session_id, "Готово.", role=UserRole.ASSISTANT)
+    await rows.message(session.session_id, payload(), role=UserRole.ASSISTANT, display_text="Готово.")
     await rows.message(session.session_id, "А ещё одна деталь")
 
     await run_task(api.generate_chat_message, session.session_id)
@@ -645,7 +642,7 @@ async def test_generate_chat_message_keeps_the_whole_history_of_a_healthy_sessio
     assert provider_recorder.texts() == [
         "system prompt",
         "Посчитай кронштейн",
-        "Готово.",
+        payload(),
         "А ещё одна деталь",
     ]
 
@@ -676,15 +673,17 @@ async def test_generate_chat_message_without_a_user_message_writes_an_error(
 # --------------------------------------------------------------------------------------
 
 
-async def test_process_response_stores_the_reply_and_forwards_the_name(task_db, rows, redis_keys):
+async def test_process_response_stores_the_reply_and_renames_the_session(task_db, rows, redis_keys):
     user = await rows.user()
     session = await rows.chat_session(user)
+    body = payload(chat_name="Расчёт кронштейна", message="Расчёт готов.")
     await redis_keys.put(get_generation_key(user.uuid))
 
-    await run_task(api.process_response, user.uuid, session.session_id, "Расчёт готов.", "Расчёт кронштейна")
+    await run_task(api.process_response, user.uuid, session.session_id, body)
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
         assistant = await db.scalar(
             select(ChatMessage).where(
                 ChatMessage.chat_session_id == session.session_id,
@@ -698,30 +697,85 @@ async def test_process_response_stores_the_reply_and_forwards_the_name(task_db, 
     assert result.content == "Расчёт готов."
     assert result.update_name == "Расчёт кронштейна"
     assert result.attachment_id is None
+    assert stored is not None and stored.name == "Расчёт кронштейна"
     assert assistant is not None
-    assert assistant.content == "Расчёт готов."
-    # The reply is already readable, so there is no display text to extract.
-    assert assistant.display_text is None
+    assert assistant.content == body
+    assert assistant.display_text == "Расчёт готов."
     assert attachment_count == 0
     assert await redis_keys.get(get_generation_key(user.uuid)) is None
 
 
-async def test_process_response_without_a_name_stores_the_plain_reply(task_db, rows, redis_keys):
+async def test_process_response_keeps_an_existing_session_name(task_db, rows, redis_keys):
+    user = await rows.user()
+    session = await rows.chat_session(user, name="Мой расчёт")
+
+    await run_task(api.process_response, user.uuid, session.session_id, payload(chat_name="Другое имя"))
+
+    async with rows.session() as db:
+        result = await db.get(GenerationResult, session.session_id)
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
+    assert result is not None and result.update_name is None
+    assert stored is not None and stored.name == "Мой расчёт"
+
+
+async def test_process_response_without_a_chat_name_leaves_the_session_alone(task_db, rows, redis_keys):
     user = await rows.user()
     session = await rows.chat_session(user)
 
-    await run_task(api.process_response, user.uuid, session.session_id, "Сначала уточните аудиторию.")
+    await run_task(api.process_response, user.uuid, session.session_id, payload(chat_name=None))
+
+    async with rows.session() as db:
+        result = await db.get(GenerationResult, session.session_id)
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
+    assert result is not None and result.update_name is None
+    assert stored is not None and stored.name == "Новый чат"
+
+
+async def test_process_response_truncates_an_overlong_chat_name(task_db, rows, redis_keys, s3):
+    user = await rows.user()
+    session = await rows.chat_session(user)
+
+    await run_task(api.process_response, user.uuid, session.session_id, payload(chat_name="Д" * 200))
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
         stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
     assert result is not None
-    assert result.content == "Сначала уточните аудиторию."
-    assert result.update_name is None
-    assert stored is not None and stored.name == "Новый чат"
+    assert result.update_name == "Д" * (MAX_CHAT_NAME_LENGTH - 3) + "..."
+    assert len(result.update_name) == MAX_CHAT_NAME_LENGTH
+    assert stored is not None and stored.name == result.update_name
 
 
-async def test_process_response_for_a_deleted_session_still_releases_the_lock(task_db, rows, redis_keys):
+async def test_process_response_reports_invalid_json(task_db, rows, redis_keys):
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    key = await redis_keys.put(get_generation_key(user.uuid))
+
+    await run_task(api.process_response, user.uuid, session.session_id, "{не json")
+
+    async with rows.session() as db:
+        result = await db.get(GenerationResult, session.session_id)
+    assert result is not None
+    assert result.type == GenerationResultType.ERROR
+    assert result.content == "Internal server error occurred"
+    assert await redis_keys.get(key) is None
+
+
+async def test_process_response_reports_a_schema_mismatch(task_db, rows, redis_keys):
+    """Valid JSON that does not satisfy ``HarnessStructuredOutput``."""
+    user = await rows.user()
+    session = await rows.chat_session(user)
+
+    # `message` is the one required field, so a payload without it is the mismatch.
+    await run_task(api.process_response, user.uuid, session.session_id, json.dumps({"chat_name": "Без ответа"}))
+
+    async with rows.session() as db:
+        result = await db.get(GenerationResult, session.session_id)
+    assert result is not None
+    assert result.type == GenerationResultType.ERROR
+
+
+async def test_process_response_for_a_deleted_session_still_releases_the_lock(task_db, rows, redis_keys, s3):
     """The session lookup returning ``None`` is handled, but the result insert is not.
 
     ``GenerationResult.chat_session_id`` references ``chat_sessions``, so once the
@@ -734,6 +788,6 @@ async def test_process_response_for_a_deleted_session_still_releases_the_lock(ta
     key = await redis_keys.put(get_generation_key(user.uuid))
 
     with pytest.raises(IntegrityError):
-        await run_task(api.process_response, user.uuid, session.session_id, "Готово.")
+        await run_task(api.process_response, user.uuid, session.session_id, payload())
 
     assert await redis_keys.get(key) is None

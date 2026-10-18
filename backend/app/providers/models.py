@@ -1,6 +1,5 @@
-import json
 from datetime import UTC, datetime
-from typing import Any, ClassVar, Literal, Self
+from typing import ClassVar, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -23,62 +22,10 @@ class FileSchema(BaseModel):
     id: str
 
 
-class FunctionCall(BaseModel):
-    """One function call requested by the model, as it arrives in a content part."""
-
-    id: str | None = None
-    name: str
-    arguments: dict = Field(default_factory=dict)
-
-    @field_validator("arguments", mode="before")
-    @classmethod
-    def parse_arguments(cls, v):
-        """The v2 endpoint sends an object; an older one may send a JSON string."""
-        if isinstance(v, str):
-            return json.loads(v)
-        return v
-
-
-class FunctionResult(BaseModel):
-    """The value of a function call, sent back as a `tool` message part."""
-
-    id: str | None = None
-    name: str
-    result: Any
-
-
-class FunctionSpecification(BaseModel):
-    """Declaration of one function the model is allowed to call."""
-
-    name: str
-    description: str
-    parameters: dict
-
-
-class ToolFunctions(BaseModel):
-    specifications: list[FunctionSpecification]
-
-
-class Tool(BaseModel):
-    """A tool available to the model; its functions are grouped under ``functions``."""
-
-    functions: ToolFunctions
-
-
-class ToolConfig(BaseModel):
-    """How the model may pick a function: ``auto`` leaves the choice to it."""
-
-    mode: Literal["auto", "none", "forced", "any"] = "auto"
-
-
 class Content(BaseModel):
-    """One part of a message: text, files, or a function call/result."""
-
-    text: str | None = None
+    text: str
     inline_data: dict[str, str] | None = None
     files: list[FileSchema] = Field(default_factory=list)
-    function_call: FunctionCall | None = None
-    function_result: FunctionResult | None = None
 
     @field_validator("files", mode="before")
     @classmethod
@@ -87,11 +34,8 @@ class Content(BaseModel):
 
 
 class Message(BaseModel):
-    """A chat message; ``tools_state_id`` ties function results to their call round."""
-
     role: Literal["user", "system", "assistant", "tool"]
     content: list[Content]
-    tools_state_id: str | None = None
 
     @classmethod
     def from_chat_message(cls, obj: ChatMessage) -> Self:
@@ -99,6 +43,11 @@ class Message(BaseModel):
         if obj.files_str:
             files = [FileSchema(id=f.strip()) for f in obj.files_str.split(",")]
         return cls(content=[Content(text=obj.content, files=files)], role=obj.role)  # type: ignore
+
+
+class HarnessStructuredOutput(BaseModel):
+    chat_name: str | None = None
+    message: str
 
 
 class ResponseFormat(BaseModel):
@@ -127,9 +76,7 @@ class ModelOptions(BaseModel):
 class GenerationRequest(BaseModel):
     model: str
     messages: list[Message]
-    model_options: ModelOptions | None = None
-    tools: list[Tool] | None = None
-    tool_config: ToolConfig | None = None
+    model_options: ModelOptions
 
 
 class InputTokenDetails(BaseModel):
