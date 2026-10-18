@@ -111,7 +111,9 @@ variables that authenticate against the Actions cache service. The runner gives 
 build — Buildx drops the `type=gha` entries silently, and the cache is simply never used.
 Every service sharing `backend/Dockerfile` shares `scope=backend`, since a per-service
 scope would make them all miss on each other's layers; `garage-bootstrap` has its own
-scope. Compose 2.38+ delegates builds to Bake by default, so no `COMPOSE_BAKE` is needed.
+scope. Bake is the code path that carries `cache_from` / `cache_to`; `e2e.yml` sets
+`COMPOSE_BAKE=true` explicitly so an older Compose cannot fall back to the classic builder,
+which ignores both.
 
 ```bash
 cp docker-compose.override.yml{.dev,}    # linux/macOS

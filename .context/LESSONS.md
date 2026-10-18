@@ -701,9 +701,9 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   is `crazy-max/ghaction-github-runtime` before the shell steps. **Verify with an
   `importing cache manifest from gha` line in the build log, never by the build
   succeeding.** Found 2026-10-18 on PR #21.
-- **Compose 2.38+ delegates `build` / `up --build` to Bake by default.** `buildWithBake`
-  reads `COMPOSE_BAKE` and an *unset* variable means `true` (2.38.2); earlier releases
-  defaulted to the classic path. `COMPOSE_BAKE` therefore does not need to be set for the
-  `setup-buildx-action` builder to be used, and `#1 [internal] load local bake definitions`
-  in the log proves Bake ran. The classic path ignores `cache_from` / `cache_to` entirely
-  rather than failing on them.
+- **Bake is the code path that carries `cache_from` / `cache_to`; the classic builder
+  ignores both.** `buildWithBake` reads `COMPOSE_BAKE` and, in 2.38.2, an *unset* variable
+  means `true`; earlier releases defaulted to the classic path. `e2e.yml` sets
+  `COMPOSE_BAKE=true` explicitly so the fallback cannot happen on an older runner either,
+  and `#1 [internal] load local bake definitions` in the log proves Bake ran. Found
+  2026-10-18 on PR #21.

@@ -294,8 +294,9 @@ All services built from `backend/Dockerfile` — `garage-config` included — sh
 `scope=backend`, or they would each miss on each other's layers. `garage-bootstrap` builds
 `conf/garage.Dockerfile` and has its own scope.
 
-Compose 2.38+ delegates `build` and `up --build` to Bake by default, so the builder from
-`docker/setup-buildx-action` is used without `COMPOSE_BAKE` being set.
+Compose 2.38+ delegates `build` and `up --build` to Bake by default, and `e2e.yml` sets
+`COMPOSE_BAKE=true` explicitly anyway: Bake is the code path that carries `cache_from` /
+`cache_to`, and the classic builder ignores both, so the fallback has to be impossible.
 
 ### `.env` is secret
 

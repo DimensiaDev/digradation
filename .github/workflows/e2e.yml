@@ -20,6 +20,12 @@ jobs:
     name: Playwright against the Compose stack
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # `cache_from` / `cache_to` are only read in the Bake code path; the classic
+    # builder ignores both. Compose 2.38+ already defaults `COMPOSE_BAKE` to
+    # true when it is unset, but an explicit value means an older Compose cannot
+    # fall back to the classic builder and silently drop the cache.
+    env:
+      COMPOSE_BAKE: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -28,9 +34,9 @@ jobs:
       # The cache itself is configured in docker-compose.build-cache.yml, which
       # setup.sh adds to the `-f` list when CI is set.
       #
-      # Compose 2.38+ delegates `build` and `up --build` to Bake by default, so
-      # it uses this builder without `COMPOSE_BAKE` being set; `#1 [internal]
-      # load local bake definitions` in the build log is the proof it did.
+      # Bake is the code path that reaches this builder for `up --build`, and
+      # `#1 [internal] load local bake definitions` in the build log proves it
+      # ran; the job's `COMPOSE_BAKE` env selects it explicitly.
       - uses: docker/setup-buildx-action@v3
 
       # BuildKit's `gha` cache backend authenticates with `ACTIONS_RUNTIME_TOKEN`
