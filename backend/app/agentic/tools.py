@@ -1,4 +1,4 @@
-"""The user functions GigaChat may call, and their implementations.
+"""The user functions the model may call, and their implementations.
 
 This module is one half of the agent contract. The specifications below are sent
 to the provider with every generation request, and the pydantic schemas of
@@ -10,24 +10,25 @@ a schema change reaches the model without a second edit here.
 Handlers never raise at the model. A failed call comes back as a result with
 ``ok: false`` and an explanation, which lets the model correct itself inside the
 same reply instead of failing the whole generation.
+
+The handlers keep no storage of their own: they validate, resolve citations
+against the catalog and answer. What a call produces for the rest of the run —
+the validated draft — travels on :class:`ToolContext`, and storing it belongs to
+the worker that owns the chat's session and its transaction.
 """
 
 import copy
 import json
 import uuid
 from collections.abc import Awaitable, Callable
-from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Any
 
 import structlog.stdlib
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agentic.models import ProgramDraft, ProgramStatus, Source, SourceKind
 from app.agentic.sources import get_source, search
-from app.models.chat import DEFAULT_CHAT_NAME, MAX_CHAT_NAME_LENGTH, ChatSession
-from app.models.program import ChatProgram
 from app.providers.models import FunctionCall, FunctionDefinition, Tool
 
 log = structlog.stdlib.get_logger(__name__)
@@ -37,18 +38,16 @@ log = structlog.stdlib.get_logger(__name__)
 class ToolContext:
     """What a handler needs beyond the arguments of the call.
 
-    ``open_db`` is handed in rather than imported: the worker owns its session
-    factory (``tsq_db``), and tests bind the handlers to their own database by
-    passing a different factory. ``renamed_to`` is set when a handler names the
-    chat, which the worker forwards to ``process_response``.
+    ``session_id`` names the chat in the logs. ``draft`` is what
+    :func:`save_program_draft` validated, kept for the caller to store — a later
+    revision of the same run reads it back through :func:`get_program_draft`.
     ``known_source_ids`` is the provenance of the run: only a document the model
-    has actually seen — through ``search_sources`` or in a stored draft — may be
-    cited, so an invented or half-remembered id is refused rather than stored.
+    has actually seen — through ``search_sources`` or in the draft it saved — may
+    be cited, so an invented or half-remembered id is refused rather than kept.
     """
 
     session_id: uuid.UUID
-    open_db: Callable[[], AbstractAsyncContextManager[AsyncSession]]
-    renamed_to: str | None = None
+    draft: ProgramDraft | None = None
     known_source_ids: set[str] = field(default_factory=set)
 
 
@@ -116,9 +115,8 @@ SAVE_PROGRAM_DRAFT_SPEC = FunctionDefinition(
 GET_PROGRAM_DRAFT_SPEC = FunctionDefinition(
     name="get_program_draft",
     description=(
-        "Получить сохранённый черновик программы и его состояние (draft — ещё нет черновика, "
-        "pending_approval — ждёт подтверждения, approved — утверждён). Вызывай перед правками "
-        "по просьбе методиста."
+        "Получить черновик программы, сохранённый в этом диалоге, и его состояние (draft — черновика "
+        "ещё нет, pending_approval — ждёт подтверждения). Вызывай перед правками по просьбе методиста."
     ),
     parameters=_inline_refs(GetProgramDraftArguments.model_json_schema()),
 )
@@ -138,8 +136,8 @@ async def search_sources(ctx: ToolContext, arguments: dict) -> dict:
     """Search the source catalog and return the fragments to cite.
 
     The ids of everything returned are remembered on the context: a source the
-    model has not seen here (or read in a stored draft) must not end up in the
-    draft, so this is the only place that widens what may be cited.
+    model has not seen here (or read back in the draft it saved) must not end up
+    in the draft, so this is the only place that widens what may be cited.
     """
     arguments = SearchSourcesArguments.model_validate(arguments)
     fragments = await search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
@@ -170,10 +168,13 @@ def _resolve_sources(ctx: ToolContext, draft: ProgramDraft) -> tuple[list[Source
 
     Two ways a citation can be wrong, and both must be refused. An id the
     catalog does not know is an invented document. An id the catalog knows but
-    this run has not shown the model — no ``search_sources`` call returned it
-    and no stored draft carried it — is equally unverified: the catalog is wide,
-    and a plausible-looking ``src-NN`` is easy to guess. The canonical record is
-    stored instead of the one the model reproduced, so titles cannot drift.
+    this run has not shown the model — no ``search_sources`` call returned it and
+    no saved draft carried it — is equally unverified: the catalog is wide, and a
+    plausible-looking ``src-NN`` is easy to guess. The canonical record is kept
+    instead of the one the model reproduced, so titles cannot drift.
+
+    The second refusal waits for the catalog: while it answers nothing, every id
+    is unknown and the branch below cannot trigger.
     """
     resolved: list[Source] = []
     unknown: list[str] = []
@@ -194,36 +195,13 @@ def _describe_validation_error(error: ValidationError) -> list[str]:
     return [f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}" for item in error.errors()]
 
 
-def _chat_name(title: str) -> str:
-    """Fit a programme title into a chat name."""
-    if len(title) <= MAX_CHAT_NAME_LENGTH:
-        return title
-    return title[: MAX_CHAT_NAME_LENGTH - 3].rstrip() + "..."
-
-
-async def _name_session_after_draft(db: AsyncSession, ctx: ToolContext, title: str) -> str | None:
-    """Name the chat after the draft, unless the methodist named it themselves.
-
-    Returns the new name rather than recording it in the context: a rename is
-    only real once the transaction commits, and ``ctx.renamed_to`` is what the
-    worker forwards to ``process_response``. Returning the name lets the caller
-    set it after the commit has actually succeeded, so a failed save cannot
-    leave the transcript renamed without the draft.
-    """
-    session = await db.get(ChatSession, ctx.session_id)
-    if session is None or session.name != DEFAULT_CHAT_NAME:
-        return None
-    session.name = _chat_name(title)
-    return session.name
-
-
 async def save_program_draft(ctx: ToolContext, arguments: dict) -> dict:
-    """Validate the draft, bind its sources to the catalog and store it.
+    """Validate the draft, bind its citations to the catalog and keep it.
 
     Saving is what moves the process to ``pending_approval``: from this call on
     the methodist has something to confirm, and until they do, the agent is told
-    to present the draft and stop. An approved draft is frozen — revisions would
-    silently invalidate the confirmation the next stage relies on.
+    to present the draft and stop. The validated draft stays on the context for
+    the caller to store.
     """
     try:
         draft = ProgramDraft.model_validate(arguments)
@@ -247,73 +225,33 @@ async def save_program_draft(ctx: ToolContext, arguments: dict) -> dict:
             "error": "Не подтверждённые поиском источники: " + ", ".join(unsearched),
             "details": "Сначала найди документ вызовом search_sources и ссылайся только на то, что вернул поиск.",
         }
-    payload = draft.model_copy(update={"sources": sources}).model_dump(mode="json")
+    ctx.draft = draft.model_copy(update={"sources": sources})
 
-    async with ctx.open_db() as db:
-        row = await db.get(ChatProgram, ctx.session_id)
-        if row is not None and row.status in (ProgramStatus.APPROVED, ProgramStatus.VERIFIED):
-            return {
-                "ok": False,
-                "error": "Черновик уже утверждён методистом, изменить его нельзя.",
-                "details": "Сообщи об этом и дождись указаний по следующему этапу.",
-            }
-        if row is None:
-            db.add(ChatProgram(chat_session_id=ctx.session_id, status=ProgramStatus.PENDING_APPROVAL, draft=payload))
-        else:
-            row.status = ProgramStatus.PENDING_APPROVAL
-            row.draft = payload
-        renamed_to = await _name_session_after_draft(db, ctx, draft.title)
-        await db.commit()
-        # Recorded only now, when the rename is durable: an exception above
-        # rolls the name back with the rest of the transaction.
-        if renamed_to is not None:
-            ctx.renamed_to = renamed_to
-
-    log.info("program_draft_saved", chat_session_id=str(ctx.session_id), sources=len(sources))
+    log.info("program_draft_validated", chat_session_id=str(ctx.session_id), sources=len(sources))
     return {
         "ok": True,
         "status": ProgramStatus.PENDING_APPROVAL,
-        "note": "Черновик сохранён и ждёт подтверждения методиста. Представь его и остановись.",
+        "note": "Черновик проверен и ждёт подтверждения методиста. Представь его и остановись.",
     }
 
 
-def _remember_stored_sources(ctx: ToolContext, draft: dict) -> None:
-    """Count the sources of a stored draft as known to this run.
-
-    A stored draft passed ``save_program_draft`` once, which resolved its
-    citations against the search of that run. Showing the model its own draft
-    must therefore keep those citations usable — otherwise every revision would
-    fail on the sources it just read back, and the model would have to re-search
-    documents it has already confirmed.
-    """
-    for source in draft.get("sources") or ():
-        source_id = source.get("id") if isinstance(source, dict) else None
-        if isinstance(source_id, str):
-            ctx.known_source_ids.add(source_id)
-    summary = draft.get("summary") or {}
-    for source_id in summary.get("basis_source_ids") or ():
-        if isinstance(source_id, str):
-            ctx.known_source_ids.add(source_id)
-    for competence in draft.get("competencies") or ():
-        source_id = competence.get("standard_source_id") if isinstance(competence, dict) else None
-        if isinstance(source_id, str):
-            ctx.known_source_ids.add(source_id)
-
-
 async def get_program_draft(ctx: ToolContext, arguments: dict) -> dict:
-    """Return the stored draft and its state."""
+    """Return the draft this run has saved.
+
+    Reading the draft back is what a revision starts with, and the citations it
+    just read must stay usable on the way out: the sources of the saved draft are
+    therefore counted as known to this run.
+    """
     GetProgramDraftArguments.model_validate(arguments)
-    async with ctx.open_db() as db:
-        row = await db.get(ChatProgram, ctx.session_id)
-    if row is None:
+    if ctx.draft is None:
         return {
             "ok": True,
             "status": ProgramStatus.DRAFT,
             "draft": None,
             "note": "Черновик ещё не сохранён.",
         }
-    _remember_stored_sources(ctx, row.draft)
-    return {"ok": True, "status": row.status, "draft": row.draft}
+    ctx.known_source_ids.update(source.id for source in ctx.draft.sources)
+    return {"ok": True, "status": ProgramStatus.PENDING_APPROVAL, "draft": ctx.draft.model_dump(mode="json")}
 
 
 #: The functions the model may call, keyed by the name in the specification.

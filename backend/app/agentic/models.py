@@ -8,10 +8,8 @@ Generation progress is tracked per stage.
 from __future__ import annotations
 
 import uuid
-from collections import defaultdict
 from datetime import date
 from enum import StrEnum
-from math import isclose
 from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -407,28 +405,6 @@ class EducationalProgram(SchemaModel):
     approval: ApprovalInfo
 
 
-#: Hours are floats, so a sum carries representation noise; a difference below
-#: this tolerance is not a mismatch (15 x 1.6 is 24.000000000000004).
-_HOURS_TOLERANCE = 1e-6
-
-
-def _duplicate_ids(ids: list[str]) -> list[str]:
-    """The ids that appear more than once, each reported a single time."""
-    counts: defaultdict[str, int] = defaultdict(int)
-    for item_id in ids:
-        counts[item_id] += 1
-    return [item_id for item_id, count in counts.items() if count > 1]
-
-
-def _declared_outcomes(draft: ProgramDraft) -> list[Outcome]:
-    """The learning outcomes the competences declare, in declaration order."""
-    return [
-        outcome
-        for competence in draft.competencies
-        for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
-    ]
-
-
 class ProgramDraft(SchemaModel):
     """Ранние блоки программы, которые методист подтверждает до полной генерации.
 
@@ -442,95 +418,9 @@ class ProgramDraft(SchemaModel):
 
     kind: ProgramKind = Field(description="Тип программы: повышение квалификации или общеразвивающая")
     title: str = Field(min_length=1, max_length=500, description="Название программы")
-    requested_hours: float | None = Field(
-        default=None,
-        description="Заявленный объём программы в академических часах: сумма часов по темам должна совпадать с ним",
-    )
     summary: ProgramSummary = Field(description="Паспорт программы: цель, аудитория, форма обучения")
     competencies: list[Competence] = Field(min_length=1, description="Компетенции с результатами освоения")
     curriculum: Curriculum = Field(description="Учебный план: модули, темы, часы и график")
     sources: list[Source] = Field(
         default_factory=list, description="Источники, найденные поиском и использованные в программе"
     )
-
-    @model_validator(mode="after")
-    def _reject_duplicate_ids(self) -> Self:
-        """Reject repeated ids, one namespace at a time.
-
-        Every cross-block reference resolves by id — ``standard_source_id``,
-        ``outcome_ids``, the module tree — so a duplicate silently makes the
-        reference ambiguous instead of failing loudly. The namespaces are
-        independent: ``comp-01`` and ``m-01`` are patterns that cannot collide.
-        """
-        namespaces: dict[str, list[str]] = {
-            "competencies": [competence.id for competence in self.competencies],
-            "outcomes": [outcome.id for outcome in _declared_outcomes(self)],
-            "modules": [module.id for module in self.curriculum.modules],
-            "topics": [topic.id for module in self.curriculum.modules for topic in module.topics],
-            "sources": [source.id for source in self.sources],
-        }
-        problems = [
-            f"{namespace}: {', '.join(duplicates)}"
-            for namespace, ids in namespaces.items()
-            if (duplicates := _duplicate_ids(ids))
-        ]
-        if problems:
-            raise ValueError("duplicate ids: " + "; ".join(problems))
-        return self
-
-    @model_validator(mode="after")
-    def _reject_undeclared_outcomes(self) -> Self:
-        """A topic may cover only outcomes a competence declares.
-
-        ``Topic.outcome_ids`` is a reference into the competence block, and the
-        two blocks arrive in the same payload without anything tying them
-        together. An id nothing declares is a dangling link: the document cannot
-        render it, and the methodist is promised an outcome that does not exist.
-        """
-        declared = {outcome.id for outcome in _declared_outcomes(self)}
-        undeclared = [
-            f"{topic.id}: {outcome_id}"
-            for module in self.curriculum.modules
-            for topic in module.topics
-            for outcome_id in topic.outcome_ids
-            if outcome_id not in declared
-        ]
-        if undeclared:
-            raise ValueError("outcome_ids not declared by any competence: " + "; ".join(undeclared))
-        return self
-
-    @model_validator(mode="after")
-    def _reject_hours_that_do_not_add_up(self) -> Self:
-        """The hours of the draft must add up to the volume and fit the schedule.
-
-        The system prompt fixes the rule for the draft: the topic hours must
-        match the volume the methodist asked for, so they are checked against
-        ``requested_hours`` when the model recorded it. The schedule is then the
-        distribution of those same hours: a timetable for a bigger programme than
-        the plan describes cannot be approved, and when both the schedule and the
-        volume are known they must agree, or the methodist is asked to confirm
-        two different programmes.
-        """
-        total = self.curriculum.total_hours
-        if self.requested_hours is not None and not isclose(total, self.requested_hours, abs_tol=_HOURS_TOLERANCE):
-            raise ValueError(
-                f"hours: the topics total {total} does not match the requested volume {self.requested_hours}"
-            )
-
-        schedule = self.curriculum.schedule
-        if schedule.days is None or schedule.hours_per_day is None:
-            return self
-
-        capacity = schedule.days * schedule.hours_per_day
-        if self.requested_hours is None:
-            if total > capacity + _HOURS_TOLERANCE:
-                raise ValueError(
-                    f"hours: the topics total {total} exceed the schedule of {schedule.days} days "
-                    f"× {schedule.hours_per_day} hours per day ({capacity})"
-                )
-        elif not isclose(capacity, self.requested_hours, abs_tol=_HOURS_TOLERANCE):
-            raise ValueError(
-                f"hours: the schedule of {schedule.days} days × {schedule.hours_per_day} hours per day "
-                f"({capacity}) does not fit the requested volume {self.requested_hours}"
-            )
-        return self

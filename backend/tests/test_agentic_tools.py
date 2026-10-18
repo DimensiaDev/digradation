@@ -1,50 +1,36 @@
 """Tests for the agent tool handlers in ``app.agentic.tools``.
 
-What the handlers do to the database is real here: ``open_db`` hands them the
-test session, whose commits are savepoints inside the fixture's transaction, so
-the stored draft can be read back within the same test. The provider is not
-involved — the handlers are called directly through :func:`execute_tool`.
+The handlers keep no storage: they validate the arguments, resolve citations
+against the catalog and answer, leaving the validated draft on the tool context.
+Storing that draft is the worker's business, so no database is involved here. The
+provider is not involved either — the handlers are called directly through
+:func:`execute_tool`.
 """
+
+from __future__ import annotations
 
 import json
 import uuid
-from contextlib import asynccontextmanager
+from typing import Any
 
 import pytest
-import pytest_asyncio
 from structlog.testing import capture_logs
 
 from app.agentic.models import ProgramStatus
 from app.agentic.tools import ToolContext, execute_tool
-from app.models.chat import DEFAULT_CHAT_NAME, ChatSession
-from app.models.program import ChatProgram
-from app.providers.mock import MOCK_DRAFT_ARGUMENTS
 from app.providers.models import FunctionCall
 
-
-@pytest_asyncio.fixture()
-async def chat(db_session, test_user) -> ChatSession:
-    """A chat session owned by ``test_user``; ``session_id`` has no default."""
-    row = ChatSession(session_id=uuid.uuid4(), user_id=test_user.id, name=DEFAULT_CHAT_NAME)
-    db_session.add(row)
-    await db_session.commit()
-    await db_session.refresh(row)
-    return row
+DRAFT_TITLE = "Тестовая программа"
 
 
-@pytest_asyncio.fixture()
-async def tool_context(db_session, chat) -> ToolContext:
-    """A handler context bound to the fixture session and chat."""
-
-    @asynccontextmanager
-    async def open_db():
-        yield db_session
-
-    return ToolContext(session_id=chat.session_id, open_db=open_db)
+@pytest.fixture()
+def tool_context() -> ToolContext:
+    """A context bound to the chat the run belongs to."""
+    return ToolContext(session_id=uuid.uuid4())
 
 
 def save_call(arguments: dict | None = None) -> FunctionCall:
-    payload = arguments if arguments is not None else dict(MOCK_DRAFT_ARGUMENTS)
+    payload = arguments if arguments is not None else make_draft()
     return FunctionCall(name="save_program_draft", arguments=json.dumps(payload, ensure_ascii=False))
 
 
@@ -52,11 +38,11 @@ def search_call(query: str) -> FunctionCall:
     return FunctionCall(name="search_sources", arguments=json.dumps({"query": query}, ensure_ascii=False))
 
 
-def make_draft(**overrides) -> dict:
+def make_draft(**overrides: Any) -> dict:
     """A minimal schema-valid draft the tests can bend."""
     draft = {
         "kind": "general_development",
-        "title": "Тестовая программа",
+        "title": DRAFT_TITLE,
         "summary": {
             "goal": "Научить основам работы с данными",
             "target_audience": "Взрослые слушатели",
@@ -86,59 +72,50 @@ def make_draft(**overrides) -> dict:
     return draft
 
 
-async def test_save_program_draft_stores_the_draft_and_names_the_chat(tool_context, db_session, chat):
+async def test_save_program_draft_validates_the_draft_and_keeps_it(tool_context):
     result = await execute_tool(tool_context, save_call())
 
     assert result["ok"] is True
-    assert result["status"] == "pending_approval"
-    assert chat.name == MOCK_DRAFT_ARGUMENTS["title"]
-    assert tool_context.renamed_to == MOCK_DRAFT_ARGUMENTS["title"]
-    row = await db_session.get(ChatProgram, chat.session_id)
-    assert row is not None
-    assert row.draft["title"] == MOCK_DRAFT_ARGUMENTS["title"]
+    assert result["status"] == ProgramStatus.PENDING_APPROVAL
+    assert tool_context.draft is not None
+    assert tool_context.draft.title == DRAFT_TITLE
 
 
-async def test_a_failed_commit_leaves_no_rename_behind(tool_context, db_session):
-    """The rename in the context must not outlive a draft that was never stored."""
+async def test_a_second_save_replaces_the_kept_draft(tool_context):
+    await execute_tool(tool_context, save_call())
 
-    async def boom():
-        raise RuntimeError("commit failed")
-
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(db_session, "commit", boom)
-        result = await execute_tool(tool_context, save_call())
-
-    assert result["ok"] is False
-    assert tool_context.renamed_to is None
-
-
-async def test_save_keeps_the_name_the_methodist_chose(tool_context, db_session, chat):
-    chat.name = "Моя программа"
-
-    result = await execute_tool(tool_context, save_call())
+    result = await execute_tool(tool_context, save_call(make_draft(title="Переработанная программа")))
 
     assert result["ok"] is True
-    assert result["status"] == "pending_approval"
-    assert chat.name == "Моя программа"
-    assert tool_context.renamed_to is None
+    assert tool_context.draft is not None
+    assert tool_context.draft.title == "Переработанная программа"
 
 
-async def test_save_program_draft_refuses_to_overwrite_an_approved_draft(tool_context, db_session, chat):
-    db_session.add(
-        ChatProgram(
-            chat_session_id=chat.session_id,
-            status=ProgramStatus.APPROVED,
-            draft=dict(MOCK_DRAFT_ARGUMENTS),
-        )
-    )
-    await db_session.commit()
-
-    result = await execute_tool(tool_context, save_call())
+async def test_save_rejects_a_draft_that_breaks_the_schema(tool_context):
+    result = await execute_tool(tool_context, save_call(make_draft(summary={})))
 
     assert result["ok"] is False
-    assert "утверждён" in result["error"]
-    assert tool_context.renamed_to is None
-    assert chat.name == DEFAULT_CHAT_NAME
+    assert "не соответствует схеме" in result["error"]
+    assert any("summary" in line for line in result["details"])
+    assert tool_context.draft is None
+
+
+async def test_get_program_draft_reports_no_draft_before_the_first_save(tool_context):
+    result = await execute_tool(tool_context, FunctionCall(name="get_program_draft", arguments="{}"))
+
+    assert result["ok"] is True
+    assert result["status"] == ProgramStatus.DRAFT
+    assert result["draft"] is None
+
+
+async def test_get_program_draft_returns_the_draft_the_run_saved(tool_context):
+    await execute_tool(tool_context, save_call())
+
+    result = await execute_tool(tool_context, FunctionCall(name="get_program_draft", arguments="{}"))
+
+    assert result["ok"] is True
+    assert result["status"] == ProgramStatus.PENDING_APPROVAL
+    assert result["draft"]["title"] == DRAFT_TITLE
 
 
 # --------------------------------------------------------------------------------------
@@ -164,8 +141,7 @@ async def test_save_rejects_a_source_id_the_catalog_does_not_know(tool_context):
     assert result["ok"] is False
     assert "Неизвестные источники" in result["error"]
     assert "src-01" in result["error"]
-    async with tool_context.open_db() as db:
-        assert await db.get(ChatProgram, tool_context.session_id) is None
+    assert tool_context.draft is None
 
 
 async def test_save_rejects_a_standard_source_id_the_catalog_does_not_know(tool_context):
@@ -179,23 +155,31 @@ async def test_save_rejects_a_standard_source_id_the_catalog_does_not_know(tool_
     assert "src-01" in result["error"]
 
 
-async def test_a_stored_draft_keeps_its_source_ids_known_to_the_run(db_session, chat):
-    """A revision run reads the draft back; its citations must stay known to that run."""
-    draft = make_draft(sources=[{"id": "src-01", "kind": "normative_act", "title": "ФГОС"}])
-    draft["summary"]["basis_source_ids"] = ["src-02"]
-    draft["competencies"][0]["standard_source_id"] = "src-03"
-    db_session.add(ChatProgram(chat_session_id=chat.session_id, status=ProgramStatus.PENDING_APPROVAL, draft=draft))
-    await db_session.commit()
+# --------------------------------------------------------------------------------------
+# execute_tool: a broken call is an answer, not an exception
+# --------------------------------------------------------------------------------------
 
-    @asynccontextmanager
-    async def open_db():
-        yield db_session
 
-    fresh = ToolContext(session_id=chat.session_id, open_db=open_db)
-    fetched = await execute_tool(fresh, FunctionCall(name="get_program_draft", arguments="{}"))
+async def test_execute_tool_reports_an_unknown_function(tool_context):
+    result = await execute_tool(tool_context, FunctionCall(name="drop_database", arguments="{}"))
 
-    assert fetched["status"] == ProgramStatus.PENDING_APPROVAL
-    assert {"src-01", "src-02", "src-03"} <= fresh.known_source_ids
+    assert result["ok"] is False
+    assert "Неизвестная функция" in result["error"]
+
+
+async def test_execute_tool_reports_malformed_arguments(tool_context):
+    result = await execute_tool(tool_context, FunctionCall(name="search_sources", arguments="не json"))
+
+    assert result["ok"] is False
+    assert "Некорректные аргументы" in result["error"]
+
+
+async def test_execute_tool_reports_arguments_that_break_the_schema(tool_context):
+    result = await execute_tool(tool_context, FunctionCall(name="search_sources", arguments=json.dumps({"query": ""})))
+
+    assert result["ok"] is False
+    assert "Некорректные аргументы" in result["error"]
+    assert any("query" in line for line in result["details"])
 
 
 async def test_the_draft_title_is_not_written_to_the_logs(tool_context):
@@ -204,5 +188,5 @@ async def test_the_draft_title_is_not_written_to_the_logs(tool_context):
         result = await execute_tool(tool_context, save_call())
 
     assert result["ok"] is True
-    saved = next(entry for entry in logs if entry["event"] == "program_draft_saved")
-    assert MOCK_DRAFT_ARGUMENTS["title"] not in str(saved)
+    saved = next(entry for entry in logs if entry["event"] == "program_draft_validated")
+    assert DRAFT_TITLE not in str(saved)

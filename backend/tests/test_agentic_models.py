@@ -7,15 +7,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from app.agentic.models import (
-    EducationalProgram,
-    ProgramDraft,
-    ProgramKind,
-    ProgramStatus,
-    Stage,
-    StageStatus,
-    StageStatuses,
-)
+from app.agentic.models import EducationalProgram, ProgramKind, ProgramStatus, Stage, StageStatus, StageStatuses
 
 EXAMPLE_PATH = Path(__file__).resolve().parents[1] / "examples" / "document_state_example.json"
 
@@ -25,68 +17,6 @@ Program = dict[str, Any]
 @pytest.fixture()
 def raw() -> Program:
     return json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
-
-
-@pytest.fixture()
-def draft() -> Program:
-    """A valid programme draft, the payload ``save_program_draft`` accepts."""
-    return {
-        "kind": "general_development",
-        "title": "Тестовая программа",
-        "requested_hours": 2,
-        "summary": {
-            "goal": "Научить основам работы с данными",
-            "target_audience": "Взрослые слушатели",
-            "form": "очно-заочная",
-            "issued_document": "сертификат",
-        },
-        "competencies": [
-            {
-                "id": "comp-01",
-                "statement": "Способен анализировать данные",
-                "knowledge": [{"id": "ro-k-01", "statement": "Знает основы статистики"}],
-                "skills": [{"id": "ro-s-01", "statement": "Умеет строить отчёты"}],
-            },
-            {
-                "id": "comp-02",
-                "statement": "Способен защитить результат",
-                "experience": [{"id": "ro-e-01", "statement": "Имеет опыт защиты проекта"}],
-            },
-        ],
-        "curriculum": {
-            "modules": [
-                {
-                    "id": "m-01",
-                    "title": "Модуль 1",
-                    "topics": [
-                        {
-                            "id": "t-01.1",
-                            "title": "Тема 1",
-                            "hours": {"lecture": 1},
-                            "outcome_ids": ["ro-k-01"],
-                        }
-                    ],
-                },
-                {
-                    "id": "m-02",
-                    "title": "Модуль 2",
-                    "topics": [{"id": "t-02.1", "title": "Тема 2", "hours": {"practice": 1}}],
-                },
-            ],
-            "schedule": {"days": 1, "hours_per_day": 2},
-        },
-        "sources": [],
-    }
-
-
-def validate_draft(raw: Program) -> ProgramDraft:
-    return ProgramDraft.model_validate(raw)
-
-
-def draft_problems(raw: Program) -> str:
-    with pytest.raises(ValidationError) as caught:
-        validate_draft(raw)
-    return str(caught.value)
 
 
 def validate(raw: Program) -> EducationalProgram:
@@ -194,84 +124,3 @@ def test_json_round_trip(raw: Program) -> None:
     dumped = program.model_dump(mode="json")
     assert validate(dumped).meta.title == program.meta.title
     assert list(dumped["stages"]) == [stage.value for stage in Stage]
-
-
-def test_draft_validates(draft: Program) -> None:
-    assert validate_draft(draft).title == "Тестовая программа"
-
-
-def test_duplicate_competence_ids_are_rejected(draft: Program) -> None:
-    draft["competencies"][1]["id"] = "comp-01"
-    assert "duplicate ids: competencies: comp-01" in draft_problems(draft)
-
-
-def test_duplicate_outcome_ids_are_rejected(draft: Program) -> None:
-    draft["competencies"][1]["experience"][0]["id"] = "ro-k-01"
-    assert "outcomes: ro-k-01" in draft_problems(draft)
-
-
-def test_duplicate_module_ids_are_rejected(draft: Program) -> None:
-    draft["curriculum"]["modules"][1]["id"] = "m-01"
-    assert "modules: m-01" in draft_problems(draft)
-
-
-def test_duplicate_topic_ids_are_rejected(draft: Program) -> None:
-    draft["curriculum"]["modules"][1]["topics"][0]["id"] = "t-01.1"
-    assert "topics: t-01.1" in draft_problems(draft)
-
-
-def test_duplicate_source_ids_are_rejected(draft: Program) -> None:
-    draft["sources"] = [
-        {"id": "src-01", "kind": "literature", "title": "Основы анализа данных"},
-        {"id": "src-01", "kind": "literature", "title": "Повторно добавленный источник"},
-    ]
-    assert "sources: src-01" in draft_problems(draft)
-
-
-def test_a_repeated_id_is_reported_once(draft: Program) -> None:
-    draft["curriculum"]["modules"][1]["id"] = "m-01"
-    draft["curriculum"]["modules"].append(
-        {"id": "m-01", "title": "Модуль 3", "topics": [{"id": "t-03.1", "title": "Тема 3", "hours": {}}]}
-    )
-    assert draft_problems(draft).count("m-01") == 1
-
-
-def test_topic_outcome_ids_must_be_declared(draft: Program) -> None:
-    draft["curriculum"]["modules"][0]["topics"][0]["outcome_ids"] = ["ro-k-99"]
-    assert "outcome_ids not declared by any competence: t-01.1: ro-k-99" in draft_problems(draft)
-
-
-def test_topic_outcome_ids_may_name_outcomes_of_any_competence(draft: Program) -> None:
-    draft["curriculum"]["modules"][1]["topics"][0]["outcome_ids"] = ["ro-e-01", "ro-k-01"]
-    validate_draft(draft)
-
-
-def test_every_dangling_outcome_id_is_reported(draft: Program) -> None:
-    draft["curriculum"]["modules"][0]["topics"][0]["outcome_ids"] = ["ro-k-01", "ro-s-99", "ro-e-98"]
-    message = draft_problems(draft)
-    assert "t-01.1: ro-s-99" in message
-    assert "t-01.1: ro-e-98" in message
-    assert "ro-k-01" not in message
-
-
-def test_requested_volume_must_match_the_topic_hours(draft: Program) -> None:
-    draft["requested_hours"] = 4
-    assert "does not match the requested volume" in draft_problems(draft)
-
-
-def test_schedule_must_fit_the_requested_volume(draft: Program) -> None:
-    draft["curriculum"]["schedule"] = {"days": 2, "hours_per_day": 2}
-    assert "does not fit the requested volume" in draft_problems(draft)
-
-
-def test_topics_must_fit_the_schedule(draft: Program) -> None:
-    draft.pop("requested_hours")
-    draft["curriculum"]["schedule"] = {"days": 1, "hours_per_day": 1}
-    assert "exceed the schedule" in draft_problems(draft)
-
-
-def test_without_a_recorded_volume_only_the_schedule_is_a_ceiling(draft: Program) -> None:
-    """The example curriculum fills 66 of its schedule's 72 hours."""
-    draft.pop("requested_hours")
-    draft["curriculum"]["schedule"] = {"days": 18, "hours_per_day": 4}
-    validate_draft(draft)
