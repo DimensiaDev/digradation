@@ -55,6 +55,16 @@ describe('applyRouteTransition', () => {
     expect(root.dataset['navDirection']).toBeUndefined();
   });
 
+  it('marks a transition between unranked sections as neutral', () => {
+    const { transition } = stubTransition();
+    const root = document.createElement('div');
+
+    applyRouteTransition(transition, '/create', '/chats', root);
+
+    expect(transition.skipTransition).not.toHaveBeenCalled();
+    expect(root.dataset['navDirection']).toBe('none');
+  });
+
   it('leaves a newer direction in place when an older transition finishes', async () => {
     const { transition, finish } = stubTransition();
     const root = document.createElement('div');

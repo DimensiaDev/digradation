@@ -881,6 +881,11 @@ dependency and no wrapper element.
   guarded so a newer direction set mid-flight is not wiped by the previous transition.
 - **Query-only navigations and reduced motion skip the animation.** Search/filter changes
   are not section switches; `prefers-reduced-motion` disables the keyframes wholesale.
+- **Sections the sidebar cannot rank cross-fade, they do not slide.** `/create`, `/chats` and
+  `/profile` are outside the item order, so the delta is undefined and the direction is
+  `'none'`. The base `::view-transition-*(router-content)` rules carry the neutral fade and
+  only `[data-nav-direction='forward'|'backward']` swap in the sliding keyframes — otherwise
+  `'none'` would inherit the forward slide and read as a move that never happened.
 
 ## The layout shell is a column flex container (2026-10-18)
 

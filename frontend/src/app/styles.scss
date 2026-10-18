@@ -210,11 +210,24 @@ main router-outlet + * {
 }
 
 ::view-transition-old(router-content) {
-  animation: router-content-out 200ms cubic-bezier(0.4, 0, 1, 1) both;
+  animation: router-content-fade-out 200ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 
 ::view-transition-new(router-content) {
-  animation: router-content-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both 40ms;
+  animation: router-content-fade-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both 40ms;
+}
+
+// The base animation is the neutral fade. Sections outside the sidebar order
+// (create, chats, profile) get `navDirection = 'none'` and no override, so
+// they cross-fade instead of sliding as if they were sidebar neighbours.
+html[data-nav-direction='forward'] {
+  &::view-transition-old(router-content) {
+    animation-name: router-content-out;
+  }
+
+  &::view-transition-new(router-content) {
+    animation-name: router-content-in;
+  }
 }
 
 html[data-nav-direction='backward'] {
@@ -224,6 +237,18 @@ html[data-nav-direction='backward'] {
 
   &::view-transition-new(router-content) {
     animation-name: router-content-in-back;
+  }
+}
+
+@keyframes router-content-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes router-content-fade-in {
+  from {
+    opacity: 0;
   }
 }
 
