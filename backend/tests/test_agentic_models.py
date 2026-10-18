@@ -7,7 +7,15 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from app.agentic.models import EducationalProgram, ProgramKind, ProgramStatus, Stage, StageStatus, StageStatuses
+from app.agentic.models import (
+    EducationalProgram,
+    ProgramDraft,
+    ProgramKind,
+    ProgramStatus,
+    Stage,
+    StageStatus,
+    StageStatuses,
+)
 
 EXAMPLE_PATH = Path(__file__).resolve().parents[1] / "examples" / "document_state_example.json"
 
@@ -17,6 +25,67 @@ Program = dict[str, Any]
 @pytest.fixture()
 def raw() -> Program:
     return json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
+
+
+@pytest.fixture()
+def draft() -> Program:
+    """A valid programme draft, the payload ``save_program_draft`` accepts."""
+    return {
+        "kind": "general_development",
+        "title": "Тестовая программа",
+        "summary": {
+            "goal": "Научить основам работы с данными",
+            "target_audience": "Взрослые слушатели",
+            "form": "очно-заочная",
+            "issued_document": "сертификат",
+        },
+        "competencies": [
+            {
+                "id": "comp-01",
+                "statement": "Способен анализировать данные",
+                "knowledge": [{"id": "ro-k-01", "statement": "Знает основы статистики"}],
+                "skills": [{"id": "ro-s-01", "statement": "Умеет строить отчёты"}],
+            },
+            {
+                "id": "comp-02",
+                "statement": "Способен защитить результат",
+                "experience": [{"id": "ro-e-01", "statement": "Имеет опыт защиты проекта"}],
+            },
+        ],
+        "curriculum": {
+            "modules": [
+                {
+                    "id": "m-01",
+                    "title": "Модуль 1",
+                    "topics": [
+                        {
+                            "id": "t-01.1",
+                            "title": "Тема 1",
+                            "hours": {"lecture": 1},
+                            "outcome_ids": ["ro-k-01"],
+                        }
+                    ],
+                },
+                {
+                    "id": "m-02",
+                    "title": "Модуль 2",
+                    "topics": [{"id": "t-02.1", "title": "Тема 2", "hours": {"practice": 1}}],
+                },
+            ],
+            "schedule": {"days": 1, "hours_per_day": 2},
+        },
+        "sources": [],
+    }
+
+
+def validate_draft(raw: Program) -> ProgramDraft:
+    return ProgramDraft.model_validate(raw)
+
+
+def draft_problems(raw: Program) -> str:
+    with pytest.raises(ValidationError) as caught:
+        validate_draft(raw)
+    return str(caught.value)
 
 
 def validate(raw: Program) -> EducationalProgram:
@@ -124,3 +193,43 @@ def test_json_round_trip(raw: Program) -> None:
     dumped = program.model_dump(mode="json")
     assert validate(dumped).meta.title == program.meta.title
     assert list(dumped["stages"]) == [stage.value for stage in Stage]
+
+
+def test_draft_validates(draft: Program) -> None:
+    assert validate_draft(draft).title == "Тестовая программа"
+
+
+def test_duplicate_competence_ids_are_rejected(draft: Program) -> None:
+    draft["competencies"][1]["id"] = "comp-01"
+    assert "duplicate ids: competencies: comp-01" in draft_problems(draft)
+
+
+def test_duplicate_outcome_ids_are_rejected(draft: Program) -> None:
+    draft["competencies"][1]["experience"][0]["id"] = "ro-k-01"
+    assert "outcomes: ro-k-01" in draft_problems(draft)
+
+
+def test_duplicate_module_ids_are_rejected(draft: Program) -> None:
+    draft["curriculum"]["modules"][1]["id"] = "m-01"
+    assert "modules: m-01" in draft_problems(draft)
+
+
+def test_duplicate_topic_ids_are_rejected(draft: Program) -> None:
+    draft["curriculum"]["modules"][1]["topics"][0]["id"] = "t-01.1"
+    assert "topics: t-01.1" in draft_problems(draft)
+
+
+def test_duplicate_source_ids_are_rejected(draft: Program) -> None:
+    draft["sources"] = [
+        {"id": "src-01", "kind": "literature", "title": "Основы анализа данных"},
+        {"id": "src-01", "kind": "literature", "title": "Повторно добавленный источник"},
+    ]
+    assert "sources: src-01" in draft_problems(draft)
+
+
+def test_a_repeated_id_is_reported_once(draft: Program) -> None:
+    draft["curriculum"]["modules"][1]["id"] = "m-01"
+    draft["curriculum"]["modules"].append(
+        {"id": "m-01", "title": "Модуль 3", "topics": [{"id": "t-03.1", "title": "Тема 3", "hours": {}}]}
+    )
+    assert draft_problems(draft).count("m-01") == 1

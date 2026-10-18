@@ -405,6 +405,17 @@ class EducationalProgram(SchemaModel):
     approval: ApprovalInfo
 
 
+def _duplicate_ids(ids: list[str]) -> list[str]:
+    """The ids that appear more than once, each reported a single time."""
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for item_id in ids:
+        if item_id in seen and item_id not in duplicates:
+            duplicates.append(item_id)
+        seen.add(item_id)
+    return duplicates
+
+
 class ProgramDraft(SchemaModel):
     """Ранние блоки программы, которые методист подтверждает до полной генерации.
 
@@ -424,3 +435,32 @@ class ProgramDraft(SchemaModel):
     sources: list[Source] = Field(
         default_factory=list, description="Источники, найденные поиском и использованные в программе"
     )
+
+    @model_validator(mode="after")
+    def _reject_duplicate_ids(self) -> Self:
+        """Reject repeated ids, one namespace at a time.
+
+        Every cross-block reference resolves by id — ``standard_source_id``,
+        ``outcome_ids``, the module tree — so a duplicate silently makes the
+        reference ambiguous instead of failing loudly. The namespaces are
+        independent: ``comp-01`` and ``m-01`` are patterns that cannot collide.
+        """
+        namespaces: dict[str, list[str]] = {
+            "competencies": [competence.id for competence in self.competencies],
+            "outcomes": [
+                outcome.id
+                for competence in self.competencies
+                for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
+            ],
+            "modules": [module.id for module in self.curriculum.modules],
+            "topics": [topic.id for module in self.curriculum.modules for topic in module.topics],
+            "sources": [source.id for source in self.sources],
+        }
+        problems = [
+            f"{namespace}: {', '.join(duplicates)}"
+            for namespace, ids in namespaces.items()
+            if (duplicates := _duplicate_ids(ids))
+        ]
+        if problems:
+            raise ValueError("duplicate ids: " + "; ".join(problems))
+        return self
