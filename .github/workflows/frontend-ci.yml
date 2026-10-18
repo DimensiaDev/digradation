@@ -54,7 +54,7 @@ jobs:
       # exits non-zero. This step names no percentage, so the two cannot
       # disagree. Branch coverage is deliberately not gated.
       #
-      # Uploaded even when the build below fails, so a green suite's report
+      # Uploaded even when the build above fails, so a green suite's report
       # survives a red production build.
       - name: Upload coverage summary
         if: ${{ !cancelled() }}
