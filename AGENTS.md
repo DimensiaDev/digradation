@@ -320,10 +320,14 @@ reads and enforces.
 |---|---|
 | `backend/pyproject.toml` | `[tool.coverage.*]` config, including `fail_under = 90` |
 | `.pre-commit-config.yaml` | `pytest-coverage` hook, **pre-push** stage |
-| `.github/workflows/backend-coverage.yml` | runs the same command, uploads `coverage.json` |
+| `.github/workflows/backend-ci.yml` | runs the suite with `--cov`, uploads `coverage.json` |
 
 **To change the gate:** edit `fail_under` in `backend/pyproject.toml`. Nothing else names
 a percentage. Verified to bite: at `fail_under = 90` the run exits 0, at `99` it exits 1.
+
+**There is one test run, not two.** The workflow that used to run a second full suite just
+to produce a coverage report is deleted; `backend-ci.yml` collects coverage in the same run
+that runs the tests, and uploads the artifact from there.
 
 Branch coverage is on (`branch = true`) and `source = ["app"]`. Coverage artifacts
 (`.coverage*`, `coverage.json`, `coverage.xml`, `htmlcov/`) are gitignored. No current
@@ -415,10 +419,17 @@ Config lives in the `test` target of `frontend/angular.json` (`coverage`,
 `json-summary` and `html`; output lands in `frontend/coverage/frontend/`, which is already
 gitignored.
 
-**To make 90% the gate:** the threshold is a `coverageThresholds` object on the `test`
-target in `frontend/angular.json`. The builder enforces it and exits non-zero, so no
-percentage is hardcoded in the hook or the workflow. Verified to bite: at `statements: 90`
-the run exits 0, at `95` it exits 1.
+**`coverage` is already `true` by default on that target,** so a plain `npx ng test` collects
+coverage and enforces the thresholds without a `--coverage` flag. Passing it is harmless and
+explicit, but the CI workflow does not need it. There is one test run, not two: the separate
+coverage workflow is deleted and `frontend-ci.yml` uploads the report from the run it already
+performs.
+
+**To change the gate:** edit the `coverageThresholds` object on the `test` target in
+`frontend/angular.json`. It is already set for statements, functions and lines, and the
+builder enforces it and exits non-zero, so no percentage is hardcoded in the hook or the
+workflow. Verified to bite: at `statements: 90` the run exits 0, at `95` it exits 1.
+**Branches are deliberately not gated.**
 
 `coverageInclude` counts untested files at 0%, so the reported figure is honest rather
 than flattering. No current figure is recorded here — run the command above and read it.

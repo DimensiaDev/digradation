@@ -91,10 +91,8 @@ PostgreSQL, Redis and Garage are real testcontainers in the backend suite. The L
 |---|---|
 | `e2e.yml` | Playwright against the Compose stack, `SBER_API_KEY=mock` |
 | Isolation | e2e runs under Compose project `digradation-e2e`, so its volumes are `digradation-e2e_*` and never the developer's |
-| `backend-ci.yml` | black, ruff, pytest (Python 3.14) |
-| `backend-coverage.yml` | pytest with coverage, uploads `coverage.json` (reporting only) |
-| `frontend-ci.yml` | `ng lint`, `npx ng test --watch=false`, `ng build --configuration production` (Node 22) |
-| `frontend-coverage.yml` | Vitest with coverage |
+| `backend-ci.yml` | black, ruff, `pytest --cov` (Python 3.14), uploads `coverage.json` |
+| `frontend-ci.yml` | `ng lint`, `npx ng test --watch=false`, `ng build --configuration production` (Node 22), uploads the coverage summary |
 | `commitlint.yml` | Conventional Commits on push and PR |
 | `pre-commit.yml` | generic yaml, json, toml, eof and whitespace checks |
 
@@ -134,11 +132,7 @@ Ordered by value, not by commitment:
 6. **Add a LICENSE file**, currently absent.
 7. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
    and in the code, but not in the example env file.
-8. **Consolidate the coverage CI workflows.** `frontend-coverage.yml` and
-   `backend-coverage.yml` each run their package's full suite, and each package also has a
-   plain `*-ci.yml` that runs the same tests. Making each coverage job depend on its CI job
-   would halve the cost. Not urgent while the suites are fast.
-9. **Add a per-test e2e user.** The suite shares one seeded user and works around the
+8. **Add a per-test e2e user.** The suite shares one seeded user and works around the
    5-per-minute rate limit by clearing Redis between tests.
 
 ---

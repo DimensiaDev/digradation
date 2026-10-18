@@ -31,11 +31,13 @@ poetry -C backend run pytest tests/test_migrations.py         # the migration dr
 - `--cov` alone prints the terminal report and writes no file. Add
   `--cov-report=json` when a `coverage.json` artifact is wanted, since
   `[tool.coverage.json] output` only applies when that report is actually requested.
-- Read the `Missing` column as a work list, not the percentage as a score. It points at the
-  untested chat routes and TaskIQ workers.
-- A `pre-push` pre-commit hook and `.github/workflows/backend-coverage.yml` both run this.
-  After adding a pre-push hook, run `pre-commit install --hook-type pre-push`, otherwise a
-  clone that installed only `pre-commit` and `commit-msg` silently skips it.
+- Read the `Missing` column as a work list, not the percentage as a score: it names the exact
+  uncovered lines.
+- A `pre-push` pre-commit hook and `.github/workflows/backend-ci.yml` both run this. The
+  workflow runs the suite **once** with `--cov` and uploads `coverage.json` from that run;
+  there is no separate coverage workflow, because a second run would only reproduce the
+  first. After adding a pre-push hook, run `pre-commit install --hook-type pre-push`,
+  otherwise a clone that installed only `pre-commit` and `commit-msg` silently skips it.
 
 ## Layout and naming
 
