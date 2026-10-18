@@ -416,6 +416,15 @@ def _duplicate_ids(ids: list[str]) -> list[str]:
     return duplicates
 
 
+def _declared_outcomes(draft: ProgramDraft) -> list[Outcome]:
+    """The learning outcomes the competences declare, in declaration order."""
+    return [
+        outcome
+        for competence in draft.competencies
+        for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
+    ]
+
+
 class ProgramDraft(SchemaModel):
     """Ранние блоки программы, которые методист подтверждает до полной генерации.
 
@@ -447,11 +456,7 @@ class ProgramDraft(SchemaModel):
         """
         namespaces: dict[str, list[str]] = {
             "competencies": [competence.id for competence in self.competencies],
-            "outcomes": [
-                outcome.id
-                for competence in self.competencies
-                for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
-            ],
+            "outcomes": [outcome.id for outcome in _declared_outcomes(self)],
             "modules": [module.id for module in self.curriculum.modules],
             "topics": [topic.id for module in self.curriculum.modules for topic in module.topics],
             "sources": [source.id for source in self.sources],
@@ -463,4 +468,25 @@ class ProgramDraft(SchemaModel):
         ]
         if problems:
             raise ValueError("duplicate ids: " + "; ".join(problems))
+        return self
+
+    @model_validator(mode="after")
+    def _reject_undeclared_outcomes(self) -> Self:
+        """A topic may cover only outcomes a competence declares.
+
+        ``Topic.outcome_ids`` is a reference into the competence block, and the
+        two blocks arrive in the same payload without anything tying them
+        together. An id nothing declares is a dangling link: the document cannot
+        render it, and the methodist is promised an outcome that does not exist.
+        """
+        declared = {outcome.id for outcome in _declared_outcomes(self)}
+        undeclared = [
+            f"{topic.id}: {outcome_id}"
+            for module in self.curriculum.modules
+            for topic in module.topics
+            for outcome_id in topic.outcome_ids
+            if outcome_id not in declared
+        ]
+        if undeclared:
+            raise ValueError("outcome_ids not declared by any competence: " + "; ".join(undeclared))
         return self

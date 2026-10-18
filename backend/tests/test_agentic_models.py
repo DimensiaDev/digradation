@@ -233,3 +233,21 @@ def test_a_repeated_id_is_reported_once(draft: Program) -> None:
         {"id": "m-01", "title": "Модуль 3", "topics": [{"id": "t-03.1", "title": "Тема 3", "hours": {}}]}
     )
     assert draft_problems(draft).count("m-01") == 1
+
+
+def test_topic_outcome_ids_must_be_declared(draft: Program) -> None:
+    draft["curriculum"]["modules"][0]["topics"][0]["outcome_ids"] = ["ro-k-99"]
+    assert "outcome_ids not declared by any competence: t-01.1: ro-k-99" in draft_problems(draft)
+
+
+def test_topic_outcome_ids_may_name_outcomes_of_any_competence(draft: Program) -> None:
+    draft["curriculum"]["modules"][1]["topics"][0]["outcome_ids"] = ["ro-e-01", "ro-k-01"]
+    validate_draft(draft)
+
+
+def test_every_dangling_outcome_id_is_reported(draft: Program) -> None:
+    draft["curriculum"]["modules"][0]["topics"][0]["outcome_ids"] = ["ro-k-01", "ro-s-99", "ro-e-98"]
+    message = draft_problems(draft)
+    assert "t-01.1: ro-s-99" in message
+    assert "t-01.1: ro-e-98" in message
+    assert "ro-k-01" not in message
