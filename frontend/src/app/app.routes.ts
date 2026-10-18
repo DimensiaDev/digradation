@@ -10,6 +10,8 @@ import {
 import { HistoryPage } from './pages/history-page/history-page.component';
 import { SettingsPage } from './pages/settings-page/settings-page.component';
 import { ProfilePage } from './pages/profile-page/profile-page.component';
+import { HomePage } from './pages/home-page/home-page.component';
+import { HelpPage } from './pages/help-page/help-page.component';
 import { LoginPageComponent } from './pages/login-page/login-page.component';
 import { adminGuard, authGuard, publicGuard } from './core/guards/auth.guard';
 import { UsersPage } from './pages/admin/users-page/users-page.component';
@@ -52,12 +54,15 @@ export const routes: Routes = [
     canActivate: [authGuard],
     data: { navItems: USER_NAV_ITEMS, bottomNavItems: USER_BOTTOM_NAV_ITEMS, role: 'user' },
     children: [
-      { path: '', redirectTo: '/create', pathMatch: 'full' },
+      { path: '', redirectTo: '/home', pathMatch: 'full' },
+      { path: 'home', component: HomePage },
+      { path: 'help', component: HelpPage },
       { path: 'create', component: ChatCreateComponent },
       { path: 'settings', component: SettingsPage },
       { path: 'chats', component: HistoryPage },
       { path: 'chats/:id', component: ChatComponent },
       { path: 'profile', component: ProfilePage }
     ]
-  }
+  },
+  { path: '**', redirectTo: '/home' }
 ];
