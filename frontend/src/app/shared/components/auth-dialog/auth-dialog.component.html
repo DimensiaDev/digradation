@@ -33,7 +33,6 @@
             autocomplete="username"
             [maxLength]="32"
             [leftIcon]="userIcon"
-            (keydown.enter)="submit()"
           />
         </div>
 
@@ -51,7 +50,6 @@
             [rightIconInteractive]="true"
             [rightIconLabel]="showPassword() ? 'Скрыть пароль' : 'Показать пароль'"
             (rightIconClick)="togglePassword()"
-            (keydown.enter)="submit()"
           />
         </div>
 

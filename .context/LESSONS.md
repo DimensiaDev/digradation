@@ -747,3 +747,10 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   units, so a `size="20"` icon drew a 1.67px stroke where a `size="18"` one drew 1.5px, and the
   thinner stroke antialiases lighter against the sidebar. Compare the rendered stroke px
   (`size / 24 × 2`) before reaching for the colour token. (2026-10-18)
+- **`(keydown.enter)="submit()"` on an input inside a `<form>` fires the submit twice.** The
+  browser also implicit-submits the form on Enter (there is a `type="submit"` button), so
+  `ngSubmit` runs `submit()` a second time in the same keystroke. A valid form hides it because
+  the first call sets `isSubmitting`; an invalid form does not, and both calls raise the
+  validation toast. Rely on the native implicit submission and drop the extra handler — the
+  admin user form already does. Guarded by a spec that dispatches `keydown` then `submit`.
+  (2026-10-18)

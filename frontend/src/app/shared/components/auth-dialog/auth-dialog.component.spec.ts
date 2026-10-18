@@ -7,6 +7,7 @@ import { provideRouter, Router, Routes } from '@angular/router';
 
 import { AuthDialogComponent } from './auth-dialog.component';
 import { AuthModalService } from '../../../core/services/auth-modal.service';
+import { NotificationService } from '../../../core/services/notification.service';
 import { NotificationsComponent } from '../notifications/notifications.component';
 import { environment } from '../../../../environments/environment';
 import { User } from '../../../core/models/models';
@@ -446,6 +447,19 @@ describe('AuthDialogComponent', () => {
       expect(notificationText()).toBe('Заполните логин и пароль');
       expect(page().form.controls.username.touched).toBe(true);
       expect(page().form.controls.password.touched).toBe(true);
+      http.expectNone(LOGIN_URL);
+    });
+
+    it('does not double-report when Enter implicitly submits the form', () => {
+      createPage();
+      openModal();
+
+      // A browser submits an input form on Enter by dispatching keydown and
+      // then a native submit. The dialog must answer only the submit.
+      usernameInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      submitForm();
+
+      expect(TestBed.inject(NotificationService).notifications().length).toBe(1);
       http.expectNone(LOGIN_URL);
     });
 
