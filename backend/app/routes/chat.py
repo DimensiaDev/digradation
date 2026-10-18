@@ -491,10 +491,7 @@ async def approve_chat_program(session_id: VerifiedMessageSession, db: DbSession
     confirmation and overwriting it would undo a check the methodist already
     passed.
     """
-    # FOR UPDATE for the same reason ``save_program_draft`` takes it: approval
-    # and a revision of the same draft must not interleave, otherwise the
-    # confirmation lands on a draft that has already been replaced.
-    row = await db.get(ChatProgram, session_id, with_for_update=True)
+    row = await db.get(ChatProgram, session_id)
     if row is None:
         raise HTTPException(status_code=400, detail="No programme draft to approve")
     if row.status not in (ProgramStatus.APPROVED, ProgramStatus.VERIFIED):

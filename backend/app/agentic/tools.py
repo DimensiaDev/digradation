@@ -245,11 +245,7 @@ async def save_program_draft(ctx: ToolContext, arguments: dict) -> dict:
     payload = draft.model_copy(update={"sources": sources}).model_dump(mode="json")
 
     async with ctx.open_db() as db:
-        # FOR UPDATE, so an approval of the previous revision cannot interleave:
-        # without the lock both sides read ``pending_approval`` and the approval
-        # commits over a draft this save has already replaced (or the save
-        # resurrects a draft the methodist just confirmed).
-        row = await db.get(ChatProgram, ctx.session_id, with_for_update=True)
+        row = await db.get(ChatProgram, ctx.session_id)
         if row is not None and row.status in (ProgramStatus.APPROVED, ProgramStatus.VERIFIED):
             return {
                 "ok": False,
