@@ -126,6 +126,13 @@ def test_init_defaults_to_the_official_endpoint(monkeypatch):
     assert str(provider._client.base_url).startswith("https://api.openai.com")
 
 
+def test_init_treats_an_empty_openai_url_as_the_official_endpoint(monkeypatch):
+    monkeypatch.setenv("OPENAI_URL", "")
+    provider = OpenAIProvider(api_key="key", scope="openai")
+
+    assert str(provider._client.base_url).startswith("https://api.openai.com")
+
+
 @pytest.mark.asyncio
 async def test_init_respects_openai_url(monkeypatch):
     monkeypatch.setenv("OPENAI_URL", "https://hub.example.test/api/v1/llm/v1")
@@ -188,6 +195,18 @@ async def test_generate_maps_a_text_completion(make_provider):
     assert result.usage.output_tokens == 5
     assert result.usage.input_tokens_details.prompt_tokens == 10
     assert result.usage.input_tokens_details.cached_tokens == 2
+
+
+def test_map_completion_defaults_missing_usage_to_zero():
+    completion = make_completion().model_copy(update={"usage": None})
+
+    result = OpenAIProvider._map_completion(completion)
+
+    assert result.usage.input_tokens == 0
+    assert result.usage.input_tokens_details.prompt_tokens == 0
+    assert result.usage.input_tokens_details.cached_tokens == 0
+    assert result.usage.output_tokens == 0
+    assert result.usage.total_tokens == 0
 
 
 @pytest.mark.asyncio

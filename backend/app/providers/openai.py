@@ -5,10 +5,10 @@ and the endpoint may be overridden with ``OPENAI_URL``; with no override the
 official OpenAI endpoint is used. The model defaults to the GigaChat model the
 school hub exposes and can be overridden with ``OPENAI_MODEL``.
 
-This is the only provider that implements tool calling today. Tools are defined
-once at construction (``tools=``), advertised on every request, and the calls the
-model asks for come back on ``GenerationResponse.tool_calls``. Nothing executes
-them yet: the caller decides whether to answer the call or run it.
+This provider advertises tools on every request, and the calls the model asks
+for come back on ``GenerationResponse.tool_calls``. Nothing executes them yet:
+the caller decides whether to answer the call or run it. The GigaChat client
+implements the same contract on its own wire format.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from openai import AsyncOpenAI, AuthenticationError
+from openai.types import CompletionUsage
 from openai.types.chat import ChatCompletion
 
 from app.providers.client import AIClient, AuthorizationError
@@ -48,6 +49,14 @@ class OpenAIProvider(AIClient):
         url = os.getenv("OPENAI_URL")
         if url:
             kwargs["base_url"] = url
+        else:
+            # The official endpoint is a legitimate default, but an empty value in
+            # an otherwise configured deployment is more often a missing setting
+            # than a deliberate choice, so say which endpoint is in use.
+            self._log.warning(
+                "openai_url_not_configured",
+                detail="OPENAI_URL is unset or empty; using the official OpenAI endpoint",
+            )
         self._client = AsyncOpenAI(**kwargs)
 
     def _model(self) -> str:
@@ -116,7 +125,28 @@ class OpenAIProvider(AIClient):
         }
 
     @staticmethod
-    def _map_completion(completion: ChatCompletion) -> GenerationResponse:
+    def _map_usage(usage: CompletionUsage | None) -> Usage:
+        if usage is None:
+            return Usage(
+                input_tokens=0,
+                input_tokens_details=InputTokenDetails(prompt_tokens=0, cached_tokens=0),
+                output_tokens=0,
+                total_tokens=0,
+            )
+
+        details = usage.prompt_tokens_details
+        return Usage(
+            input_tokens=usage.prompt_tokens,
+            input_tokens_details=InputTokenDetails(
+                prompt_tokens=usage.prompt_tokens,
+                cached_tokens=details.cached_tokens if details and details.cached_tokens else 0,
+            ),
+            output_tokens=usage.completion_tokens,
+            total_tokens=usage.total_tokens,
+        )
+
+    @classmethod
+    def _map_completion(cls, completion: ChatCompletion) -> GenerationResponse:
         choice = completion.choices[0]
         message = choice.message
         content = [Content(text=message.content)] if message.content else []
@@ -129,24 +159,13 @@ class OpenAIProvider(AIClient):
             if call.type == "function"
         ]
 
-        usage = completion.usage
-        prompt_tokens = usage.prompt_tokens if usage else 0
-        details = usage.prompt_tokens_details if usage else None
         return GenerationResponse(
             messages=[Message(role="assistant", content=content)],
             model=completion.model,
             thread_id=completion.id,
             created_at=datetime.fromtimestamp(completion.created, tz=UTC),
             finish_reason=choice.finish_reason,
-            usage=Usage(
-                input_tokens=prompt_tokens,
-                input_tokens_details=InputTokenDetails(
-                    prompt_tokens=prompt_tokens,
-                    cached_tokens=(details.cached_tokens if details else None) or 0,
-                ),
-                output_tokens=usage.completion_tokens if usage else 0,
-                total_tokens=usage.total_tokens if usage else 0,
-            ),
+            usage=cls._map_usage(completion.usage),
             tool_calls=tool_calls,
         )
 

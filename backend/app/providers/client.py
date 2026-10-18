@@ -34,8 +34,9 @@ class AIClient(ABC):
         self.scope = scope
         #: Tools offered to the model on every generation. Defined once at
         #: construction because the set is a property of the deployment, not of
-        #: a single request. Only the OpenAI-compatible client uses them today.
-        self.tools = list(tools or [])
+        #: a single request. The OpenAI and GigaChat clients both advertise them;
+        #: the mock accepts and ignores them.
+        self.tools = tools or []
         self._log = structlog.stdlib.get_logger(__name__)
         self.token = None
         self.token_expires_at = None
