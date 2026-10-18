@@ -16,7 +16,7 @@ import copy
 import uuid
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import structlog.stdlib
@@ -40,11 +40,15 @@ class ToolContext:
     factory (``tsq_db``), and tests bind the handlers to their own database by
     passing a different factory. ``renamed_to`` is set when a handler names the
     chat, which the worker forwards to ``process_response``.
+    ``known_source_ids`` is the provenance of the run: only a document the model
+    has actually seen — through ``search_sources`` or in a stored draft — may be
+    cited, so an invented or half-remembered id is refused rather than stored.
     """
 
     session_id: uuid.UUID
     open_db: Callable[[], AbstractAsyncContextManager[AsyncSession]]
     renamed_to: str | None = None
+    known_source_ids: set[str] = field(default_factory=set)
 
 
 class SearchSourcesArguments(BaseModel):
@@ -125,13 +129,16 @@ AGENT_TOOL = Tool(
 )
 
 
-async def search_sources(_ctx: ToolContext, arguments: dict) -> dict:
+async def search_sources(ctx: ToolContext, arguments: dict) -> dict:
     """Search the source catalog and return the fragments to cite.
 
-    The context is part of the handler interface; this tool reads no database.
+    The ids of everything returned are remembered on the context: a source the
+    model has not seen here (or read in a stored draft) must not end up in the
+    draft, so this is the only place that widens what may be cited.
     """
     arguments = SearchSourcesArguments.model_validate(arguments)
     fragments = await search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
+    ctx.known_source_ids.update(fragment.source.id for fragment in fragments)
     result: dict[str, Any] = {
         "ok": True,
         "query": arguments.query,
@@ -145,24 +152,36 @@ async def search_sources(_ctx: ToolContext, arguments: dict) -> dict:
     return result
 
 
-def _resolve_sources(draft: ProgramDraft) -> tuple[list[Source], list[str]]:
+def _cited_source_ids(draft: ProgramDraft) -> dict[str, None]:
+    """Every source id the draft refers to, in first-seen order."""
+    ids = [source.id for source in draft.sources]
+    ids.extend(draft.summary.basis_source_ids)
+    ids.extend(competence.standard_source_id for competence in draft.competencies if competence.standard_source_id)
+    return dict.fromkeys(ids)
+
+
+def _resolve_sources(ctx: ToolContext, draft: ProgramDraft) -> tuple[list[Source], list[str], list[str]]:
     """Replace the cited sources with their catalog records.
 
-    The model knows only the sources it received from ``search_sources``, and
-    those are in the catalog; anything else is an invented document and must not
-    reach the stored draft. The canonical record is stored instead of the one the
-    model reproduced, so titles and identifiers cannot drift.
+    Two ways a citation can be wrong, and both must be refused. An id the
+    catalog does not know is an invented document. An id the catalog knows but
+    this run has not shown the model — no ``search_sources`` call returned it
+    and no stored draft carried it — is equally unverified: the catalog is wide,
+    and a plausible-looking ``src-NN`` is easy to guess. The canonical record is
+    stored instead of the one the model reproduced, so titles cannot drift.
     """
-    cited = dict.fromkeys([source.id for source in draft.sources] + list(draft.summary.basis_source_ids))
     resolved: list[Source] = []
-    missing: list[str] = []
-    for source_id in cited:
+    unknown: list[str] = []
+    unsearched: list[str] = []
+    for source_id in _cited_source_ids(draft):
         source = get_source(source_id)
         if source is None:
-            missing.append(source_id)
+            unknown.append(source_id)
+        elif source_id not in ctx.known_source_ids:
+            unsearched.append(source_id)
         else:
             resolved.append(source)
-    return resolved, missing
+    return resolved, unknown, unsearched
 
 
 def _describe_validation_error(error: ValidationError) -> list[str]:
@@ -210,12 +229,18 @@ async def save_program_draft(ctx: ToolContext, arguments: dict) -> dict:
             "details": _describe_validation_error(error),
         }
 
-    sources, missing = _resolve_sources(draft)
-    if missing:
+    sources, unknown, unsearched = _resolve_sources(ctx, draft)
+    if unknown:
         return {
             "ok": False,
-            "error": "Неизвестные источники: " + ", ".join(missing),
+            "error": "Неизвестные источники: " + ", ".join(unknown),
             "details": "Используй только источники из результатов search_sources; выдуманные документы запрещены.",
+        }
+    if unsearched:
+        return {
+            "ok": False,
+            "error": "Не подтверждённые поиском источники: " + ", ".join(unsearched),
+            "details": "Сначала найди документ вызовом search_sources и ссылайся только на то, что вернул поиск.",
         }
     payload = draft.model_copy(update={"sources": sources}).model_dump(mode="json")
 
@@ -251,6 +276,29 @@ async def save_program_draft(ctx: ToolContext, arguments: dict) -> dict:
     }
 
 
+def _remember_stored_sources(ctx: ToolContext, draft: dict) -> None:
+    """Count the sources of a stored draft as known to this run.
+
+    A stored draft passed ``save_program_draft`` once, which resolved its
+    citations against the search of that run. Showing the model its own draft
+    must therefore keep those citations usable — otherwise every revision would
+    fail on the sources it just read back, and the model would have to re-search
+    documents it has already confirmed.
+    """
+    for source in draft.get("sources") or ():
+        source_id = source.get("id") if isinstance(source, dict) else None
+        if isinstance(source_id, str):
+            ctx.known_source_ids.add(source_id)
+    summary = draft.get("summary") or {}
+    for source_id in summary.get("basis_source_ids") or ():
+        if isinstance(source_id, str):
+            ctx.known_source_ids.add(source_id)
+    for competence in draft.get("competencies") or ():
+        source_id = competence.get("standard_source_id") if isinstance(competence, dict) else None
+        if isinstance(source_id, str):
+            ctx.known_source_ids.add(source_id)
+
+
 async def get_program_draft(ctx: ToolContext, arguments: dict) -> dict:
     """Return the stored draft and its state."""
     GetProgramDraftArguments.model_validate(arguments)
@@ -263,6 +311,7 @@ async def get_program_draft(ctx: ToolContext, arguments: dict) -> dict:
             "draft": None,
             "note": "Черновик ещё не сохранён.",
         }
+    _remember_stored_sources(ctx, row.draft)
     return {"ok": True, "status": row.status, "draft": row.draft}
 
 
