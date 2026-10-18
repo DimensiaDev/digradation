@@ -4,7 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
  * End-to-end configuration.
  *
  * These tests run against the real Docker Compose stack (frontend, backend,
- * workers, PostgreSQL, Redis, MinIO) with `SBER_API_KEY=mock`, so the whole
+ * workers, PostgreSQL, Redis, Garage) with `SBER_API_KEY=mock`, so the whole
  * request path is exercised while the LLM itself is offline and free.
  *
  * Start the stack first:
@@ -27,8 +27,8 @@ export default defineConfig({
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  // A generation walks the real worker pipeline: PDF-less DXF parsing, the
-  // calculator writing a spreadsheet, and a MinIO round trip. A minute is a
+  // A generation walks the real worker pipeline: an attachment upload to object
+  // storage, the provider call, and the reply being stored. A minute is a
   // comfortable ceiling on a cold image.
   timeout: 60_000,
   expect: { timeout: 15_000 },

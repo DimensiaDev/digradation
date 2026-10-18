@@ -46,5 +46,27 @@ jobs:
       - name: Lint (ruff)
         run: poetry run ruff check .
 
-      - name: Test (pytest)
-        run: poetry run pytest .
+      # One run, not two. This used to be a bare `pytest .` here plus a second
+      # full suite in backend-coverage.yml, which doubled the cost of every
+      # backend PR to produce one result. `--cov` is essentially free here and
+      # enforces the gate, so the coverage report is simply taken from this run.
+      #
+      # The threshold lives in ONE place: `fail_under` in
+      # backend/pyproject.toml, which pytest-cov reads and enforces. This step
+      # names no percentage, so the two cannot disagree.
+      #
+      # `--cov-report=json` is required for the upload below: `[tool.coverage.json]
+      # output` only takes effect when the json report is actually requested.
+      - name: Test with coverage
+        run: poetry run pytest --cov --cov-report=term-missing --cov-report=json
+
+      # Uploaded even after a failure: a red suite is when the report matters
+      # most, and this must not be the next skipped step. A cancelled run is
+      # still skipped, and a missing file only warns.
+      - name: Upload coverage artifact
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.json
+          retention-days: 14

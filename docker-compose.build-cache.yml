@@ -1,0 +1,83 @@
+# Build layer caching for CI, and nothing else.
+#
+# Passed to Compose as a third `-f` file by `e2e/scripts/setup.sh` when `CI` is
+# set, and by the two diagnostic steps in `.github/workflows/e2e.yml`. It is not
+# copied to `docker-compose.override.yml` and is not used by a local dev stack.
+#
+# Why a separate file: the `gha` cache backend authenticates with the `ACTIONS_*`
+# variables that exist only inside an Actions job, and it needs a builder from
+# `docker/setup-buildx-action`. Neither exists on a developer machine, and
+# `.github/workflows/e2e.yml` is where both are arranged -- the runtime action
+# re-exports the variables, because the runner gives them to an action and not
+# to a `run` step. Without them Buildx drops these entries *silently*: the build
+# succeeds and the cache is never read or written. Locally the file would be
+# dead weight rather than a faster build.
+#
+# Why it is worth it: `setup.sh` runs `up -d --build`, and without this every run
+# rebuilds the Angular production bundle and the Poetry install from scratch.
+# That build, not the browser download, is the largest cost in the job.
+
+services:
+  backend:
+    build:
+      # One shared scope: every service built from `backend/Dockerfile` is the
+      # same image, so they must share a cache namespace or they would each
+      # miss on each other's layers.
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,mode=max,scope=backend
+
+  frontend:
+    build:
+      cache_from:
+        - type=gha,scope=frontend
+      cache_to:
+        - type=gha,mode=max,scope=frontend
+
+  # Same build definition as `backend`, so same scopes. Listed explicitly
+  # because a `cache_from` is not inherited across services that merely share a
+  # build anchor.
+  migrate:
+    build:
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,mode=max,scope=backend
+
+  scheduler:
+    build:
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,mode=max,scope=backend
+
+  worker_default:
+    build:
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,mode=max,scope=backend
+
+  worker_network:
+    build:
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,mode=max,scope=backend
+
+  garage-config:
+    build:
+      cache_from:
+        - type=gha,scope=backend
+      cache_to:
+        - type=gha,mode=max,scope=backend
+
+  # Busybox plus the Garage binary, from `conf/garage.Dockerfile`. Its own scope:
+  # it shares no layers with `backend/Dockerfile`.
+  garage-bootstrap:
+    build:
+      cache_from:
+        - type=gha,scope=garage-bootstrap
+      cache_to:
+        - type=gha,mode=max,scope=garage-bootstrap

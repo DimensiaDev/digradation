@@ -17,12 +17,12 @@ chat application" in `DECISIONS.md` for why each piece went.
 
 Everything described below is working and running via Docker Compose.
 
-| Component | State |
-|---|---|
-| `backend/` | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness |
+| Component   | State                                                                                                                              |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness                                               |
 | `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings |
-| `e2e/` | Complete: 8 spec files, 28 tests against the real Compose stack with the offline provider |
-| Infra | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup |
+| `e2e/`      | Complete: 8 spec files, 28 tests against the real Compose stack with the offline provider                                          |
+| Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup                                                     |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
 sessions with async generation, attachment upload / list / delete, presigned S3 results.
@@ -30,14 +30,9 @@ Alembic is a **single squashed `initial` revision** (`d7e256a71a55`) generated f
 models. Nine TaskIQ tasks across the `default` and `network` queues, with hourly and
 10-minute cleanup crons.
 
-**Frontend.** Angular 21.2 standalone with signals. The panel is browsable as a guest: the
-session is resolved by a `provideAppInitializer`, `/home` and `/help` are public, every other
-route renders behind an `AuthGate` prompt, and `/login` is gone in favour of a shared
-`AuthModalService` dialog. Reactive forms, cookie auth, 2-second polling for generation
-results, inline preview for PDF, image, docx and xlsx, light/dark theme, admin user
-management, admin prompt-extension editor. Section switches animate through the browser's
-View Transitions API (`withViewTransitions`), direction derived from the sidebar order.
-47 `*.spec.ts` files.
+**Frontend.** Angular 21.2 standalone with signals. Reactive forms, cookie auth, 2-second
+polling for generation results, inline preview for PDF, image, docx and xlsx, light/dark
+theme, admin user management, admin prompt-extension editor. 40 colocated `*.spec.ts` files.
 
 **Not started or placeholder.** The profile page body, the user settings page body, and two
 admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`. The public
@@ -66,43 +61,47 @@ first extension point if a feature starts deriving files from an upload.
 
 ---
 
-## Test coverage
+## Tests
 
-| Suite | Command | Notes |
-|---|---|---|
-| Backend | `poetry -C backend run pytest` | 353 tests; needs a Docker daemon |
-| Backend coverage | `poetry -C backend run pytest --cov` | **99.33%** across 353 tests, gated at 90% by `fail_under` |
-| Frontend | `npm --prefix frontend test` | Vitest, 412 tests in 47 files; runs in `frontend-ci.yml` |
-| Frontend coverage | `npx ng test --coverage` | 91.41% stmts, 86.44% branches, 91.37% funcs; gated at 90% |
-| End-to-end | `./e2e/scripts/run.sh` | Playwright against the Compose stack, `SBER_API_KEY=mock`; 28 tests |
+| Suite             | Command                              | Needs                                                               |
+| ----------------- | ------------------------------------ | ------------------------------------------------------------------- |
+| Backend           | `poetry -C backend run pytest`       | 353 tests; needs a Docker daemon                                    |
+| Backend coverage  | `poetry -C backend run pytest --cov` | **99.33%** across 353 tests, gated at 90% by `fail_under`           |
+| Frontend          | `npm --prefix frontend test`         | Vitest, 412 tests in 47 files; runs in `frontend-ci.yml`            |
+| Frontend coverage | `npx ng test --coverage`             | 91.41% stmts, 86.44% branches, 91.37% funcs; gated at 90%           |
+| End-to-end        | `./e2e/scripts/run.sh`               | Playwright against the Compose stack, `SBER_API_KEY=mock`; 28 tests |
 
 **Both coverage gates are enforced at 90%**, each in exactly one place:
 `fail_under` in `backend/pyproject.toml` and `coverageThresholds` on the `test` target in
-`frontend/angular.json`. Neither a pre-commit hook nor a workflow names a percentage.
-Frontend branches (85.85%) are deliberately not gated.
+`frontend/angular.json`. Neither a pre-commit hook nor a workflow names a percentage, so
+they cannot drift apart. Frontend branches are deliberately not gated.
+
+Test counts and coverage percentages are deliberately not recorded here: they are
+deterministic, the commands above print them in seconds, and a recorded copy goes stale
+silently. See the rule in `AGENTS.md`.
 
 PostgreSQL, Redis and Garage are real testcontainers in the backend suite. The LLM is faked by
 `app/providers/mock.py`, selected with `SBER_API_KEY=mock` and switchable via
 `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`); the real GigaChat is only reachable through
 `@pytest.mark.live` tests, which are deselected by default.
 
-**The `processing` suite, its coverage hook and its two workflows are gone** along with the
-package.
-
 ---
 
 ## CI
 
-| Workflow | Runs |
-|---|---|
-| `e2e.yml` | Playwright against the Compose stack, `SBER_API_KEY=mock` |
-| Isolation | e2e runs under Compose project `digradation-e2e`, so its volumes are `digradation-e2e_*` and never the developer's |
-| `backend-ci.yml` | black, ruff, pytest (Python 3.14) |
-| `backend-coverage.yml` | pytest with coverage, uploads `coverage.json` (reporting only) |
-| `frontend-ci.yml` | `ng lint`, `npx ng test --watch=false`, `ng build --configuration production` (Node 22) |
-| `frontend-coverage.yml` | Vitest with coverage |
-| `commitlint.yml` | Conventional Commits on push and PR |
-| `pre-commit.yml` | generic yaml, json, toml, eof and whitespace checks |
+| Workflow          | Runs                                                                                                                  |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `e2e.yml`         | Playwright against the Compose stack, `SBER_API_KEY=mock`, with the Playwright browser and Docker build-layer caches  |
+| Isolation         | e2e runs under Compose project `digradation-e2e`, so its volumes are `digradation-e2e_*` and never the developer's    |
+| `backend-ci.yml`  | black, ruff, `pytest --cov` (Python 3.14), uploads `coverage.json`                                                    |
+| `frontend-ci.yml` | `ng lint`, `npx ng test --watch=false`, `ng build --configuration production` (Node 22), uploads the coverage summary |
+| `commitlint.yml`  | Conventional Commits on push and PR                                                                                   |
+| `pre-commit.yml`  | generic yaml, json, toml, eof and whitespace checks                                                                   |
+
+Each package suite runs **once** per PR: coverage is collected in the same `pytest` and
+`ng test` run rather than by a second coverage workflow. Coverage artifacts upload even
+after a failing test or build, so a red run still leaves its report behind. The Docker
+build cache is CI-only (`docker-compose.build-cache.yml`), see `AGENTS.md`.
 
 There is no deploy workflow; CI only.
 
@@ -141,11 +140,7 @@ Ordered by value, not by commitment:
 6. **Add a LICENSE file**, currently absent.
 7. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
    and in the code, but not in the example env file.
-8. **Consolidate the coverage CI workflows.** `frontend-coverage.yml` and
-   `backend-coverage.yml` each run their package's full suite, and each package also has a
-   plain `*-ci.yml` that runs the same tests. Making each coverage job depend on its CI job
-   would halve the cost. Not urgent while the suites are fast.
-9. **Add a per-test e2e user.** The suite shares one seeded user and works around the
+8. **Add a per-test e2e user.** The suite shares one seeded user and works around the
    5-per-minute rate limit by clearing Redis between tests.
 
 ---

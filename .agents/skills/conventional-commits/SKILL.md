@@ -113,7 +113,9 @@ Anything longer belongs in the pull request description, or in
 The commit points at that record; it does not duplicate it.
 
 ```
-# too long -- a changelog, and mostly a re-narration of the diff
+# too long -- a changelog, and mostly a re-narration of the diff.
+# The figures below are invented for the example; see the "no coverage
+# figures in docs" rule in AGENTS.md for why a real commit never carries them.
 test(frontend): raise coverage to 90.24% and enforce a 90% gate
 
 Frontend coverage goes from 67.6% to 90.24% statements across 305 tests,
