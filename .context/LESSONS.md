@@ -707,3 +707,11 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   `COMPOSE_BAKE=true` explicitly so the fallback cannot happen on an older runner either,
   and `#1 [internal] load local bake definitions` in the log proves Bake ran. Found
   2026-10-18 on PR #21.
+- **The Angular CLI's first-run analytics prompt crashes a non-interactive `ng` run, and it
+  first bites inside the pre-push hook.** `vitest-coverage` runs `npx ng test` with no TTY,
+  so the "share pseudonymous usage data?" question aborted the CLI (`User force closed the
+  prompt with 0 null`, hook exit 127) and the push died before anything was sent.
+  `SKIP=vitest` does not prevent it: the hook ids are `vitest-coverage` and
+  `pytest-coverage`, and there is no plain `vitest` hook. Fixed 2026-10-18 with
+  `"cli": { "analytics": false }` in `frontend/angular.json`; without it, every machine
+  that has never answered the prompt fails its first push. Found 2026-10-18 on `feat/gen-cicle`.
