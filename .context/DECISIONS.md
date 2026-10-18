@@ -831,9 +831,11 @@ A visitor could see nothing before signing in. Guest mode replaces all of that.
   The dialog is rendered under `@if (isOpen())` exactly to keep its form controls out of the
   document while closed — see `LESSONS.md`.
 - **Protected routes are wrapped, not guarded.** A pathless `AuthGate` renders the child routes
-  for a signed-in user and, for a guest, an inline prompt plus a centred `<dialog>` that opens
-  itself. The url is preserved; Escape or a backdrop press dismisses the dialog and leaves the
-  prompt. `/home` and `/help` are public with real routes, and `**` falls back to `/home`, so
+  for a signed-in user and, for a guest, an inline prompt in the page content whose "Войти"
+  button opens the shared sign-in dialog. The url is preserved, and the prompt is the only
+  thing a guest sees there: the gate itself never raises a modal. Deliberate — the product
+  asked for exactly one popup (the sign-in window) and for the "Требуется вход" message to
+  live in the content. `/home` and `/help` are public with real routes, and `**` falls back to `/home`, so
   every sidebar link resolves.
 - **A 401 no longer navigates.** The error interceptor clears the profile and shows the toast
   once; the gate or the header offer the dialog. `clear()` marks the session checked, so the

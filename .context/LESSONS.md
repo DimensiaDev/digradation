@@ -709,8 +709,8 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   the rule only watches click events — no `eslint-disable` needed (the repo has none). (2026-10-18)
 - **Guest mode puts several "Войти" buttons on screen at once** (the header menu item, the gate
   prompt, the sign-in dialog submit), so a bare Playwright `getByRole("button", { name: "Войти" })`
-  violates strict mode. Scope lookups by their container: `getByRole("dialog", { name:
-  "Требуется вход" })` for the gate, `{ name: "Вход в аккаунт" }` for the sign-in dialog, and
+  violates strict mode. Scope lookups by their container: `page.locator(".login-prompt")` for
+  the gate prompt, `getByRole("dialog", { name: "Вход в аккаунт" })` for the dialog, and
   `#header-profile-menu` for the header item. (2026-10-18)
 - **`provideAppInitializer` blocks the initial navigation, so route guards may be synchronous.**
   The default `enabledBlocking` navigation waits for initializers, so `adminGuard` reads
