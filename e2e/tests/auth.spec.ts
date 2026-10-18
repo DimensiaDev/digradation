@@ -26,4 +26,18 @@ test.describe("authentication", () => {
     await page.goto("/chats");
     await expect(page).toHaveURL(/\/login/);
   });
+
+  test("signs out and protects the app again", async ({ page }) => {
+    await login(page);
+
+    await page.getByRole("button", { name: "Открыть меню профиля" }).click();
+    await page.getByRole("button", { name: "Выход" }).click();
+
+    await expect(page).toHaveURL(/\/login/);
+    await expect(page.getByText("Вы вышли из аккаунта")).toBeVisible();
+
+    // The cookie is gone: a protected route bounces back to the login page.
+    await page.goto("/create");
+    await expect(page).toHaveURL(/\/login/);
+  });
 });

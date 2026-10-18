@@ -21,7 +21,7 @@ Everything described below is working and running via Docker Compose.
 |---|---|
 | `backend/` | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness |
 | `frontend/` | Complete: login, chat create, chat with polling and file panel, history, profile, admin users, admin settings |
-| `e2e/` | Complete: 8 spec files, 26 tests against the real Compose stack with the offline provider |
+| `e2e/` | Complete: 8 spec files, 27 tests against the real Compose stack with the offline provider |
 | Infra | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
@@ -67,7 +67,7 @@ first extension point if a feature starts deriving files from an upload.
 | Backend coverage | `poetry -C backend run pytest --cov` | **99.33%** across 353 tests, gated at 90% by `fail_under` |
 | Frontend | `npm --prefix frontend test` | Vitest, 382 tests in 40 files; runs in `frontend-ci.yml` |
 | Frontend coverage | `npx ng test --coverage` | 92.13% stmts, 86.29% branches, 92.46% funcs; gated at 90% |
-| End-to-end | `./e2e/scripts/run.sh` | Playwright against the Compose stack, `SBER_API_KEY=mock`; 26 tests |
+| End-to-end | `./e2e/scripts/run.sh` | Playwright against the Compose stack, `SBER_API_KEY=mock`; 27 tests |
 
 **Both coverage gates are enforced at 90%**, each in exactly one place:
 `fail_under` in `backend/pyproject.toml` and `coverageThresholds` on the `test` target in
