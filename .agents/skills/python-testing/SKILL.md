@@ -23,8 +23,9 @@ poetry -C backend run pytest tests/test_migrations.py         # the migration dr
 - `pytest-cov` is a `dev` dependency of the backend package. `source = ["app"]` with
   `branch = true`.
 - The threshold is `fail_under` in `backend/pyproject.toml`, currently **90**, so coverage
-  is enforced. It reads 99.33% today. To change the gate, edit that one value; the pre-push
-  hook and the CI workflow name no percentage.
+  is enforced. To change the gate, edit that one value; the pre-push
+  hook and the CI workflow name no percentage. Run `pytest --cov` for the current figure
+  rather than expecting one to be written down — see the rule in `AGENTS.md`.
 - `addopts = "-m 'not live'"` deselects the `live` tests, which hit the real GigaChat and
   cost money. Opt in with `SBER_API_KEY=<real> poetry -C backend run pytest -m live`.
 - `--cov` alone prints the terminal report and writes no file. Add

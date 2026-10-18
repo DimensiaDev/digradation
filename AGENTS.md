@@ -325,9 +325,9 @@ reads and enforces.
 **To change the gate:** edit `fail_under` in `backend/pyproject.toml`. Nothing else names
 a percentage. Verified to bite: at `fail_under = 90` the run exits 0, at `99` it exits 1.
 
-Current coverage is **99.33%** statements across 353 tests. Branch coverage is on
-(`branch = true`) and `source = ["app"]`. Coverage artifacts (`.coverage*`, `coverage.json`,
-`coverage.xml`, `htmlcov/`) are gitignored.
+Branch coverage is on (`branch = true`) and `source = ["app"]`. Coverage artifacts
+(`.coverage*`, `coverage.json`, `coverage.xml`, `htmlcov/`) are gitignored. No current
+figure is recorded here — read it off the `TOTAL` line.
 
 ### The mock provider
 
@@ -420,9 +420,8 @@ target in `frontend/angular.json`. The builder enforces it and exits non-zero, s
 percentage is hardcoded in the hook or the workflow. Verified to bite: at `statements: 90`
 the run exits 0, at `95` it exits 1.
 
-Current coverage is **90.87% statements / 85.85% branches / 90.74% functions** across
-377 tests. Note that `coverageInclude` counts untested files at 0%, so the number is
-honest rather than flattering.
+`coverageInclude` counts untested files at 0%, so the reported figure is honest rather
+than flattering. No current figure is recorded here — run the command above and read it.
 
 > **Test setup:** `src/test-setup.ts` is registered through the builder's `setupFiles`
 > option. It installs an in-memory `localStorage` / `sessionStorage` because the jsdom test
@@ -477,6 +476,22 @@ Rules for writing them:
 - **Append** to `DECISIONS.md` and `LESSONS.md`; **rewrite** `PROJECT_STATE.md` wholesale
   so it cannot go stale.
 - **Include a date or commit** so entries can be aged out later.
+- **Never record a test count or a coverage percentage.** Not the number of tests, not
+  `99.33%`, not "across 353 tests", not a threshold either. Every one of those is
+  deterministic: `pytest --cov` and `ng test --coverage` print them in seconds, so a
+  recorded copy is stale the moment it is written and wrong by the next commit, and
+  nobody can tell which by reading the file. A test count in particular looks like a
+  quality signal when it is really just a diff against the previous commit. This applies
+  to `PROJECT_STATE.md`, to `DECISIONS.md`, to `LESSONS.md` and to this file.
+
+  Record instead **where the gate lives and how to read it**, which is the part that is not
+  obvious and does go stale: `fail_under` in `backend/pyproject.toml`,
+  `coverageThresholds` on the `test` target in `frontend/angular.json`. State the
+  *configuration* and the *command*; leave the *result* to the tool that just produced it.
+
+  If a coverage number appears in a historical lesson, keep it only where the number is
+  the point — for example "an edit measured mid-run reported a collapsed gate", which is
+  about the mechanism rather than about the figure.
 
 ---
 

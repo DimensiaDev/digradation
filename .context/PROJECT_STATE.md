@@ -21,7 +21,7 @@ Everything described below is working and running via Docker Compose.
 |---|---|
 | `backend/` | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness |
 | `frontend/` | Complete: login, chat create, chat with polling and file panel, history, profile, admin users, admin settings |
-| `e2e/` | Complete: 8 spec files, 26 tests against the real Compose stack with the offline provider |
+| `e2e/` | Complete: Playwright specs against the real Compose stack with the offline provider |
 | Infra | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
@@ -32,7 +32,7 @@ models. Nine TaskIQ tasks across the `default` and `network` queues, with hourly
 
 **Frontend.** Angular 21.2 standalone with signals. Reactive forms, cookie auth, 2-second
 polling for generation results, inline preview for PDF, image, docx and xlsx, light/dark
-theme, admin user management, admin prompt-extension editor. 38 colocated `*.spec.ts` files.
+theme, admin user management, admin prompt-extension editor. Specs colocated with the code.
 
 **Not started or placeholder.** The profile page body, the user settings page body, and two
 admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`.
@@ -59,28 +59,29 @@ first extension point if a feature starts deriving files from an upload.
 
 ---
 
-## Test coverage
+## Tests
 
-| Suite | Command | Notes |
+| Suite | Command | Needs |
 |---|---|---|
-| Backend | `poetry -C backend run pytest` | 353 tests; needs a Docker daemon |
-| Backend coverage | `poetry -C backend run pytest --cov` | **99.33%** across 353 tests, gated at 90% by `fail_under` |
-| Frontend | `npm --prefix frontend test` | Vitest, 377 tests in 38 files; runs in `frontend-ci.yml` |
-| Frontend coverage | `npx ng test --coverage` | 90.87% stmts, 85.85% branches, 90.74% funcs; gated at 90% |
-| End-to-end | `./e2e/scripts/run.sh` | Playwright against the Compose stack, `SBER_API_KEY=mock`; 26 tests |
+| Backend | `poetry -C backend run pytest` | a Docker daemon |
+| Backend coverage | `poetry -C backend run pytest --cov` | a Docker daemon |
+| Frontend | `npm --prefix frontend test` | nothing |
+| Frontend coverage | `npx ng test --coverage --watch=false` | nothing |
+| End-to-end | `./e2e/scripts/run.sh` | the Compose stack |
 
 **Both coverage gates are enforced at 90%**, each in exactly one place:
 `fail_under` in `backend/pyproject.toml` and `coverageThresholds` on the `test` target in
-`frontend/angular.json`. Neither a pre-commit hook nor a workflow names a percentage.
-Frontend branches (85.85%) are deliberately not gated.
+`frontend/angular.json`. Neither a pre-commit hook nor a workflow names a percentage, so
+they cannot drift apart. Frontend branches are deliberately not gated.
+
+Test counts and coverage percentages are deliberately not recorded here: they are
+deterministic, the commands above print them in seconds, and a recorded copy goes stale
+silently. See the rule in `AGENTS.md`.
 
 PostgreSQL, Redis and Garage are real testcontainers in the backend suite. The LLM is faked by
 `app/providers/mock.py`, selected with `SBER_API_KEY=mock` and switchable via
 `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`); the real GigaChat is only reachable through
 `@pytest.mark.live` tests, which are deselected by default.
-
-**The `processing` suite, its coverage hook and its two workflows are gone** along with the
-package.
 
 ---
 
@@ -151,8 +152,9 @@ Ordered by value, not by commitment:
 - `TEST_INSTANCE_MODE` is absent from `.env.example`.
 - The frontend dev override bind-mounts `./frontend` over `/app`. If `node_modules` inside it
   is stale or partially populated, `ng serve` fails in ways that look like source errors.
-- Frontend statement coverage (90.87%) sits close to the 90% gate. Any new uncovered
-  component will fail CI, and branches at 85.85% have no headroom.
+- **Frontend statement coverage has little headroom over the 90% gate**, and branches are not
+  gated at all. Any new uncovered component can therefore fail CI on its own. Run
+  `npx ng test --coverage` before pushing rather than discovering it in CI.
 - **`cleanup_orphan_attachments` in `app/tasks/files.py` iterates an already exhausted
   `ScalarResult`,** so it logs `count=0` and never deletes an S3 object. Rows are still
   deleted; the objects fall to the 7-day lifecycle rule. Reported, not fixed. See
