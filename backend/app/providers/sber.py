@@ -13,14 +13,15 @@ from app.providers.models import (
     Message,
     ModelOptions,
     ResponseFormat,
+    Tool,
 )
 
 
 class SberProvider(AIClient):
-    def __init__(self, api_key: str, scope: str):
+    def __init__(self, api_key: str, scope: str, tools: list[Tool] | None = None):
         if scope not in ("PERS", "B2B", "CORP"):
             raise ValueError("Scope must be PERS, B2B or CORP")
-        super().__init__(api_key, scope)
+        super().__init__(api_key, scope, tools)
 
         self._client = AsyncClient(
             base_url="https://api.giga.chat/v2",

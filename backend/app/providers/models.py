@@ -33,9 +33,46 @@ class Content(BaseModel):
         return v if v is not None else []
 
 
+class FunctionDefinition(BaseModel):
+    """A callable the model may choose during generation.
+
+    This is the request-side half of tool calling: it is passed to the provider
+    at construction time and advertised to the model on every completion request.
+    """
+
+    name: str
+    description: str | None = None
+    parameters: dict | None = None
+    strict: bool | None = None
+
+
+class Tool(BaseModel):
+    """A tool offered to the model. Only ``function`` tools exist today."""
+
+    type: Literal["function"] = "function"
+    function: FunctionDefinition
+
+
+class FunctionCall(BaseModel):
+    """What the model asked a tool to do. ``arguments`` is JSON, as a string."""
+
+    name: str
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    """One tool invocation requested by the model."""
+
+    id: str
+    type: Literal["function"] = "function"
+    function: FunctionCall
+
+
 class Message(BaseModel):
     role: Literal["user", "system", "assistant", "tool"]
     content: list[Content]
+    #: Set on a ``tool`` message to tie it back to the assistant's ``ToolCall``.
+    tool_call_id: str | None = None
 
     @classmethod
     def from_chat_message(cls, obj: ChatMessage) -> Self:
@@ -101,6 +138,8 @@ class GenerationResponse(BaseModel):
         "length",
         "function_call",
         "function_call_error",
+        "tool_calls",
+        "content_filter",
         "blacklist",
         "request_blacklist",
         "request_whitelist",
@@ -108,6 +147,9 @@ class GenerationResponse(BaseModel):
         "response_blacklist",
     ]
     usage: Usage
+    #: Tools the model wants called before it can answer. A response may carry
+    #: both text and tool calls, or tool calls with no text at all.
+    tool_calls: list[ToolCall] = Field(default_factory=list)
 
     @field_validator("created_at", mode="before")
     @classmethod

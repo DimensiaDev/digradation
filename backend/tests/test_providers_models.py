@@ -16,6 +16,8 @@ from app.providers.models import (
     AuthResponse,
     Content,
     FileSchema,
+    FunctionCall,
+    FunctionDefinition,
     GenerationRequest,
     GenerationResponse,
     HarnessStructuredOutput,
@@ -23,6 +25,8 @@ from app.providers.models import (
     Message,
     ModelOptions,
     ResponseFormat,
+    Tool,
+    ToolCall,
     Usage,
 )
 
@@ -119,6 +123,64 @@ def test_message_from_chat_message_preserves_the_system_role():
     row = ChatMessage(role=UserRole.SYSTEM, content="system prompt")
 
     assert Message.from_chat_message(row).role == "system"
+
+
+def test_message_tool_call_id_defaults_to_none():
+    assert Message(role="user", content=[{"text": "hi"}]).tool_call_id is None
+
+
+def test_message_carries_the_tool_call_id():
+    message = Message(role="tool", content=[{"text": "result"}], tool_call_id="call_1")
+
+    assert message.tool_call_id == "call_1"
+
+
+# ---------------------------------------------------------------------------
+# Tool calling
+# ---------------------------------------------------------------------------
+
+
+def test_tool_defaults_to_a_function():
+    tool = Tool(function=FunctionDefinition(name="lookup"))
+
+    assert tool.type == "function"
+    assert tool.function.name == "lookup"
+    assert tool.function.description is None
+    assert tool.function.parameters is None
+
+
+def test_tool_keeps_its_description_and_parameters():
+    tool = Tool(
+        function=FunctionDefinition(
+            name="lookup",
+            description="Look something up",
+            parameters={"type": "object"},
+            strict=True,
+        )
+    )
+
+    assert tool.function.description == "Look something up"
+    assert tool.function.parameters == {"type": "object"}
+    assert tool.function.strict is True
+
+
+def test_tool_rejects_an_unknown_type():
+    with pytest.raises(ValidationError):
+        Tool(type="retrieval", function={"name": "lookup"})
+
+
+def test_tool_call_requires_an_id_name_and_arguments():
+    call = ToolCall(id="call_1", function=FunctionCall(name="lookup", arguments='{"q": "x"}'))
+
+    assert call.type == "function"
+    assert call.id == "call_1"
+    assert call.function.name == "lookup"
+    assert call.function.arguments == '{"q": "x"}'
+
+
+def test_tool_call_rejects_a_missing_function_name():
+    with pytest.raises(ValidationError):
+        ToolCall(id="call_1", function={"arguments": "{}"})
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +325,27 @@ def test_generation_response_keeps_the_thread_id():
 def test_generation_response_rejects_an_unknown_finish_reason():
     with pytest.raises(ValidationError):
         GenerationResponse.model_validate(response_body(finish_reason="exploded"))
+
+
+def test_generation_response_accepts_openai_finish_reasons():
+    assert GenerationResponse.model_validate(response_body(finish_reason="tool_calls")).finish_reason == "tool_calls"
+    assert (
+        GenerationResponse.model_validate(response_body(finish_reason="content_filter")).finish_reason
+        == "content_filter"
+    )
+
+
+def test_generation_response_defaults_to_no_tool_calls():
+    assert GenerationResponse.model_validate(response_body()).tool_calls == []
+
+
+def test_generation_response_carries_tool_calls():
+    body = response_body(tool_calls=[{"id": "call_1", "function": {"name": "lookup", "arguments": '{"q": "x"}'}}])
+
+    response = GenerationResponse.model_validate(body)
+
+    assert [call.id for call in response.tool_calls] == ["call_1"]
+    assert response.tool_calls[0].function.name == "lookup"
 
 
 def test_generation_response_requires_usage():

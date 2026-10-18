@@ -2,20 +2,21 @@ import os
 
 from app.providers.client import AIClient
 from app.providers.mock import MOCK_API_KEY, MockProvider
+from app.providers.openai import OpenAIProvider
 from app.providers.sber import SberProvider
 
 api_key = os.environ["SBER_API_KEY"]
 scope = os.environ["SBER_API_SCOPE"]
 
-# `SBER_API_KEY=mock` swaps the real GigaChat client for an offline stand-in that
-# performs no network I/O. This is what lets the worker, route and end-to-end
-# suites run without credentials and without incurring LLM cost. Everything else
-# (Redis, Garage, PostgreSQL) is still the real thing.
-provider: AIClient = (
-    MockProvider(api_key=api_key, scope=scope)
-    if api_key == MOCK_API_KEY
-    else SberProvider(
-        api_key=api_key,
-        scope=scope,
-    )
-)
+# Selection is driven by ``SBER_API_SCOPE``: ``openai`` uses the OpenAI-compatible
+# client, ``mock`` the offline stand-in, anything else the real GigaChat client.
+# ``SBER_API_KEY=mock`` still selects the mock regardless of scope, and it is
+# checked first: the e2e and test stacks set the key to guarantee that no call
+# leaves the process, so a leftover ``SBER_API_SCOPE=openai`` must not defeat them.
+provider: AIClient
+if api_key == MOCK_API_KEY or scope == "mock":
+    provider = MockProvider(api_key=api_key, scope=scope)
+elif scope == "openai":
+    provider = OpenAIProvider(api_key=api_key, scope=scope)
+else:
+    provider = SberProvider(api_key=api_key, scope=scope)

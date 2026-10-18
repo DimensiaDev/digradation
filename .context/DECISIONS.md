@@ -545,3 +545,51 @@ and why what replaced it is there.
   `worker_default`, `worker_network` and `garage-config` all build `backend/Dockerfile` and
   share `scope=backend`; per-service scopes would make each miss on the others' layers.
   `garage-bootstrap` builds `conf/garage.Dockerfile` and gets its own scope.
+
+## OpenAI-compatible provider and tool calling (2026-10-18)
+
+- **`SBER_API_SCOPE` now doubles as the provider selector**, because the OpenAI client is
+  not GigaChat and a scope of `PERS`/`B2B`/`CORP` says nothing about which SDK to use. The
+  mapping is in `containers.py`: `mock` -> `MockProvider`, then `openai` -> `OpenAIProvider`,
+  everything else -> `SberProvider`. The mock check comes first *and* `SBER_API_KEY=mock`
+  also wins, so the test and e2e stacks that only pin the key keep working even if a
+  developer's `.env` leaves the scope at `openai`; the ordering is load-bearing, not
+  cosmetic. The alternative — a separate `PROVIDER` variable — would have left two knobs
+  describing one choice.
+- **`OPENAI_URL` empty means the official OpenAI endpoint.** `AsyncOpenAI` already defaults
+  to api.openai.com, so the provider only passes `base_url` when the variable is set. That
+  keeps "point at the school hub" and "point at OpenAI" the same code path.
+- **Tools are construction-time state on `AIClient`, not a per-request argument.** A tool
+  set is a property of the assistant, not of one exchange, and defining it once matches how
+  the callers think about it. All three providers accept `tools=`; only `OpenAIProvider`
+  uses it. `mock` and `sber` ignore it deliberately rather than raising, so a caller can
+  advertise tools without branching on the provider.
+- **Tool calls surface on the response, nothing executes them.** `GenerationResponse`
+  gains `tool_calls: list[ToolCall]`, and `Message` gains `tool_call_id` so a later turn can
+  answer one. Execution is a policy decision (which tools, who runs them, with what
+  authorisation) and does not belong in the provider, so it is left to the caller.
+- **The provider maps only `tool_calls` whose `type == "function"`.** The OpenAI schema
+  allows other tool types; the internal model has one kind. Filtering at the boundary keeps
+  `ToolCall` from growing a discriminator it will not use yet.
+- **The internal content-parts format flattens to a single string on the OpenAI wire.**
+  GigaChat takes structured file references in a message; the OpenAI chat-completions shape
+  does not, so file parts are dropped and text parts joined with a newline. Attachments are
+  still uploaded through the files API (``upload``), but a message cannot cite them yet.
+  This is the one place the two providers genuinely differ, and it is documented in the
+  module docstring rather than hidden in a converter.
+- **`ResponseFormat` maps to `json_schema` only for the schema type**, with the schema
+  named `"response"` and `strict` passed through; a text request omits `response_format`
+  entirely rather than sending `{"type": "text"}`. Omitting is a choice — the hub accepts
+  the explicit text type too — but a text request has no schema to send, so there is nothing
+  to serialise. Verified live: the hub accepts the harness schema even without
+  `additionalProperties: false`.
+- **`auth()` is a no-op with a century-long expiry.** The OpenAI key authenticates every
+  request and there is no token endpoint or refresh, but `AIClient` has `ensure_fresh_token`
+  machinery that other call paths expect; setting a far-future `token_expires_at` makes it a
+  no-op without special-casing the base class.
+- **`SBER_API_KEY=mock` still means no LLM call**, and the live tests for the OpenAI client
+  carry a second `openai` marker so they can be selected with `-m 'live and openai'` on
+  their own, with `SBER_API_SCOPE=openai`. Because the key wins over the scope, `mock` must
+  accept every scope the container can hand it; `MockProvider.MOCK_SCOPES` derives from the
+  `Scope` literal rather than listing them, so adding a provider cannot leave a scope that
+  the mock rejects at import.

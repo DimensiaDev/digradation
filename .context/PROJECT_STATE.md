@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-18** (CI: one test run per suite, browser and Docker layer caches)
+Last updated: **2026-10-18** (OpenAI-compatible provider and tool calling)
 
 ---
 
@@ -36,6 +36,11 @@ theme, admin user management, admin prompt-extension editor. Specs colocated wit
 
 **Not started or placeholder.** The profile page body, the user settings page body, and two
 admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`.
+
+**In flight: tool calling.** The provider layer can advertise tools at construction and the
+OpenAI-compatible client surfaces the calls the model requests on
+`GenerationResponse.tool_calls`; nothing executes a call yet, and GigaChat has no tool
+support. The next step is a tool registry and the loop that answers or runs a call.
 
 **Two dead placeholder directories** are still tracked: `frontend/src/app/shared/components/
 chat-widget/` and `.../param-table/`, each holding only a `.gitkeep`. They are leftovers from
@@ -79,9 +84,16 @@ deterministic, the commands above print them in seconds, and a recorded copy goe
 silently. See the rule in `AGENTS.md`.
 
 PostgreSQL, Redis and Garage are real testcontainers in the backend suite. The LLM is faked by
-`app/providers/mock.py`, selected with `SBER_API_KEY=mock` and switchable via
-`MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`); the real GigaChat is only reachable through
-`@pytest.mark.live` tests, which are deselected by default.
+`app/providers/mock.py`, selected with `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) and
+switchable via `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`); the real GigaChat is only
+reachable through `@pytest.mark.live` tests, which are deselected by default.
+
+`SBER_API_SCOPE` selects the provider: `PERS` / `B2B` / `CORP` use the GigaChat client,
+`openai` the OpenAI-compatible one (any endpoint via `OPENAI_URL`, model via `OPENAI_MODEL`),
+`mock` the offline stand-in. Tool calling is implemented for the OpenAI-compatible client
+only: tools are defined at provider construction and requested calls come back on
+`GenerationResponse.tool_calls`. Nothing executes a call yet; the OpenAI live tests carry an
+extra `openai` marker and are selected with `-m 'live and openai'`.
 
 ---
 

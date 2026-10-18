@@ -26,19 +26,29 @@ async def test_object_storage_round_trip(s3: None):
         await client.delete_object(Bucket="uploads", Key=key)
 
 
-def test_mock_provider_is_selected(monkeypatch):
+def test_provider_selection(monkeypatch):
     from app.providers.mock import MockProvider
+    from app.providers.openai import OpenAIProvider
     from app.providers.sber import SberProvider
 
-    def build(key: str):
+    def build(key: str, scope: str = "PERS"):
         import importlib
 
         monkeypatch.setenv("SBER_API_KEY", key)
+        monkeypatch.setenv("SBER_API_SCOPE", scope)
         module = importlib.reload(importlib.import_module("app.providers.containers"))
         return module.provider
 
     assert isinstance(build("mock"), MockProvider)
     assert isinstance(build("real-key"), SberProvider)
+    # The scope alone selects the OpenAI-compatible and mock clients.
+    assert isinstance(build("real-key", "openai"), OpenAIProvider)
+    assert isinstance(build("real-key", "mock"), MockProvider)
+    # `SBER_API_KEY=mock` wins over the scope, `openai` included.
+    assert isinstance(build("mock", "openai"), MockProvider)
+    # Leave the module holding the offline provider so later tests do not inherit
+    # a real client.
+    assert isinstance(build("mock"), MockProvider)
 
 
 def test_s3_key_builders_are_namespaced():
