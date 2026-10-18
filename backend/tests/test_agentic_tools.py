@@ -6,6 +6,7 @@ the stored draft can be read back within the same test. The provider is not
 involved — the handlers are called directly through :func:`execute_tool`.
 """
 
+import json
 import uuid
 from contextlib import asynccontextmanager
 
@@ -43,15 +44,12 @@ async def tool_context(db_session, chat) -> ToolContext:
 
 
 def save_call(arguments: dict | None = None) -> FunctionCall:
-    return FunctionCall(
-        id="call-1",
-        name="save_program_draft",
-        arguments=arguments if arguments is not None else dict(MOCK_DRAFT_ARGUMENTS),
-    )
+    payload = arguments if arguments is not None else dict(MOCK_DRAFT_ARGUMENTS)
+    return FunctionCall(name="save_program_draft", arguments=json.dumps(payload, ensure_ascii=False))
 
 
 def search_call(query: str) -> FunctionCall:
-    return FunctionCall(id="call-search", name="search_sources", arguments={"query": query})
+    return FunctionCall(name="search_sources", arguments=json.dumps({"query": query}, ensure_ascii=False))
 
 
 def make_draft(**overrides) -> dict:
@@ -194,7 +192,7 @@ async def test_a_stored_draft_keeps_its_source_ids_known_to_the_run(db_session, 
         yield db_session
 
     fresh = ToolContext(session_id=chat.session_id, open_db=open_db)
-    fetched = await execute_tool(fresh, FunctionCall(name="get_program_draft", arguments={}))
+    fetched = await execute_tool(fresh, FunctionCall(name="get_program_draft", arguments="{}"))
 
     assert fetched["status"] == ProgramStatus.PENDING_APPROVAL
     assert {"src-01", "src-02", "src-03"} <= fresh.known_source_ids

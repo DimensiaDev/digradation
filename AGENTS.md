@@ -149,8 +149,9 @@ No NgRx or Redux. **Signals only**: `signal()`, `computed()`, `effect()`,
 `@Injectable({ providedIn: 'root' })`. Cross-component handoff uses small one-shot "state
 services" (`set()` / `consume()`).
 
-The list-refresh idiom is a version signal: `ChatService.historyVersion = signal(0)`, bumped
-by the service and read by the sidebar to re-fetch.
+A list that reloads from a user action guards against out-of-order responses with a local
+request-id counter (`const requestId = ++this.lastRequestId`) and drops a stale response that
+no longer matches, rather than assuming responses arrive in order.
 
 ### Templates and styles
 
@@ -163,6 +164,11 @@ by the service and read by the sidebar to re-fetch.
 - `@use '...' as *` with relative paths and **no file extension**.
 
 ### API layer
+
+Interceptor order is load-bearing: `credentialsInterceptor`, `errorInterceptor`, then
+`mockApiInterceptor` **last**. The mock answers instead of calling `next()`, so if it is
+outermost the other two never run in mock mode. `createInterceptors()` in `app.config.ts` is
+the single source of the order and is unit-tested.
 
 Services build URLs as `` `${environment.apiUrl}/chats` ``. `apiUrl` comes from
 `src/environments/environment*.ts`, injected at image build time by
@@ -341,9 +347,40 @@ Branch coverage is on (`branch = true`) and `source = ["app"]`. Coverage artifac
 (`.coverage*`, `coverage.json`, `coverage.xml`, `htmlcov/`) are gitignored. No current
 figure is recorded here — read it off the `TOTAL` line.
 
+### Provider selection and tool calling
+
+`SBER_API_SCOPE` selects the provider in `app/providers/containers.py`:
+
+| `SBER_API_SCOPE` | Provider | Talks to |
+|---|---|---|
+| `PERS` / `B2B` / `CORP` | `SberProvider` (`sber.py`) | GigaChat, SDK-free `httpx` |
+| `openai` | `OpenAIProvider` (`openai.py`) | any OpenAI-compatible endpoint via the `openai` SDK |
+| `mock` | `MockProvider` (`mock.py`) | nothing |
+
+`SBER_API_KEY=mock` still selects the mock regardless of scope, which is what the test and
+e2e stacks set. The OpenAI-compatible client takes its token from `SBER_API_KEY`, its
+endpoint from `OPENAI_URL` (empty = official OpenAI) and its model from `OPENAI_MODEL`.
+
+Tools are defined once, at provider construction: pass `tools=[Tool(...)]` to any provider.
+`OpenAIProvider` and `SberProvider` implement them; each advertises the set on every request
+and maps the model's requests onto `GenerationResponse.tool_calls`. `mock` accepts `tools=`
+and ignores it. Nothing executes a call yet.
+
+The two real providers use different wire shapes, and the internal model hides the difference:
+
+- **OpenAI**: `tools[].function` with `arguments` as a JSON *string*.
+- **GigaChat v2** (`/v2/chat/completions`): `tools[].functions.specifications[]` plus
+  `tool_config.mode`, and the reply nests `function_call` inside `content[]` with
+  `arguments` as a JSON *object*. `SberProvider` normalises both back to `ToolCall`.
+
+The container passes one module-level `TOOLS` list (currently empty) to every provider, so
+registering a tool later means filling that list. `SberProvider` rejects `strict=True` tools
+at construction because GigaChat v2 has no strict mode; the OpenAI client honours `strict`.
+
 ### The mock provider
 
-`SBER_API_KEY=mock` selects `app/providers/mock.py` instead of the real GigaChat client.
+`SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) selects `app/providers/mock.py` instead of the
+real GigaChat client.
 It performs no network I/O, which is what lets the worker, route and e2e suites run
 without credentials and without LLM cost. Its behaviour is set by `MOCK_PROVIDER_MODE`:
 
@@ -358,12 +395,23 @@ input always yields the same text.
 
 ### Live API tests
 
-Tests marked `live` hit the real GigaChat and **are deselected by default** via
+Tests marked `live` hit a real provider API and **are deselected by default** via
 `addopts = "-m 'not live'"`, because they cost money. Run them deliberately:
 
 ```bash
 SBER_API_KEY=<real-key> SBER_API_SCOPE=PERS poetry -C backend run pytest -m live
 ```
+
+The OpenAI-compatible client's live tests carry a second marker, so with
+`SBER_API_SCOPE=openai OPENAI_URL=... OPENAI_MODEL=...` they can be selected alone:
+
+```bash
+poetry -C backend run pytest -m 'live and openai'
+```
+
+The autouse `env` fixture pins `SBER_API_KEY=mock` for the normal suite; the
+`real_provider_env` fixture restores whatever the process was started with, which is how a
+live test sees a real credential at all.
 
 ### End-to-end (Playwright)
 
@@ -675,9 +723,9 @@ follow.
 1. **`providers/containers.py` constructs the provider at import time.** Importing any
    task or route module requires `SBER_API_KEY` and `SBER_API_SCOPE` to exist. The tests
    set them at the top of `conftest.py`, *before* any `app` import, for exactly this reason.
-1. **`SBER_API_KEY=mock` means no LLM call happens.** If you are surprised by a
-   deterministic-looking response in tests or e2e, that is the mock provider, not a real
-   model. Use `MOCK_PROVIDER_MODE` to change its behaviour.
+1. **`SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) means no LLM call happens.** If you are
+   surprised by a deterministic-looking response in tests or e2e, that is the mock provider,
+   not a real model. Use `MOCK_PROVIDER_MODE` to change its behaviour.
 2. **The app must run with CWD == `backend/`.** See the CWD-sensitive paths in section 5.
 3. **The LLM prompt and the output schema are two halves of one contract.**
    `harness.py` holds `SYSTEM_PROMPT`, `PROMPT_EXTENSION_PREAMBLE` and

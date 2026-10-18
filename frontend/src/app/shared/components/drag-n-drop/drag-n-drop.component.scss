@@ -305,7 +305,7 @@
     }
 
     &--done {
-      color: var(--color-success-text);
+      color: var(--color-success);
       background: color-mix(in srgb, var(--color-success) 10%, transparent);
     }
 

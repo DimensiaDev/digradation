@@ -5,19 +5,29 @@ export interface InitialChatMessage {
   files: File[];
 }
 
+interface PendingInitialChat {
+  sessionId: string;
+  message: InitialChatMessage;
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class InitialChatStateService {
-  private readonly message = signal<InitialChatMessage | null>(null);
+  private readonly pending = signal<PendingInitialChat | null>(null);
 
-  set(message: InitialChatMessage): void {
-    this.message.set(message);
+  set(sessionId: string, message: InitialChatMessage): void {
+    this.pending.set({ sessionId, message });
   }
 
-  consume(): InitialChatMessage | null {
-    const message = this.message();
-    this.message.set(null);
-    return message;
+  consume(sessionId: string): InitialChatMessage | null {
+    const pending = this.pending();
+    if (!pending) {
+      return null;
+    }
+
+    this.pending.set(null);
+
+    return pending.sessionId === sessionId ? pending.message : null;
   }
 }

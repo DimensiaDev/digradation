@@ -1,9 +1,10 @@
 <ul class="notifications">
-  @if (displayed(); as notification) {
+  @for (notification of notifications(); track notification.id) {
     <li>
       <app-notification
         [type]="notification.type"
         [title]="notification.message"
+        [description]="notification.description"
         dismissible
         [leaving]="isLeaving(notification.id)"
         (closed)="close(notification.id)"

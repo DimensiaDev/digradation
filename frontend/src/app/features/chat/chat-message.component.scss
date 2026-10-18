@@ -38,7 +38,7 @@
 
   &.message--outgoing {
     --message-slide-from: 24px;
-    --message-bubble-bg: var(--color-outgoing-message);
+    --message-bubble-bg: color-mix(in srgb, var(--color-main) 12%, var(--color-surface));
     --message-bubble-origin: right bottom;
 
     justify-content: flex-end;
@@ -150,7 +150,7 @@
   }
 
   &:hover {
-    background: var(--color-hover-secondary);
+    background: var(--color-secondary);
 
     & > svg {
       stroke: var(--color-main);
@@ -182,7 +182,7 @@
   @include reduced-motion;
 
   &:hover {
-    background: var(--color-hover-secondary);
+    background: var(--color-secondary);
   }
 }
 

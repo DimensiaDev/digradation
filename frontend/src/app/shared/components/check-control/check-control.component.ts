@@ -8,7 +8,8 @@ import {
   Injector,
   input,
   OnInit,
-  signal
+  signal,
+  Signal
 } from '@angular/core';
 import { ControlValueAccessor, NgControl } from '@angular/forms';
 import { LucideCheck } from '@lucide/angular';
@@ -16,17 +17,18 @@ import { noop } from 'rxjs';
 import { controlErrorSignal } from '../../utils/control-error-signal';
 
 @Component({
-  selector: 'app-checkbox',
+  selector: 'app-check-control',
   standalone: true,
   imports: [LucideCheck],
-  templateUrl: './checkbox.component.html',
-  styleUrl: './checkbox.component.scss',
+  templateUrl: './check-control.component.html',
+  styleUrl: './check-control.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
-    '[class.checkbox--error]': 'showError()'
+    '[class.check-control--error]': 'showError()'
   }
 })
-export class CheckboxComponent implements ControlValueAccessor, OnInit {
+export class CheckControlComponent implements ControlValueAccessor, OnInit {
+  readonly variant = input<'checkbox' | 'switch'>('checkbox');
   readonly label = input('');
   readonly caption = input('');
 
@@ -40,19 +42,19 @@ export class CheckboxComponent implements ControlValueAccessor, OnInit {
   private readonly ngControl = inject(NgControl, { optional: true, self: true });
   private readonly injector = inject(Injector);
 
-  readonly showError = signal(false);
+  showError!: Signal<boolean>;
 
   private onChange: (checked: boolean) => void = noop;
   private onTouched: () => void = noop;
+
+  ngOnInit(): void {
+    this.showError = controlErrorSignal(this.ngControl, this.injector);
+  }
 
   constructor() {
     if (this.ngControl) {
       this.ngControl.valueAccessor = this;
     }
-  }
-
-  ngOnInit(): void {
-    controlErrorSignal(this.ngControl, this.injector, this.showError);
   }
 
   onInput(event: Event): void {

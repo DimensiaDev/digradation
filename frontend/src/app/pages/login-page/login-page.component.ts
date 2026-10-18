@@ -88,7 +88,9 @@ export class LoginPageComponent {
     this.auth.login(username?.trim() ?? '', password ?? '').subscribe({
       next: () => {
         this.isSubmitting.set(false);
-        this.notifications.success('Вы вошли в систему');
+        this.notifications.success('Вы вошли в систему', {
+          description: 'Сейчас откроется рабочая область.'
+        });
         this.router.navigate([this.returnUrl]);
       },
       error: (err: HttpErrorResponse) => {
@@ -96,11 +98,15 @@ export class LoginPageComponent {
         this.showCredentialsError();
 
         if (err.status === 401) {
-          this.notifications.error('Перепроверьте правильность введённого логина и пароля');
+          this.notifications.error('Перепроверьте правильность введённого логина и пароля', {
+            description: 'Проверьте раскладку и регистр символов.'
+          });
           return;
         }
 
-        this.notifications.error('Не удалось войти: ' + extractApiErrorMessage(err));
+        this.notifications.error('Не удалось войти: ' + extractApiErrorMessage(err), {
+          description: 'Попробуйте войти ещё раз позже.'
+        });
       }
     });
   }

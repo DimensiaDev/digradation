@@ -13,6 +13,7 @@ same reply instead of failing the whole generation.
 """
 
 import copy
+import json
 import uuid
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
@@ -27,7 +28,7 @@ from app.agentic.models import ProgramDraft, ProgramStatus, Source, SourceKind
 from app.agentic.sources import get_source, search
 from app.models.chat import DEFAULT_CHAT_NAME, MAX_CHAT_NAME_LENGTH, ChatSession
 from app.models.program import ChatProgram
-from app.providers.models import FunctionCall, FunctionSpecification, Tool, ToolFunctions
+from app.providers.models import FunctionCall, FunctionDefinition, Tool
 
 log = structlog.stdlib.get_logger(__name__)
 
@@ -92,7 +93,7 @@ def _inline_refs(schema: dict) -> dict:
     return resolve(schema)
 
 
-SEARCH_SOURCES_SPEC = FunctionSpecification(
+SEARCH_SOURCES_SPEC = FunctionDefinition(
     name="search_sources",
     description=(
         "Найти релевантные фрагменты в базе источников: ФГОС, профессиональные стандарты, "
@@ -102,7 +103,7 @@ SEARCH_SOURCES_SPEC = FunctionSpecification(
     parameters=_inline_refs(SearchSourcesArguments.model_json_schema()),
 )
 
-SAVE_PROGRAM_DRAFT_SPEC = FunctionSpecification(
+SAVE_PROGRAM_DRAFT_SPEC = FunctionDefinition(
     name="save_program_draft",
     description=(
         "Сохранить структурированный черновик программы и передать его методисту на подтверждение. "
@@ -112,7 +113,7 @@ SAVE_PROGRAM_DRAFT_SPEC = FunctionSpecification(
     parameters=_inline_refs(ProgramDraft.model_json_schema()),
 )
 
-GET_PROGRAM_DRAFT_SPEC = FunctionSpecification(
+GET_PROGRAM_DRAFT_SPEC = FunctionDefinition(
     name="get_program_draft",
     description=(
         "Получить сохранённый черновик программы и его состояние (draft — ещё нет черновика, "
@@ -122,11 +123,15 @@ GET_PROGRAM_DRAFT_SPEC = FunctionSpecification(
     parameters=_inline_refs(GetProgramDraftArguments.model_json_schema()),
 )
 
-#: The tool sent with every generation request. All the functions live in one
-#: ``functions.specifications`` list, which is how the v2 endpoint groups them.
-AGENT_TOOL = Tool(
-    functions=ToolFunctions(specifications=[SEARCH_SOURCES_SPEC, SAVE_PROGRAM_DRAFT_SPEC, GET_PROGRAM_DRAFT_SPEC])
-)
+#: The tools offered to the model, one per function. A provider takes such a list
+#: at construction and advertises it on every request — the v2 endpoint's
+#: ``functions.specifications`` grouping is the provider's business, not the
+#: agent's.
+AGENT_TOOLS: list[Tool] = [
+    Tool(function=SEARCH_SOURCES_SPEC),
+    Tool(function=SAVE_PROGRAM_DRAFT_SPEC),
+    Tool(function=GET_PROGRAM_DRAFT_SPEC),
+]
 
 
 async def search_sources(ctx: ToolContext, arguments: dict) -> dict:
@@ -322,16 +327,22 @@ HANDLERS: dict[str, Callable[[ToolContext, dict], Awaitable[dict]]] = {
 async def execute_tool(ctx: ToolContext, call: FunctionCall) -> dict:
     """Run one function call, turning any failure into a result for the model.
 
-    A broken call is not a broken generation: the model gets the error and may
-    correct itself in the next round, so every exception becomes a result rather
-    than a raise.
+    ``FunctionCall.arguments`` is the JSON string the providers normalise to, so
+    malformed JSON is one more error the model gets to hear about. A broken call
+    is not a broken generation: the model may correct itself in the next round,
+    so every failure becomes a result rather than a raise.
     """
     handler = HANDLERS.get(call.name)
     if handler is None:
         log.warning("unknown_tool_call", tool=call.name)
         return {"ok": False, "error": f"Неизвестная функция: {call.name}"}
     try:
-        result = await handler(ctx, call.arguments)
+        arguments = json.loads(call.arguments)
+    except json.JSONDecodeError as error:
+        log.warning("tool_arguments_invalid", tool=call.name, exc=error)
+        return {"ok": False, "error": "Некорректные аргументы вызова"}
+    try:
+        result = await handler(ctx, arguments)
     except ValidationError as error:
         log.warning("tool_arguments_invalid", tool=call.name, errors=_describe_validation_error(error))
         return {"ok": False, "error": "Некорректные аргументы вызова", "details": _describe_validation_error(error)}

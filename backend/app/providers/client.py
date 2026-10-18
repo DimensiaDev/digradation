@@ -8,9 +8,12 @@ import structlog.stdlib
 from httpx import AsyncClient, Response
 
 from app.cache import get_redis_client
-from app.providers.models import GenerationResponse, Message, ResponseFormat
+from app.providers.models import GenerationResponse, Message, ResponseFormat, Tool
 
-Scope = Literal["PERS", "B2B", "CORP"]
+#: ``PERS``/``B2B``/``CORP`` select GigaChat scopes; ``openai`` selects the
+#: OpenAI-compatible client and ``mock`` the offline provider. The container
+#: reads this value from ``SBER_API_SCOPE``.
+Scope = Literal["PERS", "B2B", "CORP", "openai", "mock"]
 
 
 class AuthorizationError(Exception):
@@ -24,10 +27,16 @@ class AIClient(ABC):
     token_expires_at: datetime | None = None
     api_key: str
     scope: Scope
+    tools: list[Tool]
 
-    def __init__(self, api_key: str, scope: Scope):
+    def __init__(self, api_key: str, scope: Scope, tools: list[Tool] | None = None):
         self.api_key = api_key
         self.scope = scope
+        #: Tools offered to the model on every generation. Defined once at
+        #: construction because the set is a property of the deployment, not of
+        #: a single request. The OpenAI and GigaChat clients both advertise them;
+        #: the mock accepts and ignores them.
+        self.tools = tools or []
         self._log = structlog.stdlib.get_logger(__name__)
         self.token = None
         self.token_expires_at = None

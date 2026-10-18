@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from typing import Any, ClassVar, Literal, Self
+from typing import ClassVar, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -23,52 +23,35 @@ class FileSchema(BaseModel):
     id: str
 
 
-class FunctionCall(BaseModel):
-    """One function call requested by the model, as it arrives in a content part."""
+class ContentFunctionCall(BaseModel):
+    """The ``function_call`` object GigaChat v2 nests inside a content part.
+
+    It carries its own ``id`` (the OpenAI shape keeps the id on the tool call) and
+    ``arguments`` may arrive either as a JSON object or as a JSON string, so it is
+    normalised to a string to match :class:`FunctionCall`. A missing or empty
+    value becomes ``"{}"``, so callers always receive valid JSON.
+    """
 
     id: str | None = None
     name: str
-    arguments: dict = Field(default_factory=dict)
+    arguments: str = "{}"
 
     @field_validator("arguments", mode="before")
     @classmethod
-    def parse_arguments(cls, v):
-        """The v2 endpoint sends an object; an older one may send a JSON string."""
-        if isinstance(v, str):
-            return json.loads(v)
+    def stringify_arguments(cls, v):
+        if not v:
+            return "{}"
+        if isinstance(v, (dict, list)):
+            return json.dumps(v, ensure_ascii=False)
         return v
 
 
-class FunctionResult(BaseModel):
-    """The value of a function call, sent back as a `tool` message part."""
-
-    id: str | None = None
-    name: str
-    result: Any
-
-
-class FunctionSpecification(BaseModel):
-    """Declaration of one function the model is allowed to call."""
-
-    name: str
-    description: str
-    parameters: dict
-
-
-class ToolFunctions(BaseModel):
-    specifications: list[FunctionSpecification]
-
-
-class Tool(BaseModel):
-    """A tool available to the model; its functions are grouped under ``functions``."""
-
-    functions: ToolFunctions
-
-
 class Content(BaseModel):
-    text: str
+    text: str = ""
     inline_data: dict[str, str] | None = None
     files: list[FileSchema] = Field(default_factory=list)
+    #: Present on a GigaChat v2 content part that asks for a tool call.
+    function_call: ContentFunctionCall | None = None
 
     @field_validator("files", mode="before")
     @classmethod
@@ -76,9 +59,51 @@ class Content(BaseModel):
         return v if v is not None else []
 
 
+class FunctionDefinition(BaseModel):
+    """A callable the model may choose during generation.
+
+    This is the request-side half of tool calling: it is passed to the provider
+    at construction time and advertised to the model on every completion request.
+    """
+
+    name: str
+    description: str | None = None
+    parameters: dict | None = None
+    strict: bool | None = None
+
+
+class Tool(BaseModel):
+    """A tool offered to the model. Only ``function`` tools exist today."""
+
+    type: Literal["function"] = "function"
+    function: FunctionDefinition
+
+
+class FunctionCall(BaseModel):
+    """What the model asked a tool to do. ``arguments`` is JSON, as a string."""
+
+    name: str
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    """One tool invocation requested by the model.
+
+    ``id`` is optional because GigaChat v2 ties a call to its result by function
+    name and ``tool_state_id`` rather than by an id, and may omit it. The OpenAI
+    provider always sets it.
+    """
+
+    id: str | None = None
+    type: Literal["function"] = "function"
+    function: FunctionCall
+
+
 class Message(BaseModel):
     role: Literal["user", "system", "assistant", "tool"]
     content: list[Content]
+    #: Set on a ``tool`` message to tie it back to the assistant's ``ToolCall``.
+    tool_call_id: str | None = None
 
     @classmethod
     def from_chat_message(cls, obj: ChatMessage) -> Self:
@@ -116,10 +141,43 @@ class ModelOptions(BaseModel):
     response_format: ResponseFormat
 
 
+class ToolConfig(BaseModel):
+    """GigaChat v2 ``tool_config``: whether, and which, tool the model may call."""
+
+    mode: Literal["auto", "none", "forced"] = "auto"
+    tool_name: str | None = None
+    function_name: str | None = None
+
+
+class FunctionSpecification(BaseModel):
+    """One custom function inside a GigaChat v2 ``tools`` entry.
+
+    GigaChat requires ``parameters``, so the provider substitutes an empty schema
+    when a tool does not declare any.
+    """
+
+    name: str
+    description: str | None = None
+    parameters: dict = Field(default_factory=dict)
+
+
+class FunctionsSpecifications(BaseModel):
+    specifications: list[FunctionSpecification]
+
+
+class ToolsFunctions(BaseModel):
+    """The ``{"functions": {"specifications": [...]}}`` item GigaChat v2 expects."""
+
+    functions: FunctionsSpecifications
+
+
 class GenerationRequest(BaseModel):
     model: str
     messages: list[Message]
     model_options: ModelOptions
+    #: GigaChat v2 only; the OpenAI provider sends its tools inline instead.
+    tool_config: ToolConfig | None = None
+    tools: list[ToolsFunctions] | None = None
 
 
 class InputTokenDetails(BaseModel):
@@ -144,6 +202,8 @@ class GenerationResponse(BaseModel):
         "length",
         "function_call",
         "function_call_error",
+        "tool_calls",
+        "content_filter",
         "blacklist",
         "request_blacklist",
         "request_whitelist",
@@ -151,6 +211,9 @@ class GenerationResponse(BaseModel):
         "response_blacklist",
     ]
     usage: Usage
+    #: Tools the model wants called before it can answer. A response may carry
+    #: both text and tool calls, or tool calls with no text at all.
+    tool_calls: list[ToolCall] = Field(default_factory=list)
 
     @field_validator("created_at", mode="before")
     @classmethod

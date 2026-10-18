@@ -12,9 +12,11 @@ None of this is needed for the normal suite: `SBER_API_KEY=mock` swaps in
 `MockProvider`, which is what every other test uses.
 """
 
+import os
 import uuid
 
 import pytest
+import pytest_asyncio
 
 pytestmark = pytest.mark.live
 
@@ -36,6 +38,26 @@ def live_provider():
     if isinstance(provider, type(None)) or getattr(provider, "api_key", "") == MOCK_API_KEY:
         pytest.skip("SBER_API_KEY is still 'mock'")
     return provider
+
+
+@pytest_asyncio.fixture
+async def sber_provider(real_provider_env):
+    """A real :class:`SberProvider` built from the variables the process started with."""
+    from app.providers.mock import MOCK_API_KEY
+    from app.providers.sber import SberProvider
+
+    key = os.environ.get("SBER_API_KEY", "")
+    scope = os.environ.get("SBER_API_SCOPE", "")
+    if not key or key == MOCK_API_KEY:
+        pytest.skip("set SBER_API_KEY to a real GigaChat key to run live tests")
+    if scope not in ("PERS", "B2B", "CORP"):
+        pytest.skip(f"SBER_API_SCOPE={scope!r} does not select the GigaChat client")
+
+    provider = SberProvider(api_key=key, scope=scope)
+    try:
+        yield provider
+    finally:
+        await provider.close()
 
 
 async def test_live_generate_against_gigachat(live_provider):
@@ -67,6 +89,36 @@ async def test_live_generate_against_gigachat(live_provider):
     payload = json.loads(response.messages[0].content[0].text)
     assert payload["message"]
     assert set(payload) == {"chat_name", "message"}
+
+
+async def test_live_gigachat_requests_a_tool_call(sber_provider):
+    """One real completion that must come back as a function call, not text."""
+    from app.providers.models import Content, FunctionDefinition, Message, ResponseFormat, Tool
+
+    sber_provider.tools = [
+        Tool(
+            function=FunctionDefinition(
+                name="get_weather",
+                description="Прогноз погоды в городе",
+                parameters={
+                    "type": "object",
+                    "properties": {"city": {"type": "string", "description": "Название города"}},
+                    "required": ["city"],
+                },
+            )
+        )
+    ]
+    response = await sber_provider.generate(
+        [Message(role="user", content=[Content(text="Какая погода в Москве? Вызови get_weather.")])],
+        ResponseFormat(type=ResponseFormat.TYPE_TEXT),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    assert response is not None, "the live API returned an error"
+    assert response.tool_calls, f"the model did not request the tool: {response.messages}"
+    assert response.tool_calls[0].function.name == "get_weather"
+    assert "Москва" in response.tool_calls[0].function.arguments
 
 
 async def test_live_upload_and_reflect(live_provider):

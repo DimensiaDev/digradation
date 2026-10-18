@@ -97,7 +97,7 @@ test.describe("admin role tiers", () => {
     await other.locator("#username").fill(username);
     await other.locator("#password").fill("e2ecreated12345");
     await other.getByRole("button", { name: "Войти" }).click();
-    await expect(other.locator('.h1:has-text("di:gradation")')).toBeVisible();
+    await expect(other.locator('.h1:has-text("Digradation")')).toBeVisible();
 
     // An admin can reach the area, but must not see the tier control.
     await other.goto("/admin/users");
@@ -134,7 +134,7 @@ test.describe("admin role tiers", () => {
     await page.locator("#username").fill(username);
     await page.locator("#password").fill("e2ecreated12345");
     await page.getByRole("button", { name: "Войти" }).click();
-    await expect(page.locator('.h1:has-text("di:gradation")')).toBeVisible();
+    await expect(page.locator('.h1:has-text("Digradation")')).toBeVisible();
 
     // authGuard + adminGuard send a non-admin away from /admin/users.
     await page.goto("/admin/users");

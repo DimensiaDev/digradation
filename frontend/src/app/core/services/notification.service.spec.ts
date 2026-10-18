@@ -25,24 +25,26 @@ describe('NotificationService', () => {
     expect(list[0].id).toBeTruthy();
   });
 
-  it('adds an info and a warning notification', () => {
+  it('appends an info and a warning notification', () => {
     service.info('Ответ готов');
-    expect(service.notifications()[0].type).toBe('info');
-
     service.warning('Проверьте размер');
-    expect(service.notifications()[0].type).toBe('warning');
-    expect(service.notifications()[0].message).toBe('Проверьте размер');
+
+    const list = service.notifications();
+    expect(list.length).toBe(2);
+    expect(list[0].type).toBe('info');
+    expect(list[1].type).toBe('warning');
+    expect(list[1].message).toBe('Проверьте размер');
   });
 
-  it('replaces the current notification instead of queueing', () => {
+  it('stacks new notifications instead of replacing the current one', () => {
     service.success('Первый');
     const firstId = service.notifications()[0].id;
 
     service.error('Второй');
 
-    expect(service.notifications().length).toBe(1);
-    expect(service.notifications()[0].message).toBe('Второй');
-    expect(service.notifications()[0].id).not.toBe(firstId);
+    expect(service.notifications().length).toBe(2);
+    expect(service.notifications()[1].message).toBe('Второй');
+    expect(service.notifications()[1].id).not.toBe(firstId);
   });
 
   it('removes a notification by id', () => {
@@ -84,23 +86,26 @@ describe('NotificationService', () => {
       vi.advanceTimersByTime(3000);
       service.errorOnce('Ошибка сервера');
 
-      expect(service.notifications().length).toBe(1);
-      expect(service.notifications()[0].message).toBe('Ошибка сервера');
+      const list = service.notifications();
+      expect(list.length).toBe(2);
+      expect(list[1].message).toBe('Ошибка сервера');
     });
 
     it('never dedupes a different message', () => {
       service.errorOnce('Ошибка сервера');
       service.errorOnce('Проверьте поля');
 
-      expect(service.notifications()[0].message).toBe('Проверьте поля');
+      const list = service.notifications();
+      expect(list.length).toBe(2);
+      expect(list[1].message).toBe('Проверьте поля');
     });
 
     it('respects a custom dedupe window', () => {
-      service.errorOnce('Ошибка сервера', 1000);
+      service.errorOnce('Ошибка сервера', { windowMs: 1000 });
       vi.advanceTimersByTime(1500);
-      service.errorOnce('Ошибка сервера');
+      service.errorOnce('Ошибка сервера', { windowMs: 1000 });
 
-      expect(service.notifications().length).toBe(1);
+      expect(service.notifications().length).toBe(2);
     });
   });
 });

@@ -14,6 +14,7 @@ import {
   NgZone,
   OnInit,
   signal,
+  Signal,
   viewChild
 } from '@angular/core';
 import { ControlValueAccessor, NgControl } from '@angular/forms';
@@ -64,7 +65,11 @@ export class Select implements ControlValueAccessor, OnInit {
   private onChange: (value: string | null) => void = noop;
   private onTouched: () => void = noop;
 
-  readonly showError = signal(false);
+  showError!: Signal<boolean>;
+
+  ngOnInit(): void {
+    this.showError = controlErrorSignal(this.ngControl, this.injector);
+  }
 
   constructor() {
     if (this.ngControl) {
@@ -133,10 +138,6 @@ export class Select implements ControlValueAccessor, OnInit {
     this.window.cancelAnimationFrame(this.scrollFrame);
     this.scrollFrame = null;
     this.processScroll();
-  }
-
-  ngOnInit(): void {
-    controlErrorSignal(this.ngControl, this.injector, this.showError);
   }
 
   readonly selectedLabel = computed(() => {

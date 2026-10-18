@@ -40,7 +40,9 @@
         <tr
           class="table__row"
           [class.table__row--interactive]="interactiveRows()"
+          [attr.tabindex]="interactiveRows() ? 0 : null"
           (click)="onRowClick(row)"
+          (keydown)="onRowKeydown(row, $event)"
         >
           @for (column of columns(); track column.key) {
             <td

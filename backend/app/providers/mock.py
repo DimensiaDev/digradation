@@ -3,19 +3,27 @@ import json
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Literal, get_args
 
-from app.providers.client import AIClient
+from app.providers.client import AIClient, Scope
 from app.providers.models import (
     Content,
     GenerationResponse,
     InputTokenDetails,
     Message,
     ResponseFormat,
+    Tool,
     Usage,
 )
 
 MOCK_API_KEY = "mock"
+
+#: Scopes the offline provider accepts: every provider the container can select,
+#: because the mock stands in for whichever one ``SBER_API_SCOPE`` names. Derived
+#: from ``Scope`` so a new scope cannot be added without the mock accepting it —
+#: ``SBER_API_KEY=mock`` picks the mock regardless of scope, and a scope it
+#: rejected would fail at import instead.
+MOCK_SCOPES = get_args(Scope)
 
 Mode = Literal["ok", "empty", "error"]
 
@@ -97,10 +105,10 @@ class MockProvider(AIClient):
     credentials and without incurring GigaChat cost.
     """
 
-    def __init__(self, api_key: str, scope: str):
-        if scope not in ("PERS", "B2B", "CORP"):
-            raise ValueError("Scope must be PERS, B2B or CORP")
-        super().__init__(api_key, scope)
+    def __init__(self, api_key: str, scope: str, tools: list[Tool] | None = None):
+        if scope not in MOCK_SCOPES:
+            raise ValueError(f"Scope must be one of {', '.join(MOCK_SCOPES)}")
+        super().__init__(api_key, scope, tools)
 
     async def auth(self):
         self._log.info("mock_auth", scope=self.scope)

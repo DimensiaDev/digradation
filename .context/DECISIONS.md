@@ -528,6 +528,287 @@ and why what replaced it is there.
   whatever PostgreSQL the developer happens to be running — producing a migration for
   somebody else's schema, silently.
 
+## Frontend design-token palette (2026-10-17)
+
+The palette moved to indigo `#6366F1` as `--color-main`, with `--color-accent` (`#8B5CF6`,
+identity/gradients), `--color-info` (`#22D3EE`, process steps/info icons) and a
+`--color-surface-dark` (`#151728`) reserved for sidebars and underlays. Success, warning and
+danger are `#10B981` / `#F59E0B` / `#EF4444`. All tokens live in `styles.scss`; components
+reference variables only, so no component needed a hex.
+
+- **`--color-hover` is derived, not stored.** It was two hardcoded hexes (a darker blue in
+  light, a lighter one in dark). It is now `color-mix(in srgb, var(--color-main) 85%, black)`
+  in light and `... 80%, white)` in dark — the only asymmetry the two themes need, and it
+  keeps hover in step with whatever `--color-main` becomes.
+- **Four near-duplicate tokens were removed rather than retuned.** `--color-hover-secondary`
+  (a gray almost identical to `--color-secondary`), `--color-outgoing-message` (a blue tint
+  that assumed the old blue), `--color-success-text` (a second green, one use) and the
+  never-defined `--color-info` are gone. Usages now read `--color-secondary`, a
+  `color-mix(... --color-main 12%, --color-surface)` tint, `--color-success` and the new
+  `--color-info` respectively. Fewer tokens than semantics is the point: a hex that exists
+  only because the primary one changed is not a token.
+- **Dark theme overrides only `--color-main` (`#818CF8`) and `--color-hover`.** The accent,
+  info and status hues are legible on both backgrounds, so only the primary needed a lighter
+  dark-theme value; the rest inherit from `:root`.
+- **`--color-info` now feeds notifications.** `notification.component.scss` had a
+  `var(--color-info, var(--color-main))` fallback for a variable that was never defined, so
+  info toasts silently rendered as primary. The token exists now and the `data-type='info'`
+  rule uses it directly.
+
+## Dark sidebar via a dedicated token layer (2026-10-17)
+
+The sidebar is now always dark (`--sidebar-bg`, which maps the palette's
+`--color-surface-dark` `#151728`) in both themes, instead of following the light surface.
+A dark subtree cannot reuse the light-on-light globals — `--color-text` is near-black — so
+it gets its own explicit `--sidebar-*` group in `styles.scss` rather than the scoped
+override of the generic tokens that was tried first.
+
+- **The first attempt overrode the generic tokens on `:host`** (`--color-text`, `--color-main`
+  and friends) and relied on custom-property inheritance to re-theme the whole subtree. It
+  worked but read as a lie: inside the sidebar `--color-text` meant "light text", which
+  nothing in the name says. Replaced with named `--sidebar-*` tokens and direct references.
+- **Shared mixins gained parameters, not forks.** `app-scrollbar` and `icon-button` now take
+  their colors as arguments with the old values as defaults, and `.button--main` reads
+  `--button-main-bg` / `--button-main-bg-hover` with `--color-main` / `--color-hover` as
+  fallbacks. Every existing caller is untouched; the sidebar passes its own colors. The
+  alternative — overriding generic values at `:host` — is what we removed.
+- **The skeleton scoped override was later dropped.** While the sidebar still held the
+  profile card, `.sidebar` retargeted `--color-skeleton-base` / `--color-skeleton-shimmer`
+  to `--sidebar-skeleton-*` for the avatar placeholder. When the card was removed (see
+  below) the sidebar rendered no skeleton, so the retarget went with it.
+- **Only `--color-danger` stays generic inside the sidebar.** Red reads the same on light and
+  dark, so the logout hover does not need a sidebar variant.
+
+## Sidebar no longer lists recent sessions (2026-10-17)
+
+The "ИСТОРИЯ" block is gone: the sidebar is navigation only, and browsing past sessions
+belongs entirely to the history page.
+
+- **The block and everything that existed for it were removed together**, not just hidden:
+  the template section, the `.history*` styles, the `SidebarHistoryItem` mapping, the
+  `chats` / `chatsLoading` / `chatsError` signals, `activeChatId`, `openChat`, the
+  `chatService` injection and its `historyVersion` effect, and the now-unused
+  `SkeletonChatListComponent` plus its `skeleton-item--chat-list*` styles. Leaving the code
+  but not rendering it is how a "removed" feature keeps compiling and confusing.
+- **`.profile` moved to `margin-top: auto`.** It used to be pushed down by the history
+  block's `flex: 1`, so the sidebar layout rule `:not(:has(.history))` became the norm rather
+  than a case.
+- **`ChatService.historyVersion` is gone.** It was bumped on create / send / remove / result
+  and read only by the sidebar's effect, so once the sidebar stopped listing sessions the
+  signal had a writer and no reader. Removed along with `bumpHistory` and the now-pointless
+  `tap` pipes; the history page never read it, so no refresh behaviour changes.
+
+## User menu rebuilt for the programme product (2026-10-17)
+
+The user sidebar menu was replaced with the product's own vocabulary: Главная, Мои
+программы and Библиотека in the main list, with Настройки and Помощь pinned at the bottom.
+The list is configured in `sidebar.config.ts` and the top vs bottom split is a new
+`bottomNavItems` input that flows through `Layout` and route `data`.
+(`USER_BOTTOM_NAV_ITEMS` later gained Настройки, which moved down from the main list.)
+
+- **The CTA button was removed, not restyled.** A "Создать программу" CTA briefly stood
+  where "Новый чат" had been; it was then deleted outright, along with its `.cta` styles,
+  the `--sidebar-accent-hover` token, and the `.button--main` `--button-main-bg*` override
+  indirection (reverted to reading `--color-main` / `--color-hover` directly). With no
+  caller left, all of it was dead weight.
+- **`/home`, `/programs`, `/library` and `/help` do not exist yet.** The menu was requested
+  ahead of the pages, so those four items render but cannot navigate until the routes land.
+  `/settings` is the only live target. This is deliberate, not a regression to "fix" by
+  inventing pages.
+- **"Тариф" is intentionally absent.** It was specified but deferred; only Помощь was added.
+- **The sidebar width is fluid.** `--sidebar-width` is `clamp(340px, 25vw, 380px)` — a modest
+  bump from the fixed 330px that still tracks the viewport. Collapsed stays a fixed 96px icon
+  rail.
+
+## Sidebar no longer shows the profile card (2026-10-17)
+
+The avatar + name card was removed from the sidebar; it will be shown somewhere else. Only the
+sidebar UI went — the reusable pieces stay.
+
+- **`ProfileService`, `AuthService`, the profile page and the global `.photo` style are
+  untouched.** They are the "component and services" that were explicitly kept for reuse; the
+  sidebar just stopped rendering the card and calling `loadAvatar()`.
+- **Logout was removed from the sidebar and has no replacement yet.** It lived inside the
+  removed card, so it was first re-added to the footer, then dropped on request; the sidebar
+  no longer injects `AuthService` or `Router`. There is currently no sign-out control anywhere,
+  and the e2e `signs out` spec was deleted with it — restore both together when sign-out lands
+  in its new home.
+- **The sidebar's own profile logic went with the card**: `displayName`, `avatarSrc`,
+  `avatarLoading`, `onAvatarError` and the `ngOnInit` avatar load all had exactly one reader
+  (the removed template) and were deleted. `profile.user` stays, because the admin-panel link
+  derives from the role.
+- **The bottom anchor moved to the bottom nav.** With `.profile { margin-top: auto }` gone, the
+  `Помощь` + footer group is pinned by `.sidebar__bottom-group { margin-top: auto }`, so both
+  stay at the bottom for the user (who has a bottom nav) and the admin (who does not).
+
+## Notification toasts reworked: stacking, soft tint, descriptions (2026-10-17)
+
+The toast stack went from single to multi, the card stopped being a hard white box, and
+toasts gained an optional second line.
+
+- **Toasts now stack.** `NotificationService.add` appends instead of replacing, and
+  `NotificationsComponent` renders the whole list, giving each toast its own auto-dismiss
+  timer (and its own leave animation). The old replace semantics made it impossible to see,
+  say, a warning and the success that followed it side by side.
+- **The card background is a tint, not white.** `background` and `border` use
+  `color-mix(in srgb, <type> 6%|38%, var(--color-surface))`. A pure white card with a fully
+  saturated border read as too harsh in the light theme; the tint keeps the type readable
+  while softening the surface. The type is still carried by the icon and the border hue.
+- **`Notification` gained an optional `description`.** Meaningful action results and errors
+  set one; terse field validations and pure info toasts deliberately do not, to avoid noise.
+- **`errorOnce` takes an options object** — `errorOnce(message, { windowMs?, description?,
+  persistent? })` — instead of a bare `windowMs` number, so the deduped interceptor errors can
+  carry a description like every other call.
+
+## Page header, profile component and a shared icon-button class (2026-10-18)
+
+A top header (inside `<main>`, above the router outlet) now hosts the notifications bell and
+the profile, and the icon-button hover mechanism was extracted out of two duplicated copies.
+
+- **The header is white/themed while the sidebar is always dark.** `HeaderComponent` is
+  rendered by `Layout`, not the sidebar, so it can use the themed tokens (`--color-surface`,
+  `--color-text`, `--color-gray`, `--color-outline`) and follow light/dark. Temporary
+  `--header-*` tokens were tried and removed: they added a layer with no second consumer.
+- **The bell is fed by the live toast state, not a separate store.** It reads
+  `NotificationService.notifications`, so there is no persistence and nothing to show once the
+  5s auto-dismiss has fired. A real notification centre (persistent history) is a separate
+  feature; this is deliberately just a surface over the current toasts.
+- **Sign-out moved into the profile dropdown.** The menu holds a `/profile` link and a red
+  `Выход` action that calls `AuthService.logout()`, clears `ProfileService`, toasts, and
+  navigates to `/login` (mirroring the removed sidebar card). Sign-out had been homeless since
+  the sidebar card went; it now lives here. The e2e `signs out` spec is still to be restored to
+  drive it through the header.
+- **The profile dropdown reuses the toasts, not its own store.** It reads the same
+  `NotificationService`, so a real notification centre is still a separate feature.
+- **`ProfileComponent` is new, not the resurrected sidebar card.** The sidebar deleted its own
+  `displayName` / `avatarSrc` / `avatarLoading` / `onAvatarError` and `ngOnInit` avatar load;
+  those now live in a reusable `shared/components/profile` component that calls
+  `ProfileService.loadAvatar()`. The name falls back to `username` when first/last are empty.
+- **The icon-button hover mechanism is a single global `.icon-action` class** in
+  `_buttons.scss`, not per-component copies. It exposes `--icon-action-color`,
+  `--icon-action-hover-color`, `--icon-action-hover-bg`, `--icon-action-focus`,
+  `--icon-action-size` and `--icon-action-radius`; lucide SVG recolours via `currentColor`, so
+  hovering changes the glyph colour, not just the background. The sidebar only overrides the
+  variables with its `--sidebar-*` tokens. Previously the sidebar copy recoloured the icon and
+  the header copy only changed the background, which is why the bell "did not animate".
+
+## Base-layer cleanup: table keyboard rows, header ARIA, theming (2026-10-18)
+
+A review pass over `core/` + `shared/` fixed a batch of accessibility and theming defects.
+
+- **Interactive table rows are now keyboard-operable.** When `interactiveRows` is true the
+  `<tr>` gets `tabindex="0"` and an Enter/Space handler; the handler ignores events from a child
+  (so the per-row link in the history table is not activated twice) and sets a focus ring via a
+  `--color-main` inset on the first cell, because an `outline` on a `tr` is not reliably painted.
+- **The header popups are disclosures, not menus.** The notification panel and the profile
+  popup dropped `role="menu"`/`role="menuitem"`, which promise arrow-key navigation the
+  component does not implement; the bell's `aria-haspopup="true"` went with them. They now use
+  `aria-expanded` + `aria-controls` pointing at the panel id, and the notifications are a plain
+  `<ul>`/`<li>` list. Verified against the requirement, not just lint.
+- **File-preview dark theming moved into a token.** The three global
+  `html[data-theme='dark'] .file-preview__sheet-tab*` rules were replaced by a single
+  `--sheet-tab-indicator-bg` custom property defined per theme in `styles.scss`. The component
+  keeps `ViewEncapsulation.None`, so a global theme selector would leak; the token keeps the
+  colour inside the variable model. Note the old dark rule set the indicator to
+  `--color-secondary`, the same colour as its own container, so the tab was invisible in dark.
+- **`Layout` gained `ChangeDetectionStrategy.OnPush`.** It was the only shared component
+  without it.
+- **`AGENTS.md` no longer documents a `ChatService.historyVersion` signal.** No such signal
+  exists; the real list-refresh idiom is a per-component local request-id counter, which the
+  section now describes.
+
+
+## Base-layer cleanup: icon buttons, textareas, file types (2026-10-18)
+
+A second review pass over `core/` + `shared/` removed duplicate implementations.
+
+- **One icon-button implementation.** The `icon-button` mixin in `_mixins.scss` is now
+  parameterless and reads `--icon-button-radius`, `--icon-button-hover-bg`,
+  `--icon-button-hover-color` and `--icon-button-focus`; `.icon-action` in `_buttons.scss` is
+  just the mixin plus size/colour defaults, and the sidebar overrides the variables with its
+  `--sidebar-*` tokens. The previous mixin took eight parameters and diverged from
+  `.icon-action`, so the same visual control had two sources.
+- **One textarea implementation.** `shared/components/textarea/` is deleted. `app-input`
+  already owned the value accessor, error state and counters, so textarea mode
+  (`asTextarea`, `rows`, `counterVisibleFrom`) moved there; `chat-create` and the admin
+  settings editor now use `app-input`.
+- **One extension list.** `shared/utils/file-types.ts` is the single source for accepted
+  extensions, preview kind, MIME type, icon and style. `file-preview.model.ts`,
+  `file-type-icons.ts` and `ACCEPTED_EXTENSIONS` in `core/models/models.ts` are gone; dropping
+  the list in one place previously left `drag-n-drop` and `file-preview` able to disagree.
+- **`controlErrorSignal` returns a computed signal and is called in `ngOnInit`.** It must not
+  run in a field initializer: for `[formControl]`/`formControlName` the `NgControl` has no
+  `control` until the directive's `ngOnChanges`/`ngOnInit`, so a field-time call captures
+  `null` and freezes at `false`. `ngOnInit` is the earliest point where the control exists and
+  a `computed` over its `events` is still correct.
+
+## Checkbox and toggle merged into `app-check-control` (2026-10-18)
+
+`CheckboxComponent` and `ToggleComponent` were two copies of one control (value accessor,
+label/caption, hidden input) with divergent behaviour, and neither was used outside its spec.
+
+- **One component, `variant: 'checkbox' | 'switch'`.** `shared/components/check-control/`
+  replaces both directories. Disabled state is a `formDisabled` signal bound to `[disabled]`;
+  the old toggle read `checkbox.disabled` from a static `ViewChild`, which does not update in
+  an OnPush component.
+- **Focus is `:focus-visible` on the hidden input, not `:focus-within` on the label.** The
+  label's `:focus-within` lit up on mouse clicks too. The outline is applied to the sibling
+  box/track; note that `@include focus-ring` cannot be used there because the mixin nests its
+  own `&:focus-visible`, which would require focus on the span that never receives it. The old
+  checkbox styles had that bug and their ring never appeared.
+- **Only the variants' markup/styles differ.** The value accessor, `NgControl` error state,
+  blur handling, label/caption and disabled styling are shared, so the switch now also
+  supports validation errors and `aria-label`.
+
+## Initial chat handoff is bound to a session id (2026-10-18)
+
+`InitialChatStateService` used to hold one global message. `chat-create` set it, then navigated;
+`chat` consumed it in its constructor without looking at the route. If the navigation did not
+happen, the message survived and the next chat the user opened displayed it as their own.
+
+- **`set(sessionId, message)` and `consume(sessionId)`.** `consume` always clears the pending
+  value and returns it only when the id matches, so a stale handoff is discarded by the next
+  chat rather than injected into it.
+- **The chat consumes in `ngOnInit`, not in the constructor.** `id` is an `input()`, so it is
+  not assigned yet when the constructor runs; reading it there would compare against
+  `undefined` and drop every handoff.
+
+## The error interceptor owns API error notifications (2026-10-18)
+
+`errorInterceptor` showed a toast for every failed request while several callers
+(`chat-create`, `header.logout`) also toasted the same error with their own wording, and
+`errorOnce` could not dedupe them because the messages differed.
+
+- **The interceptor is the single owner of `HttpErrorResponse` notifications.** Callers must
+  not toast an API failure; they only toast errors that never reached the interceptor, such as
+  `Error` from the upload pipeline (XHR, polling timeout) or a non-HTTP failure.
+- **Login stays excluded by URL.** The login page owns its credential-error message, so the
+  interceptor skips `/auth/login` as before; `SKIP_AUTH_ERROR_HANDLING` still opts a request
+  out of both the redirect and the toast.
+
+## The mock interceptor is innermost (2026-10-18)
+
+`app.config.ts` listed `mockApiInterceptor` first, so it answered every request itself and
+`credentialsInterceptor`/`errorInterceptor` never ran in mock mode: no 401 redirect and no
+error toasts, unlike production.
+
+- **Order is `credentials, error, mock`.** Angular runs interceptors left to right; the mock
+  returns its own response instead of calling `next()`, so it must be last for the other two
+  to wrap it.
+- **`createInterceptors(useMocks)` is the single source of the order and is unit-tested.**
+  Do not inline the arrays again; a future interceptor must be inserted before the mock.
+
+## `ProfileService` exposes read-only signals (2026-10-18)
+
+`ProfileComponent` wrote `profile.avatarUrl.set(null)` from its image `error` handler, bypassing
+the service's own state transitions.
+
+- **The writable signals are private; the public handles are `asReadonly()`.** Avatar
+  invalidation goes through `resetAvatar()`, so the service still owns every write and the
+  loading/value pair cannot be desynchronised from outside.
+- **Specs seed state through the HTTP API**, not by writing signals, which also exercises
+  `fetchMe`/`loadAvatar` instead of assuming their internals.
+
 ## CI caches build layers through a CI-only Compose override (2026-10-18)
 
 - **`docker-compose.build-cache.yml` is appended as a third `-f` only when `CI` is set.**
@@ -545,6 +826,92 @@ and why what replaced it is there.
   `worker_default`, `worker_network` and `garage-config` all build `backend/Dockerfile` and
   share `scope=backend`; per-service scopes would make each miss on the others' layers.
   `garage-bootstrap` builds `conf/garage.Dockerfile` and gets its own scope.
+
+## OpenAI-compatible provider and tool calling (2026-10-18)
+
+- **`SBER_API_SCOPE` now doubles as the provider selector**, because the OpenAI client is
+  not GigaChat and a scope of `PERS`/`B2B`/`CORP` says nothing about which SDK to use. The
+  mapping is in `containers.py`: `mock` -> `MockProvider`, then `openai` -> `OpenAIProvider`,
+  everything else -> `SberProvider`. The mock check comes first *and* `SBER_API_KEY=mock`
+  also wins, so the test and e2e stacks that only pin the key keep working even if a
+  developer's `.env` leaves the scope at `openai`; the ordering is load-bearing, not
+  cosmetic. The alternative — a separate `PROVIDER` variable — would have left two knobs
+  describing one choice.
+- **`OPENAI_URL` empty means the official OpenAI endpoint.** `AsyncOpenAI` already defaults
+  to api.openai.com, so the provider only passes `base_url` when the variable is set. That
+  keeps "point at the school hub" and "point at OpenAI" the same code path.
+- **Tools are construction-time state on `AIClient`, not a per-request argument.** A tool
+  set is a property of the assistant, not of one exchange, and defining it once matches how
+  the callers think about it. All three providers accept `tools=`; only `OpenAIProvider`
+  uses it. `mock` and `sber` ignore it deliberately rather than raising, so a caller can
+  advertise tools without branching on the provider.
+- **Tool calls surface on the response, nothing executes them.** `GenerationResponse`
+  gains `tool_calls: list[ToolCall]`, and `Message` gains `tool_call_id` so a later turn can
+  answer one. Execution is a policy decision (which tools, who runs them, with what
+  authorisation) and does not belong in the provider, so it is left to the caller.
+- **The provider maps only `tool_calls` whose `type == "function"`.** The OpenAI schema
+  allows other tool types; the internal model has one kind. Filtering at the boundary keeps
+  `ToolCall` from growing a discriminator it will not use yet.
+- **The internal content-parts format flattens to a single string on the OpenAI wire.**
+  GigaChat takes structured file references in a message; the OpenAI chat-completions shape
+  does not, so file parts are dropped and text parts joined with a newline. Attachments are
+  still uploaded through the files API (``upload``), but a message cannot cite them yet.
+  This is the one place the two providers genuinely differ, and it is documented in the
+  module docstring rather than hidden in a converter.
+- **`ResponseFormat` maps to `json_schema` only for the schema type**, with the schema
+  named `"response"` and `strict` passed through; a text request omits `response_format`
+  entirely rather than sending `{"type": "text"}`. Omitting is a choice — the hub accepts
+  the explicit text type too — but a text request has no schema to send, so there is nothing
+  to serialise. Verified live: the hub accepts the harness schema even without
+  `additionalProperties: false`.
+- **`auth()` is a no-op with a century-long expiry.** The OpenAI key authenticates every
+  request and there is no token endpoint or refresh, but `AIClient` has `ensure_fresh_token`
+  machinery that other call paths expect; setting a far-future `token_expires_at` makes it a
+  no-op without special-casing the base class.
+- **`SBER_API_KEY=mock` still means no LLM call**, and the live tests for the OpenAI client
+  carry a second `openai` marker so they can be selected with `-m 'live and openai'` on
+  their own, with `SBER_API_SCOPE=openai`. Because the key wins over the scope, `mock` must
+  accept every scope the container can hand it; `MockProvider.MOCK_SCOPES` derives from the
+  `Scope` literal rather than listing them, so adding a provider cannot leave a scope that
+  the mock rejects at import.
+
+## GigaChat v2 tool calling (2026-10-18)
+
+- **GigaChat v2 is the tool-capable endpoint, and its wire shape differs from OpenAI's.**
+  `/v2/chat/completions` takes `tools: [{"functions": {"specifications": [...]}}]` and a
+  separate `tool_config: {"mode": "auto"}`, not OpenAI's `tools[].function` array. The reply
+  nests `function_call` inside `content[]` (with its own `id`) rather than a top-level
+  `tool_calls` array. `SberProvider` translates both directions so callers keep seeing the
+  internal `Tool` / `ToolCall` models.
+- **`ContentFunctionCall` normalises `arguments` from an object to a JSON string.** The
+  schema says "JSON wrapped in a string", but the live API returns a JSON *object*; OpenAI
+  returns a string. Accepting both in a `mode="before"` validator is cheaper than two
+  response paths, and it matches the internal `FunctionCall.arguments: str`.
+- **`Content.text` defaults to `""` and `ToolCall.id` is optional.** A v2 function-call
+  content part has no `text` key, so the shared `Content` model would reject the real
+  response otherwise. GigaChat may omit `function_call.id` (it correlates a result by name
+  and `tool_state_id`), so `ToolCall.id` became optional; the OpenAI provider still always
+  sets it.
+- **`parameters` is required on the GigaChat side**, so a tool without one is sent with an
+  empty object rather than omitted. GigaChat's own examples also omit `type: "object"`, so
+  the provider passes the caller's schema through untouched.
+- **The GigaChat live tool test lives in `test_live_gigachat.py`.** It builds a real
+  `SberProvider` from `real_provider_env` instead of reusing the container's module-level
+  instance, which was built with the mock key at import time.
+- **`strict` is rejected, not dropped, on GigaChat.** The v2 `CustomFunction` schema has no
+  strict flag, so `SberProvider` raises `ValueError` rather than accepting a promise it
+  cannot keep. The check runs at construction and again in `_tools_payload`, because tests
+  and callers may replace `provider.tools` afterwards. The OpenAI client still passes
+  `strict` through.
+- **Missing GigaChat `arguments` become `"{}"`.** A function-call content part without
+  arguments used to surface `""`, which is not JSON. `ContentFunctionCall` normalises
+  `None` and the empty string to `{}` before the call reaches `FunctionCall`.
+- **The OpenAI payload keeps attachments as content parts.** Text-only messages stay a
+  plain string; `Content.files` become `file` parts carrying `file_id`, and `inline_data`
+  becomes an `image_url` with a `data:` URL. Dropping them silently made the model answer
+  without the supplied context.
+- **The container's tool list is a single empty `TOOLS` placeholder.** Both real providers
+  receive it, so the wiring exists before a tool registry does.
 
 ## The agent draft contract: sources, hours and the tool loop (2026-10-18)
 
@@ -590,8 +957,7 @@ endpoints, the worker and the frontend belong to other changes.
 ## The agentic package stands on `main` again (2026-10-18)
 
 Review follow-up on `feat/gen-cicle`: the branch keeps only what `main` can build and test
-today, and what needs another zone waits for it instead of being stubbed hard. This
-supersedes the "does not import on its own" half of the previous entry.
+today, and what needs another zone waits for it instead of being stubbed hard.
 
 - **The source materials moved to the RAG zone.** `app/agentic/materials/` was a byte copy of
   the root `edu_materials/` dataset, and RAG (#11) owns both the corpus and the search over
@@ -599,19 +965,19 @@ supersedes the "does not import on its own" half of the previous entry.
   `search` with unchanged signatures — over an empty catalog: a search reports nothing found,
   and every citation is refused as unknown. The tests that needed a populated catalog were
   replaced by tests of that contract; they return with the index.
-- **The loop module is deferred to the tool-call work (#26).** There `FunctionCall` is
-  attached to `GenerationResponse`, which retires the helpers that scanned message contents
-  for calls, so `loop.py` and its tests left the branch rather than being rewritten twice. The
-  review points for the re-implementation: errors inherit from `Exception` rather than
-  `RuntimeError`, `message.role` compares through the existing enum, and no helper scans
-  messages for calls.
-- **What the package imports is restored additively.** `providers/models.py` carries the tool
-  types (`FunctionCall`, `FunctionResult`, `FunctionSpecification`, `ToolFunctions`, `Tool`),
-  `chat.py` the `DEFAULT_CHAT_NAME` constant, `mock.py` the `MOCK_DRAFT_ARGUMENTS` payload,
-  and `models/program.py` with its migration the `chat_programs` table. Nothing that `main`
-  already defines was reshaped — `HarnessStructuredOutput` and the provider `generate`
-  signatures stay — so the suite runs and the coverage gate holds until #26 and the worker
-  zone replace those pieces on their own terms.
+- **The loop module waits for the tool-call work rather than being stubbed.** It was written
+  against a `FunctionCall` of its own, and `GenerationResponse.tool_calls` (merged in #26)
+  retires exactly the helpers that scanned message contents for calls, so the round trip is
+  worth writing once. Review points for that implementation: errors inherit from `Exception`
+  rather than `RuntimeError`, `message.role` compares through the existing enum, and no
+  helper scans messages for calls.
+- **The agentic tools adopt the merged provider types.** `Tool(function=FunctionDefinition(...))`
+  is what a provider takes at construction, so the package exports `AGENT_TOOLS: list[Tool]`
+  instead of building the v2 wire payload itself, and `execute_tool` reads
+  `FunctionCall.arguments` as the JSON string the providers normalise to. The interim
+  `FunctionCall` / `FunctionResult` / `ToolFunctions` block that had briefly been restored
+  into `providers/models.py` is gone — only `DEFAULT_CHAT_NAME` in `models/chat.py` and
+  `MOCK_DRAFT_ARGUMENTS` in `providers/mock.py` remain as additions to other zones.
 - **The base commit's subject was reworded, not the rule relaxed.** `commitlint` validates
   every commit of a pull request, so `feat(ala): Tools, tests, harness…` failed the PR check
   while the push check for the same range passed. The branch was rebased to
