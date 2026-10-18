@@ -19,9 +19,19 @@
     border-radius: 50%;
   }
 
+  &__content {
+    display: grid;
+    gap: 10px;
+  }
+
   &__text {
     max-width: 380px;
+    line-height: 1.5;
 
     color: var(--color-gray);
+  }
+
+  &__button {
+    width: 75%;
   }
 }
