@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from enum import StrEnum
+from math import isclose
 from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -405,6 +406,11 @@ class EducationalProgram(SchemaModel):
     approval: ApprovalInfo
 
 
+#: Hours are floats, so a sum carries representation noise; a difference below
+#: this tolerance is not a mismatch (15 x 1.6 is 24.000000000000004).
+_HOURS_TOLERANCE = 1e-6
+
+
 def _duplicate_ids(ids: list[str]) -> list[str]:
     """The ids that appear more than once, each reported a single time."""
     seen: set[str] = set()
@@ -438,6 +444,10 @@ class ProgramDraft(SchemaModel):
 
     kind: ProgramKind = Field(description="Тип программы: повышение квалификации или общеразвивающая")
     title: str = Field(min_length=1, max_length=500, description="Название программы")
+    requested_hours: float | None = Field(
+        default=None,
+        description="Заявленный объём программы в академических часах: сумма часов по темам должна совпадать с ним",
+    )
     summary: ProgramSummary = Field(description="Паспорт программы: цель, аудитория, форма обучения")
     competencies: list[Competence] = Field(min_length=1, description="Компетенции с результатами освоения")
     curriculum: Curriculum = Field(description="Учебный план: модули, темы, часы и график")
@@ -489,4 +499,40 @@ class ProgramDraft(SchemaModel):
         ]
         if undeclared:
             raise ValueError("outcome_ids not declared by any competence: " + "; ".join(undeclared))
+        return self
+
+    @model_validator(mode="after")
+    def _reject_hours_that_do_not_add_up(self) -> Self:
+        """The hours of the draft must add up to the volume and fit the schedule.
+
+        The system prompt fixes the rule for the draft: the topic hours must
+        match the volume the methodist asked for, so they are checked against
+        ``requested_hours`` when the model recorded it. The schedule is then the
+        distribution of those same hours: a timetable for a bigger programme than
+        the plan describes cannot be approved, and when both the schedule and the
+        volume are known they must agree, or the methodist is asked to confirm
+        two different programmes.
+        """
+        total = self.curriculum.total_hours
+        if self.requested_hours is not None and not isclose(total, self.requested_hours, abs_tol=_HOURS_TOLERANCE):
+            raise ValueError(
+                f"hours: the topics total {total} does not match the requested volume {self.requested_hours}"
+            )
+
+        schedule = self.curriculum.schedule
+        if schedule.days is None or schedule.hours_per_day is None:
+            return self
+
+        capacity = schedule.days * schedule.hours_per_day
+        if self.requested_hours is None:
+            if total > capacity + _HOURS_TOLERANCE:
+                raise ValueError(
+                    f"hours: the topics total {total} exceed the schedule of {schedule.days} days "
+                    f"× {schedule.hours_per_day} hours per day ({capacity})"
+                )
+        elif not isclose(capacity, self.requested_hours, abs_tol=_HOURS_TOLERANCE):
+            raise ValueError(
+                f"hours: the schedule of {schedule.days} days × {schedule.hours_per_day} hours per day "
+                f"({capacity}) does not fit the requested volume {self.requested_hours}"
+            )
         return self

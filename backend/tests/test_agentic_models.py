@@ -33,6 +33,7 @@ def draft() -> Program:
     return {
         "kind": "general_development",
         "title": "Тестовая программа",
+        "requested_hours": 2,
         "summary": {
             "goal": "Научить основам работы с данными",
             "target_audience": "Взрослые слушатели",
@@ -251,3 +252,26 @@ def test_every_dangling_outcome_id_is_reported(draft: Program) -> None:
     assert "t-01.1: ro-s-99" in message
     assert "t-01.1: ro-e-98" in message
     assert "ro-k-01" not in message
+
+
+def test_requested_volume_must_match_the_topic_hours(draft: Program) -> None:
+    draft["requested_hours"] = 4
+    assert "does not match the requested volume" in draft_problems(draft)
+
+
+def test_schedule_must_fit_the_requested_volume(draft: Program) -> None:
+    draft["curriculum"]["schedule"] = {"days": 2, "hours_per_day": 2}
+    assert "does not fit the requested volume" in draft_problems(draft)
+
+
+def test_topics_must_fit_the_schedule(draft: Program) -> None:
+    draft.pop("requested_hours")
+    draft["curriculum"]["schedule"] = {"days": 1, "hours_per_day": 1}
+    assert "exceed the schedule" in draft_problems(draft)
+
+
+def test_without_a_recorded_volume_only_the_schedule_is_a_ceiling(draft: Program) -> None:
+    """The example curriculum fills 66 of its schedule's 72 hours."""
+    draft.pop("requested_hours")
+    draft["curriculum"]["schedule"] = {"days": 18, "hours_per_day": 4}
+    validate_draft(draft)
