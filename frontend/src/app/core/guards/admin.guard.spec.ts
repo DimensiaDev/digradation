@@ -7,7 +7,7 @@ import {
 } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, Observable } from 'rxjs';
 
 import { adminGuard } from './admin.guard';
 import { ProfileService } from '../services/profile.service';
@@ -49,8 +49,22 @@ describe('adminGuard', () => {
     http.verify();
   });
 
-  it('redirects guests to /home', () => {
+  it('fetches the profile and redirects a guest to /home when the session is unresolved', async () => {
+    const tree$ = firstValueFrom(runGuard() as Observable<UrlTree>);
+
+    http
+      .expectOne(ME_URL)
+      .flush({ detail: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
+
+    expect((await tree$).toString()).toBe('/home');
+    expect(profile.user()).toBeNull();
+  });
+
+  it('does not fetch when the session is already resolved', () => {
+    profile.clear();
+
     expect((runGuard() as UrlTree).toString()).toBe('/home');
+    http.expectNone(ME_URL);
   });
 
   it('redirects non-superusers to /home', () => {

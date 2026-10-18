@@ -822,8 +822,10 @@ A visitor could see nothing before signing in. Guest mode replaces all of that.
   failure (network, 5xx) also resolves to `null` because the app must still render, but it is
   not the same thing as being a guest, so `ensureSession` raises a "Не удалось проверить
   сессию" toast rather than passing the failure off as a guest shell. This is also what lets
-  `adminGuard` be a plain synchronous check: the blocking initial navigation has already waited
-  for the fetch. The cost is one request on every reload, guest or not.
+  `adminGuard` take a plain synchronous path: once `sessionChecked()` is true the guard only
+  reads `user()`. It keeps an async `fetchMe()` fallback for the case where the session is
+  still unresolved, so the guard does not depend on the initializer staying blocking.
+  The cost is one request on every reload, guest or not.
 - **A guest is a first-class state, not an error path.** There is no registration anywhere in
   the product (accounts are created by an admin), so the only action a guest has is signing in.
   `ProfileService.user() === null` after `sessionChecked()` is the whole definition.
