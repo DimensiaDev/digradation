@@ -545,3 +545,32 @@ and why what replaced it is there.
   `worker_default`, `worker_network` and `garage-config` all build `backend/Dockerfile` and
   share `scope=backend`; per-service scopes would make each miss on the others' layers.
   `garage-bootstrap` builds `conf/garage.Dockerfile` and gets its own scope.
+
+## The agent draft contract: sources, hours and the tool loop (2026-10-18)
+
+Review fixes on `feat/gen-cicle`, scoped to `app/agentic` (tools, loop, models): the
+endpoints, the worker and the frontend belong to other changes.
+
+- **Only sources the run has shown the model may be cited.** `search_sources` widens
+  `ToolContext.known_source_ids`, and `get_program_draft` re-widens it with the sources of a
+  stored draft, so a revision can cite what it just read back. The refusals stay distinct —
+  an id the catalog does not know is an invented document, a catalog id this run never
+  returned is a guess — because the model corrects itself differently for each.
+- **`ProgramDraft.requested_hours` is optional evidence, and the schedule is a ceiling.**
+  The prompt tells the model the topic hours must equal the declared volume, so the validator
+  enforces `total == requested_hours` when the field is present. It stays optional because
+  the volume is often known only from the conversation, and a required field would just be
+  copied from nowhere. Without it, `days × hours_per_day` is a ceiling rather than an
+  equality: the final attestation lives outside the curriculum — the example document fills
+  66 of its 72 scheduled hours — so only over-capacity is an error, and when both the volume
+  and the schedule are known they must agree exactly.
+- **The tool-round bound counts rounds, not model turns.** After the last executed round the
+  model still gets one turn to answer from the results it already has, and only a turn that
+  reacts with another call is `ToolLoopExceeded`. The bound catches a model that loops instead
+  of answering; failing because it finally answered wastes the whole run.
+- **A truncated answer is a failure, not an answer.** `finish_reason == "length"` means the
+  provider stopped at the token limit, so the loop raises `AnswerTruncated` instead of storing
+  a half-written reply as the model's final word.
+- **The chat is renamed only after the draft commits.** `save_program_draft` returns the name
+  and records it in `ctx.renamed_to` after `commit()`, so a failed save cannot leave a renamed
+  chat behind without the draft it was named for.

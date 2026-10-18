@@ -715,3 +715,17 @@ Flat bullet list, append at the bottom. One bullet, one lesson.
   `pytest-coverage`, and there is no plain `vitest` hook. Fixed 2026-10-18 with
   `"cli": { "analytics": false }` in `frontend/angular.json`; without it, every machine
   that has never answered the prompt fails its first push. Found 2026-10-18 on `feat/gen-cicle`.
+- **RUF002/RUF003 fire on docstrings and comments even though RUF001 (strings) is ignored.**
+  A quoted Russian phrase inside an English docstring, or a `×` in a comment, fails
+  `ruff check .` on an ambiguous character while the same text inside a string literal is
+  fine. Paraphrase in English or move it into a string. Found 2026-10-18 on `feat/gen-cicle`.
+- **`MOCK_DRAFT_ARGUMENTS` drives the real `save_program_draft` in the worker test.** Any
+  validator added to `ProgramDraft` must leave that canned payload — and `make_draft` in
+  `tests/test_agentic_tools.py` — valid, or a test far from the validator fails. Its six
+  topic hours against a 15 x 1.6 schedule stay legal because a schedule without
+  `requested_hours` is a ceiling, not an equality. Found 2026-10-18 on `feat/gen-cicle`.
+- **The `chat_session` fixture in `tests/conftest.py` is broken and unused.**
+  `ChatSession.session_id` is the primary key with no default, so requesting the fixture
+  inserts NULL and dies with a `NotNullViolation`; nothing has ever requested it.
+  `tests/test_agentic_tools.py` builds its own `chat` fixture with an explicit `uuid4()`.
+  Found 2026-10-18 on `feat/gen-cicle`.
