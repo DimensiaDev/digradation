@@ -19,6 +19,8 @@
 
     overflow-y: auto;
 
+    view-transition-name: router-content;
+
     transition:
       left 250ms ease,
       width 250ms ease;
