@@ -708,3 +708,53 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   `COMPOSE_BAKE=true` explicitly so the fallback cannot happen on an older runner either,
   and `#1 [internal] load local bake definitions` in the log proves Bake ran. Found
   2026-10-18 on PR #21.
+
+## Providers and live API tests
+
+- **The autouse `env` fixture in `conftest.py` pins `SBER_API_KEY=mock`, so every `live`
+  test sees the mock key unless it asks otherwise.** `conftest.py` captures the process
+  environment into `REAL_ENV` at import and the `real_provider_env` fixture restores it;
+  a live test must request that fixture (directly or via a provider fixture) or the
+  key it reads is the mock one. Without this, `pytest -m live` collected and passed while
+  hitting nothing.
+- **`app/providers/openai.py` shadows the top-level `openai` package name, and that is
+  safe.** Python 3 uses absolute imports by default, so `from openai import AsyncOpenAI`
+  inside the module resolves the installed package, not the module itself. Verified by the
+  provider's own tests; no `importlib` or `sys.path` gymnastics are needed.
+- **The `openai` SDK (v3) pins `httpx2`, a second HTTP stack next to the project's
+  `httpx` 0.28.** They coexist as separate distributions, so the SDK upgrade in the lockfile
+  also adds `httpx2` and its transitive deps. Do not "consolidate" them: the SDK imports its
+  own package by name, and removing it breaks the provider while the rest of the app keeps
+  working.
+- **The school hub counts about 1200 prompt tokens before your text arrives.** A one-line
+  question came back as `prompt_tokens=1223` with `cached_tokens=1200`, so the hub injects a
+  sizeable preamble of its own. Budget accordingly if a future change starts caring about
+  prompt size; the number does not reflect the conversation the app sent.
+- **`AsyncOpenAI` extends whatever `base_url` you give it, so `OPENAI_URL` is the full
+  prefix including the API version.** The hub's URL ends in `/llm/v1` and the SDK appends
+  `/chat/completions`; a URL missing the version segment is not the endpoint the SDK
+  actually calls.
+- **An explicit `{"type": "text"}` is accepted by the hub, so omitting `response_format`
+  for a text request is a choice, not a workaround.** The provider omits it because the
+  internal text `ResponseFormat` carries no schema to send; verified live that
+  `response_format={"type": "text"}` also succeeds, so this is not a compatibility
+  constraint to preserve.
+- **`SBER_API_KEY=mock` must be checked before the scope, or a leftover
+  `SBER_API_SCOPE=openai` defeats it.** Selection used to test `scope == "openai"` first, so
+  the e2e contract — the key alone guarantees no call leaves the process — held only while
+  the scope was also `PERS`. `SBER_API_KEY=mock` with `SBER_API_SCOPE=openai` built a real
+  `OpenAIProvider` carrying the literal token `mock`, which is a network call where a
+  developer expects none. The container now tests the mock key first. The follow-on:
+  `MockProvider` then receives scopes it used to reject, so `MOCK_SCOPES` derives from the
+  `Scope` literal instead of listing the GigaChat scopes by hand. Found 2026-10-18 against a
+  `.env` that sets `SBER_API_SCOPE=openai`.
+- **GigaChat v2 returns `function_call.arguments` as a JSON object, not a string**, and
+  nests it inside `messages[].content[]` rather than a top-level `tool_calls`. A parser that
+  trusts the spec's "wrapped in a string" wording ends up with a `dict` where `FunctionCall`
+  expects `str`. Normalise in a `mode="before"` validator. Found 2026-10-18 against the live
+  API.
+- **A PERS-scope live run needs the stack's Redis**, because every `_authed_request` takes
+  `api:global:lock` through the hardcoded `redis://redis:6379`. On a bare host the call dies
+  with `Timeout connecting to server` before it reaches GigaChat. Run PERS live tests inside
+  the Compose network, or replace `_pers_api_lock` with a no-op for a one-off probe.
+  B2B/CORP skip the lock entirely.

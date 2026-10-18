@@ -39,6 +39,13 @@ def test_mock_provider_rejects_bad_scope():
         MockProvider("mock", "WRONG")
 
 
+@pytest.mark.parametrize("scope", ["PERS", "B2B", "CORP", "openai", "mock"])
+def test_mock_provider_accepts_every_selectable_scope(scope):
+    # ``SBER_API_KEY=mock`` selects the mock whatever the scope, so it must not
+    # reject a scope the container can hand it (``openai`` included).
+    assert MockProvider("mock", scope).scope == scope
+
+
 async def test_mock_auth_sets_a_long_lived_token():
     provider = MockProvider("mock", "PERS")
     assert provider.token is None

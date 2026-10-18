@@ -28,6 +28,11 @@ os.environ.setdefault("DEBUG", "1")
 os.environ.setdefault("FRONTEND_URL", "http://frontend.test")
 os.environ.setdefault("BACKEND_URL", "http://backend.test")
 
+#: Provider variables as the process received them, captured before the autouse
+#: ``env`` fixture overwrites ``SBER_API_KEY``/``SBER_API_SCOPE`` with mock values.
+#: Live tests restore these through :func:`real_provider_env`.
+REAL_ENV = {name: os.environ.get(name) for name in ("SBER_API_KEY", "SBER_API_SCOPE", "OPENAI_URL", "OPENAI_MODEL")}
+
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
@@ -541,3 +546,16 @@ def mock_mode(monkeypatch):
 @pytest.fixture()
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture
+def real_provider_env(monkeypatch):
+    """Restore the provider variables the autouse ``env`` fixture replaced.
+
+    The autouse fixture pins ``SBER_API_KEY=mock`` so the normal suite never
+    reaches a provider. Live tests opt back into whatever the process was started
+    with, which is how a real key exported before ``pytest`` survives to the test.
+    """
+    for name, value in REAL_ENV.items():
+        if value is not None:
+            monkeypatch.setenv(name, value)

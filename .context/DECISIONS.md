@@ -808,3 +808,107 @@ the service's own state transitions.
   loading/value pair cannot be desynchronised from outside.
 - **Specs seed state through the HTTP API**, not by writing signals, which also exercises
   `fetchMe`/`loadAvatar` instead of assuming their internals.
+
+## CI caches build layers through a CI-only Compose override (2026-10-18)
+
+- **`docker-compose.build-cache.yml` is appended as a third `-f` only when `CI` is set.**
+  The `gha` backend is meaningless outside an Actions job: it authenticates with the
+  `ACTIONS_*` variables and needs a builder from `docker/setup-buildx-action`. Keeping it
+  out of the dev and e2e overrides means a developer's stack never carries settings it
+  cannot use.
+- **The workflow must re-expose the `ACTIONS_*` variables itself.** The runner hands them
+  to an *action*, not to a `run` step, so a `docker compose up --build` from a shell step
+  sees none of them, and Buildx drops the cache entries silently instead of failing. That
+  is why `e2e.yml` runs `crazy-max/ghaction-github-runtime` before `setup.sh`. The first
+  run of PR #21 had the cache file but not the action: everything rebuilt from scratch and
+  the log contained no cache import or export.
+- **One scope per Dockerfile, not per service.** `backend`, `migrate`, `scheduler`,
+  `worker_default`, `worker_network` and `garage-config` all build `backend/Dockerfile` and
+  share `scope=backend`; per-service scopes would make each miss on the others' layers.
+  `garage-bootstrap` builds `conf/garage.Dockerfile` and gets its own scope.
+
+## OpenAI-compatible provider and tool calling (2026-10-18)
+
+- **`SBER_API_SCOPE` now doubles as the provider selector**, because the OpenAI client is
+  not GigaChat and a scope of `PERS`/`B2B`/`CORP` says nothing about which SDK to use. The
+  mapping is in `containers.py`: `mock` -> `MockProvider`, then `openai` -> `OpenAIProvider`,
+  everything else -> `SberProvider`. The mock check comes first *and* `SBER_API_KEY=mock`
+  also wins, so the test and e2e stacks that only pin the key keep working even if a
+  developer's `.env` leaves the scope at `openai`; the ordering is load-bearing, not
+  cosmetic. The alternative — a separate `PROVIDER` variable — would have left two knobs
+  describing one choice.
+- **`OPENAI_URL` empty means the official OpenAI endpoint.** `AsyncOpenAI` already defaults
+  to api.openai.com, so the provider only passes `base_url` when the variable is set. That
+  keeps "point at the school hub" and "point at OpenAI" the same code path.
+- **Tools are construction-time state on `AIClient`, not a per-request argument.** A tool
+  set is a property of the assistant, not of one exchange, and defining it once matches how
+  the callers think about it. All three providers accept `tools=`; only `OpenAIProvider`
+  uses it. `mock` and `sber` ignore it deliberately rather than raising, so a caller can
+  advertise tools without branching on the provider.
+- **Tool calls surface on the response, nothing executes them.** `GenerationResponse`
+  gains `tool_calls: list[ToolCall]`, and `Message` gains `tool_call_id` so a later turn can
+  answer one. Execution is a policy decision (which tools, who runs them, with what
+  authorisation) and does not belong in the provider, so it is left to the caller.
+- **The provider maps only `tool_calls` whose `type == "function"`.** The OpenAI schema
+  allows other tool types; the internal model has one kind. Filtering at the boundary keeps
+  `ToolCall` from growing a discriminator it will not use yet.
+- **The internal content-parts format flattens to a single string on the OpenAI wire.**
+  GigaChat takes structured file references in a message; the OpenAI chat-completions shape
+  does not, so file parts are dropped and text parts joined with a newline. Attachments are
+  still uploaded through the files API (``upload``), but a message cannot cite them yet.
+  This is the one place the two providers genuinely differ, and it is documented in the
+  module docstring rather than hidden in a converter.
+- **`ResponseFormat` maps to `json_schema` only for the schema type**, with the schema
+  named `"response"` and `strict` passed through; a text request omits `response_format`
+  entirely rather than sending `{"type": "text"}`. Omitting is a choice — the hub accepts
+  the explicit text type too — but a text request has no schema to send, so there is nothing
+  to serialise. Verified live: the hub accepts the harness schema even without
+  `additionalProperties: false`.
+- **`auth()` is a no-op with a century-long expiry.** The OpenAI key authenticates every
+  request and there is no token endpoint or refresh, but `AIClient` has `ensure_fresh_token`
+  machinery that other call paths expect; setting a far-future `token_expires_at` makes it a
+  no-op without special-casing the base class.
+- **`SBER_API_KEY=mock` still means no LLM call**, and the live tests for the OpenAI client
+  carry a second `openai` marker so they can be selected with `-m 'live and openai'` on
+  their own, with `SBER_API_SCOPE=openai`. Because the key wins over the scope, `mock` must
+  accept every scope the container can hand it; `MockProvider.MOCK_SCOPES` derives from the
+  `Scope` literal rather than listing them, so adding a provider cannot leave a scope that
+  the mock rejects at import.
+
+## GigaChat v2 tool calling (2026-10-18)
+
+- **GigaChat v2 is the tool-capable endpoint, and its wire shape differs from OpenAI's.**
+  `/v2/chat/completions` takes `tools: [{"functions": {"specifications": [...]}}]` and a
+  separate `tool_config: {"mode": "auto"}`, not OpenAI's `tools[].function` array. The reply
+  nests `function_call` inside `content[]` (with its own `id`) rather than a top-level
+  `tool_calls` array. `SberProvider` translates both directions so callers keep seeing the
+  internal `Tool` / `ToolCall` models.
+- **`ContentFunctionCall` normalises `arguments` from an object to a JSON string.** The
+  schema says "JSON wrapped in a string", but the live API returns a JSON *object*; OpenAI
+  returns a string. Accepting both in a `mode="before"` validator is cheaper than two
+  response paths, and it matches the internal `FunctionCall.arguments: str`.
+- **`Content.text` defaults to `""` and `ToolCall.id` is optional.** A v2 function-call
+  content part has no `text` key, so the shared `Content` model would reject the real
+  response otherwise. GigaChat may omit `function_call.id` (it correlates a result by name
+  and `tool_state_id`), so `ToolCall.id` became optional; the OpenAI provider still always
+  sets it.
+- **`parameters` is required on the GigaChat side**, so a tool without one is sent with an
+  empty object rather than omitted. GigaChat's own examples also omit `type: "object"`, so
+  the provider passes the caller's schema through untouched.
+- **The GigaChat live tool test lives in `test_live_gigachat.py`.** It builds a real
+  `SberProvider` from `real_provider_env` instead of reusing the container's module-level
+  instance, which was built with the mock key at import time.
+- **`strict` is rejected, not dropped, on GigaChat.** The v2 `CustomFunction` schema has no
+  strict flag, so `SberProvider` raises `ValueError` rather than accepting a promise it
+  cannot keep. The check runs at construction and again in `_tools_payload`, because tests
+  and callers may replace `provider.tools` afterwards. The OpenAI client still passes
+  `strict` through.
+- **Missing GigaChat `arguments` become `"{}"`.** A function-call content part without
+  arguments used to surface `""`, which is not JSON. `ContentFunctionCall` normalises
+  `None` and the empty string to `{}` before the call reaches `FunctionCall`.
+- **The OpenAI payload keeps attachments as content parts.** Text-only messages stay a
+  plain string; `Content.files` become `file` parts carrying `file_id`, and `inline_data`
+  becomes an `image_url` with a `data:` URL. Dropping them silently made the model answer
+  without the supplied context.
+- **The container's tool list is a single empty `TOOLS` placeholder.** Both real providers
+  receive it, so the wiring exists before a tool registry does.
