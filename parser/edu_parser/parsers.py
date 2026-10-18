@@ -13,6 +13,8 @@ from .models import ParsedDocument, ParsedImage, ParsedTable
 logger = logging.getLogger(__name__)
 
 MIN_IMAGE_BYTES = 512
+MAX_IMAGE_MB = 50
+MAX_IMAGE_BYTES_CAP = MAX_IMAGE_MB * 1024 * 1024
 HEADING_FONT_RATIO = 1.25
 
 _HEADING_REGEX = re.compile(r"^\d+(?:\.\d+)*\.?\s+[А-ЯA-Z]")
@@ -55,8 +57,15 @@ def _heading_level(para) -> int:
 
 
 def _looks_like_heading_fallback(text: str) -> bool:
-    """Heuristic: numbered paragraph or a known section-title phrase."""
-    if not text or len(text) > 200:
+    """Heuristic: numbered paragraph or a known section-title phrase.
+
+    Deliberately strict — ambiguous short lines (e.g. list items ending
+    with a dot) must stay in the text buffer, otherwise real content gets
+    misclassified as a heading and disappears from the parsed output.
+    """
+    if not text or len(text) > 120:
+        return False
+    if text.endswith(".") and not text.endswith("..."):
         return False
     if _HEADING_REGEX.match(text):
         return True
@@ -117,18 +126,33 @@ def _ext_to_mime(ext: str) -> str:
     }.get(ext, "application/octet-stream")
 
 
-def _extract_docx_images(path: Path, doc_id: str, source_path: str) -> list[ParsedImage]:
+def _extract_docx_images(path: Path, doc_id: str, source_path: str, errors: list[str]) -> list[ParsedImage]:
     images: list[ParsedImage] = []
     try:
         with zipfile.ZipFile(path) as zf:
             ordinal = 0
-            for name in zf.namelist():
-                if not name.startswith("word/media/"):
+            for info in zf.infolist():
+                if not info.filename.startswith("word/media/"):
                     continue
-                data = zf.read(name)
+                if info.file_size > MAX_IMAGE_BYTES_CAP:
+                    msg = (
+                        f"skipped oversized image {info.filename} "
+                        f"({info.file_size} bytes > cap {MAX_IMAGE_BYTES_CAP})"
+                    )
+                    logger.warning(msg)
+                    errors.append(msg)
+                    continue
+                if info.file_size < MIN_IMAGE_BYTES:
+                    continue
+                data = zf.read(info.filename)
+                if len(data) > MAX_IMAGE_BYTES_CAP:
+                    msg = f"skipped oversized image {info.filename} after read"
+                    logger.warning(msg)
+                    errors.append(msg)
+                    continue
                 if len(data) < MIN_IMAGE_BYTES:
                     continue
-                ext = name.rsplit(".", 1)[-1].lower()
+                ext = info.filename.rsplit(".", 1)[-1].lower()
                 images.append(
                     ParsedImage(
                         doc_id=doc_id,
@@ -138,12 +162,14 @@ def _extract_docx_images(path: Path, doc_id: str, source_path: str) -> list[Pars
                         data=data,
                         ext=ext,
                         mime=_ext_to_mime(ext),
-                        metadata={"zip_name": name},
+                        metadata={"zip_name": info.filename},
                     )
                 )
                 ordinal += 1
     except zipfile.BadZipFile:
-        logger.warning("DOCX is not a valid zip: %s", path)
+        msg = f"DOCX is not a valid zip: {path}"
+        logger.warning(msg)
+        errors.append(msg)
     return images
 
 
@@ -195,6 +221,7 @@ def parse_docx(path: Path, doc_id: str, source_path: str) -> ParsedDocument:
                 level = _heading_level(block) or 1
                 section_stack = {k: v for k, v in section_stack.items() if k < level}
                 section_stack[level] = text
+                para_buffer.append(text)
                 continue
 
             if _looks_like_heading_fallback(text):
@@ -202,6 +229,7 @@ def parse_docx(path: Path, doc_id: str, source_path: str) -> ParsedDocument:
                 level = _fallback_heading_level(text)
                 section_stack = {k: v for k, v in section_stack.items() if k < level}
                 section_stack[level] = text
+                para_buffer.append(text)
                 continue
 
             para_buffer.append(text)
@@ -211,7 +239,7 @@ def parse_docx(path: Path, doc_id: str, source_path: str) -> ParsedDocument:
             if not rows:
                 continue
             n_cols = max(len(r) for r in rows)
-            para_buffer.append(f"[Таблица #{ordinal_table}: {len(rows)}×{n_cols}]")
+            para_buffer.append(f"[Table #{ordinal_table}: {len(rows)}×{n_cols}]")
             parsed.tables.append(
                 ParsedTable(
                     doc_id=doc_id,
@@ -226,13 +254,17 @@ def parse_docx(path: Path, doc_id: str, source_path: str) -> ParsedDocument:
             ordinal_table += 1
 
     flush()
-    parsed.images = _extract_docx_images(path, doc_id, source_path)
+    parsed.images = _extract_docx_images(path, doc_id, source_path, parsed.errors)
     return parsed
 
 
 # -------------------------------------------------------------------------- PDF
 class _TocTracker:
-    """Tracks current section stack driven by a PDF TOC."""
+    """Tracks current section stack driven by a PDF TOC.
+
+    Assumes the TOC is sorted by page number (the PDF spec requires it).
+    Out-of-order bookmarks are a known limitation.
+    """
 
     def __init__(self, toc: list[list]):
         self._toc = toc or []
@@ -292,13 +324,22 @@ def _median_font_size(page) -> float:
 
 
 def _extract_pdf_images(
-    page, doc, doc_id: str, source_path: str, page_num: int, start_ordinal: int
+    page,
+    doc,
+    doc_id: str,
+    source_path: str,
+    page_num: int,
+    start_ordinal: int,
+    errors: list[str],
 ) -> list[ParsedImage]:
     images: list[ParsedImage] = []
     ordinal = start_ordinal
     try:
         refs = page.get_images(full=True)
-    except Exception:
+    except Exception as exc:
+        msg = f"PDF image listing failed on page {page_num}: {exc}"
+        logger.warning(msg)
+        errors.append(msg)
         return images
 
     for ref in refs:
@@ -306,10 +347,17 @@ def _extract_pdf_images(
         try:
             info = doc.extract_image(xref)
         except Exception as exc:
-            logger.debug("skip image xref=%s: %s", xref, exc)
+            msg = f"PDF image xref={xref} extraction failed: {exc}"
+            logger.warning(msg)
+            errors.append(msg)
             continue
         data = info.get("image") or b""
         if len(data) < MIN_IMAGE_BYTES:
+            continue
+        if len(data) > MAX_IMAGE_BYTES_CAP:
+            msg = f"skipped oversized PDF image xref={xref} " f"({len(data)} bytes > cap {MAX_IMAGE_BYTES_CAP})"
+            logger.warning(msg)
+            errors.append(msg)
             continue
         ext = (info.get("ext") or "png").lower()
         images.append(
@@ -341,7 +389,10 @@ def parse_pdf(path: Path, doc_id: str, source_path: str) -> ParsedDocument:
 
     try:
         toc = doc.get_toc() or []
-    except Exception:
+    except Exception as exc:
+        msg = f"PDF TOC extraction failed: {exc}"
+        logger.warning(msg)
+        parsed.errors.append(msg)
         toc = []
     tracker = _TocTracker(toc) if toc else None
 
@@ -349,10 +400,12 @@ def parse_pdf(path: Path, doc_id: str, source_path: str) -> ParsedDocument:
     ordinal_table = 0
     ordinal_image = 0
 
+    section_title: str | None = None
+
     for page_num, page in enumerate(doc, start=1):
         if tracker is not None:
             tracker.advance_to_page(page_num)
-        section_title = tracker.current if tracker else None
+            section_title = tracker.current
 
         page_paragraphs: list[str] = []
         median = _median_font_size(page) or 10.0
@@ -374,6 +427,7 @@ def parse_pdf(path: Path, doc_id: str, source_path: str) -> ParsedDocument:
                     ordinal_text += len(chunks)
                     page_paragraphs = []
                 section_title = block_text.strip() or section_title
+                page_paragraphs.append(block_text)
             else:
                 page_paragraphs.append(block_text)
 
@@ -409,9 +463,19 @@ def parse_pdf(path: Path, doc_id: str, source_path: str) -> ParsedDocument:
                 )
                 ordinal_table += 1
         except Exception as exc:
-            logger.debug("table extraction failed on page %s: %s", page_num, exc)
+            msg = f"table extraction failed on page {page_num}: {exc}"
+            logger.warning(msg)
+            parsed.errors.append(msg)
 
-        imgs = _extract_pdf_images(page, doc, doc_id, source_path, page_num, ordinal_image)
+        imgs = _extract_pdf_images(
+            page,
+            doc,
+            doc_id,
+            source_path,
+            page_num,
+            ordinal_image,
+            parsed.errors,
+        )
         parsed.images.extend(imgs)
         ordinal_image += len(imgs)
 

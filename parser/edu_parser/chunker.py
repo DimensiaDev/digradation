@@ -5,7 +5,6 @@ import re
 from .models import TextChunk
 
 DEFAULT_MAX_SIZE = 1500
-DEFAULT_MIN_SIZE = 200
 DEFAULT_OVERLAP = 150
 
 
@@ -20,6 +19,23 @@ def _safe_tail(text: str, overlap: int) -> str:
     return tail
 
 
+def _split_long(text: str, max_size: int) -> list[str]:
+    """Split a single paragraph that exceeds max_size at whitespace."""
+    if len(text) <= max_size:
+        return [text]
+
+    parts: list[str] = []
+    while len(text) > max_size:
+        cut = text.rfind(" ", 0, max_size)
+        if cut <= 0:
+            cut = max_size
+        parts.append(text[:cut].strip())
+        text = text[cut:].strip()
+    if text:
+        parts.append(text)
+    return parts
+
+
 def chunk_paragraphs(
     paragraphs: list[str],
     doc_id: str,
@@ -28,10 +44,14 @@ def chunk_paragraphs(
     page_number: int | None,
     start_ordinal: int = 0,
     max_size: int = DEFAULT_MAX_SIZE,
-    min_size: int = DEFAULT_MIN_SIZE,
     overlap: int = DEFAULT_OVERLAP,
 ) -> list[TextChunk]:
-    """Accumulate paragraph texts into chunks of ~max_size with overlap."""
+    """Accumulate paragraph texts into chunks of ~max_size with overlap.
+
+    Every non-empty trailing buffer is always emitted. Earlier versions
+    accepted a ``min_size`` parameter that silently dropped short tails —
+    that caused data loss and was removed.
+    """
     chunks: list[TextChunk] = []
     buffer = ""
     ordinal = start_ordinal
@@ -54,17 +74,25 @@ def chunk_paragraphs(
         if not para:
             continue
 
-        if buffer and len(buffer) + len(para) + 2 > max_size:
-            emit(buffer, ordinal)
-            ordinal += 1
-            buffer = (_safe_tail(buffer, overlap) + "\n\n" + para).strip()
-        else:
-            buffer = (buffer + "\n\n" + para).strip() if buffer else para
+        pieces = _split_long(para, max_size) if len(para) > max_size else [para]
 
-    if buffer.strip() and (len(buffer.strip()) >= min_size or not chunks):
+        for piece in pieces:
+            if buffer and len(buffer) + len(piece) + 2 > max_size:
+                emit(buffer, ordinal)
+                ordinal += 1
+                buffer = (_safe_tail(buffer, overlap) + "\n\n" + piece).strip()
+            else:
+                buffer = (buffer + "\n\n" + piece).strip() if buffer else piece
+
+    if buffer.strip():
         emit(buffer, ordinal)
 
     return chunks
+
+
+def _escape_cell(value: str) -> str:
+    """Escape pipes and normalize whitespace inside a markdown table cell."""
+    return value.replace("\n", " ").replace("|", r"\|").strip()
 
 
 def table_to_markdown(rows: list[list[str]]) -> str:
@@ -73,7 +101,7 @@ def table_to_markdown(rows: list[list[str]]) -> str:
         return ""
 
     ncols = max(len(r) for r in rows)
-    norm = [[(c or "").strip().replace("\n", " ") for c in (r + [""] * (ncols - len(r)))] for r in rows]
+    norm = [[_escape_cell(c or "") for c in (r + [""] * (ncols - len(r)))] for r in rows]
     header = norm[0]
     body = norm[1:] if len(norm) > 1 else []
 

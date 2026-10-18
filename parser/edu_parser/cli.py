@@ -32,6 +32,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Process only the first N files (useful for quick checks).",
     )
     p.add_argument(
+        "--prune",
+        action="store_true",
+        help=(
+            "After a full run, delete stale doc directories in the output "
+            "root that are not produced by this run. Do not combine with "
+            "--limit — unrelated dirs will be removed."
+        ),
+    )
+    p.add_argument(
         "--verbose",
         "-v",
         action="store_true",
@@ -44,7 +53,16 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
-    results = process_directory(Path(args.input), Path(args.output), limit=args.limit)
+    try:
+        results = process_directory(
+            Path(args.input),
+            Path(args.output),
+            limit=args.limit,
+            prune_stale=args.prune,
+        )
+    except NotADirectoryError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
     ok = sum(1 for r in results if r["ok"])
     failed = len(results) - ok
