@@ -1,0 +1,87 @@
+<header class="header">
+  <div class="header__actions">
+    <div class="header__block">
+      <button
+        type="button"
+        class="icon-action header__icon-button"
+        [attr.aria-label]="notificationsOpen() ? 'Закрыть уведомления' : 'Открыть уведомления'"
+        [attr.aria-expanded]="notificationsOpen()"
+        [attr.aria-controls]="notificationsOpen() ? 'header-notifications' : null"
+        (click)="toggleNotifications()"
+      >
+        <svg size="20" lucideBell aria-hidden="true"></svg>
+        @if (notificationsCount() > 0) {
+          <span class="header__badge">{{ notificationsCount() }}</span>
+        }
+      </button>
+
+      @if (notificationsOpen()) {
+        <div
+          id="header-notifications"
+          class="header__dropdown header__dropdown--notifications"
+          animate.enter="header__dropdown--enter"
+          animate.leave="header__dropdown--leave"
+        >
+          @if (!user()) {
+            <p class="header__empty">Войдите для получения списка уведомлений</p>
+          } @else if (notifications().length > 0) {
+            <ul class="header__notices">
+              @for (notification of notifications(); track notification.id) {
+                <li class="header__notice" [attr.data-type]="notification.type">
+                  <span class="header__notice-dot" aria-hidden="true"></span>
+                  <span class="header__notice-text">
+                    <span class="header__notice-title">{{ notification.message }}</span>
+                    @if (notification.description) {
+                      <span class="header__notice-description">{{ notification.description }}</span>
+                    }
+                  </span>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="header__empty">Нет уведомлений</p>
+          }
+        </div>
+      }
+    </div>
+
+    <div class="header__block">
+      <button
+        type="button"
+        class="header__profile-button"
+        [attr.aria-label]="
+          !user()
+            ? 'Войти в аккаунт'
+            : profileOpen()
+              ? 'Закрыть меню профиля'
+              : 'Открыть меню профиля'
+        "
+        [attr.aria-haspopup]="user() ? 'menu' : 'dialog'"
+        [attr.aria-expanded]="user() ? profileOpen() : null"
+        [attr.aria-controls]="user() && profileOpen() ? 'header-profile-menu' : null"
+        (click)="toggleProfile()"
+      >
+        <app-profile />
+      </button>
+
+      @if (user() && profileOpen()) {
+        <div
+          id="header-profile-menu"
+          class="header__dropdown header__dropdown--profile"
+          animate.enter="header__dropdown--enter"
+          animate.leave="header__dropdown--leave"
+        >
+          <a class="header__menu-item" routerLink="/profile" (click)="closeMenus()"> Профиль </a>
+          <button
+            type="button"
+            class="header__menu-item header__menu-item--danger"
+            [disabled]="loggingOut()"
+            (click)="logout()"
+          >
+            Выход
+          </button>
+        </div>
+      }
+    </div>
+  </div>
+</header>

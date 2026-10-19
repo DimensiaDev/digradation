@@ -24,7 +24,6 @@ import {
 } from '@lucide/angular';
 import type { LucideIconData } from '@lucide/angular';
 import {
-  ACCEPTED_EXTENSIONS,
   MAX_CONCURRENT_UPLOADS,
   MAX_FILE_SIZE,
   UploadItem,
@@ -34,14 +33,13 @@ import {
 } from '../../../core/models/models';
 import { formatBytes, formatEta, formatSpeed, getFileExtension } from '../../utils/upload-format';
 import { createId } from '../../utils/create-id';
-import { previewKindFor } from './file-preview.model';
+import type { FileTypeStyle } from '../../utils/file-types';
+import { ACCEPTED_EXTENSIONS, fileTypeStyleFor, previewKindFor } from '../../utils/file-types';
 import { FilePreviewComponent } from './file-preview.component';
 import { ProgressBarComponent } from '../progress-bar/progress-bar.component';
 import { SkeletonDnDItemComponent } from '../skeleton/skeleton-dnd-item/skeleton-dnd-item.component';
 import { AttachmentUploadService } from '../../../core/services/attachment-upload.service';
 import { NotificationService } from '../../../core/services/notification.service';
-import { fileTypeStyleFor } from './file-type-icons';
-import type { FileTypeStyle } from './file-type-icons';
 
 const SPEED_SAMPLE_WINDOW = 5;
 
@@ -228,7 +226,10 @@ export class DragNDropComponent implements OnDestroy {
       return;
     }
     this.uploader.remove(sessionId, attachmentId).subscribe({
-      error: () => this.notifications.error('Не удалось удалить файл на сервере')
+      error: () =>
+        this.notifications.error('Не удалось удалить файл на сервере', {
+          description: 'Файл мог остаться в сессии.'
+        })
     });
   }
 
@@ -309,9 +310,7 @@ export class DragNDropComponent implements OnDestroy {
       }
       seen.add(key);
       const isValid =
-        ACCEPTED_EXTENSIONS.includes(
-          getFileExtension(file.name) as (typeof ACCEPTED_EXTENSIONS)[number]
-        ) && file.size <= MAX_FILE_SIZE;
+        ACCEPTED_EXTENSIONS.includes(getFileExtension(file.name)) && file.size <= MAX_FILE_SIZE;
       if (isValid) {
         accepted.push(file);
       } else {
@@ -409,14 +408,19 @@ export class DragNDropComponent implements OnDestroy {
     const failedCount = items.filter((item) => item.status === 'error').length;
     if (failedCount > 0) {
       this.notifications.warning(
-        `Загружено с ошибками: ${items.length - failedCount} из ${items.length}`
+        `Загружено с ошибками: ${items.length - failedCount} из ${items.length}`,
+        { description: 'Проверьте файлы с ошибкой и повторите загрузку.' }
       );
       return;
     }
     if (items.length === 1) {
-      this.notifications.success(`Файл «${items[0].name}» загружен`);
+      this.notifications.success(`Файл «${items[0].name}» загружен`, {
+        description: 'Файл готов к отправке.'
+      });
     } else {
-      this.notifications.success(`Загружено файлов: ${items.length}`);
+      this.notifications.success(`Загружено файлов: ${items.length}`, {
+        description: 'Файлы готовы к отправке.'
+      });
     }
   }
 

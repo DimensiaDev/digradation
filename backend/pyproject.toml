@@ -23,6 +23,7 @@ dependencies = [
     "aioboto3 (>=15.5.0,<16.0.0)",
     "types-aiobotocore[s3] (>=3.9.1,<4.0.0)",
     "pillow (>=12.3.0,<13.0.0)",
+    "openai (>=3.35.1,<4.0.0)",
 ]
 
 [build-system]
@@ -107,7 +108,8 @@ asyncio_default_test_loop_scope = "session"
 # explicitly with:  MOCK_PROVIDER_MODE= unset, SBER_API_KEY=<real> pytest -m live
 addopts = "-m 'not live'"
 markers = [
-    "live: hits the real GigaChat API; deselected by default because it costs money (run with -m live)",
+    "live: hits a real provider API; deselected by default because it costs money (run with -m live)",
+    "openai: hits the real OpenAI-compatible endpoint; run with -m 'live and openai'",
 ]
 
 [tool.coverage.run]
@@ -124,9 +126,9 @@ skip_covered = false
 precision = 2
 # The gate. 90% was reached on 2026-09-29 by adding suites for the chat routes,
 # every TaskIQ worker, the providers, and the user/admin routes, backed by real
-# PostgreSQL, Redis and MinIO testcontainers and an offline mock provider.
+# PostgreSQL, Redis and Garage testcontainers and an offline mock provider.
 # pytest-cov reads this and turns the run's exit code on it, so the pre-push hook
-# and the backend-coverage workflow enforce it without naming a number.
+# and the backend CI workflow enforce it without naming a number.
 fail_under = 90
 exclude_also = [
     "if TYPE_CHECKING:",

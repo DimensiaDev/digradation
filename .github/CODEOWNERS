@@ -1,6 +1,14 @@
 # Backend. Responsible: @yel-gar
 /backend/ @yel-gar
 
+# Agentic loop + tasks
+/backend/app/agentic/ @Pimerroc
+/backend/app/tasks @Pimerroc @yel-gar
+
+# RAG and processing
+/edu_materials/ @AX-Ray
+/parser/ @AX-Ray
+
 # Frontend. Responsible: @krchvl
 /frontend/ @krchvl
 

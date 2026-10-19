@@ -149,8 +149,9 @@ No NgRx or Redux. **Signals only**: `signal()`, `computed()`, `effect()`,
 `@Injectable({ providedIn: 'root' })`. Cross-component handoff uses small one-shot "state
 services" (`set()` / `consume()`).
 
-The list-refresh idiom is a version signal: `ChatService.historyVersion = signal(0)`, bumped
-by the service and read by the sidebar to re-fetch.
+A list that reloads from a user action guards against out-of-order responses with a local
+request-id counter (`const requestId = ++this.lastRequestId`) and drops a stale response that
+no longer matches, rather than assuming responses arrive in order.
 
 ### Templates and styles
 
@@ -163,6 +164,11 @@ by the service and read by the sidebar to re-fetch.
 - `@use '...' as *` with relative paths and **no file extension**.
 
 ### API layer
+
+Interceptor order is load-bearing: `credentialsInterceptor`, `errorInterceptor`, then
+`mockApiInterceptor` **last**. The mock answers instead of calling `next()`, so if it is
+outermost the other two never run in mock mode. `createInterceptors()` in `app.config.ts` is
+the single source of the order and is unit-tested.
 
 Services build URLs as `` `${environment.apiUrl}/chats` ``. `apiUrl` comes from
 `src/environments/environment*.ts`, injected at image build time by
@@ -278,6 +284,26 @@ resource file.
 from `conf/`. Nothing builds from the repository root, so there is no root
 `.dockerignore`; each context carries its own.
 
+### Build caching is CI-only
+
+`docker-compose.build-cache.yml` carries the BuildKit `type=gha` cache settings and is
+added as a third `-f` file by `e2e/scripts/setup.sh` **only when `CI` is set**. The `gha`
+backend can only work inside an Actions job, so a dev stack has nothing to gain from it. It
+needs both a Buildx builder (`docker/setup-buildx-action`) and the `ACTIONS_*` variables
+that authenticate against the Actions cache service. Those variables exist in an *action's*
+environment, not in a `run` step, which is why `e2e.yml` also runs
+`crazy-max/ghaction-github-runtime` before `setup.sh`. Without them Buildx drops the
+`type=gha` entries **silently**: the build succeeds and no cache is read or written, so
+check the log for an `importing cache manifest from gha` line rather than assuming.
+
+All services built from `backend/Dockerfile` — `garage-config` included — share
+`scope=backend`, or they would each miss on each other's layers. `garage-bootstrap` builds
+`conf/garage.Dockerfile` and has its own scope.
+
+Compose 2.38+ delegates `build` and `up --build` to Bake by default, and `e2e.yml` sets
+`COMPOSE_BAKE=true` explicitly anyway: Bake is the code path that carries `cache_from` /
+`cache_to`, and the classic builder ignores both, so the fallback has to be impossible.
+
 ### `.env` is secret
 
 Never commit `.env`; use `.env.example`. Generate secrets with `openssl rand -hex 48`,
@@ -308,18 +334,53 @@ reads and enforces.
 |---|---|
 | `backend/pyproject.toml` | `[tool.coverage.*]` config, including `fail_under = 90` |
 | `.pre-commit-config.yaml` | `pytest-coverage` hook, **pre-push** stage |
-| `.github/workflows/backend-coverage.yml` | runs the same command, uploads `coverage.json` |
+| `.github/workflows/backend-ci.yml` | runs the suite with `--cov`, uploads `coverage.json` |
 
 **To change the gate:** edit `fail_under` in `backend/pyproject.toml`. Nothing else names
 a percentage. Verified to bite: at `fail_under = 90` the run exits 0, at `99` it exits 1.
 
-Current coverage is **99.33%** statements across 353 tests. Branch coverage is on
-(`branch = true`) and `source = ["app"]`. Coverage artifacts (`.coverage*`, `coverage.json`,
-`coverage.xml`, `htmlcov/`) are gitignored.
+**There is one test run, not two.** The workflow that used to run a second full suite just
+to produce a coverage report is deleted; `backend-ci.yml` collects coverage in the same run
+that runs the tests, and uploads the artifact from there.
+
+Branch coverage is on (`branch = true`) and `source = ["app"]`. Coverage artifacts
+(`.coverage*`, `coverage.json`, `coverage.xml`, `htmlcov/`) are gitignored. No current
+figure is recorded here — read it off the `TOTAL` line.
+
+### Provider selection and tool calling
+
+`SBER_API_SCOPE` selects the provider in `app/providers/containers.py`:
+
+| `SBER_API_SCOPE` | Provider | Talks to |
+|---|---|---|
+| `PERS` / `B2B` / `CORP` | `SberProvider` (`sber.py`) | GigaChat, SDK-free `httpx` |
+| `openai` | `OpenAIProvider` (`openai.py`) | any OpenAI-compatible endpoint via the `openai` SDK |
+| `mock` | `MockProvider` (`mock.py`) | nothing |
+
+`SBER_API_KEY=mock` still selects the mock regardless of scope, which is what the test and
+e2e stacks set. The OpenAI-compatible client takes its token from `SBER_API_KEY`, its
+endpoint from `OPENAI_URL` (empty = official OpenAI) and its model from `OPENAI_MODEL`.
+
+Tools are defined once, at provider construction: pass `tools=[Tool(...)]` to any provider.
+`OpenAIProvider` and `SberProvider` implement them; each advertises the set on every request
+and maps the model's requests onto `GenerationResponse.tool_calls`. `mock` accepts `tools=`
+and ignores it. Nothing executes a call yet.
+
+The two real providers use different wire shapes, and the internal model hides the difference:
+
+- **OpenAI**: `tools[].function` with `arguments` as a JSON *string*.
+- **GigaChat v2** (`/v2/chat/completions`): `tools[].functions.specifications[]` plus
+  `tool_config.mode`, and the reply nests `function_call` inside `content[]` with
+  `arguments` as a JSON *object*. `SberProvider` normalises both back to `ToolCall`.
+
+The container passes one module-level `TOOLS` list (currently empty) to every provider, so
+registering a tool later means filling that list. `SberProvider` rejects `strict=True` tools
+at construction because GigaChat v2 has no strict mode; the OpenAI client honours `strict`.
 
 ### The mock provider
 
-`SBER_API_KEY=mock` selects `app/providers/mock.py` instead of the real GigaChat client.
+`SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) selects `app/providers/mock.py` instead of the
+real GigaChat client.
 It performs no network I/O, which is what lets the worker, route and e2e suites run
 without credentials and without LLM cost. Its behaviour is set by `MOCK_PROVIDER_MODE`:
 
@@ -334,12 +395,23 @@ input always yields the same text.
 
 ### Live API tests
 
-Tests marked `live` hit the real GigaChat and **are deselected by default** via
+Tests marked `live` hit a real provider API and **are deselected by default** via
 `addopts = "-m 'not live'"`, because they cost money. Run them deliberately:
 
 ```bash
 SBER_API_KEY=<real-key> SBER_API_SCOPE=PERS poetry -C backend run pytest -m live
 ```
+
+The OpenAI-compatible client's live tests carry a second marker, so with
+`SBER_API_SCOPE=openai OPENAI_URL=... OPENAI_MODEL=...` they can be selected alone:
+
+```bash
+poetry -C backend run pytest -m 'live and openai'
+```
+
+The autouse `env` fixture pins `SBER_API_KEY=mock` for the normal suite; the
+`real_provider_env` fixture restores whatever the process was started with, which is how a
+live test sees a real credential at all.
 
 ### End-to-end (Playwright)
 
@@ -403,14 +475,20 @@ Config lives in the `test` target of `frontend/angular.json` (`coverage`,
 `json-summary` and `html`; output lands in `frontend/coverage/frontend/`, which is already
 gitignored.
 
-**To make 90% the gate:** the threshold is a `coverageThresholds` object on the `test`
-target in `frontend/angular.json`. The builder enforces it and exits non-zero, so no
-percentage is hardcoded in the hook or the workflow. Verified to bite: at `statements: 90`
-the run exits 0, at `95` it exits 1.
+**`coverage` is already `true` by default on that target,** so a plain `npx ng test` collects
+coverage and enforces the thresholds without a `--coverage` flag. Passing it is harmless and
+explicit, but the CI workflow does not need it. There is one test run, not two: the separate
+coverage workflow is deleted and `frontend-ci.yml` uploads the report from the run it already
+performs.
 
-Current coverage is **90.87% statements / 85.85% branches / 90.74% functions** across
-377 tests. Note that `coverageInclude` counts untested files at 0%, so the number is
-honest rather than flattering.
+**To change the gate:** edit the `coverageThresholds` object on the `test` target in
+`frontend/angular.json`. It is already set for statements, functions and lines, and the
+builder enforces it and exits non-zero, so no percentage is hardcoded in the hook or the
+workflow. Verified to bite: at `statements: 90` the run exits 0, at `95` it exits 1.
+**Branches are deliberately not gated.**
+
+`coverageInclude` counts untested files at 0%, so the reported figure is honest rather
+than flattering. No current figure is recorded here — run the command above and read it.
 
 > **Test setup:** `src/test-setup.ts` is registered through the builder's `setupFiles`
 > option. It installs an in-memory `localStorage` / `sessionStorage` because the jsdom test
@@ -465,6 +543,22 @@ Rules for writing them:
 - **Append** to `DECISIONS.md` and `LESSONS.md`; **rewrite** `PROJECT_STATE.md` wholesale
   so it cannot go stale.
 - **Include a date or commit** so entries can be aged out later.
+- **Never record a test count or a coverage percentage.** Not the number of tests, not
+  `99.33%`, not "across 353 tests", not a threshold either. Every one of those is
+  deterministic: `pytest --cov` and `ng test --coverage` print them in seconds, so a
+  recorded copy is stale the moment it is written and wrong by the next commit, and
+  nobody can tell which by reading the file. A test count in particular looks like a
+  quality signal when it is really just a diff against the previous commit. This applies
+  to `PROJECT_STATE.md`, to `DECISIONS.md`, to `LESSONS.md` and to this file.
+
+  Record instead **where the gate lives and how to read it**, which is the part that is not
+  obvious and does go stale: `fail_under` in `backend/pyproject.toml`,
+  `coverageThresholds` on the `test` target in `frontend/angular.json`. State the
+  *configuration* and the *command*; leave the *result* to the tool that just produced it.
+
+  If a coverage number appears in a historical lesson, keep it only where the number is
+  the point — for example "an edit measured mid-run reported a collapsed gate", which is
+  about the mechanism rather than about the figure.
 
 ---
 
@@ -629,9 +723,9 @@ follow.
 1. **`providers/containers.py` constructs the provider at import time.** Importing any
    task or route module requires `SBER_API_KEY` and `SBER_API_SCOPE` to exist. The tests
    set them at the top of `conftest.py`, *before* any `app` import, for exactly this reason.
-1. **`SBER_API_KEY=mock` means no LLM call happens.** If you are surprised by a
-   deterministic-looking response in tests or e2e, that is the mock provider, not a real
-   model. Use `MOCK_PROVIDER_MODE` to change its behaviour.
+1. **`SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) means no LLM call happens.** If you are
+   surprised by a deterministic-looking response in tests or e2e, that is the mock provider,
+   not a real model. Use `MOCK_PROVIDER_MODE` to change its behaviour.
 2. **The app must run with CWD == `backend/`.** See the CWD-sensitive paths in section 5.
 3. **The LLM prompt and the output schema are two halves of one contract.**
    `harness.py` holds `SYSTEM_PROMPT`, `PROMPT_EXTENSION_PREAMBLE` and

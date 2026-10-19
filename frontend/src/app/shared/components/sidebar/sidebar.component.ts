@@ -1,61 +1,19 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  DestroyRef,
-  OnInit,
-  computed,
-  effect,
-  inject,
-  input,
-  signal
-} from '@angular/core';
-import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
-import { toSignal, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { finalize } from 'rxjs';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { RouterLink, RouterLinkActive } from '@angular/router';
 import {
   LucideArrowLeft,
   LucideDynamicIcon,
-  LucideLogOut,
-  LucideMessageSquare,
   LucideMoon,
   LucidePanelLeftClose,
   LucidePanelLeftOpen,
-  LucidePlus,
   LucideShieldCheck,
   LucideSun
 } from '@lucide/angular';
-import { AuthService } from '../../../core/services/auth.service';
-import { ChatService } from '../../../core/services/chat.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { ProfileService } from '../../../core/services/profile.service';
 import { ThemeService } from '../../../core/services/theme.service';
-import type { UserChat } from '../../../core/models/models';
 import { isAdminRole } from '../../../core/models/models';
-import { SkeletonChatListComponent } from '../skeleton/skeleton-chat-list/skeleton-chat-list.component';
-import type { NavItem, Role } from './sidebar.config';
-
-export interface SidebarHistoryItem {
-  readonly id: string;
-  readonly title: string;
-  readonly timestamp: number;
-}
-
-const CHAT_URL_PATTERN = /^\/chats\/([^/?#]+)/;
-
-/**
- * The sidebar is a shortcut column, not the history list: it shows the most recent
- * sessions only, and the history page pages through the rest.
- */
-const HISTORY_PREVIEW_SIZE = 10;
-
-function toHistoryItem(chat: UserChat): SidebarHistoryItem {
-  const parsedTimestamp = Date.parse(chat.last_message?.timestamp ?? '');
-  return {
-    id: chat.session_id,
-    title: chat.name?.trim() || chat.session_id.slice(0, 8),
-    timestamp: Number.isNaN(parsedTimestamp) ? 0 : parsedTimestamp
-  };
-}
+import type { NavItem, Role } from '../../navigation/navigation.config';
 
 @Component({
   selector: 'app-sidebar',
@@ -63,15 +21,11 @@ function toHistoryItem(chat: UserChat): SidebarHistoryItem {
     LucideDynamicIcon,
     RouterLink,
     RouterLinkActive,
-    LucidePlus,
     LucideArrowLeft,
-    LucideMessageSquare,
     LucidePanelLeftClose,
     LucidePanelLeftOpen,
-    LucideLogOut,
     LucideMoon,
-    LucideSun,
-    SkeletonChatListComponent
+    LucideSun
   ],
   templateUrl: './sidebar.component.html',
   styleUrl: './sidebar.component.scss',
@@ -80,7 +34,7 @@ function toHistoryItem(chat: UserChat): SidebarHistoryItem {
     '[class.sidebar--collapsed]': 'collapsed()'
   }
 })
-export class Sidebar implements OnInit {
+export class Sidebar {
   private static readonly ADMIN_PANEL_ITEM: NavItem = {
     label: 'Перейти в админ-панель',
     icon: LucideShieldCheck,
@@ -93,14 +47,18 @@ export class Sidebar implements OnInit {
     route: '/chats'
   };
 
-  readonly navItems = input<NavItem[]>([]);
+  // The router's componentInputBinding sets every declared input from the
+  // route data, and a missing key arrives as undefined — which would wipe the
+  // default. The transforms keep the lists arrays no matter who binds them.
+  readonly navItems = input<NavItem[], NavItem[] | undefined>([], {
+    transform: (items) => items ?? []
+  });
+  readonly bottomNavItems = input<NavItem[], NavItem[] | undefined>([], {
+    transform: (items) => items ?? []
+  });
   readonly role = input<Role>();
-  private readonly auth = inject(AuthService);
-  private readonly chatService = inject(ChatService);
-  private readonly destroyRef = inject(DestroyRef);
   private readonly notifications = inject(NotificationService);
   private readonly profile = inject(ProfileService);
-  private readonly router = inject(Router);
   private readonly themeService = inject(ThemeService);
 
   readonly theme = this.themeService.theme;
@@ -124,100 +82,6 @@ export class Sidebar implements OnInit {
   readonly userMenuItem = computed<NavItem | null>(() =>
     this.role() === 'admin' ? Sidebar.USER_MENU_ITEM : null
   );
-  readonly displayName = computed(() => {
-    const user = this.user();
-    if (!user) {
-      return '';
-    }
-    const name = `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim();
-    return name || user.username;
-  });
-  readonly isLoggingOut = signal(false);
-
-  private static readonly EMPTY_AVATAR = '/assets/imgs/empty-avatar.png';
-
-  readonly avatarLoading = this.profile.avatarLoading;
-  readonly avatarSrc = computed(() => this.profile.avatarUrl() ?? Sidebar.EMPTY_AVATAR);
-
-  onAvatarError(): void {
-    this.profile.avatarUrl.set(null);
-  }
-
-  readonly chats = signal<SidebarHistoryItem[]>([]);
-  readonly chatsLoading = signal(false);
-  readonly chatsError = signal(false);
-  private readonly historyLoaded = signal(false);
-
-  readonly sortedChats = computed(() =>
-    [...this.chats()].sort((a, b) => b.timestamp - a.timestamp)
-  );
-
-  private readonly routerEvents = toSignal(this.router.events, { initialValue: null });
-
-  readonly activeChatId = computed(() => {
-    const event = this.routerEvents();
-    const url = event instanceof NavigationEnd ? event.urlAfterRedirects : this.router.url;
-    return CHAT_URL_PATTERN.exec(url)?.[1];
-  });
-
-  constructor() {
-    effect(() => {
-      if (this.chatService.historyVersion() === 0) {
-        return;
-      }
-      this.loadHistory();
-    });
-  }
-
-  ngOnInit(): void {
-    this.profile.loadAvatar();
-    if (this.role() !== 'user' || this.historyLoaded()) {
-      return;
-    }
-    this.historyLoaded.set(true);
-    this.loadHistory();
-  }
-
-  private loadHistory(): void {
-    this.chatsLoading.set(true);
-    this.chatService
-      .list({ itemsPerPage: HISTORY_PREVIEW_SIZE })
-      .pipe(
-        finalize(() => this.chatsLoading.set(false)),
-        takeUntilDestroyed(this.destroyRef)
-      )
-      .subscribe({
-        next: (response) => {
-          this.chatsError.set(false);
-          this.chats.set(response.items.map(toHistoryItem));
-        },
-        error: () => {
-          this.chatsError.set(true);
-          this.chats.set([]);
-        }
-      });
-  }
-
-  openChat(chatId: string): void {
-    void this.router.navigate(['/chats', chatId]);
-  }
-
-  logout(): void {
-    this.isLoggingOut.set(true);
-    this.auth.logout().subscribe({
-      next: () => {
-        this.isLoggingOut.set(false);
-        this.profile.clear();
-        this.notifications.info('Вы вышли из аккаунта');
-        this.router.navigate(['/login']);
-      },
-      error: (err: { error?: { detail?: string; message?: string }; message?: string }) => {
-        this.isLoggingOut.set(false);
-        const reason = err.error?.detail ?? err.error?.message ?? err.message ?? 'Ошибка сервера';
-        this.notifications.error('Не удалось выйти: ' + reason);
-      }
-    });
-  }
 
   private static readonly STORAGE_KEY = 'sidebar-collapsed';
 

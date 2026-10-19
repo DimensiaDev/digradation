@@ -1,0 +1,101 @@
+import { HttpErrorResponse } from '@angular/common/http';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  computed,
+  inject,
+  signal
+} from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { LucideBell } from '@lucide/angular';
+import { AuthModalService } from '../../../core/services/auth-modal.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { NotificationService } from '../../../core/services/notification.service';
+import { ProfileService } from '../../../core/services/profile.service';
+import { ProfileComponent } from '../profile/profile.component';
+
+@Component({
+  selector: 'app-header',
+  imports: [RouterLink, LucideBell, ProfileComponent],
+  templateUrl: './header.component.html',
+  styleUrl: './header.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush
+})
+export class HeaderComponent {
+  private readonly auth = inject(AuthService);
+  private readonly authModal = inject(AuthModalService);
+  private readonly notificationService = inject(NotificationService);
+  private readonly profileService = inject(ProfileService);
+  private readonly elementRef = inject(ElementRef<HTMLElement>);
+
+  readonly user = this.profileService.user;
+  readonly notifications = this.notificationService.notifications;
+  readonly notificationsCount = computed(() => this.notifications().length);
+
+  readonly notificationsOpen = signal(false);
+  readonly profileOpen = signal(false);
+  readonly loggingOut = signal(false);
+
+  toggleNotifications(): void {
+    this.profileOpen.set(false);
+    this.notificationsOpen.update((open) => !open);
+  }
+
+  toggleProfile(): void {
+    if (!this.user()) {
+      this.openAuthModal();
+      return;
+    }
+
+    this.notificationsOpen.set(false);
+    this.profileOpen.update((open) => !open);
+  }
+
+  closeMenus(): void {
+    this.notificationsOpen.set(false);
+    this.profileOpen.set(false);
+  }
+
+  openAuthModal(): void {
+    this.closeMenus();
+    this.authModal.open();
+  }
+
+  logout(): void {
+    if (this.loggingOut()) {
+      return;
+    }
+
+    this.loggingOut.set(true);
+    this.closeMenus();
+    this.auth.logout().subscribe({
+      next: () => {
+        this.loggingOut.set(false);
+        this.profileService.clear();
+        this.notificationService.info('Вы вышли из аккаунта');
+        // Deliberately no redirect: the current page stays, and the AuthGate
+        // swaps in the sign-in prompt if the route was protected.
+      },
+      error: (err: unknown) => {
+        this.loggingOut.set(false);
+        if (!(err instanceof HttpErrorResponse)) {
+          this.notificationService.error('Не удалось выйти');
+        }
+      }
+    });
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (!this.elementRef.nativeElement.contains(event.target as Node)) {
+      this.closeMenus();
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    this.closeMenus();
+  }
+}

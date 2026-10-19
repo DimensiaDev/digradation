@@ -15,10 +15,9 @@ import { InitialChatStateService } from '../../core/services/initial-chat-state.
 import { NotificationService } from '../../core/services/notification.service';
 import { UploadItem } from '../../core/models/models';
 import { DragNDropComponent } from '../../shared/components/drag-n-drop/drag-n-drop.component';
-import { Textarea } from '../../shared/components/textarea/textarea.component';
+import { InputComponent } from '../../shared/components/input/input.component';
 import { getFileExtension } from '../../shared/utils/upload-format';
 import { createId } from '../../shared/utils/create-id';
-import { extractApiErrorMessage } from '../../shared/utils/api-error';
 import { LucideArrowRight } from '@lucide/angular';
 
 function trimmedRequired(control: AbstractControl): ValidationErrors | null {
@@ -28,7 +27,7 @@ function trimmedRequired(control: AbstractControl): ValidationErrors | null {
 @Component({
   selector: 'app-chat-create',
   standalone: true,
-  imports: [DragNDropComponent, Textarea, ReactiveFormsModule, LucideArrowRight],
+  imports: [DragNDropComponent, InputComponent, ReactiveFormsModule, LucideArrowRight],
   templateUrl: './chat-create.component.html',
   styleUrl: './chat-create.component.scss'
 })
@@ -81,18 +80,23 @@ export class ChatCreateComponent {
         ),
         finalize(() => this.isSubmitting.set(false)),
         catchError((err: HttpErrorResponse | Error) => {
-          const msg =
-            err instanceof HttpErrorResponse
-              ? extractApiErrorMessage(err)
-              : (err.message ?? 'Ошибка сервера');
-          this.notifications.error('Не удалось создать чат: ' + msg);
+          if (!(err instanceof HttpErrorResponse)) {
+            this.notifications.error(
+              'Не удалось создать чат: ' + (err.message || 'Ошибка сервера'),
+              {
+                description: 'Проверьте соединение и попробуйте ещё раз.'
+              }
+            );
+          }
           return EMPTY;
         })
       )
       .subscribe({
         next: (session_id) => {
-          this.notifications.success('Новый чат создан');
-          this.initialChatState.set({
+          this.notifications.success('Новый чат создан', {
+            description: 'Агент уже получил ваше сообщение.'
+          });
+          this.initialChatState.set(session_id, {
             text: description.trim(),
             files
           });

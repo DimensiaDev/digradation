@@ -1,0 +1,10 @@
+@if (avatarLoading()) {
+  <span class="profile__photo skeleton-item skeleton-item--circle" aria-hidden="true"></span>
+} @else {
+  <img class="profile__photo" [src]="avatarSrc()" alt="" (error)="onAvatarError()" />
+}
+
+<span class="profile__info">
+  <span class="profile__name">{{ displayName() }}</span>
+  <span class="profile__role">{{ roleLabel() }}</span>
+</span>

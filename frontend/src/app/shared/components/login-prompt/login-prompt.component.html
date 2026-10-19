@@ -1,0 +1,18 @@
+<div class="login-prompt card card--shadow">
+  <span class="login-prompt__icon" aria-hidden="true">
+    <svg size="28" lucideLock></svg>
+  </span>
+
+  <div class="login-prompt__content">
+    <h2 class="h3">Требуется вход</h2>
+    <p class="login-prompt__text h4">Чтобы увидеть содержимое этого раздела, войдите в аккаунт.</p>
+  </div>
+
+  <button
+    type="button"
+    class="button button--main button--centered login-prompt__button h4"
+    (click)="openAuthModal()"
+  >
+    Войти
+  </button>
+</div>

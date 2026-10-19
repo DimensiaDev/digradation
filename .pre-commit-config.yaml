@@ -106,7 +106,6 @@ repos:
         stages: [pre-push]
         files: ^backend/.*\.py$
         pass_filenames: false
-        always_run: true
 
       - id: pytest-coverage-parser
         name: pytest coverage report (parser)
@@ -133,4 +132,3 @@ repos:
         stages: [pre-push]
         files: ^frontend/.*\.(ts|html|json)$
         pass_filenames: false
-        always_run: true

@@ -269,7 +269,9 @@ describe('DragNDropComponent', () => {
     component.removeItem(component.items()[0].id);
 
     expect(component.items().length).toBe(0);
-    expect(error).toHaveBeenCalledWith('Не удалось удалить файл на сервере');
+    expect(error).toHaveBeenCalledWith('Не удалось удалить файл на сервере', {
+      description: 'Файл мог остаться в сессии.'
+    });
   });
 
   it('does not call the backend for a file that never reached it', () => {

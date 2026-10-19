@@ -28,6 +28,11 @@ x-backend-env: &backend-env
   RABBITMQ_PASS: ${RABBITMQ_PASS:?}
   TASKIQ_API_TOKEN: ${TASKIQ_API_TOKEN:?}
   GIGACHAT_MODEL: ${GIGACHAT_MODEL:-GigaChat-3-Ultra}
+  # OpenAI-compatible client. `OPENAI_URL` overrides the endpoint (empty means
+  # the official OpenAI one); `OPENAI_MODEL` selects the model on that endpoint.
+  # Reached only when `SBER_API_SCOPE=openai`.
+  OPENAI_URL: ${OPENAI_URL:-}
+  OPENAI_MODEL: ${OPENAI_MODEL:-GigaChat/GigaChat-3-Pro}
   SBER_API_KEY: ${SBER_API_KEY:?}
   SBER_API_SCOPE: ${SBER_API_SCOPE:?}
 

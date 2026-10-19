@@ -1,4 +1,4 @@
-import { expect, login, test } from "./helpers";
+import { expect, login, loginAs, test } from "./helpers";
 
 /**
  * Issue #23: role tiers in the admin area.
@@ -10,6 +10,7 @@ import { expect, login, test } from "./helpers";
  */
 
 const ROLE_CONTROL = "#user-role";
+const ROLE_OPTIONS = ["Пользователь", "Администратор", "Суперпользователь"];
 
 /** The user form lives in a slide-over panel that starts closed. */
 async function openCreateForm(page: import("@playwright/test").Page) {
@@ -17,6 +18,35 @@ async function openCreateForm(page: import("@playwright/test").Page) {
   await expect(
     page.getByRole("heading", { name: "Новый пользователь" }),
   ).toBeVisible();
+}
+
+/**
+ * Open the role select and wait for its listbox.
+ *
+ * The form is taller than the viewport, so the select starts below the fold:
+ * Playwright has to scroll before clicking it.
+ */
+async function openRoleSelect(page: import("@playwright/test").Page) {
+  await page.locator(ROLE_CONTROL).click();
+  await expect(page.getByRole("listbox")).toBeVisible();
+}
+
+/**
+ * Pick a tier through the select's keyboard path.
+ *
+ * Clicking an option with the mouse makes Playwright scroll mid-click — the
+ * trigger sits near the scroll container's edge — and the select closes any
+ * dropdown whose trigger scrolls out of view, so the two fight until the
+ * listbox detaches and the click times out. Keyboard selection touches no
+ * scrolling and no hit-testing and is a first-class interaction of the
+ * component, so the sequence is deterministic.
+ */
+async function pickRole(page: import("@playwright/test").Page, label: string) {
+  await openRoleSelect(page);
+  for (let i = 0; i < ROLE_OPTIONS.indexOf(label); i += 1) {
+    await page.keyboard.press("ArrowDown");
+  }
+  await page.keyboard.press("Enter");
 }
 
 test.describe("admin role tiers", () => {
@@ -39,13 +69,9 @@ test.describe("admin role tiers", () => {
     await page.goto("/admin/users");
 
     await openCreateForm(page);
-    await page.locator(ROLE_CONTROL).click();
+    await openRoleSelect(page);
     const options = page.getByRole("listbox").getByRole("option");
-    await expect(options).toHaveText([
-      "Пользователь",
-      "Администратор",
-      "Суперпользователь",
-    ]);
+    await expect(options).toHaveText(ROLE_OPTIONS);
   });
 
   test("a superuser can create a user with a tier and the tier is sent", async ({
@@ -61,8 +87,7 @@ test.describe("admin role tiers", () => {
     await page.locator("#username").fill(username);
     await page.locator("#password").fill("e2ecreated12345");
 
-    await page.locator(ROLE_CONTROL).click();
-    await page.getByRole("option", { name: "Администратор" }).click();
+    await pickRole(page, "Администратор");
     await page.getByRole("button", { name: "Сохранить" }).click();
 
     const row = page.locator("tr", { hasText: username });
@@ -83,8 +108,7 @@ test.describe("admin role tiers", () => {
     await page.locator("#last-name").fill("Ском");
     await page.locator("#username").fill(username);
     await page.locator("#password").fill("e2ecreated12345");
-    await page.locator(ROLE_CONTROL).click();
-    await page.getByRole("option", { name: "Администратор" }).click();
+    await pickRole(page, "Администратор");
     await page.getByRole("button", { name: "Сохранить" }).click();
     await expect(page.locator("tr", { hasText: username })).toBeVisible({
       timeout: 15_000,
@@ -93,11 +117,7 @@ test.describe("admin role tiers", () => {
     // Now sign in as that account in a fresh context.
     const ctx = await browser.newContext();
     const other = await ctx.newPage();
-    await other.goto("/login");
-    await other.locator("#username").fill(username);
-    await other.locator("#password").fill("e2ecreated12345");
-    await other.getByRole("button", { name: "Войти" }).click();
-    await expect(other.locator('.h1:has-text("di:gradation")')).toBeVisible();
+    await loginAs(other, username, "e2ecreated12345");
 
     // An admin can reach the area, but must not see the tier control.
     await other.goto("/admin/users");
@@ -130,14 +150,10 @@ test.describe("admin role tiers", () => {
     });
 
     await page.context().clearCookies();
-    await page.goto("/login");
-    await page.locator("#username").fill(username);
-    await page.locator("#password").fill("e2ecreated12345");
-    await page.getByRole("button", { name: "Войти" }).click();
-    await expect(page.locator('.h1:has-text("di:gradation")')).toBeVisible();
+    await loginAs(page, username, "e2ecreated12345");
 
-    // authGuard + adminGuard send a non-admin away from /admin/users.
+    // adminGuard sends a non-admin away from /admin/users.
     await page.goto("/admin/users");
-    await expect(page).toHaveURL(/\/(create|chats)/);
+    await expect(page).toHaveURL(/\/home$/);
   });
 });

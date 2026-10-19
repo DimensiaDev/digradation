@@ -1,4 +1,4 @@
-import { Injector, signal } from '@angular/core';
+import { Injector } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { FormControl, NgControl, Validators } from '@angular/forms';
 import { controlErrorSignal } from './control-error-signal';
@@ -10,30 +10,27 @@ describe('controlErrorSignal', () => {
     injector = TestBed.inject(Injector);
   });
 
-  it('leaves the target signal untouched when ngControl is null', () => {
-    const showError = signal(false);
-    controlErrorSignal(null, injector, showError);
-    expect(showError()).toBe(false);
+  function makeNgControl(control: FormControl): NgControl {
+    return { control } as unknown as NgControl;
+  }
+
+  it('returns false when ngControl is null', () => {
+    expect(controlErrorSignal(null, injector)()).toBe(false);
   });
 
-  it('leaves the target signal untouched when control is null', () => {
-    const showError = signal(false);
-    controlErrorSignal({ control: null } as unknown as NgControl, injector, showError);
-    expect(showError()).toBe(false);
+  it('returns false when control is null', () => {
+    expect(controlErrorSignal({ control: null } as unknown as NgControl, injector)()).toBe(false);
   });
 
-  it('sets showError to false for a valid, untouched control', () => {
+  it('returns false for a valid, untouched control', () => {
     const control = new FormControl<string | null>('value');
-    const showError = signal(false);
-    controlErrorSignal(makeNgControl(control), injector, showError);
 
-    expect(showError()).toBe(false);
+    expect(controlErrorSignal(makeNgControl(control), injector)()).toBe(false);
   });
 
-  it('sets showError to true when the control becomes invalid and touched', async () => {
+  it('returns true when the control becomes invalid and touched', async () => {
     const control = new FormControl<string | null>(null, Validators.required);
-    const showError = signal(false);
-    controlErrorSignal(makeNgControl(control), injector, showError);
+    const showError = controlErrorSignal(makeNgControl(control), injector);
 
     control.markAsTouched();
     control.updateValueAndValidity();
@@ -42,10 +39,9 @@ describe('controlErrorSignal', () => {
     expect(showError()).toBe(true);
   });
 
-  it('sets showError to false again when the control becomes valid', async () => {
+  it('returns false again when the control becomes valid', async () => {
     const control = new FormControl<string | null>(null, Validators.required);
-    const showError = signal(false);
-    controlErrorSignal(makeNgControl(control), injector, showError);
+    const showError = controlErrorSignal(makeNgControl(control), injector);
 
     control.markAsTouched();
     control.updateValueAndValidity();
@@ -58,15 +54,9 @@ describe('controlErrorSignal', () => {
     expect(showError()).toBe(false);
   });
 
-  it('keeps showError false for an invalid but untouched control', () => {
+  it('stays false for an invalid but untouched control', () => {
     const control = new FormControl<string | null>(null, Validators.required);
-    const showError = signal(false);
-    controlErrorSignal(makeNgControl(control), injector, showError);
 
-    expect(showError()).toBe(false);
+    expect(controlErrorSignal(makeNgControl(control), injector)()).toBe(false);
   });
-
-  function makeNgControl(control: FormControl): NgControl {
-    return { control } as unknown as NgControl;
-  }
 });
