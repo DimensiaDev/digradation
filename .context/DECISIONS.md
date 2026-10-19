@@ -1121,3 +1121,29 @@ showed a scrollbar with nothing to scroll to.
   is 100% of `main`, header included, so that page still scrolls by the header height. It
   predates this change and needs its internal `calc(100dvh - 40px)` reworked, which is a
   separate piece of work.
+
+## The landing logo is a separate animated component (2026-10-19)
+
+`/home` became the program-creation landing: a big brand mark, a greeting, prompt-example
+cards and a markup-only composer (local signals, no API). The design brief asked for an
+animated brand mark, but the shipped mark is `public/assets/svgs/logo.svg`, which is an SVG
+wrapper around a base64 PNG. It carries no vector paths, so it can be neither recoloured nor
+morphed, and it is shared with the sidebar.
+
+- **`app-brand-logo-animated` keeps the real asset and animates around it.** The `<img>` is
+  the untouched `logo.svg`; a breathing transform, a blurred aura and a light wave clipped to
+  the mark's silhouette with `mask-image: url(logo.svg)` provide the motion. A first attempt
+  re-drew the mark as generic vector blobs and read as "just a blob", so brand fidelity won
+  over a fully vector mark.
+- **The static `logo.svg` is untouched.** The sidebar keeps the raster mark unanimated; only
+  the landing mounts the animated component, which is why it is a new component rather than
+  an override of the existing asset.
+- **Only `transform` / `opacity` / `background-position` are animated.** `prefers-reduced-motion`
+  disables every keyframe, and the active state (field focus / typing) only shortens the
+  durations and scales the mark up.
+- **The composer is presentational.** `/home` is public and this was a markup task, so the
+  attach button fills local file chips and the send button only toggles on non-empty text —
+  nothing is uploaded or submitted. The real flow stays on `/create`.
+- **The landing opts out of the routed-page pin.** It sets `:host { flex: 1 1 auto }` to fill
+  `main` and centre its content; `:host` has higher specificity than the `main router-outlet
+  + *` rule documented above.

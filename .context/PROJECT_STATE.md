@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-18** (tool calling merged; the agentic tool registry begins)
+Last updated: **2026-10-19** (public `/home` rebuilt as the program-creation landing)
 
 ---
 
@@ -39,9 +39,10 @@ management, admin prompt-extension editor. Section switches animate through the 
 View Transitions API (`withViewTransitions`), direction derived from the sidebar order.
 
 **Not started or placeholder.** The profile page body, the user settings page body, and two
-admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`. The public
-`/home` and `/help` pages are intentional `SectionPlaceholder` hosts, and `programs` /
-`library` render the same placeholder behind the auth gate.
+admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`. `/home` is now a
+single-column program-creation landing (animated brand mark, prompt examples, a
+markup-only composer); `/help` is still an intentional `SectionPlaceholder` host, and
+`programs` / `library` render the same placeholder behind the auth gate.
 
 **In flight: tool calling.** The provider layer advertises tools at construction, and both
 the OpenAI-compatible client and the GigaChat v2 client surface the calls the model requests

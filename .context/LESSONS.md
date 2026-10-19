@@ -873,3 +873,8 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   commits. After #26 merged and `main` moved, PR #24's checks vanished this way. Re-pushing
   and reopening the pull request do not help — `reopened` is skipped for the same reason —
   the conflict has to be resolved first. Found 2026-10-18 on `feat/gen-cicle`.
+- **`public/assets/svgs/logo.svg` is not a vector mark.** It is a 1.6 MB SVG whose only
+  child is one `<image>` holding a base64 PNG, so there are no paths to recolour or morph and
+  editing it to animate is not possible. It stays the sidebar mark unchanged; the landing's
+  animated logo is a separate vector component. Read an SVG's contents before promising to
+  animate it. Found 2026-10-19 on `feat/main-page`.
