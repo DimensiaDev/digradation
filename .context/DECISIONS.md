@@ -912,3 +912,97 @@ the service's own state transitions.
   without the supplied context.
 - **The container's tool list is a single empty `TOOLS` placeholder.** Both real providers
   receive it, so the wiring exists before a tool registry does.
+
+## The agentic package ships without storage (2026-10-18)
+
+`feat/gen-cicle` differs from `main` only in `backend/app/agentic/` and `tests/test_agentic_*`,
+and the package imports nothing outside itself and `app/providers/models.py`:
+
+| File | Holds |
+|---|---|
+| `app/agentic/models.py` | the АЦР programme schema: the blocks of the final document, validated |
+| `app/agentic/sources.py` | the catalog seam — `SourceFragment`, `get_source`, `search` — over an empty catalog |
+| `app/agentic/tools.py` | the tool specifications and their handlers |
+
+- **The schema is the documented validation diagram, as the branch's first commit implemented
+  it.** The later refinements of the draft — `requested_hours`, the hour-ceiling rule, the
+  duplicate-id and declared-outcome validators — belonged to the storage and the loop, and went
+  back with them. They return with the work that needs them.
+- **The handlers keep no storage of their own.** `save_program_draft` validates the arguments
+  against the schema, binds the cited sources to their catalog records and leaves the draft on
+  `ToolContext`; `get_program_draft` reads it back for a revision. Persisting it belongs to the
+  zone that owns the table: the `chat_programs` model, its migration, `DEFAULT_CHAT_NAME` in
+  `app/models/chat.py` and `MOCK_DRAFT_ARGUMENTS` in `providers/mock.py` were removed, so the
+  branch touches no other zone, needs no migration, and its handler tests need no database.
+- **The handlers speak pydantic models, not dictionaries.** A tool's arguments model is also
+  the schema advertised to the model, and a handler answers a result model, so no handler ever
+  sees or builds a raw dict. Validation happens at the call boundary — `execute_tool`, where
+  the JSON string of a `FunctionCall` enters — and never inside a handler, which may take its
+  arguments model for granted; when the loop takes that boundary over, it can validate a call
+  and invoke the handler directly.
+- **Only sources the run has shown the model may be cited.** `search_sources` widens
+  `ToolContext.known_source_ids`, and a citation the catalog knows but this run has not returned
+  is refused as well as one the catalog does not know — the model corrects itself differently
+  for each. While the catalog is empty every citation is refused as unknown, which is the
+  honest answer until the RAG index lands.
+- **A failed call is an answer, not an exception.** Every handler failure comes back as
+  `ok: false` with an explanation, so the model can correct itself inside the same reply, and
+  `execute_tool` turns malformed JSON and unknown function names into the same shape.
+- **The tools adopt the types #26 merged.** `AGENT_TOOLS: list[Tool]` is built from
+  `Tool(function=FunctionDefinition(...))`, which is what a provider takes at construction, and
+  `execute_tool` reads `FunctionCall.arguments` as the JSON string the providers normalise to.
+  The interim `FunctionCall` block that had briefly been restored into `providers/models.py` is
+  gone with it.
+
+## The agent draft contract: what waits for the loop (2026-10-18)
+
+The loop, the storage and the hour rules are not in the tree. These are the review-driven
+decisions for whoever picks them up in #26, recorded so that the round does not have to be
+repeated.
+
+- **The hour rule is a ceiling, not an equality.** Once the draft carries the volume the
+  methodist stated, `total == requested_hours` when it is present; without it,
+  `days x hours_per_day` is only a ceiling, because the final attestation lives outside the
+  curriculum — the example document fills 66 of its 72 scheduled hours.
+- **The tool-round bound counts rounds, not model turns.** After the last executed round the
+  model still gets one turn to answer from the results it already has, and only a turn that
+  reacts with another call is `ToolLoopExceeded`.
+- **A truncated answer is a failure, not an answer.** `finish_reason == "length"` means the
+  provider stopped at the token limit, so the loop raises `AnswerTruncated` rather than storing
+  a half-written reply as the model's final word.
+- **The chat is renamed only after the draft commits**, so a failed save cannot leave a renamed
+  chat behind without the draft it was named for.
+- **The loop is worth writing once, against the merged types.** It had been written against a
+  `FunctionCall` of its own, and `GenerationResponse.tool_calls` (#26) retires exactly the
+  helpers that scanned message contents for calls. Review points for that implementation:
+  errors inherit from `Exception` rather than `RuntimeError`, `message.role` compares through
+  the existing enum, and no helper scans messages for calls.
+- **The source materials stayed with the RAG zone.** `app/agentic/materials/` was a byte copy
+  of the root `edu_materials/` dataset; RAG (#11) owns both the corpus and the search over it,
+  and `sources.py` keeps the seam with unchanged signatures.
+
+## The draft's checks: schema bounds here, cross-block rules in #4 (2026-10-19)
+
+The review of #24 asked for more checks on the draft. Two of them are the schema's job and were
+added here; the others are listed in `docs/agentic-validation.drawio` as issue #4, and
+implementing them now would have re-done a zone this branch deliberately does not touch.
+
+- **Bounds are schema, not business logic.** An hour split is non-negative and a schedule value
+  supplied is positive — `ge` and `gt` on `Hours` and `Schedule`, block E of the diagram. The
+  dispatcher refuses such a draft, so a handler still has nothing to validate.
+- **Uniqueness of ids and `topic.outcome_ids` resolving to declared outcomes are #4's.** The
+  diagram's block I names both, next to the hour totals, and calls them ordinary functions that
+  return per-element errors over the whole programme, not pydantic validators of one draft.
+- **The hour totals have nothing to compare against in the draft.** The volume the methodist
+  asked for arrives in the chat message, not in the schema, so `days x hours_per_day` would be
+  the only available bound — and it is a ceiling, since the final attestation sits outside the
+  curriculum. #4 owns the rule.
+- **A competence cites a professional standard.** `_resolve_sources` refuses an id that resolves
+  to another kind, because the field says where the labour function comes from.
+- **The handler owns both what it keeps and what it hands out.** `frozen=True` on the schema does
+  not freeze the lists inside a model, so `get_program_draft` answers a deep copy and the stored
+  draft is the handler's own: editing a returned draft cannot reach the state already bound to
+  the catalog and about to be stored.
+- **A save needs no idempotency key inside one context.** The context lives in memory for one
+  worker run and calls execute sequentially, so an older save cannot land after a newer one;
+  ordering is the loop's business (#26) and the upsert is the worker's (block F3).

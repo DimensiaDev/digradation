@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-18** (OpenAI-compatible provider and tool calling)
+Last updated: **2026-10-18** (tool calling merged; the agentic tool registry begins)
 
 ---
 
@@ -37,10 +37,13 @@ theme, admin user management, admin prompt-extension editor. Specs colocated wit
 **Not started or placeholder.** The profile page body, the user settings page body, and two
 admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`.
 
-**In flight: tool calling.** The provider layer can advertise tools at construction. Both
+**In flight: tool calling.** The provider layer advertises tools at construction, and both
 the OpenAI-compatible client and the GigaChat v2 client surface the calls the model requests
-on `GenerationResponse.tool_calls`; nothing executes a call yet. The next step is a tool
-registry and the loop that answers or runs a call.
+on `GenerationResponse.tool_calls`. `backend/app/agentic/` is the beginning of the registry:
+the АЦР programme schema, the agent's tools and their handlers. Nothing executes a call yet —
+the loop that answers or runs one is the next step, and the source catalog behind
+`sources.py` waits for the RAG index. The handlers keep no storage of their own: the validated
+draft travels on `ToolContext` until the zone that owns the database has a table for it.
 
 **Two dead placeholder directories** are still tracked: `frontend/src/app/shared/components/
 chat-widget/` and `.../param-table/`, each holding only a `.gitkeep`. They are leftovers from
