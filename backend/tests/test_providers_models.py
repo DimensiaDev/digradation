@@ -15,7 +15,12 @@ from app.models.chat import ChatMessage, UserRole
 from app.providers.models import (
     AuthResponse,
     Content,
+    ContentFunctionCall,
     FileSchema,
+    FunctionCall,
+    FunctionDefinition,
+    FunctionSpecification,
+    FunctionsSpecifications,
     GenerationRequest,
     GenerationResponse,
     HarnessStructuredOutput,
@@ -23,6 +28,10 @@ from app.providers.models import (
     Message,
     ModelOptions,
     ResponseFormat,
+    Tool,
+    ToolCall,
+    ToolConfig,
+    ToolsFunctions,
     Usage,
 )
 
@@ -121,6 +130,139 @@ def test_message_from_chat_message_preserves_the_system_role():
     assert Message.from_chat_message(row).role == "system"
 
 
+def test_message_tool_call_id_defaults_to_none():
+    assert Message(role="user", content=[{"text": "hi"}]).tool_call_id is None
+
+
+def test_message_carries_the_tool_call_id():
+    message = Message(role="tool", content=[{"text": "result"}], tool_call_id="call_1")
+
+    assert message.tool_call_id == "call_1"
+
+
+# ---------------------------------------------------------------------------
+# Tool calling
+# ---------------------------------------------------------------------------
+
+
+def test_tool_defaults_to_a_function():
+    tool = Tool(function=FunctionDefinition(name="lookup"))
+
+    assert tool.type == "function"
+    assert tool.function.name == "lookup"
+    assert tool.function.description is None
+    assert tool.function.parameters is None
+
+
+def test_tool_keeps_its_description_and_parameters():
+    tool = Tool(
+        function=FunctionDefinition(
+            name="lookup",
+            description="Look something up",
+            parameters={"type": "object"},
+            strict=True,
+        )
+    )
+
+    assert tool.function.description == "Look something up"
+    assert tool.function.parameters == {"type": "object"}
+    assert tool.function.strict is True
+
+
+def test_tool_rejects_an_unknown_type():
+    with pytest.raises(ValidationError):
+        Tool(type="retrieval", function={"name": "lookup"})
+
+
+def test_tool_call_requires_an_id_name_and_arguments():
+    call = ToolCall(id="call_1", function=FunctionCall(name="lookup", arguments='{"q": "x"}'))
+
+    assert call.type == "function"
+    assert call.id == "call_1"
+    assert call.function.name == "lookup"
+    assert call.function.arguments == '{"q": "x"}'
+
+
+def test_tool_call_rejects_a_missing_function_name():
+    with pytest.raises(ValidationError):
+        ToolCall(id="call_1", function={"arguments": "{}"})
+
+
+def test_tool_call_id_is_optional():
+    assert ToolCall(function={"name": "lookup", "arguments": "{}"}).id is None
+
+
+def test_content_defaults_to_empty_text_and_no_function_call():
+    content = Content()
+
+    assert content.text == ""
+    assert content.function_call is None
+
+
+def test_content_keeps_a_string_function_call_argument():
+    content = Content(function_call=ContentFunctionCall(id="call_1", name="lookup", arguments='{"q": "x"}'))
+
+    assert content.function_call.id == "call_1"
+    assert content.function_call.name == "lookup"
+    assert content.function_call.arguments == '{"q": "x"}'
+
+
+def test_content_serializes_object_function_call_arguments():
+    content = Content.model_validate({"function_call": {"name": "lookup", "arguments": {"q": "x"}}})
+
+    assert content.function_call.arguments == '{"q": "x"}'
+
+
+def test_content_function_call_defaults_missing_arguments_to_an_empty_object():
+    content = Content.model_validate({"function_call": {"name": "lookup"}})
+
+    assert content.function_call.arguments == "{}"
+
+
+def test_content_function_call_normalizes_null_arguments():
+    content = Content.model_validate({"function_call": {"name": "lookup", "arguments": None}})
+
+    assert content.function_call.arguments == "{}"
+
+
+def test_content_function_call_requires_a_name():
+    with pytest.raises(ValidationError):
+        Content.model_validate({"function_call": {"arguments": "{}"}})
+
+
+def test_tool_config_defaults_to_auto():
+    config = ToolConfig()
+
+    assert config.mode == "auto"
+    assert config.tool_name is None
+    assert config.function_name is None
+
+
+def test_tool_config_rejects_an_unknown_mode():
+    with pytest.raises(ValidationError):
+        ToolConfig(mode="always")
+
+
+def test_tools_functions_dump_to_the_gigachat_v2_shape():
+    functions = ToolsFunctions(
+        functions=FunctionsSpecifications(
+            specifications=[
+                FunctionSpecification(
+                    name="lookup",
+                    description="Look something up",
+                    parameters={"type": "object"},
+                )
+            ]
+        )
+    )
+
+    assert functions.model_dump(exclude_none=True) == {
+        "functions": {
+            "specifications": [{"name": "lookup", "description": "Look something up", "parameters": {"type": "object"}}]
+        }
+    }
+
+
 # ---------------------------------------------------------------------------
 # ResponseFormat
 # ---------------------------------------------------------------------------
@@ -211,6 +353,43 @@ def test_generation_request_requires_a_model():
         )
 
 
+def test_generation_request_carries_gigachat_v2_tools():
+    request = GenerationRequest(
+        model="GigaChat-3-Ultra",
+        messages=[Message(role="user", content=[{"text": "hi"}])],
+        model_options=ModelOptions(response_format=ResponseFormat(type="text")),
+        tool_config=ToolConfig(mode="auto"),
+        tools=[
+            ToolsFunctions(
+                functions=FunctionsSpecifications(
+                    specifications=[FunctionSpecification(name="lookup", parameters={"type": "object"})]
+                )
+            )
+        ],
+    )
+
+    dumped = request.model_dump(exclude_unset=True, exclude_none=True, by_alias=True)
+
+    assert dumped["tool_config"] == {"mode": "auto"}
+    specification = dumped["tools"][0]["functions"]["specifications"][0]
+    assert specification["name"] == "lookup"
+    assert specification["parameters"] == {"type": "object"}
+    assert "description" not in specification
+
+
+def test_generation_request_drops_tool_fields_when_unset():
+    request = GenerationRequest(
+        model="GigaChat-3-Ultra",
+        messages=[Message(role="user", content=[{"text": "hi"}])],
+        model_options=ModelOptions(response_format=ResponseFormat(type="text")),
+    )
+
+    dumped = request.model_dump(exclude_unset=True, exclude_none=True, by_alias=True)
+
+    assert "tools" not in dumped
+    assert "tool_config" not in dumped
+
+
 # ---------------------------------------------------------------------------
 # GenerationResponse
 # ---------------------------------------------------------------------------
@@ -263,6 +442,27 @@ def test_generation_response_keeps_the_thread_id():
 def test_generation_response_rejects_an_unknown_finish_reason():
     with pytest.raises(ValidationError):
         GenerationResponse.model_validate(response_body(finish_reason="exploded"))
+
+
+def test_generation_response_accepts_openai_finish_reasons():
+    assert GenerationResponse.model_validate(response_body(finish_reason="tool_calls")).finish_reason == "tool_calls"
+    assert (
+        GenerationResponse.model_validate(response_body(finish_reason="content_filter")).finish_reason
+        == "content_filter"
+    )
+
+
+def test_generation_response_defaults_to_no_tool_calls():
+    assert GenerationResponse.model_validate(response_body()).tool_calls == []
+
+
+def test_generation_response_carries_tool_calls():
+    body = response_body(tool_calls=[{"id": "call_1", "function": {"name": "lookup", "arguments": '{"q": "x"}'}}])
+
+    response = GenerationResponse.model_validate(body)
+
+    assert [call.id for call in response.tool_calls] == ["call_1"]
+    assert response.tool_calls[0].function.name == "lookup"
 
 
 def test_generation_response_requires_usage():

@@ -98,12 +98,12 @@ class StageStatus(StrEnum):
 
 
 class Hours(SchemaModel):
-    """Hours of one topic, split by activity type."""
+    """Hours of one topic, split by activity type; a split is never negative."""
 
-    lecture: float = Field(default=0, description="Лекции (ЛК)")
-    practice: float = Field(default=0, description="Практические занятия (ПР)")
-    lab: float = Field(default=0, description="Лабораторные работы (ЛБ)")
-    self_study: float = Field(default=0, description="Самостоятельная работа (СРС)")
+    lecture: float = Field(default=0, ge=0, description="Лекции (ЛК)")
+    practice: float = Field(default=0, ge=0, description="Практические занятия (ПР)")
+    lab: float = Field(default=0, ge=0, description="Лабораторные работы (ЛБ)")
+    self_study: float = Field(default=0, ge=0, description="Самостоятельная работа (СРС)")
 
 
 class Topic(SchemaModel):
@@ -125,11 +125,11 @@ class Module(SchemaModel):
 
 
 class Schedule(SchemaModel):
-    """Curriculum schedule: duration and daily load."""
+    """Curriculum schedule: duration and daily load; every value supplied is positive."""
 
-    weeks: int | None = Field(default=None, description="Duration in weeks")
-    days: int | None = Field(default=None, description="Duration in days")
-    hours_per_day: float | None = Field(default=None, description="Daily load in hours")
+    weeks: int | None = Field(default=None, gt=0, description="Duration in weeks")
+    days: int | None = Field(default=None, gt=0, description="Duration in days")
+    hours_per_day: float | None = Field(default=None, gt=0, description="Daily load in hours")
     note: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
@@ -403,3 +403,24 @@ class EducationalProgram(SchemaModel):
     conditions: Conditions
     staffing: list[StaffSlot] = Field(min_length=1)
     approval: ApprovalInfo
+
+
+class ProgramDraft(SchemaModel):
+    """Ранние блоки программы, которые методист подтверждает до полной генерации.
+
+    The draft is what the methodist reviews and approves: the programme passport
+    (kind and title), the summary, the competences with their outcomes, the
+    curriculum with its hour split and the sources the agent found. The remaining
+    blocks of :class:`EducationalProgram` — assessment, materials, conditions,
+    staffing, approval — are generated later, from this approved draft, so no
+    later stage has to invent the structure again.
+    """
+
+    kind: ProgramKind = Field(description="Тип программы: повышение квалификации или общеразвивающая")
+    title: str = Field(min_length=1, max_length=500, description="Название программы")
+    summary: ProgramSummary = Field(description="Паспорт программы: цель, аудитория, форма обучения")
+    competencies: list[Competence] = Field(min_length=1, description="Компетенции с результатами освоения")
+    curriculum: Curriculum = Field(description="Учебный план: модули, темы, часы и график")
+    sources: list[Source] = Field(
+        default_factory=list, description="Источники, найденные поиском и использованные в программе"
+    )

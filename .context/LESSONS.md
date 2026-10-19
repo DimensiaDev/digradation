@@ -776,3 +776,100 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   are deliberately not recorded — the two paragraphs then contradicted each other. When you
   touch a figure `AGENTS.md` §6 forbids, delete it and point at where the gate lives, not at a
   newer number. (2026-10-18)
+
+## Providers and live API tests
+
+- **The autouse `env` fixture in `conftest.py` pins `SBER_API_KEY=mock`, so every `live`
+  test sees the mock key unless it asks otherwise.** `conftest.py` captures the process
+  environment into `REAL_ENV` at import and the `real_provider_env` fixture restores it;
+  a live test must request that fixture (directly or via a provider fixture) or the
+  key it reads is the mock one. Without this, `pytest -m live` collected and passed while
+  hitting nothing.
+- **`app/providers/openai.py` shadows the top-level `openai` package name, and that is
+  safe.** Python 3 uses absolute imports by default, so `from openai import AsyncOpenAI`
+  inside the module resolves the installed package, not the module itself. Verified by the
+  provider's own tests; no `importlib` or `sys.path` gymnastics are needed.
+- **The `openai` SDK (v3) pins `httpx2`, a second HTTP stack next to the project's
+  `httpx` 0.28.** They coexist as separate distributions, so the SDK upgrade in the lockfile
+  also adds `httpx2` and its transitive deps. Do not "consolidate" them: the SDK imports its
+  own package by name, and removing it breaks the provider while the rest of the app keeps
+  working.
+- **The school hub counts about 1200 prompt tokens before your text arrives.** A one-line
+  question came back as `prompt_tokens=1223` with `cached_tokens=1200`, so the hub injects a
+  sizeable preamble of its own. Budget accordingly if a future change starts caring about
+  prompt size; the number does not reflect the conversation the app sent.
+- **`AsyncOpenAI` extends whatever `base_url` you give it, so `OPENAI_URL` is the full
+  prefix including the API version.** The hub's URL ends in `/llm/v1` and the SDK appends
+  `/chat/completions`; a URL missing the version segment is not the endpoint the SDK
+  actually calls.
+- **An explicit `{"type": "text"}` is accepted by the hub, so omitting `response_format`
+  for a text request is a choice, not a workaround.** The provider omits it because the
+  internal text `ResponseFormat` carries no schema to send; verified live that
+  `response_format={"type": "text"}` also succeeds, so this is not a compatibility
+  constraint to preserve.
+- **`SBER_API_KEY=mock` must be checked before the scope, or a leftover
+  `SBER_API_SCOPE=openai` defeats it.** Selection used to test `scope == "openai"` first, so
+  the e2e contract — the key alone guarantees no call leaves the process — held only while
+  the scope was also `PERS`. `SBER_API_KEY=mock` with `SBER_API_SCOPE=openai` built a real
+  `OpenAIProvider` carrying the literal token `mock`, which is a network call where a
+  developer expects none. The container now tests the mock key first. The follow-on:
+  `MockProvider` then receives scopes it used to reject, so `MOCK_SCOPES` derives from the
+  `Scope` literal instead of listing the GigaChat scopes by hand. Found 2026-10-18 against a
+  `.env` that sets `SBER_API_SCOPE=openai`.
+- **GigaChat v2 returns `function_call.arguments` as a JSON object, not a string**, and
+  nests it inside `messages[].content[]` rather than a top-level `tool_calls`. A parser that
+  trusts the spec's "wrapped in a string" wording ends up with a `dict` where `FunctionCall`
+  expects `str`. Normalise in a `mode="before"` validator. Found 2026-10-18 against the live
+  API.
+- **A PERS-scope live run needs the stack's Redis**, because every `_authed_request` takes
+  `api:global:lock` through the hardcoded `redis://redis:6379`. On a bare host the call dies
+  with `Timeout connecting to server` before it reaches GigaChat. Run PERS live tests inside
+  the Compose network, or replace `_pers_api_lock` with a no-op for a one-off probe.
+  B2B/CORP skip the lock entirely.
+- **The Angular CLI's first-run analytics prompt aborts an `ng` run, and it first bites inside
+  the pre-push hook.** `vitest-coverage` runs `npx ng test`; on a machine whose CLI has never
+  been asked, the "share pseudonymous usage data?" question aborted the run (`User force
+closed the prompt with 0 null`, hook exit 127) and the push died before anything was sent.
+  `SKIP=vitest` does not prevent it: the hook ids are `vitest-coverage` and
+  `pytest-coverage`, and there is no plain `vitest` hook. The remedy is per machine: answer
+  it once (`npx ng analytics disable` in `frontend/`, or `NG_CLI_ANALYTICS=false`); a
+  repo-level `"cli": { "analytics": false }` in `frontend/angular.json` was tried on
+  2026-10-18 and reverted the same day. Found 2026-10-18 on `feat/gen-cicle`.
+- **RUF002/RUF003 fire on docstrings and comments even though RUF001 (strings) is ignored.**
+  A quoted Russian phrase inside an English docstring, or a `×` in a comment, fails
+  `ruff check .` on an ambiguous character while the same text inside a string literal is
+  fine. Paraphrase in English or move it into a string. Found 2026-10-18 on `feat/gen-cicle`.
+- **The `chat_session` fixture in `tests/conftest.py` is broken and unused.**
+  `ChatSession.session_id` is the primary key with no default, so requesting the fixture
+  inserts NULL and dies with a `NotNullViolation`; nothing has ever requested it. A test
+  that needs a chat builds its own row with an explicit `uuid4()`.
+  Found 2026-10-18 on `feat/gen-cicle`.
+- **A `.ruff_cache` verdict can outlive the tree it was computed on.** `ruff check` reported
+  "All checks passed" on a tree where a clean checkout of the same commit failed I001 in
+  `tests/test_agentic_tools.py`: the cache entry was written while `app/models/program.py`
+  still existed, and the cache key does not include which modules are on disk. Run
+  `ruff check --no-cache` (or delete `.ruff_cache`) after moving modules out of the tree.
+  Found 2026-10-18 on `feat/gen-cicle`.
+- **An import of a module the tree does not contain is re-sorted as third-party by ruff's
+  isort — in `tests/`, but not inside `app/`.** With `app/models/program.py` missing,
+  `from app.models.program import ChatProgram` was flagged as an import-order error in
+  `tests/test_agentic_tools.py` while the identical import in `app/agentic/tools.py` passed:
+  inside the `app` package the file's own package prefix keeps the import first-party. So a
+  module absent from the tree shows up as a lint error in the tests and nowhere else, and
+  "fixing" the order locally only moves the error to CI. Found 2026-10-18 on `feat/gen-cicle`.
+- **`commitlint` validates every commit of a pull request, not just the new push.** A
+  sentence-case subject in the branch's first commit failed the `pull_request` check while
+  the `push` check for the same range passed. The only fix is to rewrite that commit's
+  message (rebase + force-push); a new commit on top cannot clear it, and relaxing
+  `subject-case` would weaken the gate for the whole repository. Found 2026-10-18 on
+  `feat/gen-cicle`.
+- **A failed `git push` can leave the pre-push `ruff` auto-fix in the working tree.** The
+  hook reported "files were modified" and aborted the push, but its import reorder stayed
+  behind after the message "Rolling back fixes...", so the next `git status` decides whether
+  the change was wanted. Found 2026-10-18 on `feat/gen-cicle`.
+- **A conflicting pull request gets no `pull_request` workflow runs at all.** GitHub skips
+  the event when the merge commit cannot be built: no runs, no cancelled entries, nothing in
+  the checks list, while `push`-triggered workflows (commitlint) keep reporting for the same
+  commits. After #26 merged and `main` moved, PR #24's checks vanished this way. Re-pushing
+  and reopening the pull request do not help — `reopened` is skipped for the same reason —
+  the conflict has to be resolved first. Found 2026-10-18 on `feat/gen-cicle`.

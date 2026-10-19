@@ -8,7 +8,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 ## Repository shape
 
 - **`backend/` and `frontend/` are two independently installed units**: one Poetry project
-  and one npm project, plus a root `package.json` that exists *only* to provide `commitlint`
+  and one npm project, plus a root `package.json` that exists _only_ to provide `commitlint`
   to the `commit-msg` pre-commit hook. The root project has no runtime dependencies.
 - **No monorepo tool** (no npm workspaces, Nx, Turborepo, Bazel, Pants). Docker Compose is
   the sole orchestrator. The project was simple enough that workspace tooling would cost
@@ -32,7 +32,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
     must have CWD == `backend/`.
   - Service-to-service DNS only resolves inside the Compose network.
 - **Tests, by contrast, run locally.** They use `testcontainers`, so they need a Docker
-  *daemon* but not the full 13-service stack.
+  _daemon_ but not the full 13-service stack.
 - **Two override files are shipped but gitignored** (`docker-compose.override.yml`):
   - `.dev` — bind mounts for hot reload, watchers with polling forced on, and publishes
     PostgreSQL on host port **5433** so Alembic can run from the host. Not 5432: a
@@ -80,14 +80,15 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   **RabbitMQ** (`taskiq-aio-pika`, vhost `taskiq`) and results land in **Redis `/1`**.
 - **Two queues, split by cause of slowness:**
 
-  | Queue | Nature | Tasks |
-  |---|---|---|
-  | `default` | local / CPU-bound | `process_attachment`, `process_document`, `process_avatar`, `process_response`, `cleanup_old_results`, `cleanup_orphan_attachments`, `cleanup_stale_results`, `cleanup_expired_sessions` |
-  | `network` | outbound GigaChat calls | `generate_chat_message` |
+  | Queue     | Nature                  | Tasks                                                                                                                                                                                    |
+  | --------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `default` | local / CPU-bound       | `process_attachment`, `process_document`, `process_avatar`, `process_response`, `cleanup_old_results`, `cleanup_orphan_attachments`, `cleanup_stale_results`, `cleanup_expired_sessions` |
+  | `network` | outbound GigaChat calls | `generate_chat_message`                                                                                                                                                                  |
 
   **Why:** the `network` queue is bounded by external API latency. Isolating it means a slow
   or rate-limited GigaChat cannot starve attachment preparation or the cleanup crons.
   Separate worker pools (`worker_default` x2, `worker_network` x2) allow independent scaling.
+
 - **`redis://redis:6379/0` is general purpose** (cache, locks, rate limits, statuses);
   **`/1` is TaskIQ result storage only.** Confusing the two silently breaks result reads.
 - **Blocking work is always offloaded via `await asyncio.to_thread(...)`**: attachment
@@ -221,7 +222,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   have needed the same rewrite, and a second README to keep in step is a second thing to go
   stale. The product UI and the LLM prompt are Russian; the code, comments and docs are
   English. Keep new documentation in English unless it duplicates README content.
-- **`AGENTS.md` documents *how*; `.context/` documents *why*.** Keeping them separate stops
+- **`AGENTS.md` documents _how_; `.context/` documents _why_.** Keeping them separate stops
   the harness from bloating with rationale and the context files from going stale.
 - **The `responses={...}` convention is now repo-wide, not chat-only.** `AGENTS.md` still
   describes it as a chat-route pattern; as of 2026-10-03 (issue #44) every route in
@@ -237,7 +238,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 ## Attachment filename filtering (2026-10-03)
 
 - **The upload route validates the filename, not just the content type.** `POST
-  /chats/{id}/uploads` checked `content_type` and `file_size` but accepted any `filename`, and
+/chats/{id}/uploads` checked `content_type` and `file_size` but accepted any `filename`, and
   that string is copied into the S3 key by `get_s3_attachment_key`, stored in
   `attachments.name`, handed back to the browser by the download route, and passed to
   GigaChat as the upload filename. Two rules close it, both as 400s beside the existing ones
@@ -251,8 +252,8 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   `.sh` or `.html` while the object is declared `application/pdf`, which is what
   `process_attachment` dispatches on. Extensions are compared case-insensitively because
   `get_s3_attachment_key` lowercases the suffix it writes.
-- **The extension is *not* paired with the content type.** Enforcing `".pdf" implies
-  application/pdf` would be a stronger guarantee, but nothing in the pipeline reads the
+- **The extension is _not_ paired with the content type.** Enforcing `".pdf" implies
+application/pdf` would be a stronger guarantee, but nothing in the pipeline reads the
   extension — the Content-Type on the stored object is what selects the processor — so the
   pairing would add a rule with no consumer behind it. Deliberately left out; revisit if a
   consumer ever starts trusting the suffix.
@@ -294,7 +295,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 ## Attachment listing and deletion (2026-10-03, issue #47)
 
 - **One listing endpoint reports upload state; no new state is invented.** `GET
-  /chats/{id}/attachments` returns every `Attachment` row of the session, with the Redis
+/chats/{id}/attachments` returns every `Attachment` row of the session, with the Redis
   `attachment:{id}:status` value in `status`. The statuses `upload_file`,
   `pdf_upload_cleanup` and `_redis_error` already write (`uploading`, `processing`,
   `completed`, `error`) are the whole vocabulary; a second, parallel notion of "what is
@@ -329,6 +330,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   because the ownership entry is gone and `verify_attachment_id` refuses the id, and the key
   expires with its TTL. Making it airtight would mean a tombstone the workers consult; not
   worth it for a file the user has just removed.
+
 ## Admin system prompt editing (2026-10-06)
 
 The admin settings page edits the system prompt over `GET/PUT /api/v1/admin/system-prompt`
@@ -370,7 +372,7 @@ chat (`isResultsOpen`, host class binding, opacity/visibility staging, reduced-m
 - **The aside is `overflow: visible` only when open** (hidden while closed for the animation):
   the role `app-select` renders its dropdown as inline `position: absolute`, which a permanent
   `overflow: hidden` would clip. Below 900px the host stacks to one column and the closed
-panel is `display: none`, otherwise its invisible content would hold open an empty grid row.
+  panel is `display: none`, otherwise its invisible content would hold open an empty grid row.
 
 ## Admin-editable system prompt extension (2026-10-09, issue #64)
 
@@ -463,7 +465,7 @@ styling was extracted into `frontend/src/app/shared/components/table/` instead o
 duplicated per page.
 
 - The component is deliberately **dumb about data**: it renders `TableColumn<T>[]` and
-  rows, and only *reports* sort intent through the `sort` model — it never sorts itself.
+  rows, and only _reports_ sort intent through the `sort` model — it never sorts itself.
   The users page sorts client-side (its data is one unpaginated list), the history page
   re-queries the server (`sort`/`order` on `GET /chats`), and both keep their comparators.
 - Custom cells (avatars, badges, action buttons, links) are projected via
@@ -657,7 +659,7 @@ toasts gained an optional second line.
 - **`Notification` gained an optional `description`.** Meaningful action results and errors
   set one; terse field validations and pure info toasts deliberately do not, to avoid noise.
 - **`errorOnce` takes an options object** — `errorOnce(message, { windowMs?, description?,
-  persistent? })` — instead of a bare `windowMs` number, so the deduped interceptor errors can
+persistent? })` — instead of a bare `windowMs` number, so the deduped interceptor errors can
   carry a description like every other call.
 
 ## Page header, profile component and a shared icon-button class (2026-10-18)
@@ -715,7 +717,6 @@ A review pass over `core/` + `shared/` fixed a batch of accessibility and themin
 - **`AGENTS.md` no longer documents a `ChatService.historyVersion` signal.** No such signal
   exists; the real list-refresh idiom is a per-component local request-id counter, which the
   section now describes.
-
 
 ## Base-layer cleanup: icon buttons, textareas, file types (2026-10-18)
 
@@ -808,6 +809,204 @@ the service's own state transitions.
 - **Specs seed state through the HTTP API**, not by writing signals, which also exercises
   `fetchMe`/`loadAvatar` instead of assuming their internals.
 
+## CI caches build layers through a CI-only Compose override (2026-10-18)
+
+- **`docker-compose.build-cache.yml` is appended as a third `-f` only when `CI` is set.**
+  The `gha` backend is meaningless outside an Actions job: it authenticates with the
+  `ACTIONS_*` variables and needs a builder from `docker/setup-buildx-action`. Keeping it
+  out of the dev and e2e overrides means a developer's stack never carries settings it
+  cannot use.
+- **The workflow must re-expose the `ACTIONS_*` variables itself.** The runner hands them
+  to an _action_, not to a `run` step, so a `docker compose up --build` from a shell step
+  sees none of them, and Buildx drops the cache entries silently instead of failing. That
+  is why `e2e.yml` runs `crazy-max/ghaction-github-runtime` before `setup.sh`. The first
+  run of PR #21 had the cache file but not the action: everything rebuilt from scratch and
+  the log contained no cache import or export.
+- **One scope per Dockerfile, not per service.** `backend`, `migrate`, `scheduler`,
+  `worker_default`, `worker_network` and `garage-config` all build `backend/Dockerfile` and
+  share `scope=backend`; per-service scopes would make each miss on the others' layers.
+  `garage-bootstrap` builds `conf/garage.Dockerfile` and gets its own scope.
+
+## OpenAI-compatible provider and tool calling (2026-10-18)
+
+- **`SBER_API_SCOPE` now doubles as the provider selector**, because the OpenAI client is
+  not GigaChat and a scope of `PERS`/`B2B`/`CORP` says nothing about which SDK to use. The
+  mapping is in `containers.py`: `mock` -> `MockProvider`, then `openai` -> `OpenAIProvider`,
+  everything else -> `SberProvider`. The mock check comes first _and_ `SBER_API_KEY=mock`
+  also wins, so the test and e2e stacks that only pin the key keep working even if a
+  developer's `.env` leaves the scope at `openai`; the ordering is load-bearing, not
+  cosmetic. The alternative — a separate `PROVIDER` variable — would have left two knobs
+  describing one choice.
+- **`OPENAI_URL` empty means the official OpenAI endpoint.** `AsyncOpenAI` already defaults
+  to api.openai.com, so the provider only passes `base_url` when the variable is set. That
+  keeps "point at the school hub" and "point at OpenAI" the same code path.
+- **Tools are construction-time state on `AIClient`, not a per-request argument.** A tool
+  set is a property of the assistant, not of one exchange, and defining it once matches how
+  the callers think about it. All three providers accept `tools=`; only `OpenAIProvider`
+  uses it. `mock` and `sber` ignore it deliberately rather than raising, so a caller can
+  advertise tools without branching on the provider.
+- **Tool calls surface on the response, nothing executes them.** `GenerationResponse`
+  gains `tool_calls: list[ToolCall]`, and `Message` gains `tool_call_id` so a later turn can
+  answer one. Execution is a policy decision (which tools, who runs them, with what
+  authorisation) and does not belong in the provider, so it is left to the caller.
+- **The provider maps only `tool_calls` whose `type == "function"`.** The OpenAI schema
+  allows other tool types; the internal model has one kind. Filtering at the boundary keeps
+  `ToolCall` from growing a discriminator it will not use yet.
+- **The internal content-parts format flattens to a single string on the OpenAI wire.**
+  GigaChat takes structured file references in a message; the OpenAI chat-completions shape
+  does not, so file parts are dropped and text parts joined with a newline. Attachments are
+  still uploaded through the files API (`upload`), but a message cannot cite them yet.
+  This is the one place the two providers genuinely differ, and it is documented in the
+  module docstring rather than hidden in a converter.
+- **`ResponseFormat` maps to `json_schema` only for the schema type**, with the schema
+  named `"response"` and `strict` passed through; a text request omits `response_format`
+  entirely rather than sending `{"type": "text"}`. Omitting is a choice — the hub accepts
+  the explicit text type too — but a text request has no schema to send, so there is nothing
+  to serialise. Verified live: the hub accepts the harness schema even without
+  `additionalProperties: false`.
+- **`auth()` is a no-op with a century-long expiry.** The OpenAI key authenticates every
+  request and there is no token endpoint or refresh, but `AIClient` has `ensure_fresh_token`
+  machinery that other call paths expect; setting a far-future `token_expires_at` makes it a
+  no-op without special-casing the base class.
+- **`SBER_API_KEY=mock` still means no LLM call**, and the live tests for the OpenAI client
+  carry a second `openai` marker so they can be selected with `-m 'live and openai'` on
+  their own, with `SBER_API_SCOPE=openai`. Because the key wins over the scope, `mock` must
+  accept every scope the container can hand it; `MockProvider.MOCK_SCOPES` derives from the
+  `Scope` literal rather than listing them, so adding a provider cannot leave a scope that
+  the mock rejects at import.
+
+## GigaChat v2 tool calling (2026-10-18)
+
+- **GigaChat v2 is the tool-capable endpoint, and its wire shape differs from OpenAI's.**
+  `/v2/chat/completions` takes `tools: [{"functions": {"specifications": [...]}}]` and a
+  separate `tool_config: {"mode": "auto"}`, not OpenAI's `tools[].function` array. The reply
+  nests `function_call` inside `content[]` (with its own `id`) rather than a top-level
+  `tool_calls` array. `SberProvider` translates both directions so callers keep seeing the
+  internal `Tool` / `ToolCall` models.
+- **`ContentFunctionCall` normalises `arguments` from an object to a JSON string.** The
+  schema says "JSON wrapped in a string", but the live API returns a JSON _object_; OpenAI
+  returns a string. Accepting both in a `mode="before"` validator is cheaper than two
+  response paths, and it matches the internal `FunctionCall.arguments: str`.
+- **`Content.text` defaults to `""` and `ToolCall.id` is optional.** A v2 function-call
+  content part has no `text` key, so the shared `Content` model would reject the real
+  response otherwise. GigaChat may omit `function_call.id` (it correlates a result by name
+  and `tool_state_id`), so `ToolCall.id` became optional; the OpenAI provider still always
+  sets it.
+- **`parameters` is required on the GigaChat side**, so a tool without one is sent with an
+  empty object rather than omitted. GigaChat's own examples also omit `type: "object"`, so
+  the provider passes the caller's schema through untouched.
+- **The GigaChat live tool test lives in `test_live_gigachat.py`.** It builds a real
+  `SberProvider` from `real_provider_env` instead of reusing the container's module-level
+  instance, which was built with the mock key at import time.
+- **`strict` is rejected, not dropped, on GigaChat.** The v2 `CustomFunction` schema has no
+  strict flag, so `SberProvider` raises `ValueError` rather than accepting a promise it
+  cannot keep. The check runs at construction and again in `_tools_payload`, because tests
+  and callers may replace `provider.tools` afterwards. The OpenAI client still passes
+  `strict` through.
+- **Missing GigaChat `arguments` become `"{}"`.** A function-call content part without
+  arguments used to surface `""`, which is not JSON. `ContentFunctionCall` normalises
+  `None` and the empty string to `{}` before the call reaches `FunctionCall`.
+- **The OpenAI payload keeps attachments as content parts.** Text-only messages stay a
+  plain string; `Content.files` become `file` parts carrying `file_id`, and `inline_data`
+  becomes an `image_url` with a `data:` URL. Dropping them silently made the model answer
+  without the supplied context.
+- **The container's tool list is a single empty `TOOLS` placeholder.** Both real providers
+  receive it, so the wiring exists before a tool registry does.
+
+## The agentic package ships without storage (2026-10-18)
+
+`feat/gen-cicle` differs from `main` only in `backend/app/agentic/` and `tests/test_agentic_*`,
+and the package imports nothing outside itself and `app/providers/models.py`:
+
+| File                     | Holds                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| `app/agentic/models.py`  | the АЦР programme schema: the blocks of the final document, validated               |
+| `app/agentic/sources.py` | the catalog seam — `SourceFragment`, `get_source`, `search` — over an empty catalog |
+| `app/agentic/tools.py`   | the tool specifications and their handlers                                          |
+
+- **The schema is the documented validation diagram, as the branch's first commit implemented
+  it.** The later refinements of the draft — `requested_hours`, the hour-ceiling rule, the
+  duplicate-id and declared-outcome validators — belonged to the storage and the loop, and went
+  back with them. They return with the work that needs them.
+- **The handlers keep no storage of their own.** `save_program_draft` validates the arguments
+  against the schema, binds the cited sources to their catalog records and leaves the draft on
+  `ToolContext`; `get_program_draft` reads it back for a revision. Persisting it belongs to the
+  zone that owns the table: the `chat_programs` model, its migration, `DEFAULT_CHAT_NAME` in
+  `app/models/chat.py` and `MOCK_DRAFT_ARGUMENTS` in `providers/mock.py` were removed, so the
+  branch touches no other zone, needs no migration, and its handler tests need no database.
+- **The handlers speak pydantic models, not dictionaries.** A tool's arguments model is also
+  the schema advertised to the model, and a handler answers a result model, so no handler ever
+  sees or builds a raw dict. Validation happens at the call boundary — `execute_tool`, where
+  the JSON string of a `FunctionCall` enters — and never inside a handler, which may take its
+  arguments model for granted; when the loop takes that boundary over, it can validate a call
+  and invoke the handler directly.
+- **Only sources the run has shown the model may be cited.** `search_sources` widens
+  `ToolContext.known_source_ids`, and a citation the catalog knows but this run has not returned
+  is refused as well as one the catalog does not know — the model corrects itself differently
+  for each. While the catalog is empty every citation is refused as unknown, which is the
+  honest answer until the RAG index lands.
+- **A failed call is an answer, not an exception.** Every handler failure comes back as
+  `ok: false` with an explanation, so the model can correct itself inside the same reply, and
+  `execute_tool` turns malformed JSON and unknown function names into the same shape.
+- **The tools adopt the types #26 merged.** `AGENT_TOOLS: list[Tool]` is built from
+  `Tool(function=FunctionDefinition(...))`, which is what a provider takes at construction, and
+  `execute_tool` reads `FunctionCall.arguments` as the JSON string the providers normalise to.
+  The interim `FunctionCall` block that had briefly been restored into `providers/models.py` is
+  gone with it.
+
+## The agent draft contract: what waits for the loop (2026-10-18)
+
+The loop, the storage and the hour rules are not in the tree. These are the review-driven
+decisions for whoever picks them up in #26, recorded so that the round does not have to be
+repeated.
+
+- **The hour rule is a ceiling, not an equality.** Once the draft carries the volume the
+  methodist stated, `total == requested_hours` when it is present; without it,
+  `days x hours_per_day` is only a ceiling, because the final attestation lives outside the
+  curriculum — the example document fills 66 of its 72 scheduled hours.
+- **The tool-round bound counts rounds, not model turns.** After the last executed round the
+  model still gets one turn to answer from the results it already has, and only a turn that
+  reacts with another call is `ToolLoopExceeded`.
+- **A truncated answer is a failure, not an answer.** `finish_reason == "length"` means the
+  provider stopped at the token limit, so the loop raises `AnswerTruncated` rather than storing
+  a half-written reply as the model's final word.
+- **The chat is renamed only after the draft commits**, so a failed save cannot leave a renamed
+  chat behind without the draft it was named for.
+- **The loop is worth writing once, against the merged types.** It had been written against a
+  `FunctionCall` of its own, and `GenerationResponse.tool_calls` (#26) retires exactly the
+  helpers that scanned message contents for calls. Review points for that implementation:
+  errors inherit from `Exception` rather than `RuntimeError`, `message.role` compares through
+  the existing enum, and no helper scans messages for calls.
+- **The source materials stayed with the RAG zone.** `app/agentic/materials/` was a byte copy
+  of the root `edu_materials/` dataset; RAG (#11) owns both the corpus and the search over it,
+  and `sources.py` keeps the seam with unchanged signatures.
+
+## The draft's checks: schema bounds here, cross-block rules in #4 (2026-10-19)
+
+The review of #24 asked for more checks on the draft. Two of them are the schema's job and were
+added here; the others are listed in `docs/agentic-validation.drawio` as issue #4, and
+implementing them now would have re-done a zone this branch deliberately does not touch.
+
+- **Bounds are schema, not business logic.** An hour split is non-negative and a schedule value
+  supplied is positive — `ge` and `gt` on `Hours` and `Schedule`, block E of the diagram. The
+  dispatcher refuses such a draft, so a handler still has nothing to validate.
+- **Uniqueness of ids and `topic.outcome_ids` resolving to declared outcomes are #4's.** The
+  diagram's block I names both, next to the hour totals, and calls them ordinary functions that
+  return per-element errors over the whole programme, not pydantic validators of one draft.
+- **The hour totals have nothing to compare against in the draft.** The volume the methodist
+  asked for arrives in the chat message, not in the schema, so `days x hours_per_day` would be
+  the only available bound — and it is a ceiling, since the final attestation sits outside the
+  curriculum. #4 owns the rule.
+- **A competence cites a professional standard.** `_resolve_sources` refuses an id that resolves
+  to another kind, because the field says where the labour function comes from.
+- **The handler owns both what it keeps and what it hands out.** `frozen=True` on the schema does
+  not freeze the lists inside a model, so `get_program_draft` answers a deep copy and the stored
+  draft is the handler's own: editing a returned draft cannot reach the state already bound to
+  the catalog and about to be stored.
+- **A save needs no idempotency key inside one context.** The context lives in memory for one
+  worker run and calls execute sequentially, so an older save cannot land after a newer one;
+  ordering is the loop's business (#26) and the upsert is the worker's (block F3).
+
 ## Guest mode: the panel is browsable, protected sections ask for a login (2026-10-18, #17)
 
 The panel used to be unreachable without a session: `authGuard` on the whole user tree, a
@@ -886,7 +1085,7 @@ dependency and no wrapper element.
   `shared/utils` module does not import from `shared/components`; the sidebar, Layout and the
   router all read the same config instead.
 - **The named element is `main` in the layout, not a wrapper.** `view-transition-name:
-  router-content` sits on the layout's `<main>`. A wrapper element was rejected because the
+router-content` sits on the layout's `<main>`. A wrapper element was rejected because the
   chat page relies on `:host { height: 100% }` and collapses inside an auto-height wrapper.
 - **The root group is deliberately not animated.** `::view-transition-old(root)` /
   `new(root)` get `animation: none`; the default cross-fade would animate the whole page,

@@ -11,6 +11,7 @@ The base-class behaviour in :mod:`app.providers.client` is exercised through
 :class:`SberProvider` because it is the only concrete implementation.
 """
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -19,7 +20,13 @@ import pytest
 import pytest_asyncio
 
 from app.providers.client import AIClient, AuthorizationError
-from app.providers.models import GenerationResponse, Message, ResponseFormat
+from app.providers.models import (
+    FunctionDefinition,
+    GenerationResponse,
+    Message,
+    ResponseFormat,
+    Tool,
+)
 from app.providers.sber import SberProvider
 
 #: The client is built with a ``/v2`` base path, and httpx merges that prefix
@@ -54,6 +61,35 @@ def generation_body(text: str = "answer") -> dict:
             "total_tokens": 15,
         },
     }
+
+
+def tool_call_body(
+    name: str = "get_weather",
+    arguments: str | dict = '{"city": "Москва"}',
+    call_id: str | None = "call-1",
+) -> dict:
+    """A v2 completion whose content part asks for a function call."""
+    function_call: dict = {"name": name, "arguments": arguments}
+    if call_id is not None:
+        function_call["id"] = call_id
+    body = generation_body()
+    body["messages"] = [{"role": "assistant", "content": [{"function_call": function_call}]}]
+    body["finish_reason"] = "function_call"
+    return body
+
+
+def function_tool(name: str = "get_weather") -> Tool:
+    return Tool(
+        function=FunctionDefinition(
+            name=name,
+            description="Прогноз погоды в городе",
+            parameters={
+                "type": "object",
+                "properties": {"city": {"type": "string", "description": "Название города"}},
+                "required": ["city"],
+            },
+        )
+    )
 
 
 def ok_handler(captured: list[httpx.Request] | None = None) -> httpx.MockTransport:
@@ -126,6 +162,13 @@ def test_init_accepts_documented_scopes(scope):
     assert provider.api_key == "key"
     assert provider.token is None
     assert provider.token_expires_at is None
+
+
+def test_init_rejects_strict_tools():
+    tool = Tool(function=FunctionDefinition(name="lookup", strict=True))
+
+    with pytest.raises(ValueError, match="does not support strict tools: lookup"):
+        SberProvider(api_key="key", scope="PERS", tools=[tool])
 
 
 def test_sber_provider_implements_the_abstract_interface():
@@ -272,6 +315,128 @@ async def test_generate_401_becomes_authorization_error(provider_factory):
             x_client_id=uuid.uuid4(),
             x_session_id=uuid.uuid4(),
         )
+
+
+# ---------------------------------------------------------------------------
+# tool calling
+# ---------------------------------------------------------------------------
+
+
+async def _generate(provider: SberProvider) -> GenerationResponse | None:
+    return await provider.generate(
+        message_history=[Message(role="user", content=[{"text": "hi"}])],
+        response_format=ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_generate_advertises_tools_in_the_v2_shape(provider_factory):
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+    provider.tools = [function_tool()]
+
+    await _generate(provider)
+
+    body = json.loads(captured[-1].read().decode())
+    specification = body["tools"][0]["functions"]["specifications"][0]
+    assert specification["name"] == "get_weather"
+    assert specification["description"] == "Прогноз погоды в городе"
+    assert specification["parameters"]["properties"]["city"]["type"] == "string"
+    assert body["tool_config"] == {"mode": "auto"}
+
+
+@pytest.mark.asyncio
+async def test_generate_omits_tool_fields_without_tools(provider_factory):
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+
+    await _generate(provider)
+
+    body = json.loads(captured[-1].read().decode())
+    assert "tools" not in body
+    assert "tool_config" not in body
+
+
+@pytest.mark.asyncio
+async def test_generate_maps_a_function_call_into_a_tool_call(provider_factory):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == AUTH_PATH:
+            return httpx.Response(200, json=auth_body())
+        return httpx.Response(200, json=tool_call_body())
+
+    provider = provider_factory(httpx.MockTransport(handler))
+
+    result = await _generate(provider)
+
+    assert result.finish_reason == "function_call"
+    # The content part carries the call rather than any text.
+    assert result.messages[0].content[0].text == ""
+    assert len(result.tool_calls) == 1
+    assert result.tool_calls[0].id == "call-1"
+    assert result.tool_calls[0].function.name == "get_weather"
+    assert result.tool_calls[0].function.arguments == '{"city": "Москва"}'
+
+
+@pytest.mark.asyncio
+async def test_generate_serializes_object_arguments(provider_factory):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == AUTH_PATH:
+            return httpx.Response(200, json=auth_body())
+        return httpx.Response(200, json=tool_call_body(arguments={"city": "Москва"}))
+
+    provider = provider_factory(httpx.MockTransport(handler))
+
+    result = await _generate(provider)
+
+    assert result.tool_calls[0].function.arguments == '{"city": "Москва"}'
+
+
+@pytest.mark.asyncio
+async def test_generate_tolerates_a_missing_function_call_id(provider_factory):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == AUTH_PATH:
+            return httpx.Response(200, json=auth_body())
+        return httpx.Response(200, json=tool_call_body(call_id=None))
+
+    provider = provider_factory(httpx.MockTransport(handler))
+
+    result = await _generate(provider)
+
+    assert result.tool_calls[0].id is None
+
+
+@pytest.mark.asyncio
+async def test_generate_defaults_missing_arguments_to_an_empty_object(provider_factory):
+    body = tool_call_body()
+    del body["messages"][0]["content"][0]["function_call"]["arguments"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == AUTH_PATH:
+            return httpx.Response(200, json=auth_body())
+        return httpx.Response(200, json=body)
+
+    provider = provider_factory(httpx.MockTransport(handler))
+
+    result = await _generate(provider)
+
+    assert result.tool_calls[0].function.arguments == "{}"
+
+
+@pytest.mark.asyncio
+async def test_generate_rejects_strict_tools_added_after_construction(provider):
+    provider.tools = [Tool(function=FunctionDefinition(name="lookup", strict=True))]
+
+    with pytest.raises(ValueError, match="does not support strict tools: lookup"):
+        await _generate(provider)
+
+
+@pytest.mark.asyncio
+async def test_generate_returns_no_tool_calls_for_a_text_response(provider):
+    result = await _generate(provider)
+
+    assert result.tool_calls == []
 
 
 # ---------------------------------------------------------------------------
