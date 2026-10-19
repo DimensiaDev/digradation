@@ -1,1 +1,90 @@
-<app-section-placeholder title="Главная" subtitle="Добро пожаловать в рабочую панель" />
+<section class="home">
+  <div class="home__hero">
+    <app-brand-logo-animated class="home__logo" [size]="200" [active]="isComposerActive()" />
+    <h1 class="h2 home__greeting">Готовы к созданию новой программы?</h1>
+  </div>
+
+  <div class="home__examples">
+    <p class="h4 home__examples-label">Например:</p>
+    <ul class="home__examples-list">
+      @for (example of examples; track example) {
+        <li class="home__examples-item">
+          <button type="button" class="example-card" (click)="applyExample(example)">
+            {{ example }}
+          </button>
+        </li>
+      }
+    </ul>
+  </div>
+
+  <form class="composer" (submit)="onSubmit($event)">
+    @if (files().length > 0) {
+      <ul class="composer__files">
+        @for (file of files(); track file.id) {
+          <li class="file-chip">
+            <span class="file-chip__icon" [style.color]="colorFor(file)">
+              <svg size="18" [lucideIcon]="iconFor(file)" aria-hidden="true"></svg>
+            </span>
+            <span class="file-chip__meta">
+              <span class="file-chip__name">{{ file.name }}</span>
+              <span class="file-chip__size h5">{{ sizeLabel(file) }}</span>
+            </span>
+            <button
+              type="button"
+              class="file-chip__remove"
+              [attr.aria-label]="'Удалить файл ' + file.name"
+              (click)="removeFile(file.id)"
+            >
+              <svg size="14" lucideX aria-hidden="true"></svg>
+            </button>
+          </li>
+        }
+      </ul>
+    }
+
+    <div class="composer__field">
+      <textarea
+        class="composer__textarea"
+        rows="1"
+        placeholder="Опишите программу или прикрепите файлы..."
+        aria-label="Сообщение"
+        autocomplete="off"
+        [value]="message()"
+        (input)="onInput($event)"
+        (focus)="onFocus()"
+        (blur)="onBlur()"
+      ></textarea>
+
+      <div class="composer__actions">
+        <button
+          type="button"
+          class="composer__attach"
+          aria-label="Прикрепить файлы"
+          (click)="openFilePicker()"
+        >
+          <svg size="18" lucidePaperclip aria-hidden="true"></svg>
+          <span>Прикрепить</span>
+        </button>
+
+        <button
+          type="submit"
+          class="button button--main button--squared composer__send"
+          aria-label="Отправить"
+          [disabled]="!canSend()"
+        >
+          <svg size="20" lucideArrowUp aria-hidden="true"></svg>
+        </button>
+      </div>
+    </div>
+
+    <input
+      #fileInput
+      type="file"
+      class="visually-hidden"
+      multiple
+      tabindex="-1"
+      [accept]="acceptAttr"
+      (change)="onFilesSelected($event)"
+    />
+  </form>
+</section>

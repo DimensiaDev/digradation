@@ -1,0 +1,326 @@
+@use '../../mixins' as *;
+@use '../../scrollbars' as *;
+
+// `main` is a column flex container and pins routed pages with
+// `main router-outlet + * { flex: 0 0 auto }`. The landing has to fill the
+// remaining height and centre its content, so it opts back into flex growth.
+:host {
+  display: flex;
+  flex: 1 1 auto;
+
+  width: 100%;
+  min-height: 0;
+}
+
+.home {
+  flex: 1 1 auto;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+
+  gap: clamp(24px, 4vh, 44px);
+
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+
+  padding: clamp(24px, 5vh, 64px) clamp(20px, 4vw, 48px);
+
+  &__hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+
+    gap: 28px;
+
+    text-align: center;
+  }
+
+  &__logo {
+    margin-block: -12px;
+  }
+
+  &__greeting {
+    max-width: 24ch;
+
+    line-height: 1.25;
+    text-wrap: balance;
+  }
+
+  &__examples {
+    display: grid;
+    gap: 16px;
+
+    width: 100%;
+  }
+
+  &__examples-label {
+    color: var(--color-gray);
+  }
+
+  &__examples-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 14px;
+  }
+}
+
+.example-card {
+  width: 100%;
+  height: 100%;
+
+  padding: 16px 18px;
+
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  text-wrap: pretty;
+
+  color: var(--color-text);
+
+  background: var(--color-surface);
+
+  border: 1px solid var(--color-outline);
+  border-radius: 16px;
+
+  cursor: pointer;
+
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+
+  @include reduced-motion;
+  @include focus-ring;
+
+  &:hover {
+    border-color: var(--color-main);
+    background: color-mix(in srgb, var(--color-main) 6%, var(--color-surface));
+    box-shadow: 0 10px 24px var(--color-main-shadow);
+    transform: translateY(-2px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+
+  gap: 12px;
+
+  width: 100%;
+}
+
+.composer__files {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+
+  overflow-x: auto;
+  overflow-y: hidden;
+
+  padding-bottom: 6px;
+
+  @include app-scrollbar;
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+
+  flex: 0 0 auto;
+
+  max-width: 260px;
+
+  padding: 8px 8px 8px 12px;
+
+  background: var(--color-surface);
+
+  border: 1px solid var(--color-outline);
+  border-radius: 12px;
+
+  &__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    flex-shrink: 0;
+
+    width: 18px;
+    height: 18px;
+  }
+
+  &__meta {
+    display: flex;
+    flex-direction: column;
+
+    min-width: 0;
+  }
+
+  &__name {
+    overflow: hidden;
+
+    font-size: 14px;
+    font-weight: 500;
+
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__size {
+    color: var(--color-gray);
+  }
+
+  &__remove {
+    @include icon-button;
+
+    width: 24px;
+    height: 24px;
+
+    color: var(--color-gray);
+
+    border-radius: 7px;
+  }
+}
+
+.composer__field {
+  position: relative;
+
+  display: flex;
+  flex-direction: column;
+
+  width: 100%;
+
+  padding: 16px 16px 60px;
+
+  background: var(--color-surface);
+
+  border: 1px solid var(--color-outline);
+  border-radius: 20px;
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &:focus-within {
+    border-color: var(--color-main);
+    box-shadow: 0 0 0 2px var(--color-main);
+  }
+}
+
+.composer__textarea {
+  width: 100%;
+  min-height: 100px;
+  max-height: 240px;
+
+  resize: none;
+
+  padding: 0;
+
+  font: inherit;
+  line-height: 1.5;
+  color: var(--color-text);
+
+  background: transparent;
+
+  border: none;
+  outline: none;
+
+  overflow-y: auto;
+
+  @include app-scrollbar;
+
+  &::placeholder {
+    color: var(--color-gray);
+    opacity: 0.6;
+  }
+
+  &:focus-visible {
+    outline: none;
+  }
+}
+
+.composer__actions {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 12px;
+}
+
+.composer__attach {
+  @include icon-button;
+
+  gap: 8px;
+
+  padding: 8px 12px;
+
+  border-radius: 10px;
+
+  font: inherit;
+  font-size: 14px;
+  color: var(--color-gray);
+
+  & > span {
+    line-height: 1;
+  }
+
+  &:hover {
+    color: var(--color-main);
+  }
+}
+
+.composer__send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  width: 40px;
+  height: 40px;
+
+  padding: 0;
+
+  border-radius: 999px;
+
+  transition:
+    opacity 0.22s ease,
+    background-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.22s ease;
+
+  & > svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  &:disabled {
+    transform: scale(0.92);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer__send {
+    transition: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .home__examples-list {
+    grid-template-columns: 1fr;
+  }
+}
