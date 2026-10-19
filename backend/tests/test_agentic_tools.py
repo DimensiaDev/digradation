@@ -174,6 +174,21 @@ async def test_get_program_draft_returns_the_draft_the_run_saved(tool_context):
     assert result.draft.title == DRAFT_TITLE
 
 
+async def test_editing_the_draft_a_call_returned_leaves_the_saved_one_alone(tool_context):
+    """A frozen model still holds mutable lists, so the answer is a deep copy."""
+    await execute_tool(tool_context, save_call())
+
+    result = await execute_tool(tool_context, get_call())
+
+    assert isinstance(result, GetProgramDraftResult)
+    assert result.draft is not None
+    assert result.draft is not tool_context.draft
+    result.draft.summary.basis_source_ids.append("src-99")
+
+    assert tool_context.draft is not None
+    assert tool_context.draft.summary.basis_source_ids == []
+
+
 # --------------------------------------------------------------------------------------
 # sources: citations are validated against the catalog and the run's provenance
 # --------------------------------------------------------------------------------------

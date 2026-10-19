@@ -261,7 +261,7 @@ async def save_program_draft(ctx: ToolContext, arguments: ProgramDraft) -> SaveP
             error="Не профессиональные стандарты в standard_source_id: " + ", ".join(citations.not_standards),
             details=["Компетенция опирается на профстандарт: у стандарта kind = professional_standard."],
         )
-    ctx.draft = arguments.model_copy(update={"sources": citations.sources})
+    ctx.draft = arguments.model_copy(update={"sources": citations.sources}, deep=True)
 
     log.info("program_draft_validated", chat_session_id=str(ctx.session_id), sources=len(citations.sources))
     return SaveProgramDraftResult(
@@ -271,16 +271,19 @@ async def save_program_draft(ctx: ToolContext, arguments: ProgramDraft) -> SaveP
 
 
 async def get_program_draft(ctx: ToolContext, _arguments: GetProgramDraftArguments) -> GetProgramDraftResult:
-    """Return the draft this run has saved.
+    """Return a copy of the draft this run has saved.
 
     Reading the draft back is what a revision starts with, and the citations it
     just read must stay usable on the way out: the sources of the saved draft are
-    therefore counted as known to this run.
+    therefore counted as known to this run. The answer is a copy, because the
+    lists inside a frozen model are still mutable: editing what a call returned
+    must not edit the draft the context holds, which is the one already bound to
+    the catalog and about to be stored.
     """
     if ctx.draft is None:
         return GetProgramDraftResult(status=ProgramStatus.DRAFT, note="Черновик ещё не сохранён.")
     ctx.known_source_ids.update(source.id for source in ctx.draft.sources)
-    return GetProgramDraftResult(status=ProgramStatus.PENDING_APPROVAL, draft=ctx.draft)
+    return GetProgramDraftResult(status=ProgramStatus.PENDING_APPROVAL, draft=ctx.draft.model_copy(deep=True))
 
 
 #: A handler takes the context and its own arguments model, and answers a result.
