@@ -31,3 +31,24 @@ class SearchHit(BaseModel):
     page_number: int | None
     content: str
     score: float
+
+
+class IndexResult(BaseModel):
+    """Outcome of a single ``DocumentIndexer.index`` call.
+
+    Counts partition the total number of input chunks:
+    ``indexed + skipped + failed == len(chunks)`` for a non-empty input.
+    ``deleted`` is independent — it reports orphan rows pruned from the
+    store, which may include chunks left over from earlier runs.
+    """
+
+    doc_id: str
+    indexed: int = 0
+    skipped: int = 0
+    deleted: int = 0
+    failed: int = 0
+    errors: list[str] = Field(default_factory=list)
+
+    @property
+    def total(self) -> int:
+        return self.indexed + self.skipped + self.failed
