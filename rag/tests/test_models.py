@@ -1,5 +1,7 @@
 """Tests for config, errors and pydantic models."""
 
+from dataclasses import FrozenInstanceError
+
 import pytest
 from pydantic import ValidationError
 
@@ -23,14 +25,20 @@ def test_embedding_config_defaults():
 
 def test_embedding_config_frozen():
     cfg = EmbeddingConfig()
-    with pytest.raises(Exception):
-        cfg.model = "Other"  # frozen dataclass
+    with pytest.raises(FrozenInstanceError):
+        cfg.model = "Other"
 
 
 def test_store_config_defaults():
     cfg = StoreConfig()
     assert cfg.table == "rag_chunks"
     assert cfg.hnsw_m == 16
+
+
+def test_store_config_frozen():
+    cfg = StoreConfig()
+    with pytest.raises(FrozenInstanceError):
+        cfg.table = "other"
 
 
 def test_error_hierarchy():
@@ -53,7 +61,7 @@ def test_chunk_record_minimal():
 
 def test_chunk_record_requires_fields():
     with pytest.raises(ValidationError):
-        ChunkRecord(doc_id="d1")  # missing ordinal, kind, content, content_hash
+        ChunkRecord(doc_id="d1")
 
 
 def test_search_hit():
