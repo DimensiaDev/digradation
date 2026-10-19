@@ -48,6 +48,19 @@ describe('ProfileComponent', () => {
     http.expectOne(ME_URL).flush(user);
   };
 
+  it('shows the guest placeholder without requesting the avatar', () => {
+    create();
+    fixture.detectChanges();
+
+    expect(text('.profile__name')).toBe('Гость');
+    expect(text('.profile__role')).toBe('');
+    expect(profile.avatarLoading()).toBe(false);
+    expect(fixture.nativeElement.querySelector('img')?.getAttribute('src')).toBe(
+      '/assets/imgs/empty-avatar.png'
+    );
+    http.expectNone(AVATAR_URL);
+  });
+
   it('shows the full name and role label', () => {
     seedUser({
       id: 1,
@@ -78,6 +91,14 @@ describe('ProfileComponent', () => {
   });
 
   it('falls back to the empty avatar image', () => {
+    seedUser({
+      id: 1,
+      username: 'ivan',
+      first_name: null,
+      last_name: null,
+      role: 'user'
+    });
+
     create();
     http.expectOne(AVATAR_URL).flush({ avatar_url: null });
     fixture.detectChanges();
@@ -88,6 +109,14 @@ describe('ProfileComponent', () => {
   });
 
   it('resets the avatar when the image fails to load', () => {
+    seedUser({
+      id: 1,
+      username: 'ivan',
+      first_name: null,
+      last_name: null,
+      role: 'user'
+    });
+
     create();
     http.expectOne(AVATAR_URL).flush({ avatar_url: 'https://cdn/broken.png' });
     fixture.detectChanges();

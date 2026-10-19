@@ -1,12 +1,24 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  effect,
+  inject,
+  signal,
+  viewChild
+} from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
-import { LucideEye, LucideEyeOff, LucideLock, LucideUser } from '@lucide/angular';
-import { AuthService } from '../../core/services/auth.service';
-import { NotificationService } from '../../core/services/notification.service';
-import { extractApiErrorMessage } from '../../shared/utils/api-error';
-import { InputComponent } from '../../shared/components/input/input.component';
+import { Router } from '@angular/router';
+import { catchError, of } from 'rxjs';
+import { LucideEye, LucideEyeOff, LucideLock, LucideUser, LucideX } from '@lucide/angular';
+
+import { AuthModalService } from '../../../core/services/auth-modal.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { NotificationService } from '../../../core/services/notification.service';
+import { ProfileService } from '../../../core/services/profile.service';
+import { extractApiErrorMessage } from '../../utils/api-error';
+import { InputComponent } from '../input/input.component';
 
 const USERNAME_MAX_LENGTH = 32;
 
@@ -14,23 +26,28 @@ const PASSWORD_MIN_LENGTH = 8;
 const PASSWORD_MAX_LENGTH = 128;
 
 @Component({
-  selector: 'app-login-page',
-  imports: [ReactiveFormsModule, InputComponent],
-  templateUrl: './login-page.component.html',
-  styleUrl: './login-page.component.scss',
+  selector: 'app-auth-dialog',
+  imports: [ReactiveFormsModule, InputComponent, LucideX],
+  templateUrl: './auth-dialog.component.html',
+  styleUrl: './auth-dialog.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class LoginPageComponent {
+export class AuthDialogComponent {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(AuthService);
+  private readonly profile = inject(ProfileService);
   private readonly notifications = inject(NotificationService);
   private readonly router = inject(Router);
-  private readonly route = inject(ActivatedRoute);
+  private readonly modal = inject(AuthModalService);
 
   readonly userIcon = LucideUser;
   readonly lockIcon = LucideLock;
   readonly eyeIcon = LucideEye;
   readonly eyeOffIcon = LucideEyeOff;
+
+  readonly isOpen = this.modal.isOpen;
+
+  private readonly dialogRef = viewChild<ElementRef<HTMLDialogElement>>('dialogEl');
 
   readonly form = this.fb.group({
     username: ['', [Validators.required, Validators.maxLength(USERNAME_MAX_LENGTH)]],
@@ -47,18 +64,42 @@ export class LoginPageComponent {
   readonly isSubmitting = signal(false);
   readonly showPassword = signal(false);
 
-  private readonly returnUrl = this.resolveReturnUrl();
-
-  private resolveReturnUrl(): string {
-    const value = this.route.snapshot.queryParamMap.get('return');
-    if (!value || !value.startsWith('/') || value.startsWith('//')) {
-      return '/create';
-    }
-    return value;
+  constructor() {
+    effect(() => {
+      const dialog = this.dialogRef()?.nativeElement;
+      if (!dialog) {
+        return;
+      }
+      this.openDialog(dialog);
+    });
   }
 
   togglePassword(): void {
     this.showPassword.update((visible) => !visible);
+  }
+
+  close(): void {
+    // The instance outlives each open/close cycle, so clear the form here: a
+    // dismissed wrong password must not sit in memory and reappear on reopen.
+    this.resetForm();
+    this.modal.close();
+  }
+
+  onCancel(event: Event): void {
+    event.preventDefault();
+    this.close();
+  }
+
+  onNativeClose(): void {
+    if (this.modal.isOpen()) {
+      this.close();
+    }
+  }
+
+  onBackdropMouseDown(event: MouseEvent): void {
+    if (event.target === this.dialogRef()?.nativeElement) {
+      this.close();
+    }
   }
 
   submit(): void {
@@ -86,13 +127,7 @@ export class LoginPageComponent {
     this.isSubmitting.set(true);
     const { username, password } = this.form.getRawValue();
     this.auth.login(username?.trim() ?? '', password ?? '').subscribe({
-      next: () => {
-        this.isSubmitting.set(false);
-        this.notifications.success('Вы вошли в систему', {
-          description: 'Сейчас откроется рабочая область.'
-        });
-        this.router.navigate([this.returnUrl]);
-      },
+      next: () => this.completeLogin(),
       error: (err: HttpErrorResponse) => {
         this.isSubmitting.set(false);
         this.showCredentialsError();
@@ -109,6 +144,41 @@ export class LoginPageComponent {
         });
       }
     });
+  }
+
+  private completeLogin(): void {
+    this.profile
+      .fetchMe()
+      .pipe(catchError(() => of(null)))
+      .subscribe(() => this.finishLogin());
+  }
+
+  private finishLogin(): void {
+    const target = this.modal.returnUrl();
+    this.close();
+    this.notifications.success('Вы вошли в систему', {
+      description: 'Сейчас откроется рабочая область.'
+    });
+    this.router.navigateByUrl(target);
+  }
+
+  private resetForm(): void {
+    this.form.reset();
+    this.showPassword.set(false);
+    this.isSubmitting.set(false);
+  }
+
+  private openDialog(dialog: HTMLDialogElement): void {
+    if (dialog.open) {
+      return;
+    }
+    this.isSubmitting.set(false);
+    this.clearCredentialsError();
+    if (typeof dialog.showModal === 'function') {
+      dialog.showModal();
+    } else {
+      dialog.setAttribute('open', '');
+    }
   }
 
   private clearCredentialsError(): void {

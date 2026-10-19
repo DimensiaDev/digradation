@@ -1,5 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
 
 import { App } from './app.component';
 import { appConfig } from './app.config';
@@ -21,7 +24,10 @@ describe('App bootstrap pieces', () => {
   });
 
   it('creates the root component', () => {
-    const fixture = TestBed.configureTestingModule({ imports: [App] }).createComponent(App);
+    const fixture = TestBed.configureTestingModule({
+      imports: [App],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()]
+    }).createComponent(App);
     fixture.detectChanges();
     expect(fixture.componentInstance).toBeInstanceOf(App);
   });

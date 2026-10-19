@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { HeaderComponent } from '../header/header.component';
 import { Sidebar } from '../sidebar/sidebar.component';
-import type { NavItem, Role } from '../sidebar/sidebar.config';
+import type { NavItem, Role } from '../../navigation/navigation.config';
 
 @Component({
   selector: 'app-layout',
@@ -12,7 +12,13 @@ import type { NavItem, Role } from '../sidebar/sidebar.config';
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class Layout {
-  readonly navItems = input<NavItem[]>([]);
-  readonly bottomNavItems = input<NavItem[]>([]);
+  // See Sidebar: componentInputBinding turns a key the route data omits into
+  // undefined, so both lists must survive that instead of relying on defaults.
+  readonly navItems = input<NavItem[], NavItem[] | undefined>([], {
+    transform: (items) => items ?? []
+  });
+  readonly bottomNavItems = input<NavItem[], NavItem[] | undefined>([], {
+    transform: (items) => items ?? []
+  });
   readonly role = input<Role>();
 }

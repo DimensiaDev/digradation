@@ -8,7 +8,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 ## Repository shape
 
 - **`backend/` and `frontend/` are two independently installed units**: one Poetry project
-  and one npm project, plus a root `package.json` that exists *only* to provide `commitlint`
+  and one npm project, plus a root `package.json` that exists _only_ to provide `commitlint`
   to the `commit-msg` pre-commit hook. The root project has no runtime dependencies.
 - **No monorepo tool** (no npm workspaces, Nx, Turborepo, Bazel, Pants). Docker Compose is
   the sole orchestrator. The project was simple enough that workspace tooling would cost
@@ -32,7 +32,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
     must have CWD == `backend/`.
   - Service-to-service DNS only resolves inside the Compose network.
 - **Tests, by contrast, run locally.** They use `testcontainers`, so they need a Docker
-  *daemon* but not the full 13-service stack.
+  _daemon_ but not the full 13-service stack.
 - **Two override files are shipped but gitignored** (`docker-compose.override.yml`):
   - `.dev` — bind mounts for hot reload, watchers with polling forced on, and publishes
     PostgreSQL on host port **5433** so Alembic can run from the host. Not 5432: a
@@ -80,14 +80,15 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   **RabbitMQ** (`taskiq-aio-pika`, vhost `taskiq`) and results land in **Redis `/1`**.
 - **Two queues, split by cause of slowness:**
 
-  | Queue | Nature | Tasks |
-  |---|---|---|
-  | `default` | local / CPU-bound | `process_attachment`, `process_document`, `process_avatar`, `process_response`, `cleanup_old_results`, `cleanup_orphan_attachments`, `cleanup_stale_results`, `cleanup_expired_sessions` |
-  | `network` | outbound GigaChat calls | `generate_chat_message` |
+  | Queue     | Nature                  | Tasks                                                                                                                                                                                    |
+  | --------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `default` | local / CPU-bound       | `process_attachment`, `process_document`, `process_avatar`, `process_response`, `cleanup_old_results`, `cleanup_orphan_attachments`, `cleanup_stale_results`, `cleanup_expired_sessions` |
+  | `network` | outbound GigaChat calls | `generate_chat_message`                                                                                                                                                                  |
 
   **Why:** the `network` queue is bounded by external API latency. Isolating it means a slow
   or rate-limited GigaChat cannot starve attachment preparation or the cleanup crons.
   Separate worker pools (`worker_default` x2, `worker_network` x2) allow independent scaling.
+
 - **`redis://redis:6379/0` is general purpose** (cache, locks, rate limits, statuses);
   **`/1` is TaskIQ result storage only.** Confusing the two silently breaks result reads.
 - **Blocking work is always offloaded via `await asyncio.to_thread(...)`**: attachment
@@ -221,7 +222,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   have needed the same rewrite, and a second README to keep in step is a second thing to go
   stale. The product UI and the LLM prompt are Russian; the code, comments and docs are
   English. Keep new documentation in English unless it duplicates README content.
-- **`AGENTS.md` documents *how*; `.context/` documents *why*.** Keeping them separate stops
+- **`AGENTS.md` documents _how_; `.context/` documents _why_.** Keeping them separate stops
   the harness from bloating with rationale and the context files from going stale.
 - **The `responses={...}` convention is now repo-wide, not chat-only.** `AGENTS.md` still
   describes it as a chat-route pattern; as of 2026-10-03 (issue #44) every route in
@@ -237,7 +238,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 ## Attachment filename filtering (2026-10-03)
 
 - **The upload route validates the filename, not just the content type.** `POST
-  /chats/{id}/uploads` checked `content_type` and `file_size` but accepted any `filename`, and
+/chats/{id}/uploads` checked `content_type` and `file_size` but accepted any `filename`, and
   that string is copied into the S3 key by `get_s3_attachment_key`, stored in
   `attachments.name`, handed back to the browser by the download route, and passed to
   GigaChat as the upload filename. Two rules close it, both as 400s beside the existing ones
@@ -251,8 +252,8 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   `.sh` or `.html` while the object is declared `application/pdf`, which is what
   `process_attachment` dispatches on. Extensions are compared case-insensitively because
   `get_s3_attachment_key` lowercases the suffix it writes.
-- **The extension is *not* paired with the content type.** Enforcing `".pdf" implies
-  application/pdf` would be a stronger guarantee, but nothing in the pipeline reads the
+- **The extension is _not_ paired with the content type.** Enforcing `".pdf" implies
+application/pdf` would be a stronger guarantee, but nothing in the pipeline reads the
   extension — the Content-Type on the stored object is what selects the processor — so the
   pairing would add a rule with no consumer behind it. Deliberately left out; revisit if a
   consumer ever starts trusting the suffix.
@@ -294,7 +295,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 ## Attachment listing and deletion (2026-10-03, issue #47)
 
 - **One listing endpoint reports upload state; no new state is invented.** `GET
-  /chats/{id}/attachments` returns every `Attachment` row of the session, with the Redis
+/chats/{id}/attachments` returns every `Attachment` row of the session, with the Redis
   `attachment:{id}:status` value in `status`. The statuses `upload_file`,
   `pdf_upload_cleanup` and `_redis_error` already write (`uploading`, `processing`,
   `completed`, `error`) are the whole vocabulary; a second, parallel notion of "what is
@@ -329,6 +330,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   because the ownership entry is gone and `verify_attachment_id` refuses the id, and the key
   expires with its TTL. Making it airtight would mean a tombstone the workers consult; not
   worth it for a file the user has just removed.
+
 ## Admin system prompt editing (2026-10-06)
 
 The admin settings page edits the system prompt over `GET/PUT /api/v1/admin/system-prompt`
@@ -370,7 +372,7 @@ chat (`isResultsOpen`, host class binding, opacity/visibility staging, reduced-m
 - **The aside is `overflow: visible` only when open** (hidden while closed for the animation):
   the role `app-select` renders its dropdown as inline `position: absolute`, which a permanent
   `overflow: hidden` would clip. Below 900px the host stacks to one column and the closed
-panel is `display: none`, otherwise its invisible content would hold open an empty grid row.
+  panel is `display: none`, otherwise its invisible content would hold open an empty grid row.
 
 ## Admin-editable system prompt extension (2026-10-09, issue #64)
 
@@ -463,7 +465,7 @@ styling was extracted into `frontend/src/app/shared/components/table/` instead o
 duplicated per page.
 
 - The component is deliberately **dumb about data**: it renders `TableColumn<T>[]` and
-  rows, and only *reports* sort intent through the `sort` model — it never sorts itself.
+  rows, and only _reports_ sort intent through the `sort` model — it never sorts itself.
   The users page sorts client-side (its data is one unpaginated list), the history page
   re-queries the server (`sort`/`order` on `GET /chats`), and both keep their comparators.
 - Custom cells (avatars, badges, action buttons, links) are projected via
@@ -602,7 +604,7 @@ belongs entirely to the history page.
 
 The user sidebar menu was replaced with the product's own vocabulary: Главная, Мои
 программы and Библиотека in the main list, with Настройки and Помощь pinned at the bottom.
-The list is configured in `sidebar.config.ts` and the top vs bottom split is a new
+The list is configured in `navigation.config.ts` (formerly `sidebar.config.ts`) and the top vs bottom split is a new
 `bottomNavItems` input that flows through `Layout` and route `data`.
 (`USER_BOTTOM_NAV_ITEMS` later gained Настройки, which moved down from the main list.)
 
@@ -657,7 +659,7 @@ toasts gained an optional second line.
 - **`Notification` gained an optional `description`.** Meaningful action results and errors
   set one; terse field validations and pure info toasts deliberately do not, to avoid noise.
 - **`errorOnce` takes an options object** — `errorOnce(message, { windowMs?, description?,
-  persistent? })` — instead of a bare `windowMs` number, so the deduped interceptor errors can
+persistent? })` — instead of a bare `windowMs` number, so the deduped interceptor errors can
   carry a description like every other call.
 
 ## Page header, profile component and a shared icon-button class (2026-10-18)
@@ -674,10 +676,9 @@ the profile, and the icon-button hover mechanism was extracted out of two duplic
   5s auto-dismiss has fired. A real notification centre (persistent history) is a separate
   feature; this is deliberately just a surface over the current toasts.
 - **Sign-out moved into the profile dropdown.** The menu holds a `/profile` link and a red
-  `Выход` action that calls `AuthService.logout()`, clears `ProfileService`, toasts, and
-  navigates to `/login` (mirroring the removed sidebar card). Sign-out had been homeless since
-  the sidebar card went; it now lives here. The e2e `signs out` spec is still to be restored to
-  drive it through the header.
+  `Выход` action that calls `AuthService.logout()`, clears `ProfileService` and toasts.
+  Sign-out had been homeless since the sidebar card went; it now lives here. It no longer
+  redirects; see the guest-mode note on staying in place.
 - **The profile dropdown reuses the toasts, not its own store.** It reads the same
   `NotificationService`, so a real notification centre is still a separate feature.
 - **`ProfileComponent` is new, not the resurrected sidebar card.** The sidebar deleted its own
@@ -716,7 +717,6 @@ A review pass over `core/` + `shared/` fixed a batch of accessibility and themin
 - **`AGENTS.md` no longer documents a `ChatService.historyVersion` signal.** No such signal
   exists; the real list-refresh idiom is a per-component local request-id counter, which the
   section now describes.
-
 
 ## Base-layer cleanup: icon buttons, textareas, file types (2026-10-18)
 
@@ -817,7 +817,7 @@ the service's own state transitions.
   out of the dev and e2e overrides means a developer's stack never carries settings it
   cannot use.
 - **The workflow must re-expose the `ACTIONS_*` variables itself.** The runner hands them
-  to an *action*, not to a `run` step, so a `docker compose up --build` from a shell step
+  to an _action_, not to a `run` step, so a `docker compose up --build` from a shell step
   sees none of them, and Buildx drops the cache entries silently instead of failing. That
   is why `e2e.yml` runs `crazy-max/ghaction-github-runtime` before `setup.sh`. The first
   run of PR #21 had the cache file but not the action: everything rebuilt from scratch and
@@ -832,7 +832,7 @@ the service's own state transitions.
 - **`SBER_API_SCOPE` now doubles as the provider selector**, because the OpenAI client is
   not GigaChat and a scope of `PERS`/`B2B`/`CORP` says nothing about which SDK to use. The
   mapping is in `containers.py`: `mock` -> `MockProvider`, then `openai` -> `OpenAIProvider`,
-  everything else -> `SberProvider`. The mock check comes first *and* `SBER_API_KEY=mock`
+  everything else -> `SberProvider`. The mock check comes first _and_ `SBER_API_KEY=mock`
   also wins, so the test and e2e stacks that only pin the key keep working even if a
   developer's `.env` leaves the scope at `openai`; the ordering is load-bearing, not
   cosmetic. The alternative — a separate `PROVIDER` variable — would have left two knobs
@@ -855,7 +855,7 @@ the service's own state transitions.
 - **The internal content-parts format flattens to a single string on the OpenAI wire.**
   GigaChat takes structured file references in a message; the OpenAI chat-completions shape
   does not, so file parts are dropped and text parts joined with a newline. Attachments are
-  still uploaded through the files API (``upload``), but a message cannot cite them yet.
+  still uploaded through the files API (`upload`), but a message cannot cite them yet.
   This is the one place the two providers genuinely differ, and it is documented in the
   module docstring rather than hidden in a converter.
 - **`ResponseFormat` maps to `json_schema` only for the schema type**, with the schema
@@ -884,7 +884,7 @@ the service's own state transitions.
   `tool_calls` array. `SberProvider` translates both directions so callers keep seeing the
   internal `Tool` / `ToolCall` models.
 - **`ContentFunctionCall` normalises `arguments` from an object to a JSON string.** The
-  schema says "JSON wrapped in a string", but the live API returns a JSON *object*; OpenAI
+  schema says "JSON wrapped in a string", but the live API returns a JSON _object_; OpenAI
   returns a string. Accepting both in a `mode="before"` validator is cheaper than two
   response paths, and it matches the internal `FunctionCall.arguments: str`.
 - **`Content.text` defaults to `""` and `ToolCall.id` is optional.** A v2 function-call
@@ -918,11 +918,11 @@ the service's own state transitions.
 `feat/gen-cicle` differs from `main` only in `backend/app/agentic/` and `tests/test_agentic_*`,
 and the package imports nothing outside itself and `app/providers/models.py`:
 
-| File | Holds |
-|---|---|
-| `app/agentic/models.py` | the АЦР programme schema: the blocks of the final document, validated |
+| File                     | Holds                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| `app/agentic/models.py`  | the АЦР programme schema: the blocks of the final document, validated               |
 | `app/agentic/sources.py` | the catalog seam — `SourceFragment`, `get_source`, `search` — over an empty catalog |
-| `app/agentic/tools.py` | the tool specifications and their handlers |
+| `app/agentic/tools.py`   | the tool specifications and their handlers                                          |
 
 - **The schema is the documented validation diagram, as the branch's first commit implemented
   it.** The later refinements of the draft — `requested_hours`, the hour-ceiling rule, the
@@ -1006,3 +1006,118 @@ implementing them now would have re-done a zone this branch deliberately does no
 - **A save needs no idempotency key inside one context.** The context lives in memory for one
   worker run and calls execute sequentially, so an older save cannot land after a newer one;
   ordering is the loop's business (#26) and the upsert is the worker's (block F3).
+
+## Guest mode: the panel is browsable, protected sections ask for a login (2026-10-18, #17)
+
+The panel used to be unreachable without a session: `authGuard` on the whole user tree, a
+`publicGuard`-protected `/login`, and the error interceptor bouncing an expired session to it.
+A visitor could see nothing before signing in. Guest mode replaces all of that.
+
+- **The session is resolved once at startup, not per navigation.**
+  `provideAppInitializer(() => inject(ProfileService).ensureSession())` resolves `GET /users/me`
+  before the first render and never errors, so bootstrap is never blocked by a failed fetch.
+  A 401 resolves to `null` silently — that is the legitimate "no session" answer. Any other
+  failure (network, 5xx) also resolves to `null` because the app must still render, but it is
+  not the same thing as being a guest, so `ensureSession` raises a "Не удалось проверить
+  сессию" toast rather than passing the failure off as a guest shell. This is also what lets
+  `adminGuard` take a plain synchronous path: once `sessionChecked()` is true the guard only
+  reads `user()`. It keeps an async `fetchMe()` fallback for the case where the session is
+  still unresolved, so the guard does not depend on the initializer staying blocking.
+  The cost is one request on every reload, guest or not.
+- **A guest is a first-class state, not an error path.** There is no registration anywhere in
+  the product (accounts are created by an admin), so the only action a guest has is signing in.
+  `ProfileService.user() === null` after `sessionChecked()` is the whole definition.
+- **`/login` became a dialog.** `AuthModalService.open(returnUrl?)` drives one native `<dialog>`
+  mounted in the root shell; it remembers a sanitised return url (leading `/`, not `//`), and
+  after a successful login refreshes the profile, closes, toasts and restores the url. The
+  header, the gate prompt and future surfaces share it instead of navigating the user away.
+  The dialog is rendered under `@if (isOpen())` exactly to keep its form controls out of the
+  document while closed — see `LESSONS.md`. Escape closes it through the native `cancel` event
+  and the "Войти" button drives `ngSubmit`; Enter in either field is the browser's implicit
+  submission, so there is deliberately no `keydown.enter` handler. Both are proven end-to-end in
+  `auth.spec.ts`, not in jsdom, which cannot emulate them (see `LESSONS.md`).
+- **The guest chip opens the dialog directly, without a menu.** A guest's profile menu held a
+  single "Войти" item — a dropdown that exists to be clicked once. `toggleProfile()` routes a
+  guest straight to `AuthModalService.open()`; the chip's accessible name becomes "Войти в
+  аккаунт" and it drops `aria-expanded`/`aria-controls` (there is no popup to control),
+  keeping only `aria-haspopup="dialog"`. The profile menu itself (Профиль, Выход) renders
+  only for a signed-in user.
+- **Protected routes are wrapped, not guarded.** A pathless `AuthGate` renders the child routes
+  for a signed-in user and, for a guest, an inline prompt in the page content whose "Войти"
+  button opens the shared sign-in dialog. The url is preserved, and the prompt is the only
+  thing a guest sees there: the gate itself never raises a modal. Deliberate — the product
+  asked for exactly one popup (the sign-in window) and for the "Требуется вход" message to
+  live in the content. `/home` and `/help` are public with real routes, and `**` falls back to `/home`, so
+  every sidebar link resolves.
+- **A 401 no longer navigates.** The error interceptor reports the rejection on
+  `SessionEventsService.unauthorized$` instead of reaching into `ProfileService` directly —
+  that would close the `ProfileService -> HttpClient -> interceptor -> ProfileService` loop,
+  which only resolves today because the interceptor's inject is lazy. `ProfileService`
+  subscribes and calls `clear()`, the interceptor shows the toast once, and the gate or the
+  header offer the dialog. `clear()` marks the session checked, so the shell re-renders as a
+  guest instead of waiting on a fetch that will fail again.
+- **Sign-out stays in place.** `HeaderComponent.logout()` clears the profile and toasts but does
+  not navigate. The page a user logs out from keeps its url; if it was protected the `AuthGate`
+  swaps in the "Требуется вход" prompt, the same thing a guest sees on arrival. Sending them to
+  `/home` threw away their location and made the gate's url-preserving behaviour pointless.
+- **The sidebar is deliberately untouched.** Items stay enabled and clickable; `programs` and
+  `library` render `SectionPlaceholder` behind the gate so a guest discovers the sections'
+  existence. Locks or disabled items were explicitly rejected: the prompt explains, a lock does
+  not.
+- **The guest profile chip never fires the avatar request.** `ProfileService.loadAvatar()` and
+  `resetAvatar()` short-circuit for a guest, and `ProfileComponent` drives them from an effect
+  on `user()` rather than `ngOnInit`, so a login or logout mid-session re-loads or clears the
+  avatar without a remount.
+
+## Route transitions are CSS view transitions on `main` (2026-10-18)
+
+Switching sidebar sections should read as a move, not a replace. The work rides on the
+browser's View Transitions API through `withViewTransitions()` in `app.config.ts` — no new
+dependency and no wrapper element.
+
+- **`skipInitialTransition: true`, direction decided in `onViewTransitionCreated`.** The
+  callback runs before the DOM swap, so the old page is `router.url` and the target is
+  `router.getCurrentNavigation()?.finalUrl?.toString()`. The direction is the sign of the
+  index delta between the two sections, with the order derived from the shared item lists
+  (`USER_NAV_ITEMS`, `USER_BOTTOM_NAV_ITEMS`, `ADMIN_NAV_ITEMS`), so a down-move
+  animates down and an up-move animates up without a second source of truth. The lists live
+  in `shared/navigation/navigation.config.ts`, not in the sidebar component folder, so a
+  `shared/utils` module does not import from `shared/components`; the sidebar, Layout and the
+  router all read the same config instead.
+- **The named element is `main` in the layout, not a wrapper.** `view-transition-name:
+router-content` sits on the layout's `<main>`. A wrapper element was rejected because the
+  chat page relies on `:host { height: 100% }` and collapses inside an auto-height wrapper.
+- **The root group is deliberately not animated.** `::view-transition-old(root)` /
+  `new(root)` get `animation: none`; the default cross-fade would animate the whole page,
+  sidebar and header included, on every navigation.
+- **The trigger appends nothing to the DOM.** Direction travels as
+  `document.documentElement.dataset['navDirection']`, cleaned up in `transition.finished` —
+  guarded so a newer direction set mid-flight is not wiped by the previous transition.
+- **Query-only navigations and reduced motion skip the animation.** Search/filter changes
+  are not section switches; `prefers-reduced-motion` disables the keyframes wholesale.
+- **Sections the sidebar cannot rank cross-fade, they do not slide.** `/create`, `/chats` and
+  `/profile` are outside the item order, so the delta is undefined and the direction is
+  `'none'`. The base `::view-transition-*(router-content)` rules carry the neutral fade and
+  only `[data-nav-direction='forward'|'backward']` swap in the sliding keyframes — otherwise
+  `'none'` would inherit the forward slide and read as a move that never happened.
+
+## The layout shell is a column flex container (2026-10-18)
+
+The auth gate prompt wanted the free space under the header and asked for it with
+`min-height: calc(100dvh - 80px)`. The header is 83px tall (12px padding, 1px border, a
+46px avatar), so the prompt overshot the viewport by exactly 3px and every gated route
+showed a scrollbar with nothing to scroll to.
+
+- **`main` is `display: flex; flex-direction: column`.** The prompt is
+  `flex: 1 1 auto` with `min-height: 0` and the header is `flex-shrink: 0`, so the browser
+  computes "the rest of the viewport" from the header's real height. No arithmetic, no
+  constant to keep in sync with the avatar size.
+- **Every routed page is pinned with `flex: 0 0 auto`.** A routed host defaults to
+  `flex-shrink: 1`, so the chat page (720px) and the long admin tables would have been
+  squashed inside a 720px `main`. The rule lives in `styles.scss` as
+  `main router-outlet + *` because the routed host is not part of the layout's template and
+  emulated encapsulation cannot reach it.
+- **The chat page's own 83px overflow is acknowledged, not fixed.** `:host { height: 100% }`
+  is 100% of `main`, header included, so that page still scrolls by the header height. It
+  predates this change and needs its internal `calc(100dvh - 40px)` reworked, which is a
+  separate piece of work.

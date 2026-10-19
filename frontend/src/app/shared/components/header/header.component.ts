@@ -8,8 +8,9 @@ import {
   inject,
   signal
 } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { LucideBell } from '@lucide/angular';
+import { AuthModalService } from '../../../core/services/auth-modal.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { NotificationService } from '../../../core/services/notification.service';
 import { ProfileService } from '../../../core/services/profile.service';
@@ -24,11 +25,12 @@ import { ProfileComponent } from '../profile/profile.component';
 })
 export class HeaderComponent {
   private readonly auth = inject(AuthService);
+  private readonly authModal = inject(AuthModalService);
   private readonly notificationService = inject(NotificationService);
   private readonly profileService = inject(ProfileService);
-  private readonly router = inject(Router);
   private readonly elementRef = inject(ElementRef<HTMLElement>);
 
+  readonly user = this.profileService.user;
   readonly notifications = this.notificationService.notifications;
   readonly notificationsCount = computed(() => this.notifications().length);
 
@@ -42,6 +44,11 @@ export class HeaderComponent {
   }
 
   toggleProfile(): void {
+    if (!this.user()) {
+      this.openAuthModal();
+      return;
+    }
+
     this.notificationsOpen.set(false);
     this.profileOpen.update((open) => !open);
   }
@@ -49,6 +56,11 @@ export class HeaderComponent {
   closeMenus(): void {
     this.notificationsOpen.set(false);
     this.profileOpen.set(false);
+  }
+
+  openAuthModal(): void {
+    this.closeMenus();
+    this.authModal.open();
   }
 
   logout(): void {
@@ -63,7 +75,8 @@ export class HeaderComponent {
         this.loggingOut.set(false);
         this.profileService.clear();
         this.notificationService.info('Вы вышли из аккаунта');
-        this.router.navigate(['/login']);
+        // Deliberately no redirect: the current page stays, and the AuthGate
+        // swaps in the sign-in prompt if the route was protected.
       },
       error: (err: unknown) => {
         this.loggingOut.set(false);

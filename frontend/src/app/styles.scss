@@ -176,6 +176,16 @@ a {
   gap: 15px;
 }
 
+// `main` is a column flex container (see layout.component.scss), so a routed
+// page is a flex item and would shrink once its content overflows the
+// viewport. Pin every routed page to its natural height instead, so each one
+// keeps the exact box it had when `main` was a block container. The auth gate
+// prompt is deliberately excluded: it is hoisted into `main` by `display:
+// contents` and sizes itself with `flex: 1 1 auto`.
+main router-outlet + * {
+  flex: 0 0 auto;
+}
+
 .card {
   background: var(--color-surface);
 
@@ -185,6 +195,100 @@ a {
   padding: 50px;
 
   &--shadow {
-    box-shadow: 0px 20px 60px var(--color-main-shadow);
+    box-shadow: 0px 12px 36px var(--color-main-shadow);
+  }
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-group(router-content) {
+  animation-duration: 320ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::view-transition-old(router-content) {
+  animation: router-content-fade-out 200ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+::view-transition-new(router-content) {
+  animation: router-content-fade-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both 40ms;
+}
+
+// The base animation is the neutral fade. Sections outside the sidebar order
+// (create, chats, profile) get `navDirection = 'none'` and no override, so
+// they cross-fade instead of sliding as if they were sidebar neighbours.
+html[data-nav-direction='forward'] {
+  &::view-transition-old(router-content) {
+    animation-name: router-content-out;
+  }
+
+  &::view-transition-new(router-content) {
+    animation-name: router-content-in;
+  }
+}
+
+html[data-nav-direction='backward'] {
+  &::view-transition-old(router-content) {
+    animation-name: router-content-out-back;
+  }
+
+  &::view-transition-new(router-content) {
+    animation-name: router-content-in-back;
+  }
+}
+
+@keyframes router-content-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes router-content-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes router-content-out {
+  to {
+    opacity: 0;
+    translate: 0 -20px;
+    scale: 0.99;
+  }
+}
+
+@keyframes router-content-in {
+  from {
+    opacity: 0;
+    translate: 0 24px;
+    scale: 0.99;
+  }
+}
+
+@keyframes router-content-out-back {
+  to {
+    opacity: 0;
+    translate: 0 20px;
+    scale: 0.99;
+  }
+}
+
+@keyframes router-content-in-back {
+  from {
+    opacity: 0;
+    translate: 0 -24px;
+    scale: 0.99;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
   }
 }

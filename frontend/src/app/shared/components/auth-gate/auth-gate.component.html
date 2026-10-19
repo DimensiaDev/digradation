@@ -1,0 +1,7 @@
+@if (user()) {
+  <router-outlet />
+} @else {
+  <div class="auth-gate__prompt">
+    <app-login-prompt />
+  </div>
+}

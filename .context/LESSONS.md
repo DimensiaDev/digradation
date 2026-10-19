@@ -694,20 +694,88 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   config. **Symptom to recognise: a generated file that a hook "fixes" differently on every
   run.** Note also that `scripts/precommit-*.py` pass `check=False`, so these hooks modify
   files without ever failing the commit they belong to.
-- **Buildx drops a `type=gha` cache entry silently when the `ACTIONS_*` variables are
-  missing.** Buildx fills the cache token and URL from `ACTIONS_RUNTIME_TOKEN` and the cache
-  URL in its own process environment, and the runner injects those into an *action*, not
-  into a `run` step. So `cache_from` / `cache_to` in `docker-compose.build-cache.yml` were
-  inert while the build looked perfectly healthy: no import, no export, no warning. The fix
-  is `crazy-max/ghaction-github-runtime` before the shell steps. **Verify with an
-  `importing cache manifest from gha` line in the build log, never by the build
-  succeeding.** Found 2026-10-18 on PR #21.
-- **Bake is the code path that carries `cache_from` / `cache_to`; the classic builder
-  ignores both.** `buildWithBake` reads `COMPOSE_BAKE` and, in 2.38.2, an *unset* variable
-  means `true`; earlier releases defaulted to the classic path. `e2e.yml` sets
-  `COMPOSE_BAKE=true` explicitly so the fallback cannot happen on an older runner either,
-  and `#1 [internal] load local bake definitions` in the log proves Bake ran. Found
-  2026-10-18 on PR #21.
+- **A closed `<dialog>` kept in the DOM still contributes its form controls to the document.**
+  The sign-in dialog was mounted permanently and hidden with `display: none`, which did not stop
+  Playwright strict mode from resolving `#username` to two elements: the hidden dialog input and
+  the admin user form's own `#username`. Four admin specs failed with a strict-mode violation
+  that never shows up in the browser. Fixed by rendering the dialog under `@if (isOpen())`.
+  **Hidden form markup is still duplicate markup; scoping the specs would only have hidden the
+  duplicate ids.** (2026-10-18)
+- **jsdom implements `<dialog>` without `showModal`/`close`, and that is the environment CI runs
+  in.** Every dialog needs the two-line fallback (`showModal` exists ? `showModal()` :
+  `setAttribute('open', '')`) or its unit specs cannot even prove it opens. The real-browser path
+  is covered by e2e, not by the unit suite. (2026-10-18)
+- **A click handler on `<dialog>` trips `@angular-eslint/template/click-events-have-key-events`.**
+  Use `(mousedown)` for the backdrop press: Escape already closes a modal dialog natively, and
+  the rule only watches click events — no `eslint-disable` needed (the repo has none). (2026-10-18)
+- **Guest mode puts several "Войти" buttons on screen at once** (the gate prompt and the
+  sign-in dialog submit; the header chip is a third entry point, labelled "Войти в аккаунт"),
+  so a bare Playwright `getByRole("button", { name: "Войти" })` violates strict mode. Scope
+  lookups by their container: `page.locator(".login-prompt")` for the gate prompt and
+  `getByRole("dialog", { name: "Вход в аккаунт" })` for the dialog. (2026-10-18)
+- **`provideAppInitializer` blocks the initial navigation, so route guards may be synchronous.**
+  The default `enabledBlocking` navigation waits for initializers, so `adminGuard` reads
+  `ProfileService.user()` without a fetch, a `catchError` or a race. The same guarantee applies
+  to anything added to the initializer — and so does the cost: every reload waits for it.
+  (2026-10-18)
+- **`withComponentInputBinding` writes every declared input from the route data, and a key
+  the data omits arrives as `undefined` — wiping the input's default.** The admin routes
+  never carried `bottomNavItems`, so the sidebar read `undefined.length` in its template on
+  every change detection that touched it, the cycle aborted, and interactions later in the
+  same cycle silently never rendered — the admin role select stayed open over the save
+  button and two e2e tests timed out. The fix is not route data: the inputs run a
+  `transform: (v) => v ?? []` so the lists stay arrays whoever binds them. (2026-10-18)
+- **The layout's `main` is the scroll container (`overflow-y: auto`), not the window.**
+  Playwright scrolls it while clicking, and the select closes any dropdown whose trigger
+  scrolls out of view — the admin user form is taller than the viewport, so the two fought
+  and the listbox detached mid-click. Drive such selects from the keyboard in e2e
+  (`ArrowDown` + `Enter` — a first-class path of the component); it touches no scrolling and
+  no hit-testing. (2026-10-18)
+- **`::view-transition-old(root)` / `new(root)` cross-fade the entire page by default.**
+  Without `animation: none` on the root pair, naming one element does not stop the sidebar
+  and header from fading on every navigation. Only the named-element pair should carry
+  keyframes. (2026-10-18)
+- **A `calc(100dvh - Npx)` "fill the rest of the viewport" rule is a bet on a number that no
+  one owns.** `min-height: calc(100dvh - 80px)` on the auth gate missed the header's real
+  83px (its height comes from the avatar, not from a constant) and produced a 3px scrollbar
+  on every gated route. Let the layout hand the space over instead: `main` is a column flex
+  container, the header is `flex-shrink: 0`, the filler is `flex: 1 1 auto; min-height: 0`.
+  Check the free space at more than one viewport size. (2026-10-18)
+- **"These two icons are a slightly different colour" is usually a stroke-width illusion.** The
+  sidebar's collapse and theme buttons both resolved `color` to `--sidebar-muted`
+  (`rgb(148,163,184)`, byte-identical), yet looked different: Lucide's stroke is 2 _viewBox_
+  units, so a `size="20"` icon drew a 1.67px stroke where a `size="18"` one drew 1.5px, and the
+  thinner stroke antialiases lighter against the sidebar. Compare the rendered stroke px
+  (`size / 24 × 2`) before reaching for the colour token. (2026-10-18)
+- **`(keydown.enter)="submit()"` on an input inside a `<form>` fires the submit twice.** The
+  browser also implicit-submits the form on Enter (there is a `type="submit"` button), so
+  `ngSubmit` runs `submit()` a second time in the same keystroke. A valid form hides it because
+  the first call sets `isSubmitting`; an invalid form does not, and both calls raise the
+  validation toast. Rely on the native implicit submission and drop the extra handler — the
+  admin user form already does. Guarded by a spec that dispatches `keydown` then `submit`.
+  (2026-10-18)
+- **`@if (isOpen())` around a `<dialog>` hides it, but the component instance and its reactive
+  form outlive the cycle.** Resetting the form only in the success path left a dismissed wrong
+  password in memory, re-rendered on the next open. Clear it on every close path (button,
+  Escape, backdrop, native `close`) — centralise them through one `close()` that resets first.
+  (2026-10-18)
+- **An HTTP interceptor that injects the service which owns `HttpClient` is a latent NG0200.**
+  `ProfileService -> HttpClient -> errorInterceptor -> ProfileService` resolved only because
+  the interceptor's `inject()` runs per request (the service is already constructed). It stays
+  a cycle, so an eager `inject` added anywhere on that path detonates it. Report the event on a
+  dependency-free carrier (`SessionEventsService.unauthorized$`) and let the owner subscribe.
+  (2026-10-18)
+- **jsdom's `HTMLDialogElement` exposes only `open`.** `showModal` and `close` do not exist on it,
+  so a unit test never opens a modal dialog: `openDialog` falls through to `setAttribute('open')`,
+  and calling `dialog.close()` in app code throws `close is not a function` and takes the whole
+  submit path down with it. Do not paper over that with a `typeof dialog.close === 'function'`
+  guard — the dialog's Escape and Enter behaviour cannot be asserted in jsdom at all and belongs
+  in `auth.spec.ts`. (2026-10-18)
+- **A stale test count is not fixed by refreshing it.** `PROJECT_STATE.md` carried test counts
+  and coverage figures that a branch dutifully updated, in the same file whose footer says they
+  are deliberately not recorded — the two paragraphs then contradicted each other. When you
+  touch a figure `AGENTS.md` §6 forbids, delete it and point at where the gate lives, not at a
+  newer number. (2026-10-18)
 
 ## Providers and live API tests
 
@@ -761,7 +829,7 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
 - **The Angular CLI's first-run analytics prompt aborts an `ng` run, and it first bites inside
   the pre-push hook.** `vitest-coverage` runs `npx ng test`; on a machine whose CLI has never
   been asked, the "share pseudonymous usage data?" question aborted the run (`User force
-  closed the prompt with 0 null`, hook exit 127) and the push died before anything was sent.
+closed the prompt with 0 null`, hook exit 127) and the push died before anything was sent.
   `SKIP=vitest` does not prevent it: the hook ids are `vitest-coverage` and
   `pytest-coverage`, and there is no plain `vitest` hook. The remedy is per machine: answer
   it once (`npx ng analytics disable` in `frontend/`, or `NG_CLI_ANALYTICS=false`); a

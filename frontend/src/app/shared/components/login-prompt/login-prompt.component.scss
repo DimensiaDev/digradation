@@ -1,0 +1,37 @@
+.login-prompt {
+  width: min(520px, 100%);
+
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+
+  text-align: center;
+
+  &__icon {
+    display: grid;
+    place-items: center;
+
+    width: 72px;
+    aspect-ratio: 1 / 1;
+
+    color: var(--color-main);
+    background: color-mix(in srgb, var(--color-main) 12%, var(--color-surface));
+    border-radius: 50%;
+  }
+
+  &__content {
+    display: grid;
+    gap: 10px;
+  }
+
+  &__text {
+    max-width: 380px;
+    line-height: 1.5;
+
+    color: var(--color-gray);
+  }
+
+  &__button {
+    width: 75%;
+  }
+}

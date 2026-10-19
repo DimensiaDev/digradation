@@ -7,36 +7,43 @@ import {
   withInterceptors
 } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideRouter } from '@angular/router';
 import { Observable } from 'rxjs';
 
 import { errorInterceptor } from './error.interceptor';
 import { SKIP_AUTH_ERROR_HANDLING } from './skip-auth-error-handling';
 import { NotificationService } from '../services/notification.service';
+import { ProfileService } from '../services/profile.service';
 import { environment } from '../../../environments/environment';
+import { User } from '../models/models';
 
 const ME_URL = `${environment.apiUrl}/users/me`;
 const LOGIN_URL = `${environment.apiUrl}/auth/login`;
+
+const testUser: User = {
+  id: 1,
+  username: 'ivan',
+  first_name: null,
+  last_name: null,
+  role: 'user'
+};
 
 describe('errorInterceptor', () => {
   let http: HttpTestingController;
   let httpClient: HttpClient;
   let notifications: NotificationService;
+  let profile: ProfileService;
 
   const failed = (source: Observable<unknown>): Promise<HttpErrorResponse> =>
     new Promise((resolve) => source.subscribe({ error: resolve }));
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [
-        provideRouter([{ path: 'login', children: [] }]),
-        provideHttpClient(withInterceptors([errorInterceptor])),
-        provideHttpClientTesting()
-      ]
+      providers: [provideHttpClient(withInterceptors([errorInterceptor])), provideHttpClientTesting()]
     });
     http = TestBed.inject(HttpTestingController);
     httpClient = TestBed.inject(HttpClient);
     notifications = TestBed.inject(NotificationService);
+    profile = TestBed.inject(ProfileService);
   });
 
   afterEach(() => {
@@ -88,7 +95,11 @@ describe('errorInterceptor', () => {
     expect(notifications.notifications()[0].message).toBe('Не удалось связаться с сервером');
   });
 
-  it('notifies about an unauthorized response and redirects to login', async () => {
+  it('clears the profile and notifies about an unauthorized response', async () => {
+    profile.fetchMe().subscribe();
+    http.expectOne(ME_URL).flush(testUser);
+    expect(profile.user()).not.toBeNull();
+
     const error = failed(httpClient.get(ME_URL));
 
     http
@@ -96,6 +107,8 @@ describe('errorInterceptor', () => {
       .flush({ detail: 'Unauthorized' }, { status: 401, statusText: 'Unauthorized' });
 
     expect((await error).status).toBe(401);
+    expect(profile.user()).toBeNull();
+    expect(profile.sessionChecked()).toBe(true);
     expect(notifications.notifications()[0].message).toBe('Вы не авторизованы');
   });
 

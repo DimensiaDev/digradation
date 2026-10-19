@@ -6,7 +6,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter, Router, Routes } from '@angular/router';
 
 import { Layout } from './layout.component';
-import { USER_NAV_ITEMS } from '../sidebar/sidebar.config';
+import { USER_NAV_ITEMS } from '../../navigation/navigation.config';
 import { environment } from '../../../../environments/environment';
 
 const AVATAR_URL = `${environment.apiUrl}/users/me/avatar`;
