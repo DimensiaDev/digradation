@@ -1,0 +1,52 @@
+name: RAG CI
+
+on:
+  pull_request:
+    paths: ["rag/**"]
+  push:
+    branches: [main]
+    paths: ["rag/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rag:
+    name: Format, lint, test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rag
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry/virtualenvs
+          key: poetry-rag-${{ runner.os }}-${{ hashFiles('rag/poetry.lock') }}
+          restore-keys: |
+            poetry-rag-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: poetry install --no-root
+
+      - name: Format check (black)
+        run: poetry run black --check .
+
+      - name: Lint (ruff)
+        run: poetry run ruff check .
+
+      - name: Test (pytest)
+        run: poetry run pytest .

@@ -1,14 +1,17 @@
 """In-memory vector store — MVP fallback and test double.
 
-No external dependencies (no numpy, no sqlalchemy). Cosine similarity is
-computed in pure Python; good enough for thousands of chunks, which is
-the scale of the current demo dataset. Production uses PgVectorStore.
+Uses numpy for cosine similarity and for the ``search`` hot path: all
+stored embeddings are stacked into an ``(N, D)`` matrix and scored with a
+single ``matrix @ query`` matmul. For the current dataset (~250 chunks)
+this is sub-millisecond; it also mirrors what ``pgvector`` does under
+the hood.
 """
 
 import copy
-import math
 from collections.abc import Iterable
 from dataclasses import dataclass
+
+import numpy as np
 
 from ..errors import StoreError
 from ..models import ChunkRecord, SearchHit
@@ -17,20 +20,26 @@ from ..models import ChunkRecord, SearchHit
 @dataclass
 class _Entry:
     chunk: ChunkRecord
-    vector: list[float]
+    vector: np.ndarray
     fingerprint: str
 
 
-def _cosine(a: list[float], b: list[float]) -> float:
-    """Cosine similarity between two equal-length vectors."""
-    if len(a) != len(b):
+def _cosine(a: list[float] | np.ndarray, b: list[float] | np.ndarray) -> float:
+    """Cosine similarity between two equal-length vectors.
+
+    Reference implementation for a single pair. ``search`` uses a
+    vectorised matmul over the whole matrix, but this helper is kept for
+    direct testing and for callers that need a one-off score.
+    """
+    va = np.asarray(a, dtype=np.float64).ravel()
+    vb = np.asarray(b, dtype=np.float64).ravel()
+    if va.shape != vb.shape:
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b, strict=True))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(y * y for y in b))
+    na = float(np.linalg.norm(va))
+    nb = float(np.linalg.norm(vb))
     if na == 0.0 or nb == 0.0:
         return 0.0
-    return dot / (na * nb)
+    return float(np.dot(va, vb) / (na * nb))
 
 
 class InMemoryVectorStore:
@@ -93,7 +102,7 @@ class InMemoryVectorStore:
         for chunk, vec, fp in zip(chunks, vectors, fingerprints, strict=True):
             bucket[(chunk.ordinal, chunk.kind)] = _Entry(
                 chunk=chunk.model_copy(deep=True),
-                vector=list(vec),
+                vector=np.array(vec, dtype=np.float64),
                 fingerprint=fp,
             )
 
@@ -128,25 +137,37 @@ class InMemoryVectorStore:
         if len(query_vec) != self._dimension:
             raise StoreError(f"query vector dimension {len(query_vec)} " f"!= store dimension {self._dimension}")
 
-        scored: list[tuple[float, _Entry]] = []
-        for bucket in self._docs.values():
-            for entry in bucket.values():
-                scored.append((_cosine(query_vec, entry.vector), entry))
+        q = np.asarray(query_vec, dtype=np.float64)
+        q_norm = float(np.linalg.norm(q))
+        if q_norm == 0.0:
+            return []
 
-        scored.sort(key=lambda item: item[0], reverse=True)
+        entries: list[_Entry] = []
+        for bucket in self._docs.values():
+            entries.extend(bucket.values())
+
+        matrix = np.stack([e.vector for e in entries])
+        norms = np.linalg.norm(matrix, axis=1)
+        denom = norms * q_norm
+
+        scores = np.zeros(len(entries), dtype=np.float64)
+        nz = denom > 0
+        scores[nz] = (matrix[nz] @ q) / denom[nz]
+
+        order = np.argsort(-scores)[:top_k]
 
         return [
             SearchHit(
-                doc_id=entry.chunk.doc_id,
-                ordinal=entry.chunk.ordinal,
-                kind=entry.chunk.kind,
-                section_title=entry.chunk.section_title,
-                page_number=entry.chunk.page_number,
-                content=entry.chunk.content,
-                score=score,
-                metadata=copy.deepcopy(entry.chunk.metadata),
+                doc_id=entries[i].chunk.doc_id,
+                ordinal=entries[i].chunk.ordinal,
+                kind=entries[i].chunk.kind,
+                section_title=entries[i].chunk.section_title,
+                page_number=entries[i].chunk.page_number,
+                content=entries[i].chunk.content,
+                score=float(scores[i]),
+                metadata=copy.deepcopy(entries[i].chunk.metadata),
             )
-            for score, entry in scored[:top_k]
+            for i in order
         ]
 
     async def list_docs(self) -> list[dict]:
