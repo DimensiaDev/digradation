@@ -21,3 +21,9 @@
 /.env.example @yel-gar
 /docker-compose.yaml @yel-gar
 Dockerfile @yel-gar
+
+# Parser. Responsible: @AX-Ray
+/parser/ @AX-Ray
+
+# RAG. Responsible: @AX-Ray
+/rag/ @AX-Ray

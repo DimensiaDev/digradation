@@ -1,0 +1,72 @@
+name: Parser CI
+
+on:
+  pull_request:
+    paths: ["parser/**"]
+  push:
+    branches: [main]
+    paths: ["parser/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parser:
+    name: Format, lint, test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: parser
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry/virtualenvs
+          key: poetry-${{ runner.os }}-${{ hashFiles('parser/poetry.lock') }}
+
+      - name: Install dependencies
+        run: poetry install --no-root
+
+      - name: Format check (black)
+        run: poetry run black --check .
+
+      - name: Lint (ruff)
+        run: poetry run ruff check .
+
+      # One run, not two. `--cov` is essentially free here and enforces the
+      # gate, so the coverage report is taken from the same run that
+      # verifies the tests.
+      #
+      # The threshold lives in ONE place: `fail_under` in parser/pyproject.toml,
+      # which pytest-cov reads and enforces. This step names no percentage,
+      # so the two cannot disagree.
+      #
+      # `--cov-report=json` is required for the upload below:
+      # `[tool.coverage.json] output` only takes effect when the json report
+      # is actually requested.
+      - name: Test with coverage
+        run: poetry run pytest --cov --cov-report=term-missing --cov-report=json
+
+      # Uploaded even after a failure: a red suite is when the report
+      # matters most, and this must not be the next skipped step. A
+      # cancelled run is still skipped, and a missing file only warns.
+      - name: Upload coverage artifact
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: parser-coverage
+          path: parser/coverage.json
+          retention-days: 14

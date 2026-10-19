@@ -31,6 +31,46 @@ repos:
         files: ^backend/.*\.py$
         pass_filenames: false
 
+      # --- parser ---
+      - id: black-parser
+        name: black (parser)
+        entry: python3 scripts/precommit-black.py parser/
+        language: system
+        files: ^parser/.*\.py$
+
+      - id: ruff-parser
+        name: ruff (parser)
+        entry: python3 scripts/precommit-ruff.py parser/
+        language: system
+        files: ^parser/.*\.py$
+
+      - id: pytest-parser
+        name: pytest (parser)
+        entry: poetry -C parser run pytest
+        language: system
+        files: ^parser/.*\.py$
+        pass_filenames: false
+
+      # --- rag ---
+      - id: black-rag
+        name: black (rag)
+        entry: python3 scripts/precommit-black.py rag/
+        language: system
+        files: ^rag/.*\.py$
+
+      - id: ruff-rag
+        name: ruff (rag)
+        entry: python3 scripts/precommit-ruff.py rag/
+        language: system
+        files: ^rag/.*\.py$
+
+      - id: pytest-rag
+        name: pytest (rag)
+        entry: poetry -C rag run pytest
+        language: system
+        files: ^rag/.*\.py$
+        pass_filenames: false
+
       # --- frontend ---
       - id: eslint
         name: eslint (frontend)
@@ -66,6 +106,24 @@ repos:
         stages: [pre-push]
         files: ^backend/.*\.py$
         pass_filenames: false
+
+      - id: pytest-coverage-parser
+        name: pytest coverage report (parser)
+        entry: poetry -C parser run pytest --cov --cov-report=term-missing
+        language: system
+        stages: [pre-push]
+        files: ^parser/.*\.py$
+        pass_filenames: false
+        always_run: true
+
+      - id: pytest-coverage-rag
+        name: pytest coverage report (rag)
+        entry: poetry -C rag run pytest --cov --cov-report=term-missing
+        language: system
+        stages: [pre-push]
+        files: ^rag/.*\.py$
+        pass_filenames: false
+        always_run: true
 
       - id: vitest-coverage
         name: vitest coverage report (frontend)
