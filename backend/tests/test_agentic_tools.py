@@ -112,6 +112,41 @@ async def test_a_draft_that_breaks_the_schema_never_reaches_the_handler(tool_con
     assert tool_context.draft is None
 
 
+async def test_negative_topic_hours_break_the_schema(tool_context):
+    """An allocation cannot be negative, so the schema refuses the whole draft."""
+    draft = make_draft()
+    draft["curriculum"]["modules"][0]["topics"][0]["hours"] = {"lecture": -2, "practice": -1}
+
+    result = await execute_tool(tool_context, save_call(draft))
+
+    assert result.ok is False
+    assert "Некорректные аргументы" in result.error
+    assert any("lecture" in line for line in result.details)
+    assert tool_context.draft is None
+
+
+async def test_a_zero_length_schedule_breaks_the_schema(tool_context):
+    """A duration or a daily load of zero is not a schedule the methodist asked for."""
+    draft = make_draft()
+    draft["curriculum"]["schedule"] = {"days": 0, "hours_per_day": 0}
+
+    result = await execute_tool(tool_context, save_call(draft))
+
+    assert result.ok is False
+    assert any("days" in line for line in result.details)
+    assert any("hours_per_day" in line for line in result.details)
+
+
+async def test_a_schedule_with_weeks_only_is_accepted(tool_context):
+    """Only one of weeks, days and hours_per_day has to be filled."""
+    draft = make_draft()
+    draft["curriculum"]["schedule"] = {"weeks": 4}
+
+    result = await execute_tool(tool_context, save_call(draft))
+
+    assert result.ok is True
+
+
 async def test_get_program_draft_reports_no_draft_before_the_first_save(tool_context):
     result = await execute_tool(tool_context, get_call())
 

@@ -98,12 +98,12 @@ class StageStatus(StrEnum):
 
 
 class Hours(SchemaModel):
-    """Hours of one topic, split by activity type."""
+    """Hours of one topic, split by activity type; a split is never negative."""
 
-    lecture: float = Field(default=0, description="Лекции (ЛК)")
-    practice: float = Field(default=0, description="Практические занятия (ПР)")
-    lab: float = Field(default=0, description="Лабораторные работы (ЛБ)")
-    self_study: float = Field(default=0, description="Самостоятельная работа (СРС)")
+    lecture: float = Field(default=0, ge=0, description="Лекции (ЛК)")
+    practice: float = Field(default=0, ge=0, description="Практические занятия (ПР)")
+    lab: float = Field(default=0, ge=0, description="Лабораторные работы (ЛБ)")
+    self_study: float = Field(default=0, ge=0, description="Самостоятельная работа (СРС)")
 
 
 class Topic(SchemaModel):
@@ -125,11 +125,11 @@ class Module(SchemaModel):
 
 
 class Schedule(SchemaModel):
-    """Curriculum schedule: duration and daily load."""
+    """Curriculum schedule: duration and daily load; every value supplied is positive."""
 
-    weeks: int | None = Field(default=None, description="Duration in weeks")
-    days: int | None = Field(default=None, description="Duration in days")
-    hours_per_day: float | None = Field(default=None, description="Daily load in hours")
+    weeks: int | None = Field(default=None, gt=0, description="Duration in weeks")
+    days: int | None = Field(default=None, gt=0, description="Duration in days")
+    hours_per_day: float | None = Field(default=None, gt=0, description="Daily load in hours")
     note: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
