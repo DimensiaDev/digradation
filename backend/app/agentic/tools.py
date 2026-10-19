@@ -186,31 +186,45 @@ def _cited_source_ids(draft: ProgramDraft) -> list[str]:
     return list(dict.fromkeys(ids))
 
 
-def _resolve_sources(ctx: ToolContext, draft: ProgramDraft) -> tuple[list[Source], list[str], list[str]]:
+@dataclass(frozen=True)
+class _Citations:
+    """What resolving the draft's citations against the catalog found."""
+
+    sources: list[Source]
+    unknown: list[str]
+    unsearched: list[str]
+    not_standards: list[str]
+
+
+def _resolve_sources(ctx: ToolContext, draft: ProgramDraft) -> _Citations:
     """Replace the cited sources with their catalog records.
 
-    Two ways a citation can be wrong, and both must be refused. An id the
+    Three ways a citation can be wrong, and all of them must be refused. An id the
     catalog does not know is an invented document. An id the catalog knows but
     this run has not shown the model — no ``search_sources`` call returned it and
     no saved draft carried it — is equally unverified: the catalog is wide, and a
-    plausible-looking ``src-NN`` is easy to guess. The canonical record is kept
-    instead of the one the model reproduced, so titles cannot drift.
+    plausible-looking ``src-NN`` is easy to guess. An id a competence names as its
+    ``standard_source_id`` must be a professional standard, because that field
+    says where the competence comes from: a ФГОС or a handbook there would
+    misattribute the labour function. The canonical record is kept instead of the
+    one the model reproduced, so titles cannot drift.
 
-    The second refusal waits for the catalog: while it answers nothing, every id
-    is unknown and the branch below cannot trigger.
+    The last two refusals wait for the catalog: while it answers nothing, every id
+    is unknown and neither branch below can trigger.
     """
-    resolved: list[Source] = []
-    unknown: list[str] = []
-    unsearched: list[str] = []
+    standards = {competence.standard_source_id for competence in draft.competencies if competence.standard_source_id}
+    citations = _Citations(sources=[], unknown=[], unsearched=[], not_standards=[])
     for source_id in _cited_source_ids(draft):
         source = get_source(source_id)
         if source is None:
-            unknown.append(source_id)
+            citations.unknown.append(source_id)
         elif source_id not in ctx.known_source_ids:
-            unsearched.append(source_id)
+            citations.unsearched.append(source_id)
+        elif source_id in standards and source.kind is not SourceKind.PROFESSIONAL_STANDARD:
+            citations.not_standards.append(source_id)
         else:
-            resolved.append(source)
-    return resolved, unknown, unsearched
+            citations.sources.append(source)
+    return citations
 
 
 def _describe_validation_error(error: ValidationError) -> list[str]:
@@ -225,24 +239,31 @@ async def save_program_draft(ctx: ToolContext, arguments: ProgramDraft) -> SaveP
     schema never reaches this handler. Saving is what moves the process to
     ``pending_approval``: from this call on the methodist has something to
     confirm, and until they do, the agent is told to present the draft and stop.
-    The validated draft stays on the context for the caller to store.
+    The validated draft — the handler's own copy of it, which is what the caller
+    stores — stays on the context.
     """
-    sources, unknown, unsearched = _resolve_sources(ctx, arguments)
-    if unknown:
+    citations = _resolve_sources(ctx, arguments)
+    if citations.unknown:
         return SaveProgramDraftResult(
             ok=False,
-            error="Неизвестные источники: " + ", ".join(unknown),
+            error="Неизвестные источники: " + ", ".join(citations.unknown),
             details=["Используй только источники из результатов search_sources; выдуманные документы запрещены."],
         )
-    if unsearched:
+    if citations.unsearched:
         return SaveProgramDraftResult(
             ok=False,
-            error="Не подтверждённые поиском источники: " + ", ".join(unsearched),
+            error="Не подтверждённые поиском источники: " + ", ".join(citations.unsearched),
             details=["Сначала найди документ вызовом search_sources и ссылайся только на то, что вернул поиск."],
         )
-    ctx.draft = arguments.model_copy(update={"sources": sources})
+    if citations.not_standards:
+        return SaveProgramDraftResult(
+            ok=False,
+            error="Не профессиональные стандарты в standard_source_id: " + ", ".join(citations.not_standards),
+            details=["Компетенция опирается на профстандарт: у стандарта kind = professional_standard."],
+        )
+    ctx.draft = arguments.model_copy(update={"sources": citations.sources})
 
-    log.info("program_draft_validated", chat_session_id=str(ctx.session_id), sources=len(sources))
+    log.info("program_draft_validated", chat_session_id=str(ctx.session_id), sources=len(citations.sources))
     return SaveProgramDraftResult(
         status=ProgramStatus.PENDING_APPROVAL,
         note="Черновик проверен и ждёт подтверждения методиста. Представь его и остановись.",

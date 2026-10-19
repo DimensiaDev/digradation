@@ -16,7 +16,8 @@ from typing import Any
 import pytest
 from structlog.testing import capture_logs
 
-from app.agentic.models import ProgramStatus
+from app.agentic import tools
+from app.agentic.models import ProgramStatus, Source, SourceKind
 from app.agentic.tools import (
     GetProgramDraftResult,
     SaveProgramDraftResult,
@@ -27,6 +28,8 @@ from app.agentic.tools import (
 from app.providers.models import FunctionCall
 
 DRAFT_TITLE = "Тестовая программа"
+CATALOG_SOURCE_ID = "src-01"
+CATALOG_TITLE = "Профстандарт 06.042"
 
 
 @pytest.fixture()
@@ -80,6 +83,11 @@ def make_draft(**overrides: Any) -> dict:
     }
     draft.update(overrides)
     return draft
+
+
+def _patch_catalog(monkeypatch: pytest.MonkeyPatch, kind: SourceKind, title: str) -> None:
+    """Answer the catalog lookup the way the RAG index (#11) will, with one record."""
+    monkeypatch.setattr(tools, "get_source", lambda source_id: Source(id=source_id, kind=kind, title=title))
 
 
 async def test_save_program_draft_validates_the_draft_and_keeps_it(tool_context):
@@ -202,6 +210,37 @@ async def test_save_rejects_a_standard_source_id_the_catalog_does_not_know(tool_
     assert result.ok is False
     assert "Неизвестные источники" in result.error
     assert "src-01" in result.error
+
+
+async def test_save_rejects_a_standard_that_is_not_a_professional_standard(tool_context, monkeypatch):
+    """The field says where the competence comes from, so the kind of the record must match it."""
+    _patch_catalog(monkeypatch, SourceKind.NORMATIVE_ACT, "ФГОС")
+    tool_context.known_source_ids.add(CATALOG_SOURCE_ID)
+    draft = make_draft()
+    draft["competencies"][0]["standard_source_id"] = CATALOG_SOURCE_ID
+
+    result = await execute_tool(tool_context, save_call(draft))
+
+    assert result.ok is False
+    assert "Не профессиональные стандарты" in result.error
+    assert CATALOG_SOURCE_ID in result.error
+    assert tool_context.draft is None
+
+
+async def test_save_keeps_the_catalog_record_of_a_standard(tool_context, monkeypatch):
+    """The record the catalog holds wins, so an invented title cannot reach the draft."""
+    _patch_catalog(monkeypatch, SourceKind.PROFESSIONAL_STANDARD, CATALOG_TITLE)
+    tool_context.known_source_ids.add(CATALOG_SOURCE_ID)
+    draft = make_draft(
+        sources=[{"id": CATALOG_SOURCE_ID, "kind": "professional_standard", "title": "Выдуманное название"}]
+    )
+    draft["competencies"][0]["standard_source_id"] = CATALOG_SOURCE_ID
+
+    result = await execute_tool(tool_context, save_call(draft))
+
+    assert result.ok is True
+    assert tool_context.draft is not None
+    assert [source.title for source in tool_context.draft.sources] == [CATALOG_TITLE]
 
 
 # --------------------------------------------------------------------------------------
