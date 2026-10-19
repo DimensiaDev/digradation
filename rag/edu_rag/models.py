@@ -1,14 +1,17 @@
 """Pydantic models used as the public contract of the rag module."""
 
-from pydantic import BaseModel, Field
+import hashlib
+import json
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class ChunkRecord(BaseModel):
     """One chunk ready for embedding + storage.
 
-    Built from a parser ``document.json`` entry (text_chunk or table).
-    ``content_hash`` is computed by the caller (indexer helper) and used
-    for idempotency: unchanged chunks are skipped on re-index.
+    ``content_hash`` is verified against ``sha256(content)`` — callers
+    cannot silently pass a stale hash alongside new content and have
+    the chunk skipped as "unchanged".
     """
 
     doc_id: str
@@ -19,6 +22,35 @@ class ChunkRecord(BaseModel):
     content: str
     content_hash: str
     metadata: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _verify_content_hash(self) -> ChunkRecord:
+        expected = hashlib.sha256(self.content.encode("utf-8")).hexdigest()
+        if self.content_hash != expected:
+            raise ValueError(
+                "content_hash does not match sha256(content); " "recompute it in the caller or omit the field"
+            )
+        return self
+
+    def fingerprint(self, model: str, dimension: int) -> str:
+        """Stable hash of everything that decides whether a chunk is up-to-date.
+
+        Includes content, location, metadata and the embedding model +
+        dimension. If any of them changes, the chunk is re-embedded.
+        """
+        payload = json.dumps(
+            {
+                "content_hash": self.content_hash,
+                "section_title": self.section_title,
+                "page_number": self.page_number,
+                "metadata": self.metadata,
+                "model": model,
+                "dimension": dimension,
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class SearchHit(BaseModel):
@@ -31,16 +63,11 @@ class SearchHit(BaseModel):
     page_number: int | None
     content: str
     score: float
+    metadata: dict = Field(default_factory=dict)
 
 
 class IndexResult(BaseModel):
-    """Outcome of a single ``DocumentIndexer.index`` call.
-
-    Counts partition the total number of input chunks:
-    ``indexed + skipped + failed == len(chunks)`` for a non-empty input.
-    ``deleted`` is independent — it reports orphan rows pruned from the
-    store, which may include chunks left over from earlier runs.
-    """
+    """Outcome of a single ``DocumentIndexer.index`` call."""
 
     doc_id: str
     indexed: int = 0
