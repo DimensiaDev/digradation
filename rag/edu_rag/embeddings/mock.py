@@ -1,7 +1,8 @@
 """Deterministic in-process embedding provider for tests and offline demos."""
 
 import hashlib
-import math
+
+import numpy as np
 
 from ..config import EmbeddingConfig
 
@@ -22,7 +23,7 @@ class MockEmbeddingProvider:
     - **Empty text → zero vector**: avoids division by zero when
       normalizing, and is trivially distinguishable in tests.
 
-    Pure stdlib — no numpy, no I/O. Safe to use in CI without a network.
+    Pure numpy — no I/O. Safe to use in CI without a network.
     """
 
     def __init__(self, config: EmbeddingConfig | None = None) -> None:
@@ -45,12 +46,11 @@ class MockEmbeddingProvider:
             buf.extend(hashlib.sha256(digest + counter.to_bytes(4, "big")).digest())
             counter += 1
 
-        values: list[float] = []
-        for i in range(self.dimension):
-            x = int.from_bytes(buf[2 * i : 2 * i + 2], "big")
-            values.append((x / 65535.0) * 2.0 - 1.0)
+        arr = np.frombuffer(bytes(buf[:needed]), dtype=np.uint16).astype(np.float64)
+        arr = (arr / 65535.0) * 2.0 - 1.0
 
-        norm = math.sqrt(sum(v * v for v in values))
+        norm = float(np.linalg.norm(arr))
         if norm == 0.0:  # pragma: no cover — hash bytes never all zero
             return [0.0] * self.dimension
-        return [v / norm for v in values]
+        arr /= norm
+        return arr.tolist()

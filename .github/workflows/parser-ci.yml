@@ -35,9 +35,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pypoetry/virtualenvs
-          key: poetry-parser-${{ runner.os }}-${{ hashFiles('parser/poetry.lock') }}
-          restore-keys: |
-            poetry-parser-${{ runner.os }}-
+          key: poetry-${{ runner.os }}-${{ hashFiles('parser/poetry.lock') }}
 
       - name: Install dependencies
         run: poetry install --no-root
@@ -48,5 +46,27 @@ jobs:
       - name: Lint (ruff)
         run: poetry run ruff check .
 
-      - name: Test (pytest)
-        run: poetry run pytest .
+      # One run, not two. `--cov` is essentially free here and enforces the
+      # gate, so the coverage report is taken from the same run that
+      # verifies the tests.
+      #
+      # The threshold lives in ONE place: `fail_under` in parser/pyproject.toml,
+      # which pytest-cov reads and enforces. This step names no percentage,
+      # so the two cannot disagree.
+      #
+      # `--cov-report=json` is required for the upload below:
+      # `[tool.coverage.json] output` only takes effect when the json report
+      # is actually requested.
+      - name: Test with coverage
+        run: poetry run pytest --cov --cov-report=term-missing --cov-report=json
+
+      # Uploaded even after a failure: a red suite is when the report
+      # matters most, and this must not be the next skipped step. A
+      # cancelled run is still skipped, and a missing file only warns.
+      - name: Upload coverage artifact
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: parser-coverage
+          path: parser/coverage.json
+          retention-days: 14
