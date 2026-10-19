@@ -1,0 +1,152 @@
+:host {
+  --brand-logo-breathe: 7s;
+  --brand-logo-sheen: 5.5s;
+  --brand-logo-aura: 6.5s;
+
+  position: relative;
+  display: inline-block;
+
+  transform: scale(1);
+
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:host(.brand-logo--active) {
+  --brand-logo-breathe: 3.8s;
+  --brand-logo-sheen: 2.6s;
+  --brand-logo-aura: 3s;
+
+  transform: scale(1.06);
+}
+
+.brand-logo {
+  position: relative;
+
+  display: block;
+
+  width: 100%;
+  height: 100%;
+
+  animation: brand-logo-breathe var(--brand-logo-breathe) ease-in-out infinite;
+
+  &__aura {
+    position: absolute;
+    inset: -8%;
+
+    border-radius: 50%;
+
+    background: radial-gradient(
+      closest-side,
+      color-mix(in srgb, var(--color-main) 42%, transparent),
+      transparent 72%
+    );
+
+    filter: blur(22px);
+
+    animation: brand-logo-aura var(--brand-logo-aura) ease-in-out infinite;
+  }
+
+  &__mark {
+    position: relative;
+
+    display: block;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: contain;
+
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  // A soft light wave travels across the mark. It is clipped to the logo's own
+  // silhouette, so the brand asset stays untouched and keeps its real gradient.
+  &__sheen {
+    position: absolute;
+    inset: 0;
+
+    background: linear-gradient(
+      115deg,
+      transparent 38%,
+      rgb(255 255 255 / 85%) 50%,
+      transparent 62%
+    );
+    background-position: 130% 130%;
+    background-size: 260% 260%;
+
+    opacity: 0;
+
+    -webkit-mask-image: url('/assets/svgs/logo.svg');
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    -webkit-mask-size: contain;
+
+    mask-image: url('/assets/svgs/logo.svg');
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+
+    mix-blend-mode: screen;
+
+    animation: brand-logo-sheen var(--brand-logo-sheen) ease-in-out infinite;
+  }
+}
+
+@keyframes brand-logo-breathe {
+  0%,
+  100% {
+    transform: scale(0.975) rotate(-0.8deg);
+  }
+
+  50% {
+    transform: scale(1.025) rotate(0.8deg);
+  }
+}
+
+@keyframes brand-logo-sheen {
+  0% {
+    background-position: 130% 130%;
+    opacity: 0;
+  }
+
+  18% {
+    opacity: 0.8;
+  }
+
+  55% {
+    background-position: -30% -30%;
+    opacity: 0.8;
+  }
+
+  72%,
+  100% {
+    background-position: -30% -30%;
+    opacity: 0;
+  }
+}
+
+@keyframes brand-logo-aura {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.5;
+  }
+
+  50% {
+    transform: scale(1.05);
+    opacity: 0.95;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :host {
+    transition: none;
+  }
+
+  .brand-logo,
+  .brand-logo__aura,
+  .brand-logo__sheen {
+    animation: none;
+  }
+}
