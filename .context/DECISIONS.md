@@ -980,3 +980,29 @@ repeated.
 - **The source materials stayed with the RAG zone.** `app/agentic/materials/` was a byte copy
   of the root `edu_materials/` dataset; RAG (#11) owns both the corpus and the search over it,
   and `sources.py` keeps the seam with unchanged signatures.
+
+## The draft's checks: schema bounds here, cross-block rules in #4 (2026-10-19)
+
+The review of #24 asked for more checks on the draft. Two of them are the schema's job and were
+added here; the others are listed in `docs/agentic-validation.drawio` as issue #4, and
+implementing them now would have re-done a zone this branch deliberately does not touch.
+
+- **Bounds are schema, not business logic.** An hour split is non-negative and a schedule value
+  supplied is positive — `ge` and `gt` on `Hours` and `Schedule`, block E of the diagram. The
+  dispatcher refuses such a draft, so a handler still has nothing to validate.
+- **Uniqueness of ids and `topic.outcome_ids` resolving to declared outcomes are #4's.** The
+  diagram's block I names both, next to the hour totals, and calls them ordinary functions that
+  return per-element errors over the whole programme, not pydantic validators of one draft.
+- **The hour totals have nothing to compare against in the draft.** The volume the methodist
+  asked for arrives in the chat message, not in the schema, so `days x hours_per_day` would be
+  the only available bound — and it is a ceiling, since the final attestation sits outside the
+  curriculum. #4 owns the rule.
+- **A competence cites a professional standard.** `_resolve_sources` refuses an id that resolves
+  to another kind, because the field says where the labour function comes from.
+- **The handler owns both what it keeps and what it hands out.** `frozen=True` on the schema does
+  not freeze the lists inside a model, so `get_program_draft` answers a deep copy and the stored
+  draft is the handler's own: editing a returned draft cannot reach the state already bound to
+  the catalog and about to be stored.
+- **A save needs no idempotency key inside one context.** The context lives in memory for one
+  worker run and calls execute sequentially, so an older save cannot land after a newer one;
+  ordering is the loop's business (#26) and the upsert is the worker's (block F3).
