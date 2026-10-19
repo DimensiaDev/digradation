@@ -1,10 +1,10 @@
 """Tests for the agent tool handlers in ``app.agentic.tools``.
 
-The handlers keep no storage: they validate the arguments, resolve citations
-against the catalog and answer, leaving the validated draft on the tool context.
-Storing that draft is the worker's business, so no database is involved here. The
-provider is not involved either — the handlers are called directly through
-:func:`execute_tool`.
+A handler takes its arguments model and answers a result model; the arguments are
+validated by the dispatcher, so a call that does not match the schema never
+reaches a handler. Storing the draft is the worker's business, so no database is
+involved here, and neither is the provider — the handlers are called through
+:func:`execute_tool`, which is the boundary a ``FunctionCall`` arrives at.
 """
 
 from __future__ import annotations
@@ -17,7 +17,13 @@ import pytest
 from structlog.testing import capture_logs
 
 from app.agentic.models import ProgramStatus
-from app.agentic.tools import ToolContext, execute_tool
+from app.agentic.tools import (
+    GetProgramDraftResult,
+    SaveProgramDraftResult,
+    SearchSourcesResult,
+    ToolContext,
+    execute_tool,
+)
 from app.providers.models import FunctionCall
 
 DRAFT_TITLE = "Тестовая программа"
@@ -36,6 +42,10 @@ def save_call(arguments: dict | None = None) -> FunctionCall:
 
 def search_call(query: str) -> FunctionCall:
     return FunctionCall(name="search_sources", arguments=json.dumps({"query": query}, ensure_ascii=False))
+
+
+def get_call() -> FunctionCall:
+    return FunctionCall(name="get_program_draft", arguments="{}")
 
 
 def make_draft(**overrides: Any) -> dict:
@@ -75,8 +85,9 @@ def make_draft(**overrides: Any) -> dict:
 async def test_save_program_draft_validates_the_draft_and_keeps_it(tool_context):
     result = await execute_tool(tool_context, save_call())
 
-    assert result["ok"] is True
-    assert result["status"] == ProgramStatus.PENDING_APPROVAL
+    assert isinstance(result, SaveProgramDraftResult)
+    assert result.ok is True
+    assert result.status is ProgramStatus.PENDING_APPROVAL
     assert tool_context.draft is not None
     assert tool_context.draft.title == DRAFT_TITLE
 
@@ -86,36 +97,38 @@ async def test_a_second_save_replaces_the_kept_draft(tool_context):
 
     result = await execute_tool(tool_context, save_call(make_draft(title="Переработанная программа")))
 
-    assert result["ok"] is True
+    assert result.ok is True
     assert tool_context.draft is not None
     assert tool_context.draft.title == "Переработанная программа"
 
 
-async def test_save_rejects_a_draft_that_breaks_the_schema(tool_context):
+async def test_a_draft_that_breaks_the_schema_never_reaches_the_handler(tool_context):
+    """The draft schema is the arguments model of the tool, so the dispatcher refuses it."""
     result = await execute_tool(tool_context, save_call(make_draft(summary={})))
 
-    assert result["ok"] is False
-    assert "не соответствует схеме" in result["error"]
-    assert any("summary" in line for line in result["details"])
+    assert result.ok is False
+    assert "Некорректные аргументы" in result.error
+    assert any("summary" in line for line in result.details)
     assert tool_context.draft is None
 
 
 async def test_get_program_draft_reports_no_draft_before_the_first_save(tool_context):
-    result = await execute_tool(tool_context, FunctionCall(name="get_program_draft", arguments="{}"))
+    result = await execute_tool(tool_context, get_call())
 
-    assert result["ok"] is True
-    assert result["status"] == ProgramStatus.DRAFT
-    assert result["draft"] is None
+    assert isinstance(result, GetProgramDraftResult)
+    assert result.ok is True
+    assert result.status is ProgramStatus.DRAFT
+    assert result.draft is None
 
 
 async def test_get_program_draft_returns_the_draft_the_run_saved(tool_context):
     await execute_tool(tool_context, save_call())
 
-    result = await execute_tool(tool_context, FunctionCall(name="get_program_draft", arguments="{}"))
+    result = await execute_tool(tool_context, get_call())
 
-    assert result["ok"] is True
-    assert result["status"] == ProgramStatus.PENDING_APPROVAL
-    assert result["draft"]["title"] == DRAFT_TITLE
+    assert result.status is ProgramStatus.PENDING_APPROVAL
+    assert result.draft is not None
+    assert result.draft.title == DRAFT_TITLE
 
 
 # --------------------------------------------------------------------------------------
@@ -127,9 +140,10 @@ async def test_search_sources_reports_an_empty_catalog(tool_context):
     """Materials and search belong to the RAG zone (#11); nothing is found until it lands."""
     result = await execute_tool(tool_context, search_call("образование"))
 
-    assert result["ok"] is True
-    assert result["fragments"] == []
-    assert "ничего не найдено" in result["note"]
+    assert isinstance(result, SearchSourcesResult)
+    assert result.ok is True
+    assert result.fragments == []
+    assert "ничего не найдено" in result.note
     assert tool_context.known_source_ids == set()
 
 
@@ -138,9 +152,9 @@ async def test_save_rejects_a_source_id_the_catalog_does_not_know(tool_context):
 
     result = await execute_tool(tool_context, save_call(draft))
 
-    assert result["ok"] is False
-    assert "Неизвестные источники" in result["error"]
-    assert "src-01" in result["error"]
+    assert result.ok is False
+    assert "Неизвестные источники" in result.error
+    assert "src-01" in result.error
     assert tool_context.draft is None
 
 
@@ -150,9 +164,9 @@ async def test_save_rejects_a_standard_source_id_the_catalog_does_not_know(tool_
 
     result = await execute_tool(tool_context, save_call(draft))
 
-    assert result["ok"] is False
-    assert "Неизвестные источники" in result["error"]
-    assert "src-01" in result["error"]
+    assert result.ok is False
+    assert "Неизвестные источники" in result.error
+    assert "src-01" in result.error
 
 
 # --------------------------------------------------------------------------------------
@@ -163,23 +177,23 @@ async def test_save_rejects_a_standard_source_id_the_catalog_does_not_know(tool_
 async def test_execute_tool_reports_an_unknown_function(tool_context):
     result = await execute_tool(tool_context, FunctionCall(name="drop_database", arguments="{}"))
 
-    assert result["ok"] is False
-    assert "Неизвестная функция" in result["error"]
+    assert result.ok is False
+    assert "Неизвестная функция" in result.error
 
 
 async def test_execute_tool_reports_malformed_arguments(tool_context):
     result = await execute_tool(tool_context, FunctionCall(name="search_sources", arguments="не json"))
 
-    assert result["ok"] is False
-    assert "Некорректные аргументы" in result["error"]
+    assert result.ok is False
+    assert "Некорректные аргументы" in result.error
 
 
 async def test_execute_tool_reports_arguments_that_break_the_schema(tool_context):
-    result = await execute_tool(tool_context, FunctionCall(name="search_sources", arguments=json.dumps({"query": ""})))
+    result = await execute_tool(tool_context, search_call(""))
 
-    assert result["ok"] is False
-    assert "Некорректные аргументы" in result["error"]
-    assert any("query" in line for line in result["details"])
+    assert result.ok is False
+    assert "Некорректные аргументы" in result.error
+    assert any("query" in line for line in result.details)
 
 
 async def test_the_draft_title_is_not_written_to_the_logs(tool_context):
@@ -187,6 +201,6 @@ async def test_the_draft_title_is_not_written_to_the_logs(tool_context):
     with capture_logs() as logs:
         result = await execute_tool(tool_context, save_call())
 
-    assert result["ok"] is True
+    assert result.ok is True
     saved = next(entry for entry in logs if entry["event"] == "program_draft_validated")
     assert DRAFT_TITLE not in str(saved)

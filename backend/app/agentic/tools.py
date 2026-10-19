@@ -2,19 +2,21 @@
 
 This module is one half of the agent contract. The specifications below are sent
 to the provider with every generation request, and the pydantic schemas of
-``app.agentic.models`` are the other half: the model fills the arguments, and the
-handlers validate them against the very same schema the rest of the backend uses.
-The parameters are generated from those models rather than maintained by hand, so
-a schema change reaches the model without a second edit here.
+``app.agentic.models`` are the other half: the model fills the arguments from the
+specification, the arguments are validated against those schemas at the call
+boundary, and the handlers work with the validated models on both sides — in and
+out — rather than with dictionaries.
 
-Handlers never raise at the model. A failed call comes back as a result with
-``ok: false`` and an explanation, which lets the model correct itself inside the
-same reply instead of failing the whole generation.
+The handlers keep no storage of their own: they resolve citations against the
+catalog, answer, and leave the validated draft on :class:`ToolContext` for the
+caller to store.
 
-The handlers keep no storage of their own: they validate, resolve citations
-against the catalog and answer. What a call produces for the rest of the run —
-the validated draft — travels on :class:`ToolContext`, and storing it belongs to
-the worker that owns the chat's session and its transaction.
+:func:`execute_tool` is the boundary with the provider: it turns a
+:class:`FunctionCall` — a name and the JSON string of arguments — into one handler
+call, and every failure, arguments that do not validate included, comes back as a
+result with ``ok: false`` instead of a raise, so the model can correct itself
+inside the same reply. Validating the arguments is the caller's job, never the
+handler's: a handler may take its arguments model for granted.
 """
 
 import copy
@@ -28,7 +30,7 @@ import structlog.stdlib
 from pydantic import BaseModel, Field, ValidationError
 
 from app.agentic.models import ProgramDraft, ProgramStatus, Source, SourceKind
-from app.agentic.sources import get_source, search
+from app.agentic.sources import SourceFragment, get_source, search
 from app.providers.models import FunctionCall, FunctionDefinition, Tool
 
 log = structlog.stdlib.get_logger(__name__)
@@ -39,16 +41,50 @@ class ToolContext:
     """What a handler needs beyond the arguments of the call.
 
     ``session_id`` names the chat in the logs. ``draft`` is what
-    :func:`save_program_draft` validated, kept for the caller to store — a later
-    revision of the same run reads it back through :func:`get_program_draft`.
-    ``known_source_ids`` is the provenance of the run: only a document the model
-    has actually seen — through ``search_sources`` or in the draft it saved — may
-    be cited, so an invented or half-remembered id is refused rather than kept.
+    :func:`save_program_draft` validated and kept for the caller to store — a
+    later revision of the same run reads it back through
+    :func:`get_program_draft`. ``known_source_ids`` is the provenance of the run:
+    only a document the model has actually seen — through ``search_sources`` or in
+    the draft it saved — may be cited, so an invented or half-remembered id is
+    refused rather than kept.
     """
 
     session_id: uuid.UUID
     draft: ProgramDraft | None = None
     known_source_ids: set[str] = field(default_factory=set)
+
+
+class ToolResult(BaseModel):
+    """What a call answers.
+
+    A refusal shares the shape of a success, so the model can always tell what the
+    call did and, when it did nothing, what to change before calling again.
+    """
+
+    ok: bool = True
+    error: str | None = None
+    details: list[str] | None = None
+    note: str | None = None
+
+
+class SearchSourcesResult(ToolResult):
+    """Fragments the catalog returned for the query."""
+
+    query: str
+    fragments: list[SourceFragment] = Field(default_factory=list)
+
+
+class SaveProgramDraftResult(ToolResult):
+    """State of the process after a draft was accepted."""
+
+    status: ProgramStatus | None = None
+
+
+class GetProgramDraftResult(ToolResult):
+    """The draft this run has saved, if there is one."""
+
+    status: ProgramStatus
+    draft: ProgramDraft | None = None
 
 
 class SearchSourcesArguments(BaseModel):
@@ -70,7 +106,7 @@ class GetProgramDraftArguments(BaseModel):
     """Arguments of :func:`get_program_draft`: the tool takes none."""
 
 
-def _inline_refs(schema: dict) -> dict:
+def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
     """Inline ``$defs``/``$ref`` so the parameters are one self-contained object.
 
     The arguments schema is sent to the model verbatim, and a schema that requires
@@ -121,46 +157,33 @@ GET_PROGRAM_DRAFT_SPEC = FunctionDefinition(
     parameters=_inline_refs(GetProgramDraftArguments.model_json_schema()),
 )
 
-#: The tools offered to the model, one per function. A provider takes such a list
-#: at construction and advertises it on every request — the v2 endpoint's
-#: ``functions.specifications`` grouping is the provider's business, not the
-#: agent's.
-AGENT_TOOLS: list[Tool] = [
-    Tool(function=SEARCH_SOURCES_SPEC),
-    Tool(function=SAVE_PROGRAM_DRAFT_SPEC),
-    Tool(function=GET_PROGRAM_DRAFT_SPEC),
-]
 
-
-async def search_sources(ctx: ToolContext, arguments: dict) -> dict:
+async def search_sources(ctx: ToolContext, arguments: SearchSourcesArguments) -> SearchSourcesResult:
     """Search the source catalog and return the fragments to cite.
 
     The ids of everything returned are remembered on the context: a source the
     model has not seen here (or read back in the draft it saved) must not end up
     in the draft, so this is the only place that widens what may be cited.
     """
-    arguments = SearchSourcesArguments.model_validate(arguments)
     fragments = await search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
     ctx.known_source_ids.update(fragment.source.id for fragment in fragments)
-    result: dict[str, Any] = {
-        "ok": True,
-        "query": arguments.query,
-        "fragments": [fragment.model_dump(mode="json") for fragment in fragments],
-    }
     if not fragments:
-        result["note"] = (
-            "По запросу ничего не найдено. Сформулируй запрос иначе или уточни вид деятельности; "
-            "не выдумывай источники и не ссылайся на документы, которых нет в результатах."
+        return SearchSourcesResult(
+            query=arguments.query,
+            note=(
+                "По запросу ничего не найдено. Сформулируй запрос иначе или уточни вид деятельности; "
+                "не выдумывай источники и не ссылайся на документы, которых нет в результатах."
+            ),
         )
-    return result
+    return SearchSourcesResult(query=arguments.query, fragments=fragments)
 
 
-def _cited_source_ids(draft: ProgramDraft) -> dict[str, None]:
-    """Every source id the draft refers to, in first-seen order."""
+def _cited_source_ids(draft: ProgramDraft) -> list[str]:
+    """Every source id the draft refers to, in first-seen order, once each."""
     ids = [source.id for source in draft.sources]
     ids.extend(draft.summary.basis_source_ids)
     ids.extend(competence.standard_source_id for competence in draft.competencies if competence.standard_source_id)
-    return dict.fromkeys(ids)
+    return list(dict.fromkeys(ids))
 
 
 def _resolve_sources(ctx: ToolContext, draft: ProgramDraft) -> tuple[list[Source], list[str], list[str]]:
@@ -195,97 +218,105 @@ def _describe_validation_error(error: ValidationError) -> list[str]:
     return [f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}" for item in error.errors()]
 
 
-async def save_program_draft(ctx: ToolContext, arguments: dict) -> dict:
-    """Validate the draft, bind its citations to the catalog and keep it.
+async def save_program_draft(ctx: ToolContext, arguments: ProgramDraft) -> SaveProgramDraftResult:
+    """Bind the draft's citations to the catalog and keep the draft.
 
-    Saving is what moves the process to ``pending_approval``: from this call on
-    the methodist has something to confirm, and until they do, the agent is told
-    to present the draft and stop. The validated draft stays on the context for
-    the caller to store.
+    The arguments are the draft schema itself, so a draft that does not match the
+    schema never reaches this handler. Saving is what moves the process to
+    ``pending_approval``: from this call on the methodist has something to
+    confirm, and until they do, the agent is told to present the draft and stop.
+    The validated draft stays on the context for the caller to store.
     """
-    try:
-        draft = ProgramDraft.model_validate(arguments)
-    except ValidationError as error:
-        return {
-            "ok": False,
-            "error": "Черновик не соответствует схеме программы",
-            "details": _describe_validation_error(error),
-        }
-
-    sources, unknown, unsearched = _resolve_sources(ctx, draft)
+    sources, unknown, unsearched = _resolve_sources(ctx, arguments)
     if unknown:
-        return {
-            "ok": False,
-            "error": "Неизвестные источники: " + ", ".join(unknown),
-            "details": "Используй только источники из результатов search_sources; выдуманные документы запрещены.",
-        }
+        return SaveProgramDraftResult(
+            ok=False,
+            error="Неизвестные источники: " + ", ".join(unknown),
+            details=["Используй только источники из результатов search_sources; выдуманные документы запрещены."],
+        )
     if unsearched:
-        return {
-            "ok": False,
-            "error": "Не подтверждённые поиском источники: " + ", ".join(unsearched),
-            "details": "Сначала найди документ вызовом search_sources и ссылайся только на то, что вернул поиск.",
-        }
-    ctx.draft = draft.model_copy(update={"sources": sources})
+        return SaveProgramDraftResult(
+            ok=False,
+            error="Не подтверждённые поиском источники: " + ", ".join(unsearched),
+            details=["Сначала найди документ вызовом search_sources и ссылайся только на то, что вернул поиск."],
+        )
+    ctx.draft = arguments.model_copy(update={"sources": sources})
 
     log.info("program_draft_validated", chat_session_id=str(ctx.session_id), sources=len(sources))
-    return {
-        "ok": True,
-        "status": ProgramStatus.PENDING_APPROVAL,
-        "note": "Черновик проверен и ждёт подтверждения методиста. Представь его и остановись.",
-    }
+    return SaveProgramDraftResult(
+        status=ProgramStatus.PENDING_APPROVAL,
+        note="Черновик проверен и ждёт подтверждения методиста. Представь его и остановись.",
+    )
 
 
-async def get_program_draft(ctx: ToolContext, arguments: dict) -> dict:
+async def get_program_draft(ctx: ToolContext, _arguments: GetProgramDraftArguments) -> GetProgramDraftResult:
     """Return the draft this run has saved.
 
     Reading the draft back is what a revision starts with, and the citations it
     just read must stay usable on the way out: the sources of the saved draft are
     therefore counted as known to this run.
     """
-    GetProgramDraftArguments.model_validate(arguments)
     if ctx.draft is None:
-        return {
-            "ok": True,
-            "status": ProgramStatus.DRAFT,
-            "draft": None,
-            "note": "Черновик ещё не сохранён.",
-        }
+        return GetProgramDraftResult(status=ProgramStatus.DRAFT, note="Черновик ещё не сохранён.")
     ctx.known_source_ids.update(source.id for source in ctx.draft.sources)
-    return {"ok": True, "status": ProgramStatus.PENDING_APPROVAL, "draft": ctx.draft.model_dump(mode="json")}
+    return GetProgramDraftResult(status=ProgramStatus.PENDING_APPROVAL, draft=ctx.draft)
 
 
-#: The functions the model may call, keyed by the name in the specification.
-HANDLERS: dict[str, Callable[[ToolContext, dict], Awaitable[dict]]] = {
-    SEARCH_SOURCES_SPEC.name: search_sources,
-    SAVE_PROGRAM_DRAFT_SPEC.name: save_program_draft,
-    GET_PROGRAM_DRAFT_SPEC.name: get_program_draft,
+#: A handler takes the context and its own arguments model, and answers a result.
+Handler = Callable[[ToolContext, Any], Awaitable[ToolResult]]
+
+
+@dataclass(frozen=True)
+class AgentTool:
+    """One tool as the dispatcher needs it: the spec, its arguments, its handler."""
+
+    spec: FunctionDefinition
+    arguments: type[BaseModel]
+    handler: Handler
+
+
+#: The tools the model may call, keyed by the name in the specification. A
+#: provider takes the specifications at construction — the v2 endpoint's
+#: ``functions.specifications`` grouping is the provider's business, not the
+#: agent's — and the dispatcher takes the arguments model to validate a call with.
+AGENT_TOOL_REGISTRY: dict[str, AgentTool] = {
+    SEARCH_SOURCES_SPEC.name: AgentTool(SEARCH_SOURCES_SPEC, SearchSourcesArguments, search_sources),
+    SAVE_PROGRAM_DRAFT_SPEC.name: AgentTool(SAVE_PROGRAM_DRAFT_SPEC, ProgramDraft, save_program_draft),
+    GET_PROGRAM_DRAFT_SPEC.name: AgentTool(GET_PROGRAM_DRAFT_SPEC, GetProgramDraftArguments, get_program_draft),
 }
 
+#: The tools offered to the model, one per function.
+AGENT_TOOLS: list[Tool] = [Tool(function=tool.spec) for tool in AGENT_TOOL_REGISTRY.values()]
 
-async def execute_tool(ctx: ToolContext, call: FunctionCall) -> dict:
-    """Run one function call, turning any failure into a result for the model.
 
-    ``FunctionCall.arguments`` is the JSON string the providers normalise to, so
-    malformed JSON is one more error the model gets to hear about. A broken call
-    is not a broken generation: the model may correct itself in the next round,
-    so every failure becomes a result rather than a raise.
+async def execute_tool(ctx: ToolContext, call: FunctionCall) -> ToolResult:
+    """Run one function call: validate its arguments, then hand them to the tool.
+
+    ``FunctionCall.arguments`` is the JSON string the providers normalise to, and
+    validation belongs here rather than in a handler, which receives its arguments
+    model ready to use. A broken call is not a broken generation: the model may
+    correct itself in the next round, so every failure — an unknown name,
+    malformed JSON, arguments that do not validate, an unexpected exception —
+    becomes a result rather than a raise.
     """
-    handler = HANDLERS.get(call.name)
-    if handler is None:
+    tool = AGENT_TOOL_REGISTRY.get(call.name)
+    if tool is None:
         log.warning("unknown_tool_call", tool=call.name)
-        return {"ok": False, "error": f"Неизвестная функция: {call.name}"}
+        return ToolResult(ok=False, error=f"Неизвестная функция: {call.name}")
     try:
         arguments = json.loads(call.arguments)
     except json.JSONDecodeError as error:
         log.warning("tool_arguments_invalid", tool=call.name, exc=error)
-        return {"ok": False, "error": "Некорректные аргументы вызова"}
+        return ToolResult(ok=False, error="Некорректные аргументы вызова")
     try:
-        result = await handler(ctx, arguments)
+        parsed = tool.arguments.model_validate(arguments)
     except ValidationError as error:
         log.warning("tool_arguments_invalid", tool=call.name, errors=_describe_validation_error(error))
-        return {"ok": False, "error": "Некорректные аргументы вызова", "details": _describe_validation_error(error)}
+        return ToolResult(ok=False, error="Некорректные аргументы вызова", details=_describe_validation_error(error))
+    try:
+        result = await tool.handler(ctx, parsed)
     except Exception as error:
         log.error("tool_call_failed", tool=call.name, exc=error)
-        return {"ok": False, "error": "Внутренняя ошибка инструмента"}
-    log.info("tool_call", tool=call.name, ok=bool(result.get("ok")))
+        return ToolResult(ok=False, error="Внутренняя ошибка инструмента")
+    log.info("tool_call", tool=call.name, ok=result.ok)
     return result

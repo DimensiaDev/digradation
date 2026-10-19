@@ -934,6 +934,12 @@ and the package imports nothing outside itself and `app/providers/models.py`:
   zone that owns the table: the `chat_programs` model, its migration, `DEFAULT_CHAT_NAME` in
   `app/models/chat.py` and `MOCK_DRAFT_ARGUMENTS` in `providers/mock.py` were removed, so the
   branch touches no other zone, needs no migration, and its handler tests need no database.
+- **The handlers speak pydantic models, not dictionaries.** A tool's arguments model is also
+  the schema advertised to the model, and a handler answers a result model, so no handler ever
+  sees or builds a raw dict. Validation happens at the call boundary — `execute_tool`, where
+  the JSON string of a `FunctionCall` enters — and never inside a handler, which may take its
+  arguments model for granted; when the loop takes that boundary over, it can validate a call
+  and invoke the handler directly.
 - **Only sources the run has shown the model may be cited.** `search_sources` widens
   `ToolContext.known_source_ids`, and a citation the catalog knows but this run has not returned
   is refused as well as one the catalog does not know — the model corrects itself differently
