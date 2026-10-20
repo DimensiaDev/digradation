@@ -189,6 +189,39 @@ class ProgramState(BaseModel):
         """The methodist confirmed the rendered draft."""
         return self._replace(status=ProgramStatus.APPROVED)
 
+    def with_competences(self, block: CompetencesBlock, sources: list[Source]) -> Self:
+        """Save the competence block and the standards its competencies cite."""
+        return self._replace(
+            kind=block.kind,
+            title=block.title,
+            competencies=block.competencies,
+            sources=self._merged_sources(sources),
+        )
+
+    def with_curriculum(self, block: HoursBlock) -> Self:
+        """Save the curriculum block."""
+        return self._replace(curriculum=block.curriculum)
+
+    def with_sources(self, block: SourcesBlock) -> Self:
+        """Add the stage's sources to the ones the earlier stages already cite."""
+        return self._replace(sources=self._merged_sources(block.sources))
+
+    def with_summary(self, block: SummaryBlock, sources: list[Source]) -> Self:
+        """Save the passport and the documents it is based on."""
+        return self._replace(summary=block.summary, sources=self._merged_sources(sources))
+
+    def _merged_sources(self, sources: list[Source]) -> list[Source]:
+        """The union of the cited sources, keeping the canonical record of each.
+
+        Every stage that resolves a citation adds it here, so the draft's source
+        list is the document's citation list rather than whatever the last stage
+        happened to return. A repeated id keeps its first position and its latest
+        record.
+        """
+        merged = {source.id: source for source in self.sources}
+        merged.update({source.id: source for source in sources})
+        return list(merged.values())
+
     def to_draft(self) -> ProgramDraft:
         """Assemble the draft, or explain why the committed blocks cannot be one.
 
