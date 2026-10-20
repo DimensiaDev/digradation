@@ -326,6 +326,31 @@ describe('HomePage', () => {
     expect(tiles()).toHaveLength(2);
   });
 
+  it('rejects an unsupported extension instead of attaching it', () => {
+    selectFiles([makeFile('заметки.txt', 2048)]);
+
+    expect(tiles()).toHaveLength(0);
+    const notice = TestBed.inject(NotificationService).notifications().at(-1);
+    expect(notice?.type).toBe('error');
+    expect(notice?.message).toContain('заметки.txt');
+  });
+
+  it('rejects a file above the size limit instead of attaching it', () => {
+    selectFiles([makeFile('план.pdf', 30 * 1024 * 1024 + 1)]);
+
+    expect(tiles()).toHaveLength(0);
+    const notice = TestBed.inject(NotificationService).notifications().at(-1);
+    expect(notice?.type).toBe('error');
+    expect(notice?.message).toContain('план.pdf');
+  });
+
+  it('keeps the valid files from a mixed selection', () => {
+    selectFiles([makeFile('план.pdf', 2048), makeFile('заметки.txt', 2048)]);
+
+    expect(tiles()).toHaveLength(1);
+    expect(fixture.nativeElement.textContent).toContain('план.pdf');
+  });
+
   it('does not submit the form', () => {
     const form = fixture.debugElement.query(By.css('form'));
     const event = new Event('submit', { cancelable: true });

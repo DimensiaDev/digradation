@@ -934,3 +934,8 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
 - **An effect tracks every signal its call chain reads, not just the ones in its own body.** Leaving a failed guest draft in place while the effect called `startChat` made the effect depend on `isStarting()`, which toggled on each retry, so the effect rescheduled itself forever. Wrap the whole consume-and-start block in `untracked()`; keeping the draft until the start succeeds is then a safe way to "restore" it. A synchronous run that never finishes is a hint that effects are looping, not that a request is hung. Found 2026-10-20 on `feat/main-page`.
 
 - **Name and size do not identify a `File`.** Two different files can share both, and the composer deduplicated on that pair, silently dropping the second attachment. Compare the `File` reference instead; the same instance presented twice is the only safe "already attached" signal. Found 2026-10-20 on `feat/main-page`.
+- The home composer must validate an attachment's extension and size in `addFiles`, before it
+  registers a `PendingFile`. The accepted list and the size cap already existed, but only the
+  drag-and-drop component on the chat page enforced them; the home flow discovered a bad file
+  after `ChatStarterService` had already created the session, so the user saw an upload error
+  instead of an immediate one. Both paths now gate on `ACCEPTED_EXTENSIONS` and `MAX_FILE_SIZE`.

@@ -18,6 +18,7 @@ import { EMPTY, TimeoutError, catchError, finalize } from 'rxjs';
 import { AuthModalService } from '../../core/services/auth-modal.service';
 import { ChatStarterService } from '../../core/services/chat-starter.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
+import { MAX_FILE_SIZE } from '../../core/models/models';
 import { NotificationService } from '../../core/services/notification.service';
 import { PendingChatDraftService } from '../../core/services/pending-chat-draft.service';
 import { ProfileService } from '../../core/services/profile.service';
@@ -27,6 +28,7 @@ import { FilePreviewComponent } from '../../shared/components/drag-n-drop/file-p
 import { FileTileComponent } from '../../shared/components/file-tile/file-tile.component';
 import { createId } from '../../shared/utils/create-id';
 import { ACCEPTED_EXTENSIONS } from '../../shared/utils/file-types';
+import { getFileExtension, formatBytes } from '../../shared/utils/upload-format';
 
 interface PendingFile {
   readonly id: string;
@@ -357,6 +359,20 @@ export class HomePage {
 
     const additions: PendingFile[] = [];
     for (const file of selected) {
+      if (!ACCEPTED_EXTENSIONS.includes(getFileExtension(file.name))) {
+        this.notifications.error(`Файл «${file.name}» не поддерживается`, {
+          description: `Допустимые форматы: ${ACCEPTED_EXTENSIONS.join(', ')}.`
+        });
+        continue;
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        this.notifications.error(`Файл «${file.name}» слишком большой`, {
+          description: `Максимальный размер вложения — ${formatBytes(MAX_FILE_SIZE)}.`
+        });
+        continue;
+      }
+
       const duplicate = [...this.files(), ...additions].some((item) => item.file === file);
       if (duplicate) {
         continue;
