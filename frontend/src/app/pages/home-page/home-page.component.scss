@@ -29,6 +29,12 @@
 
   padding: clamp(24px, 5vh, 64px) clamp(20px, 4vw, 48px) 28px;
 
+  transition: gap 0.35s ease;
+
+  &--composing {
+    gap: clamp(48px, 8vh, 80px);
+  }
+
   &__body {
     flex: 1 1 auto;
 
@@ -457,6 +463,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .home,
   .home__body,
   .home__examples,
   .composer__send,
