@@ -1220,3 +1220,23 @@ model on the other end was not served. These are the rules that came out of it.
   every other chat. The stage lock, not `STALLED_AFTER`, is what sets the recovery latency —
   the cron refuses to touch a locked stage, so a killed worker's run resumes when the lock
   expires, and both constants say so.
+
+## The pipeline stops at the chat worker (2026-10-20)
+
+`app/tasks/api.py` belongs to someone else, so this branch carries the pipeline and nothing
+that lives in the chat worker's turn.
+
+- **`generate_chat_message` stays exactly as `main` has it.** The intake half of #3 — offering
+  `INTAKE_TOOLS`, committing the state a `begin_program` call started, answering a chat that
+  already holds a run, and turning the confirmation phrase into `approve_program_draft` — is
+  not in this change, and neither is its test block.
+- **The seam is what this branch owes that worker.** `INTAKE_TOOLS`, `ToolContext`,
+  `execute_tool`/`call_executor`, `store.save`, `is_approval_message` and
+  `program_stage.kiq(session_id, stage, run_id)` are usable from `api.py` as written; the
+  worker needs no new module, only the wiring.
+- **The `stage` mock mode's intake branch is therefore unexercised.** It still scripts
+  `begin_program` when that tool is offered, and each stage's block when `save_program_draft`
+  is offered, which is what the Docker run exercised: a run seeded directly into
+  `program_state`.
+- **#3 stays open.** A merge delivers stages, finalisation and recovery, not "the agent asks
+  for a course and gets a draft", which is the issue's acceptance criterion.

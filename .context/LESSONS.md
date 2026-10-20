@@ -925,3 +925,9 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   new caller has to wrap the context in `call_executor(ctx, offered)` or the "only what this
   turn offered" rule silently stops holding for that path. Found 2026-10-20 in review of
   `feat/program-cycle`.
+- **`git rm --cached` plus a rebase deletes the untracked files.** Once the deletion commit is
+  part of the rebase range, checking that commit out removes the files from the working tree
+  as well, because git has no reason to keep what the tree no longer has — the ignore rule
+  only stops them being re-added. Recover with `git show <last-commit-with-them>:.context/X.md`;
+  recover *before* letting a rebase run over the deletion commit. Found 2026-10-20 on
+  `feat/program-cycle`.

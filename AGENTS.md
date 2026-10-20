@@ -392,7 +392,7 @@ without credentials and without LLM cost. Its behaviour is set by `MOCK_PROVIDER
 | `ok` (default) | a well-formed reply and a chat name | the happy path, e2e |
 | `empty` | a response with no content | "Provider did not respond properly" |
 | `error` | returns `None` | the backend's error path |
-| `stage` | scripts `begin_program` at the intake and the stage's own `save_program_draft` block afterwards | the whole programme cycle, and every Docker run of it |
+| `stage` | scripts `begin_program` when that tool is offered, and the stage's own `save_program_draft` block otherwise | the programme stages end to end, once a run exists |
 
 Output is deterministic: the reply derives from a hash of the conversation, so the same
 input always yields the same text. The `stage` mode's fabricated programme is one fixed
@@ -427,11 +427,12 @@ completeness gate that a partial state cannot pass.
 - **`finalize_program_draft`** assembles the draft, renders it with `render.py`, renames a
   default-named chat, and writes the state, the result and the assistant message in one
   transaction. A state whose blocks cannot produce a valid draft is failed, not retried.
-- **The intake is a chat turn, not an endpoint.** `generate_chat_message` offers
-  `INTAKE_TOOLS`, stores the state the model started, and enqueues the first stage; a chat
-  that already holds a run answers from its state (`_handle_program_turn`) and only an exact
-  confirmation phrase reaches `approve_program_draft`. Whatever changes here, the offline
-  mock must still be able to model it.
+- **The pipeline does not own the chat worker.** `app/tasks/api.py` is untouched by this
+  work: the intake turn, the answers a chat with a live run gets, and the confirmation phrase
+  are its owner's to write (#3's remaining half). What this branch provides is the seam —
+  `INTAKE_TOOLS` (`begin_program`, `approve_program_draft`), `ToolContext`, `call_executor`
+  and `program_stage.kiq(session_id, stage, run_id)` — so the worker only has to offer the
+  tools, commit the state a `begin_program` call started, and enqueue the stage it names.
 
 ### Live API tests
 

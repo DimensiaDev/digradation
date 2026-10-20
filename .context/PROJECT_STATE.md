@@ -43,14 +43,16 @@ admin sections (`Журнал действий`, `О системе`) render `Se
 `/home` and `/help` pages are intentional `SectionPlaceholder` hosts, and `programs` /
 `library` render the same placeholder behind the auth gate.
 
-**The programme cycle (#3).** A chat can build one educational programme. The intake asks the
-model for the requirements and starts a run through `begin_program`; the run is one
-`ProgramState` in `chat_sessions.program_state` (JSONB), mirrored to Redis for an hour. One
+**The programme cycle (#3).** A chat can build one educational programme. A run is one
+`ProgramState` in `chat_sessions.program_state` (JSONB), mirrored to Redis for an hour, and it
+starts when a chat turn calls `begin_program` — that turn lives in `app/tasks/api.py`, which is
+owned elsewhere and stays as `main` has it, so this branch delivers the stages and the seam
+they need rather than the chat interaction. One
 TaskIQ task owns one stage — competences, hours, sources, summary — and each commits its block
 before enqueueing the next, so a worker that dies leaves every finished block behind and
 `recover_stalled_programs` restarts the stage that stopped. `finalize_program_draft` renders
 the assembled draft into the chat, renames a default-named chat and waits for the methodist's
-confirmation phrase, which the chat worker turns into `approve_program_draft`. `assessment`
+confirmation, which the chat worker is to turn into `approve_program_draft`. `assessment`
 and `materials` stay pending for #5; the source catalog behind `sources.py` is still empty
 until the RAG index (#11), so a draft cites no documents today. There is no endpoint and no
 programme UI: the cycle is driven by ordinary chat messages and the frontend needs nothing new
@@ -105,8 +107,8 @@ PostgreSQL, Redis and Garage are real testcontainers in the backend suite. The L
 `app/providers/mock.py`, selected with `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) and
 switchable via `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`, `stage`); the real provider is
 only reachable through `@pytest.mark.live` tests, which are deselected by default. The `stage`
-mode scripts the whole programme cycle — `begin_program` at the intake, the stage's own
-`save_program_draft` block afterwards — so the pipeline is exercised end to end with no model.
+mode scripts `begin_program` when that tool is offered and the stage's own
+`save_program_draft` block afterwards, so the stages are exercised end to end with no model.
 
 `SBER_API_SCOPE` selects the provider: `PERS` / `B2B` / `CORP` use the GigaChat client,
 `openai` the OpenAI-compatible one (any endpoint via `OPENAI_URL`, model via `OPENAI_MODEL`),
