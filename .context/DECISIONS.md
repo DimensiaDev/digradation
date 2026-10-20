@@ -1190,3 +1190,20 @@ native `SpeechRecognition` (`webkitSpeechRecognition` fallback) rather than an u
   instead of shipping server-side STT. A Chrome-first audience would need a backend
   recogniser (SaluteSpeech or a local Whisper), which is a separate decision with credentials
   or a model to host.
+
+## Attachment tiles own their thumbnail and preview action (2026-10-20)
+
+The home composer renders each pending file as an `app-file-tile` above the textarea.
+
+- **The tile owns the object URL.** It creates a thumbnail with `URL.createObjectURL` for
+  image extensions in an effect and revokes it when the file changes or the tile is
+  destroyed. The parent only keeps the `File`, so removing an attachment cannot leak a blob
+  URL.
+- **Preview reuses `FilePreviewComponent`.** The composer passes the pending `File` to the
+  existing dialog, so PDFs and images preview before upload, and the heavy docx/xlsx
+  renderers stay lazy.
+- **Preview is gated by `previewKindFor`, not by the accepted-extension list.** A file with
+  an unknown extension still gets the same tile, name and remove action, just no preview.
+- **The tile lives in `shared/components/file-tile` partly for the style budget.** The home
+  stylesheet was at the 10 kB `anyComponentStyle` error line; a tile's worth of CSS belonged
+  in its own component rather than pushing the page over.

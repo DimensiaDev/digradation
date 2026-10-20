@@ -27,30 +27,6 @@
   </div>
 
   <form class="composer" (submit)="onSubmit($event)">
-    @if (files().length > 0) {
-      <ul class="composer__files">
-        @for (file of files(); track file.id) {
-          <li class="file-chip">
-            <span class="file-chip__icon" [style.color]="colorFor(file)">
-              <svg size="18" [lucideIcon]="iconFor(file)" aria-hidden="true"></svg>
-            </span>
-            <span class="file-chip__meta">
-              <span class="file-chip__name">{{ file.name }}</span>
-              <span class="file-chip__size h5">{{ sizeLabel(file) }}</span>
-            </span>
-            <button
-              type="button"
-              class="file-chip__remove"
-              [attr.aria-label]="'Удалить файл ' + file.name"
-              (click)="removeFile(file.id)"
-            >
-              <svg size="14" lucideX aria-hidden="true"></svg>
-            </button>
-          </li>
-        }
-      </ul>
-    }
-
     <div
       class="composer__field"
       role="presentation"
@@ -62,6 +38,20 @@
       (drop)="onDrop($event)"
       (click)="onFieldClick($event)"
     >
+      @if (files().length > 0) {
+        <ul class="composer__files" aria-label="Прикреплённые файлы">
+          @for (file of files(); track file.id) {
+            <li>
+              <app-file-tile
+                [file]="file.file"
+                (preview)="openPreview(file)"
+                (remove)="removeFile(file.id)"
+              />
+            </li>
+          }
+        </ul>
+      }
+
       <textarea
         #composerTextarea
         class="composer__textarea"
@@ -134,4 +124,8 @@
       (change)="onFilesSelected($event)"
     />
   </form>
+
+  @if (previewedFile(); as file) {
+    <app-file-preview [file]="file" (closed)="previewedFile.set(null)" />
+  }
 </section>

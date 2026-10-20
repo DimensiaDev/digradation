@@ -77,7 +77,7 @@ describe('HomePage', () => {
     fixture.debugElement.query(By.css('.composer__mic')).nativeElement as HTMLButtonElement;
   const fileInput = () =>
     fixture.debugElement.query(By.css('input[type="file"]')).nativeElement as HTMLInputElement;
-  const chips = () => fixture.debugElement.queryAll(By.css('.file-chip'));
+  const tiles = () => fixture.debugElement.queryAll(By.css('.file-tile'));
   const examples = () => fixture.debugElement.queryAll(By.css('.example-card'));
 
   const refresh = (): void => fixture.detectChanges();
@@ -273,29 +273,50 @@ describe('HomePage', () => {
     refresh();
 
     expect(page().isDragging()).toBe(false);
-    expect(chips()).toHaveLength(1);
+    expect(tiles()).toHaveLength(1);
     expect(fixture.nativeElement.textContent).toContain('план.pdf');
   });
 
   it('lists the selected files and lets the user remove one', () => {
     selectFiles([makeFile('план.pdf', 2048), makeFile('схема.png', 512)]);
 
-    expect(chips()).toHaveLength(2);
+    expect(tiles()).toHaveLength(2);
     expect(fixture.nativeElement.textContent).toContain('план.pdf');
-    expect(fixture.nativeElement.textContent).toContain('2 КБ');
 
-    (chips()[0].query(By.css('.file-chip__remove')).nativeElement as HTMLButtonElement).click();
+    (tiles()[0].query(By.css('.file-tile__remove')).nativeElement as HTMLButtonElement).click();
     refresh();
 
-    expect(chips()).toHaveLength(1);
+    expect(tiles()).toHaveLength(1);
     expect(fixture.nativeElement.textContent).not.toContain('план.pdf');
+  });
+
+  it('shows the attached files inside the composer, above the textarea', () => {
+    selectFiles([makeFile('план.pdf', 2048)]);
+
+    const field = fixture.debugElement.query(By.css('.composer__field'))
+      .nativeElement as HTMLElement;
+    const list = field.querySelector('.composer__files');
+    const children = Array.from(field.children);
+
+    expect(list).not.toBeNull();
+    expect(children.indexOf(list as Element)).toBeLessThan(children.indexOf(textarea()));
+  });
+
+  it('opens a preview from a previewable tile', () => {
+    selectFiles([makeFile('план.pdf', 2048)]);
+
+    const preview = fixture.debugElement.query(By.css('.file-tile__preview'))
+      .nativeElement as HTMLButtonElement;
+    preview.click();
+
+    expect(page().previewedFile()?.name).toBe('план.pdf');
   });
 
   it('skips duplicate files', () => {
     selectFiles([makeFile('план.pdf', 2048)]);
     selectFiles([makeFile('план.pdf', 2048)]);
 
-    expect(chips()).toHaveLength(1);
+    expect(tiles()).toHaveLength(1);
   });
 
   it('does not submit the form', () => {

@@ -1,0 +1,32 @@
+<div class="file-tile">
+  @if (thumbnail(); as thumbnail) {
+    <img class="file-tile__image" [src]="thumbnail" alt="" />
+  } @else {
+    <span class="file-tile__icon" [style.color]="color()">
+      <svg size="28" [lucideIcon]="icon()" aria-hidden="true"></svg>
+    </span>
+  }
+
+  <span class="file-tile__name" [title]="name()">{{ name() }}</span>
+
+  <span class="file-tile__actions">
+    @if (previewable()) {
+      <button
+        type="button"
+        class="file-tile__action file-tile__preview"
+        [attr.aria-label]="'Предпросмотр файла ' + name()"
+        (click)="preview.emit()"
+      >
+        <svg size="14" lucideEye aria-hidden="true"></svg>
+      </button>
+    }
+    <button
+      type="button"
+      class="file-tile__action file-tile__action--danger file-tile__remove"
+      [attr.aria-label]="'Удалить файл ' + name()"
+      (click)="remove.emit()"
+    >
+      <svg size="14" lucideX aria-hidden="true"></svg>
+    </button>
+  </span>
+</div>

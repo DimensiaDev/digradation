@@ -49,7 +49,10 @@ authenticated user goes straight to it, while a guest's text and files are held 
 after login. The composer also dictates: a microphone button to the left of send starts
 continuous Russian recognition through the Web Speech API, fills the field with interim and
 final text, and turns red while recording; the button is disabled when the browser has no
-engine (Firefox keeps it behind an off-by-default preference). `/help` is still an
+engine (Firefox keeps it behind an off-by-default preference). Attached files render as
+tiles inside the composer field, above the textarea: images show a small preview, other
+types the same tile with a file icon, and preview/remove actions appear on hover. `/help` is
+still an
 intentional `SectionPlaceholder` host, and `programs` / `library` render the same placeholder
 behind the auth gate.
 

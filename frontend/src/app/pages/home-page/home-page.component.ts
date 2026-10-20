@@ -11,14 +11,7 @@ import {
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
-import type { LucideIconData } from '@lucide/angular';
-import {
-  LucideArrowUp,
-  LucideDynamicIcon,
-  LucideMic,
-  LucidePaperclip,
-  LucideX
-} from '@lucide/angular';
+import { LucideArrowUp, LucideMic, LucidePaperclip } from '@lucide/angular';
 import { EMPTY, catchError, finalize } from 'rxjs';
 import { AuthModalService } from '../../core/services/auth-modal.service';
 import { ChatStarterService } from '../../core/services/chat-starter.service';
@@ -28,15 +21,15 @@ import { PendingChatDraftService } from '../../core/services/pending-chat-draft.
 import { ProfileService } from '../../core/services/profile.service';
 import { SpeechRecognitionService } from '../../core/services/speech-recognition.service';
 import { BrandLogoAnimatedComponent } from '../../shared/components/brand-logo-animated/brand-logo-animated.component';
+import { FilePreviewComponent } from '../../shared/components/drag-n-drop/file-preview.component';
+import { FileTileComponent } from '../../shared/components/file-tile/file-tile.component';
 import { createId } from '../../shared/utils/create-id';
-import { ACCEPTED_EXTENSIONS, fileTypeStyleFor } from '../../shared/utils/file-types';
-import { formatBytes, getFileExtension } from '../../shared/utils/upload-format';
+import { ACCEPTED_EXTENSIONS } from '../../shared/utils/file-types';
 
 interface PendingFile {
   readonly id: string;
   readonly name: string;
   readonly size: number;
-  readonly extension: string;
   readonly file: File;
 }
 
@@ -44,11 +37,11 @@ interface PendingFile {
   selector: 'app-home-page',
   imports: [
     BrandLogoAnimatedComponent,
+    FilePreviewComponent,
+    FileTileComponent,
     LucideArrowUp,
-    LucideDynamicIcon,
     LucideMic,
-    LucidePaperclip,
-    LucideX
+    LucidePaperclip
   ],
   templateUrl: './home-page.component.html',
   styleUrl: './home-page.component.scss',
@@ -66,6 +59,7 @@ export class HomePage {
 
   readonly message = signal('');
   readonly files = signal<PendingFile[]>([]);
+  readonly previewedFile = signal<File | null>(null);
   readonly isComposerActive = signal(false);
   readonly isDragging = signal(false);
   readonly isStarting = signal(false);
@@ -200,6 +194,10 @@ export class HomePage {
     this.files.update((list) => list.filter((file) => file.id !== id));
   }
 
+  openPreview(file: PendingFile): void {
+    this.previewedFile.set(file.file);
+  }
+
   onSubmit(event: Event): void {
     event.preventDefault();
 
@@ -294,18 +292,6 @@ export class HomePage {
       });
   }
 
-  colorFor(file: PendingFile): string {
-    return fileTypeStyleFor(file.extension).color;
-  }
-
-  iconFor(file: PendingFile): LucideIconData {
-    return fileTypeStyleFor(file.extension).icon;
-  }
-
-  sizeLabel(file: PendingFile): string {
-    return formatBytes(file.size);
-  }
-
   private hasFiles(event: DragEvent): boolean {
     return Array.from(event.dataTransfer?.types ?? []).includes('Files');
   }
@@ -315,22 +301,21 @@ export class HomePage {
       return;
     }
 
-    this.files.update((list) => {
-      const next = [...list];
-      for (const file of selected) {
-        const duplicate = next.some((item) => item.name === file.name && item.size === file.size);
-        if (duplicate) {
-          continue;
-        }
-        next.push({
-          id: createId(),
-          name: file.name,
-          size: file.size,
-          extension: getFileExtension(file.name),
-          file
-        });
+    const additions: PendingFile[] = [];
+    for (const file of selected) {
+      const duplicate = [...this.files(), ...additions].some(
+        (item) => item.name === file.name && item.size === file.size
+      );
+      if (duplicate) {
+        continue;
       }
-      return next;
-    });
+
+      const id = createId();
+      additions.push({ id, name: file.name, size: file.size, file });
+    }
+
+    if (additions.length > 0) {
+      this.files.update((list) => [...list, ...additions]);
+    }
   }
 }

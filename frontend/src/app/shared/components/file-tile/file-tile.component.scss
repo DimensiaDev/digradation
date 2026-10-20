@@ -1,0 +1,109 @@
+@use '../../../mixins' as *;
+
+:host {
+  display: block;
+}
+
+.file-tile {
+  position: relative;
+
+  display: block;
+
+  width: 128px;
+  height: 80px;
+
+  overflow: hidden;
+
+  background: var(--color-secondary);
+
+  border: 1px solid var(--color-outline);
+  border-radius: 10px;
+
+  &__image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  &__icon {
+    position: absolute;
+    inset: 20px 0 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  &__name {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+
+    max-width: calc(100% - 10px);
+
+    overflow: hidden;
+
+    padding: 2px 5px;
+
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--color-text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    background: color-mix(in srgb, var(--color-surface) 85%, transparent);
+    border-radius: 5px;
+  }
+
+  &__actions {
+    position: absolute;
+    right: 5px;
+    bottom: 5px;
+
+    display: flex;
+    gap: 4px;
+
+    opacity: 0;
+    pointer-events: none;
+
+    transition: opacity 0.15s ease;
+  }
+
+  &:hover &__actions,
+  &:focus-within &__actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  &__action {
+    @include icon-button;
+
+    width: 22px;
+    height: 22px;
+
+    color: var(--color-text);
+
+    background: var(--color-surface);
+
+    border: 1px solid var(--color-outline);
+    border-radius: 6px;
+
+    &--danger:hover {
+      color: var(--color-danger);
+    }
+  }
+}
+
+@media (hover: none) {
+  .file-tile__actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-tile__actions {
+    transition: none;
+  }
+}

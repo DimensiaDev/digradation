@@ -914,3 +914,9 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   without the API keys, every start fails with `network`. Safari uses Apple and worked on the
   same machine, which is the quick way to tell the two apart. Found 2026-10-20 on
   `feat/main-page`.
+- **The home-page component stylesheet is close to the `anyComponentStyle` error budget.**
+  `angular.json` warns at 6 kB and fails the production build at 10 kB; the home composer
+  alone was around 9.9 kB, and a tile's worth of CSS crossed the error line. Trim
+  declarations rather than raising the budget, or move a self-contained block into its own
+  component as the attachment tile did, and run `npm run build` after styling this page.
+  Found 2026-10-20 on `feat/main-page`.
