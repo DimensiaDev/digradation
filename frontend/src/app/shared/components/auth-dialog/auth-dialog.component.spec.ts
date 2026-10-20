@@ -8,6 +8,7 @@ import { provideRouter, Router, Routes } from '@angular/router';
 import { AuthDialogComponent } from './auth-dialog.component';
 import { AuthModalService } from '../../../core/services/auth-modal.service';
 import { NotificationService } from '../../../core/services/notification.service';
+import { PendingChatDraftService } from '../../../core/services/pending-chat-draft.service';
 import { NotificationsComponent } from '../notifications/notifications.component';
 import { environment } from '../../../../environments/environment';
 import { User } from '../../../core/models/models';
@@ -203,6 +204,18 @@ describe('AuthDialogComponent', () => {
       expect(page().form.controls.password.value).toBeNull();
       expect(page().showPassword()).toBe(false);
     });
+
+    it('drops a guest draft when the dialog is dismissed', () => {
+      const drafts = TestBed.inject(PendingChatDraftService);
+      createPage();
+      openModal();
+      drafts.set({ text: 'Нужна программа', files: [] });
+
+      dialogEl()?.dispatchEvent(new Event('cancel', { cancelable: true }));
+      fixture.detectChanges();
+
+      expect(drafts.peek()).toBeNull();
+    });
   });
 
   describe('rendering', () => {
@@ -263,6 +276,22 @@ describe('AuthDialogComponent', () => {
       expect(page().isSubmitting()).toBe(false);
       expect(page().form.controls.username.value).toBeNull();
       expect(notificationText()).toBe('Вы вошли в систему');
+    });
+
+    it('keeps a guest draft so the chat can start after login', async () => {
+      const drafts = TestBed.inject(PendingChatDraftService);
+      const draft = { text: 'Нужна программа', files: [] };
+      drafts.set(draft);
+      createPage();
+      openModal();
+      fillCredentials('ivan', 'password123');
+      submitForm();
+      flushLogin({ message: 'ok' });
+      await fixture.whenStable();
+      flushProfile();
+      await fixture.whenStable();
+
+      expect(drafts.peek()).toEqual(draft);
     });
 
     it('trims the username before sending it', async () => {

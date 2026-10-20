@@ -16,6 +16,7 @@ import { LucideEye, LucideEyeOff, LucideLock, LucideUser, LucideX } from '@lucid
 import { AuthModalService } from '../../../core/services/auth-modal.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { NotificationService } from '../../../core/services/notification.service';
+import { PendingChatDraftService } from '../../../core/services/pending-chat-draft.service';
 import { ProfileService } from '../../../core/services/profile.service';
 import { extractApiErrorMessage } from '../../utils/api-error';
 import { InputComponent } from '../input/input.component';
@@ -39,6 +40,7 @@ export class AuthDialogComponent {
   private readonly notifications = inject(NotificationService);
   private readonly router = inject(Router);
   private readonly modal = inject(AuthModalService);
+  private readonly pendingDraft = inject(PendingChatDraftService);
 
   readonly userIcon = LucideUser;
   readonly lockIcon = LucideLock;
@@ -81,8 +83,9 @@ export class AuthDialogComponent {
   close(): void {
     // The instance outlives each open/close cycle, so clear the form here: a
     // dismissed wrong password must not sit in memory and reappear on reopen.
-    this.resetForm();
-    this.modal.close();
+    // A dismissed dialog also drops the guest draft: it was meant for the login
+    // flow that opened this dialog, not for whichever account signs in later.
+    this.dismiss(true);
   }
 
   onCancel(event: Event): void {
@@ -155,11 +158,19 @@ export class AuthDialogComponent {
 
   private finishLogin(): void {
     const target = this.modal.returnUrl();
-    this.close();
+    this.dismiss(false);
     this.notifications.success('Вы вошли в систему', {
       description: 'Сейчас откроется рабочая область.'
     });
     this.router.navigateByUrl(target);
+  }
+
+  private dismiss(discardDraft: boolean): void {
+    this.resetForm();
+    if (discardDraft) {
+      this.pendingDraft.clear();
+    }
+    this.modal.close();
   }
 
   private resetForm(): void {

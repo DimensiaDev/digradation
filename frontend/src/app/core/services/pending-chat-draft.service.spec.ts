@@ -33,4 +33,13 @@ describe('PendingChatDraftService', () => {
 
     expect(service.peek()?.text).toBe('Второй');
   });
+
+  it('clears the draft when the login flow is abandoned', () => {
+    service.set({ text: 'Нужна программа', files: [] });
+
+    service.clear();
+
+    expect(service.peek()).toBeNull();
+    expect(service.consume()).toBeNull();
+  });
 });

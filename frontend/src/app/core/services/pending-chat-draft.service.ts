@@ -19,6 +19,10 @@ export class PendingChatDraftService {
     return this.draft();
   }
 
+  clear(): void {
+    this.draft.set(null);
+  }
+
   consume(): PendingChatDraft | null {
     const draft = this.draft();
     if (!draft) {

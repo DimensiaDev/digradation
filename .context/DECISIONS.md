@@ -1219,3 +1219,13 @@ nothing was created. Cleanup is best effort: deletions run with a short timeout,
 errors are swallowed, and the original failure is rethrown so the user still sees the real
 reason. Attachment ids are collected through `onAttachmentId`, which fires before the
 storage POST, so a file whose bytes never arrived is still deleted.
+
+## A guest draft belongs to one login attempt
+
+Dismissing the auth dialog clears `PendingChatDraftService`; a successful login does not.
+The draft is created only when a guest submits the home composer, and it is meant for the
+login flow that dialog was opened for. Keeping it after dismissal let a later sign-in in the
+same application instance send the previous guest's text and files under another account
+without confirmation. Cleanup therefore sits in the dialog's dismissal path
+(`AuthDialogComponent.dismiss(true)`), not in `AuthModalService.close`, because the success
+path also closes the modal and still needs the draft.
