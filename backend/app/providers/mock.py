@@ -110,6 +110,8 @@ class MockProvider(AIClient):
         response_format: ResponseFormat,
         x_client_id: uuid.UUID,
         x_session_id: uuid.UUID,
+        *,
+        tools: list[Tool] | None = None,
     ) -> GenerationResponse | None:
         fingerprint = "|".join(m.content[0].text for m in message_history if m.content)
         mode = get_mock_mode()
@@ -118,6 +120,9 @@ class MockProvider(AIClient):
             mode=mode,
             messages=len(message_history),
             format=response_format.type,
+            # The mock answers without the model, so the offered set is only
+            # logged; ``stage`` mode uses it to pick the call to script.
+            tools=len(self.tools if tools is None else tools),
             x_client_id=str(x_client_id),
             x_session_id=str(x_session_id),
         )

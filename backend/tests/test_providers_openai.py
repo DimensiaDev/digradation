@@ -28,10 +28,12 @@ from openai.types.completion_usage import CompletionUsage, PromptTokensDetails
 from app.providers.client import AIClient, AuthorizationError
 from app.providers.models import (
     Content,
+    FunctionCall,
     FunctionDefinition,
     Message,
     ResponseFormat,
     Tool,
+    ToolCall,
 )
 from app.providers.openai import DEFAULT_OPENAI_MODEL, OpenAIProvider
 
@@ -265,6 +267,96 @@ async def test_generate_omits_tool_arguments_without_tools(make_provider):
     kwargs = client.chat.completions.create.call_args.kwargs
     assert "tools" not in kwargs
     assert "tool_choice" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_generate_takes_a_narrower_tool_set_for_one_call(make_provider):
+    provider, client = make_provider(make_completion(), tools=[function_tool("configured")])
+
+    await provider.generate(
+        history(),
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+        tools=[function_tool("lookup")],
+    )
+
+    kwargs = client.chat.completions.create.call_args.kwargs
+    assert [tool["function"]["name"] for tool in kwargs["tools"]] == ["lookup"]
+
+
+@pytest.mark.asyncio
+async def test_an_empty_narrowed_tool_set_offers_nothing(make_provider):
+    provider, client = make_provider(make_completion(), tools=[function_tool("configured")])
+
+    await provider.generate(
+        history(),
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+        tools=[],
+    )
+
+    kwargs = client.chat.completions.create.call_args.kwargs
+    assert "tools" not in kwargs
+    assert "tool_choice" not in kwargs
+
+
+def test_message_to_openai_renders_an_assistant_tool_call():
+    message = Message(
+        role="assistant",
+        content=[Content(text="Сейчас посмотрю")],
+        tool_calls=[ToolCall(id="call-1", function=FunctionCall(name="lookup", arguments='{"item": "steel"}'))],
+    )
+
+    payload = OpenAIProvider._message_to_openai(message)
+
+    assert payload == {
+        "role": "assistant",
+        "content": "Сейчас посмотрю",
+        "tool_calls": [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "lookup", "arguments": '{"item": "steel"}'},
+            }
+        ],
+    }
+
+
+def test_message_to_openai_sends_null_content_when_only_calling():
+    message = Message(
+        role="assistant",
+        tool_calls=[ToolCall(id="call-1", function=FunctionCall(name="lookup", arguments="{}"))],
+    )
+
+    payload = OpenAIProvider._message_to_openai(message)
+
+    assert payload["content"] is None
+
+
+@pytest.mark.asyncio
+async def test_generate_sends_the_tool_round_back_to_the_model(make_provider):
+    provider, client = make_provider(make_completion())
+    messages = [
+        *history(),
+        Message(
+            role="assistant",
+            tool_calls=[ToolCall(id="call-1", function=FunctionCall(name="lookup", arguments="{}"))],
+        ),
+        Message(role="tool", content=[Content(text="result")], tool_call_id="call-1"),
+    ]
+
+    await provider.generate(
+        messages,
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    sent = client.chat.completions.create.call_args.kwargs["messages"]
+    assert sent[1]["tool_calls"][0]["id"] == "call-1"
+    assert sent[2] == {"role": "tool", "content": "result", "tool_call_id": "call-1"}
 
 
 @pytest.mark.asyncio

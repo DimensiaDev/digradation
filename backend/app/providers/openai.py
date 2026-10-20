@@ -6,9 +6,9 @@ official OpenAI endpoint is used. The model defaults to the GigaChat model the
 school hub exposes and can be overridden with ``OPENAI_MODEL``.
 
 This provider advertises tools on every request, and the calls the model asks
-for come back on ``GenerationResponse.tool_calls``. Nothing executes them yet:
-the caller decides whether to answer the call or run it. The GigaChat client
-implements the same contract on its own wire format.
+for come back on ``GenerationResponse.tool_calls``. The caller decides when to
+execute them; ``app.agentic.loop`` is the programme pipeline's caller. The
+GigaChat client implements the same contract on its own wire format.
 """
 
 from __future__ import annotations
@@ -131,6 +131,19 @@ class OpenAIProvider(AIClient):
                 "content": cls._text(message.content),
                 "tool_call_id": message.tool_call_id or "",
             }
+        if message.role == "assistant" and message.tool_calls:
+            return {
+                "role": "assistant",
+                "content": cls._text(message.content) or None,
+                "tool_calls": [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {"name": call.function.name, "arguments": call.function.arguments},
+                    }
+                    for call in message.tool_calls
+                ],
+            }
         parts = cls._content_parts(message.content)
         return {"role": message.role, "content": parts if parts is not None else cls._text(message.content)}
 
@@ -202,6 +215,8 @@ class OpenAIProvider(AIClient):
         response_format: ResponseFormat,
         x_client_id: uuid.UUID,
         x_session_id: uuid.UUID,
+        *,
+        tools: list[Tool] | None = None,
     ) -> GenerationResponse | None:
         x_request_id = str(uuid.uuid4())
         log = self._log.bind(
@@ -216,8 +231,9 @@ class OpenAIProvider(AIClient):
         fmt = self._response_format(response_format)
         if fmt is not None:
             kwargs["response_format"] = fmt
-        if self.tools:
-            kwargs["tools"] = self._tools_payload(self.tools)
+        active_tools = self.tools if tools is None else tools
+        if active_tools:
+            kwargs["tools"] = self._tools_payload(active_tools)
             kwargs["tool_choice"] = "auto"
 
         try:
