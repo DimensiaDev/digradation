@@ -361,10 +361,10 @@ figure is recorded here — read it off the `TOTAL` line.
 e2e stacks set. The OpenAI-compatible client takes its token from `SBER_API_KEY`, its
 endpoint from `OPENAI_URL` (empty = official OpenAI) and its model from `OPENAI_MODEL`.
 
-Tools are defined once, at provider construction: pass `tools=[Tool(...)]` to any provider.
-`OpenAIProvider` and `SberProvider` implement them; each advertises the set on every request
-and maps the model's requests onto `GenerationResponse.tool_calls`. `mock` accepts `tools=`
-and ignores it. Nothing executes a call yet.
+`OpenAIProvider` and `SberProvider` implement tools; each advertises the offered set on every
+request and maps the model's requests onto `GenerationResponse.tool_calls`. A provider may be
+constructed with a default set, and a caller narrows it per turn with `generate(..., tools=)`.
+`mock` accepts `tools=` and scripts a call from it only in `stage` mode.
 
 The two real providers use different wire shapes, and the internal model hides the difference:
 
@@ -373,8 +373,11 @@ The two real providers use different wire shapes, and the internal model hides t
   `tool_config.mode`, and the reply nests `function_call` inside `content[]` with
   `arguments` as a JSON *object*. `SberProvider` normalises both back to `ToolCall`.
 
-The container passes one module-level `TOOLS` list (currently empty) to every provider, so
-registering a tool later means filling that list. `SberProvider` rejects `strict=True` tools
+The container passes `TOOLS` to every provider and it is **empty on purpose**: every turn
+names the set it offers. The chat intake offers `INTAKE_TOOLS`, a programme stage offers
+`stage_tools(stage)`, and the difference is load-bearing — a stage that saw the intake tools
+could start a second run mid-document, and a union would advertise four same-named
+`save_program_draft` specs, one per block schema. `SberProvider` rejects `strict=True` tools
 at construction because GigaChat v2 has no strict mode; the OpenAI client honours `strict`.
 
 ### The mock provider
@@ -389,9 +392,46 @@ without credentials and without LLM cost. Its behaviour is set by `MOCK_PROVIDER
 | `ok` (default) | a well-formed reply and a chat name | the happy path, e2e |
 | `empty` | a response with no content | "Provider did not respond properly" |
 | `error` | returns `None` | the backend's error path |
+| `stage` | scripts `begin_program` at the intake and the stage's own `save_program_draft` block afterwards | the whole programme cycle, and every Docker run of it |
 
 Output is deterministic: the reply derives from a hash of the conversation, so the same
-input always yields the same text.
+input always yields the same text. The `stage` mode's fabricated programme is one fixed
+document sized to the volume the brief names, because the pipeline validates the blocks
+against each other and a block that disagrees fails the run.
+
+### The programme pipeline
+
+The sequential educational-programme cycle is the reference implementation for any future
+multi-stage job. `app/agentic/state.py` defines `ProgramState`, the envelope over the
+`ProgramDraft` blocks plus the methodist's requirements, the volume, per-stage status,
+attempts and `run_id`; `app/agentic/store.py` is its only writer, and `to_draft()` is the
+completeness gate that a partial state cannot pass.
+
+- **One TaskIQ task owns one stage**, in the order of `STAGE_ORDER` (competences, hours,
+  sources, summary; `assessment` and `materials` wait for #5). A stage commits its block and
+  only then enqueues the next task or `finalize_program_draft`. There is no loop over stages
+  inside a task, and that is what makes a worker death stop at a durable boundary.
+- **The state is `chat_sessions.program_state` (JSONB)**, mirrored to
+  `program:state:{session_id}` in Redis for `PROGRAM_STATE_TTL`. PostgreSQL is canonical and
+  a mirror that cannot be written never fails a task.
+- **Three guards, not one.** The chat row lock orders simultaneous writers, the version on
+  the envelope refuses a writer that loaded the row long ago, and a per-stage Redis lock
+  (`PROGRAM_STAGE_LOCK_TTL`) keeps a slow stage from overlapping its own recovery. The lock is
+  released with a Lua compare-and-delete, never a plain `DEL`.
+- **`program_stage` refuses a task from another run** by comparing the `run_id` in its
+  argument with the row, and replays a completed stage by handing over to its successor
+  instead of regenerating the block.
+- **`recover_stalled_programs`** runs every five minutes, skips a stage whose lock is alive,
+  and re-enqueues the stage a stalled run stopped on, spending an attempt. When the budget is
+  spent the run is failed and the chat is told, so a stage that kills its worker cannot cycle.
+- **`finalize_program_draft`** assembles the draft, renders it with `render.py`, renames a
+  default-named chat, and writes the state, the result and the assistant message in one
+  transaction. A state whose blocks cannot produce a valid draft is failed, not retried.
+- **The intake is a chat turn, not an endpoint.** `generate_chat_message` offers
+  `INTAKE_TOOLS`, stores the state the model started, and enqueues the first stage; a chat
+  that already holds a run answers from its state (`_handle_program_turn`) and only an exact
+  confirmation phrase reaches `approve_program_draft`. Whatever changes here, the offline
+  mock must still be able to model it.
 
 ### Live API tests
 

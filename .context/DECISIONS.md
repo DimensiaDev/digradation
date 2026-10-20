@@ -1121,3 +1121,69 @@ showed a scrollbar with nothing to scroll to.
   is 100% of `main`, header included, so that page still scrolls by the header height. It
   predates this change and needs its internal `calc(100dvh - 40px)` reworked, which is a
   separate piece of work.
+
+## The programme cycle: one row, one task per stage, three layers of safety (2026-10-20, #3)
+
+The cycle was re-done from `main` after the earlier attempt's infrastructure was rejected.
+These are the choices that the code cannot explain on its own.
+
+- **The run lives in `chat_sessions.program_state`, not in its own table.** A programme is a
+  property of exactly one chat, and the chat row is already the thing every writer has to
+  take before touching it: `SELECT ... FOR UPDATE` on that row is the cheapest mutex there is,
+  and a separate table would have needed its own lock and its own cascade. JSONB also lets the
+  envelope grow with the schema without a migration per block; the alternative, a column per
+  block, would have made "is this stage done" a set of null checks spread over nine columns.
+- **PostgreSQL is canonical and Redis is a mirror with a one-hour TTL.** A stage reads the row,
+  never the mirror, so a Redis flush cannot lose a run; the mirror exists so an operator can
+  watch a stage work without querying the database, and it is refreshed on every load and save
+  rather than written on transitions only.
+- **One task per stage, and the next task is enqueued after the commit.** This is what makes a
+  worker death survivable: the run stops on a boundary that is already durable, and the blocks
+  the dead worker saved are still there. A `while not ready` loop inside one task would have
+  kept the whole transcript in one process's memory, which is exactly the state that vanishes.
+- **The attempt is spent when the stage is enqueued, not when it starts.** A worker that dies
+  before its first line has still consumed a delivery, and counting at the start would let a
+  stage that reliably kills its worker be re-delivered forever. `MAX_STAGE_ATTEMPTS` = 3 is the
+  budget for the whole lifetime of one stage, re-deliveries included.
+- **Three different guards, and each catches a different failure.** The PostgreSQL row lock
+  orders two writers that save at the same instant; the version on the envelope refuses a
+  writer that loaded the row ten minutes ago; the Redis stage lock keeps a slow stage from
+  overlapping the recovery run. The version check alone would still let two workers *execute*
+  a stage — the lock is what stops the duplicate work, the version is what stops the duplicate
+  write when the lock has expired.
+- **The lock is released with a Lua compare-and-delete.** `redis-py`'s `lock()` generates its
+  own token, so a task that wants to release a lock from another connection has to own the
+  token itself. A plain `DEL` would remove a lock that expired and was taken by someone else.
+- **A stage that saves nothing is a failed stage.** The model answering "готово" without a
+  `save_program_draft` call is a provider that misunderstood the turn, not a finished stage, so
+  `ToolContext.saved` gates the completion and the stage is retried with the reason attached.
+- **Recovery skips a stage whose lock is alive and spends an attempt when it re-enqueues.** The
+  cron would otherwise double every stage slower than its threshold; and without spending an
+  attempt, a stage that kills its worker would cycle through the queue indefinitely. `exists`
+  failing on a Redis outage counts as "held", because a recovery stampede is worse than a
+  delayed retry.
+- **One tool name for four blocks.** `save_program_draft` is offered by every stage with the
+  argument schema of that stage's block (`STAGE_BLOCK`), rather than four tools with four
+  names. The model already knows which block its stage is for from the prompt; four names would
+  have made "call the wrong one" possible and would have needed four handlers.
+- **A citation must have been seen.** `search_sources` records the ids it returned on the
+  context, and a save resolves every cited id against that set: an invented id and a plausible
+  but unseen id are refused the same way. The catalog is empty until the RAG index (#11), so
+  today every citation is refused and the sources stage stores an empty list — which the draft
+  accepts, because a programme without citations is a weaker document, not an invalid one.
+- **The schedule check is one-sided.** `days x hours_per_day >= total` is a ceiling rather than
+  an equality, because the final attestation sits outside the curriculum: the canonical example
+  schedules 72 hours for 66 hours of topics. The equality against `requested_hours` is checked
+  separately and only when the methodist named a volume.
+- **Finalisation renames the chat, and only once.** The programme title is a better chat name
+  than "Новый чат", and the rename happens in the same transaction as the rendered message so a
+  failed save cannot leave a renamed chat without the draft it was named for.
+- **Confirmation is a phrase, not an endpoint.** #3 allows no new route, so the chat worker
+  matches `is_approval_message` against the exact confirmation phrases and runs
+  `approve_program_draft`. It is only accepted once `finalized` is true, which is what keeps a
+  confirmation from overtaking the transaction that renders the draft. An approved programme
+  then continues as an ordinary chat: the next stage (#5) discusses the document.
+- **The mock has a `stage` mode.** Every other cycle test scripts the provider, and the wire
+  format of a tool call is exactly the part that a scripted provider would not catch. The mode
+  scripts one valid call per stage, so the Docker and e2e stacks can run the whole cycle with
+  no model, and a single test proves the fabricated blocks pass the cross-block checks.

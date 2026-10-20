@@ -873,3 +873,30 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   commits. After #26 merged and `main` moved, PR #24's checks vanished this way. Re-pushing
   and reopening the pull request do not help — `reopened` is skipped for the same reason —
   the conflict has to be resolved first. Found 2026-10-18 on `feat/gen-cicle`.
+- **`redis-py`'s `lock()` owns its token, so it cannot be released from another connection.**
+  The context manager's token is private, and `delete()` on the key would remove whatever lock
+  is there now. A task that must release a lock it took in another `async with` block needs its
+  own `uuid4().hex` token plus a Lua compare-and-delete. Found 2026-10-20 on
+  `feat/program-cycle`.
+- **`generation_results.chat_session_id` is the primary key, so a second result for the same
+  chat is an `IntegrityError`, not a second row.** Any worker that wants to post a message into
+  a chat mid-run must update the existing result instead of adding one — the frontend reads one
+  result per poll and `generate_chat_message` deletes it at the start of the next turn. Found
+  2026-10-20 on `feat/program-cycle`.
+- **TaskIQ picks a new task module up through `-tp 'app/tasks/*.py'`, not through
+  `app/tasks/__init__.py`.** There is no `__init__.py` and `import app.tasks` imports nothing,
+  so a worker does not need a registration step — but a *test* that imports the task body does,
+  and the `task_db` fixture has to patch `tsq_db` in the new module by name or the task quietly
+  writes to the environment's PostgreSQL. Found 2026-10-20 on `feat/program-cycle`.
+- **The block models are frozen, so a test cannot mutate a nested field.** `topic.hours = ...`
+  raises `frozen_instance`, and `model_copy(deep=True)` does not help because the copy is frozen
+  too. Build the variant from the JSON payload (`model_copy(update=...)` on each level, or edit
+  the loaded example) instead of assigning. Found 2026-10-20 on `feat/program-cycle`.
+- **`store.save` refuses an older version even when nothing else changed.** A test that wants an
+  aged state has to age one produced by a transition (`started`, `enqueued`), because
+  `model_copy(update={"updated_at": ...})` on a saved state keeps its version and is rejected as
+  stale by the row it just wrote. Found 2026-10-20 on `feat/program-cycle`.
+- **The `stage` mock has to read the volume back out of its own prompt.** The curriculum block
+  must total `requested_hours` or `to_draft` refuses the whole draft, and the hours stage only
+  knows the volume because the brief states it — so the mock parses "Заявленный объём программы"
+  from the same text the real model reads. Found 2026-10-20 on `feat/program-cycle`.
