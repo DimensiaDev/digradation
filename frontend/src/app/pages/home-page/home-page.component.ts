@@ -357,9 +357,7 @@ export class HomePage {
 
     const additions: PendingFile[] = [];
     for (const file of selected) {
-      const duplicate = [...this.files(), ...additions].some(
-        (item) => item.name === file.name && item.size === file.size
-      );
+      const duplicate = [...this.files(), ...additions].some((item) => item.file === file);
       if (duplicate) {
         continue;
       }

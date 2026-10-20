@@ -312,11 +312,18 @@ describe('HomePage', () => {
     expect(page().previewedFile()?.name).toBe('план.pdf');
   });
 
-  it('skips duplicate files', () => {
-    selectFiles([makeFile('план.pdf', 2048)]);
-    selectFiles([makeFile('план.pdf', 2048)]);
+  it('skips the same file selected twice', () => {
+    const file = makeFile('план.pdf', 2048);
+    selectFiles([file]);
+    selectFiles([file]);
 
     expect(tiles()).toHaveLength(1);
+  });
+
+  it('attaches different files that share a name and a size', () => {
+    selectFiles([makeFile('план.pdf', 2048), makeFile('план.pdf', 2048)]);
+
+    expect(tiles()).toHaveLength(2);
   });
 
   it('does not submit the form', () => {
