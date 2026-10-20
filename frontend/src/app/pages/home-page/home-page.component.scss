@@ -18,6 +18,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: safe center;
 
   gap: clamp(24px, 4vh, 44px);
 
@@ -41,7 +42,13 @@
 
     overflow-y: auto;
 
+    transition: flex-grow 0.35s ease;
+
     @include app-scrollbar;
+  }
+
+  &--composing &__body {
+    flex-grow: 0;
   }
 
   &__hero {
@@ -347,7 +354,7 @@
   @include app-scrollbar;
 
   .composer__field--expanded & {
-    min-height: 160px;
+    min-height: 100px;
 
     padding-right: 0;
   }
@@ -450,6 +457,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .home__body,
+  .home__examples,
   .composer__send,
   .composer__field,
   .composer__textarea,

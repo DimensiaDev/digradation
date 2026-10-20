@@ -1,4 +1,4 @@
-<section class="home">
+<section class="home" [class.home--composing]="hasContent()">
   <div class="home__body">
     <div class="home__hero">
       <app-brand-logo-animated class="home__logo" [size]="200" [active]="isComposerActive()" />
