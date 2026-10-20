@@ -40,6 +40,26 @@ class FakeSpeechRecognitionService {
     this.listening.set(false);
   });
 
+  stopDeferred = false;
+  private stopResolve: (() => void) | null = null;
+
+  readonly stopAndWait = vi.fn(() => {
+    if (!this.stopDeferred) {
+      this.listening.set(false);
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.stopResolve = resolve;
+    });
+  });
+
+  finishStop(): void {
+    this.listening.set(false);
+    const resolve = this.stopResolve;
+    this.stopResolve = null;
+    resolve?.();
+  }
+
   emit(final: string, interim: string): void {
     this.transcriptState.set({ final, interim });
   }
@@ -389,6 +409,27 @@ describe('HomePage', () => {
     expect(micButton().classList).not.toContain('composer__mic--recording');
     expect(micButton().getAttribute('aria-pressed')).toBe('false');
     expect(textarea().value).toBe('Нужна программа');
+  });
+
+  it('waits for the final dictation result before starting the chat', async () => {
+    vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    signIn();
+    micButton().click();
+    speech.emit('Сделай', '');
+    refresh();
+    speech.stopDeferred = true;
+
+    submit();
+
+    expect(speech.stopAndWait).toHaveBeenCalled();
+    expect(chatStarter.start).not.toHaveBeenCalled();
+
+    speech.emit('Сделай программу', '');
+    speech.finishStop();
+    await fixture.whenStable();
+    refresh();
+
+    expect(chatStarter.start).toHaveBeenCalledWith('Сделай программу', []);
   });
 
   it('appends dictation to the text already in the field', () => {

@@ -939,3 +939,8 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   drag-and-drop component on the chat page enforced them; the home flow discovered a bad file
   after `ChatStarterService` had already created the session, so the user saw an upload error
   instead of an immediate one. Both paths now gate on `ACCEPTED_EXTENSIONS` and `MAX_FILE_SIZE`.
+- `speech.stop()` is not the end of the utterance: the engine delivers its final result and
+  only then fires `onend`. Reading the message right after `stop()` drops the last words.
+  `SpeechRecognitionService.stopAndWait()` resolves on `onend`/`onerror`; the home page holds
+  the composer while awaiting it and folds the settled transcript in synchronously, because
+  the transcript `effect()` runs on a later tick than the awaited continuation.

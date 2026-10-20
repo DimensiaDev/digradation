@@ -143,6 +143,44 @@ describe('SpeechRecognitionService', () => {
     expect(service.isListening()).toBe(false);
   });
 
+  it('resolves immediately when nothing is being recognised', async () => {
+    const service = createService();
+
+    await expect(service.stopAndWait()).resolves.toBeUndefined();
+  });
+
+  it('waits for the final result before resolving stopAndWait', async () => {
+    const service = createService();
+    const recognition = FakeSpeechRecognition.last as FakeSpeechRecognition;
+    let settled = false;
+
+    service.start();
+    const stopped = service.stopAndWait().then(() => {
+      settled = true;
+    });
+
+    expect(recognition.stopCount).toBe(1);
+    expect(settled).toBe(false);
+
+    recognition.emitResult([{ transcript: 'Нужна программа', isFinal: true }]);
+    recognition.onend?.();
+    await stopped;
+
+    expect(settled).toBe(true);
+    expect(service.transcript()).toEqual({ final: 'Нужна программа', interim: '' });
+  });
+
+  it('settles stopAndWait when recognition fails on stop', async () => {
+    const service = createService();
+    const recognition = FakeSpeechRecognition.last as FakeSpeechRecognition;
+
+    service.start();
+    const stopped = service.stopAndWait();
+    recognition.fail('aborted');
+
+    await expect(stopped).resolves.toBeUndefined();
+  });
+
   it('tolerates stopping an engine that already ended', () => {
     const service = createService();
     const recognition = FakeSpeechRecognition.last as FakeSpeechRecognition;

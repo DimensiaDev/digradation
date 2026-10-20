@@ -68,6 +68,7 @@ export class SpeechRecognitionService {
 
   private finalTranscript = '';
   private errorHandler: ((code: string) => void) | null = null;
+  private stopResolve: (() => void) | null = null;
 
   constructor() {
     const recognition = this.recognition;
@@ -81,11 +82,15 @@ export class SpeechRecognitionService {
     recognition.onresult = (event) => this.handleResult(event);
     recognition.onerror = (event) => {
       this.listeningState.set(false);
+      this.settleStop();
       if (event.error !== 'aborted') {
         this.errorHandler?.(event.error);
       }
     };
-    recognition.onend = () => this.listeningState.set(false);
+    recognition.onend = () => {
+      this.listeningState.set(false);
+      this.settleStop();
+    };
   }
 
   start(options: SpeechStartOptions = {}): void {
@@ -118,7 +123,30 @@ export class SpeechRecognitionService {
       this.recognition.stop();
     } catch {
       // The engine may already have stopped between the click and this call.
+      this.settleStop();
     }
+  }
+
+  /**
+   * Stops recognition and resolves once the engine has flushed its final
+   * results, so callers can read a complete transcript instead of racing the
+   * asynchronous `onend`.
+   */
+  stopAndWait(): Promise<void> {
+    if (!this.recognition || !this.listeningState()) {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => {
+      this.stopResolve = resolve;
+      this.stop();
+    });
+  }
+
+  private settleStop(): void {
+    const resolve = this.stopResolve;
+    this.stopResolve = null;
+    resolve?.();
   }
 
   private handleResult(event: SpeechRecognitionEventLike): void {

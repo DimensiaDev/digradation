@@ -110,30 +110,7 @@ export class HomePage {
     });
 
     effect(() => {
-      const { final, interim } = this.speech.transcript();
-      const spoken = [final, interim]
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .join(' ');
-      if (!spoken) {
-        return;
-      }
-
-      const current = untracked(this.message);
-      const previous = this.appliedSpeech;
-      this.appliedSpeech = spoken;
-
-      if (previous) {
-        const index = current.lastIndexOf(previous);
-        if (index !== -1) {
-          this.message.set(
-            current.slice(0, index) + spoken + current.slice(index + previous.length)
-          );
-          return;
-        }
-      }
-
-      this.message.set(current ? `${current.trimEnd()} ${spoken}` : spoken);
+      this.applyTranscript(this.speech.transcript());
     });
 
     inject(DestroyRef).onDestroy(() => {
@@ -239,7 +216,7 @@ export class HomePage {
     this.previewedFile.set(file.file);
   }
 
-  onSubmit(event: Event): void {
+  async onSubmit(event: Event): Promise<void> {
     event.preventDefault();
 
     if (this.isStarting()) {
@@ -247,7 +224,17 @@ export class HomePage {
     }
 
     if (this.isRecording()) {
-      this.speech.stop();
+      // Recognition delivers its final words after `stop()`, so hold the
+      // composer (and prevent a second submit) until `onend` has fired.
+      this.isStarting.set(true);
+      try {
+        await this.speech.stopAndWait();
+      } finally {
+        this.isStarting.set(false);
+      }
+      // Effects run on a later tick, so fold the settled transcript in now:
+      // the submit below must see the words the engine just finalised.
+      this.applyTranscript(this.speech.transcript());
     }
 
     const text = this.message().trim();
@@ -281,6 +268,30 @@ export class HomePage {
       lang: 'ru-RU',
       onError: (code) => this.reportSpeechError(code)
     });
+  }
+
+  private applyTranscript(transcript: { final: string; interim: string }): void {
+    const spoken = [transcript.final, transcript.interim]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(' ');
+    if (!spoken) {
+      return;
+    }
+
+    const current = untracked(this.message);
+    const previous = this.appliedSpeech;
+    this.appliedSpeech = spoken;
+
+    if (previous) {
+      const index = current.lastIndexOf(previous);
+      if (index !== -1) {
+        this.message.set(current.slice(0, index) + spoken + current.slice(index + previous.length));
+        return;
+      }
+    }
+
+    this.message.set(current ? `${current.trimEnd()} ${spoken}` : spoken);
   }
 
   private reportSpeechError(code: string): void {
