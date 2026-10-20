@@ -26,7 +26,7 @@
   min-height: 0;
   margin: 0 auto;
 
-  padding: clamp(24px, 5vh, 64px) clamp(20px, 4vw, 48px) 20px;
+  padding: clamp(24px, 5vh, 64px) clamp(20px, 4vw, 48px) 28px;
 
   &__body {
     flex: 1 1 auto;
@@ -217,7 +217,7 @@
 
   width: 100%;
 
-  padding: 14px 16px;
+  padding: 18px 16px;
 
   background: var(--color-surface);
 
@@ -238,7 +238,7 @@
   }
 
   &--expanded {
-    padding: 16px 16px 60px;
+    padding: 18px 16px 60px;
   }
 
   &--dragging,
@@ -302,7 +302,7 @@
 
   resize: none;
 
-  padding: 0;
+  padding: 0 48px 0 0;
 
   font: inherit;
   line-height: 1.5;
@@ -315,12 +315,16 @@
 
   overflow-y: auto;
 
-  transition: min-height 0.25s ease;
+  transition:
+    min-height 0.25s ease,
+    padding 0.25s ease;
 
   @include app-scrollbar;
 
   .composer__field--expanded & {
     min-height: 100px;
+
+    padding-right: 0;
   }
 
   &::placeholder {
@@ -345,23 +349,7 @@
 
   gap: 12px;
 
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(8px);
   pointer-events: none;
-
-  transition:
-    opacity 0.2s ease,
-    transform 0.2s ease,
-    visibility 0s linear 0.2s;
-
-  .composer__field--expanded & {
-    opacity: 1;
-    visibility: visible;
-    transform: none;
-    pointer-events: auto;
-    transition-delay: 0s;
-  }
 }
 
 .composer__attach {
@@ -376,6 +364,23 @@
   font: inherit;
   font-size: 14px;
   color: var(--color-gray);
+
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    visibility 0s linear 0.2s;
+
+  .composer__field--expanded & {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    pointer-events: auto;
+    transition-delay: 0s;
+  }
 
   & > span {
     line-height: 1;
@@ -396,6 +401,8 @@
   height: 40px;
 
   padding: 0;
+
+  pointer-events: auto;
 
   border-radius: 999px;
 
@@ -420,7 +427,7 @@
   .composer__send,
   .composer__field,
   .composer__textarea,
-  .composer__actions {
+  .composer__attach {
     transition: none;
   }
 }
