@@ -133,7 +133,7 @@ def render_draft(draft: ProgramDraft) -> str:
         ]
     )
 
-    lines.extend(["", "## Источники"])
+    lines.extend(["", "## Источники", ""])
     if draft.sources:
         for source in draft.sources:
             identifier = f" {source.identifier}" if source.identifier else ""

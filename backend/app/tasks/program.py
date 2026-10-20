@@ -22,6 +22,7 @@ from datetime import UTC, datetime, timedelta
 
 import structlog.stdlib
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agentic import store
 from app.agentic.loop import (
@@ -239,14 +240,7 @@ async def finalize_program_draft(session_id: uuid.UUID, run_id: uuid.UUID) -> No
                 return
             row.program_state = store.dump(finalized)
             row.name = name
-            db.add(
-                GenerationResult(
-                    chat_session_id=session_id,
-                    type=GenerationResultType.SUCCESS,
-                    content=message,
-                    update_name=name,
-                )
-            )
+            await _write_result(db, session_id, message, update_name=name)
             db.add(
                 ChatMessage(
                     chat_session_id=session_id,
@@ -343,31 +337,44 @@ async def _user_uuid(session_id: uuid.UUID) -> uuid.UUID | None:
     return user.uuid if user is not None else None
 
 
-async def _notify(session_id: uuid.UUID, message: str) -> None:
-    """Tell the methodist, in the chat, that the pipeline stopped.
+async def _write_result(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    message: str,
+    *,
+    update_name: str | None = None,
+) -> None:
+    """Write this turn's result, replacing the row the chat already holds.
 
-    The result row is one per chat — ``generate_chat_message`` deletes it when the
-    next message arrives — so the write replaces the intake's result rather than
-    adding a second row under the same primary key.
+    ``generation_results.chat_session_id`` is the primary key — one result per chat,
+    deleted when the next message arrives — so a worker that posts a draft or a
+    failure in the middle of a run has to update the row the intake left behind.
+    Inserting a second one fails on the key, which is how a finished draft was lost.
     """
+    result = await db.get(GenerationResult, session_id)
+    if result is None:
+        db.add(
+            GenerationResult(
+                chat_session_id=session_id,
+                type=GenerationResultType.SUCCESS,
+                content=message,
+                update_name=update_name,
+            )
+        )
+        return
+    result.type = GenerationResultType.SUCCESS
+    result.content = message
+    result.update_name = update_name
+    result.timestamp = datetime.now(UTC)
+
+
+async def _notify(session_id: uuid.UUID, message: str) -> None:
+    """Tell the methodist, in the chat, that the pipeline stopped."""
     try:
         async with tsq_db() as db:
             if await db.get(ChatSession, session_id) is None:
                 return
-            result = await db.get(GenerationResult, session_id)
-            if result is None:
-                db.add(
-                    GenerationResult(
-                        chat_session_id=session_id,
-                        type=GenerationResultType.SUCCESS,
-                        content=message,
-                    )
-                )
-            else:
-                result.type = GenerationResultType.SUCCESS
-                result.content = message
-                result.update_name = None
-                result.timestamp = datetime.now(UTC)
+            await _write_result(db, session_id, message)
             db.add(
                 ChatMessage(
                     chat_session_id=session_id,

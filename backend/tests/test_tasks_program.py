@@ -716,3 +716,31 @@ async def test_the_offline_mock_carries_a_run_through_every_stage(
     assert result is not None
     assert "Программа (mock)" in result.content
     assert "подтверждаю" in result.content
+
+
+async def test_finalising_replaces_the_result_the_intake_left(
+    chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, enqueued
+) -> None:
+    """The intake writes a result row and it is one per chat, keyed by the chat id.
+
+    The draft has to replace that row: inserting a second one fails on the primary
+    key, and the message the methodist is waiting for is never written.
+    """
+    state = await store.save(complete_state(chat))
+    async with async_sessionmaker(bind=engine, expire_on_commit=False)() as db:
+        db.add(
+            GenerationResult(
+                chat_session_id=chat,
+                type=GenerationResultType.SUCCESS,
+                content="Программа запущена. Черновик придёт в чат, когда все блоки будут готовы.",
+            )
+        )
+        await db.commit()
+
+    await run_task(program.finalize_program_draft, chat, state.run_id)
+
+    async with async_sessionmaker(bind=engine, expire_on_commit=False)() as db:
+        rows = list(await db.scalars(select(GenerationResult).where(GenerationResult.chat_session_id == chat)))
+    assert len(rows) == 1
+    assert "подтверждаю" in rows[0].content
+    assert rows[0].update_name == "Анализ данных на Python"
