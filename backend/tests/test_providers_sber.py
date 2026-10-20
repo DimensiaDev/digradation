@@ -25,6 +25,7 @@ from app.providers.models import (
     ContentFunctionCall,
     FunctionCall,
     FunctionDefinition,
+    FunctionResult,
     GenerationResponse,
     Message,
     ResponseFormat,
@@ -791,3 +792,47 @@ async def test_pers_api_lock_releases_when_the_body_raises(provider_factory, red
 
     async with get_redis_client() as redis:
         assert await redis.exists("api:global:lock") == 0
+
+
+@pytest.mark.asyncio
+async def test_generate_sends_a_tool_result_as_a_gigachat_content_part(provider_factory):
+    """The round trip the pipeline depends on: what a ``tool`` turn looks like on the wire.
+
+    The offline mock answers without a model, so this shape is the one thing the
+    rest of the suite cannot check. v2 carries a result as a ``content[]`` part with
+    ``function_result``, tied to the round by ``tools_state_id`` on the message —
+    not as an OpenAI ``tool_call_id``.
+    """
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+    history = [
+        Message(role="assistant", content=[Content(text="Сейчас сохраню")], tools_state_id="state-1"),
+        Message(
+            role="tool",
+            content=[
+                Content(
+                    text='{"ok": true}',
+                    function_result=FunctionResult(id="call-1", name="save_program_draft", result={"ok": True}),
+                )
+            ],
+            tool_call_id="call-1",
+            tools_state_id="state-1",
+        ),
+    ]
+
+    await provider.generate(
+        history,
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    messages = json.loads(captured[-1].read().decode())["messages"]
+    tool_message = messages[1]
+    assert tool_message["role"] == "tool"
+    assert tool_message["tools_state_id"] == "state-1"
+    assert "tool_call_id" not in tool_message
+    assert tool_message["content"][0] == {
+        "text": '{"ok": true}',
+        "function_result": {"id": "call-1", "name": "save_program_draft", "result": {"ok": True}},
+    }

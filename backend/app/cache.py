@@ -13,7 +13,11 @@ PROGRAM_STATE_TTL = 3600
 
 #: How long one stage may hold its lock. A stage is a handful of model turns, so
 #: a lock older than this belongs to a worker that is gone, and the recovery cron
-#: is allowed to re-enqueue the stage.
+#: is allowed to re-enqueue the stage. **This, not the cron's threshold, is what
+#: sets the recovery latency** for a worker that was killed: the cron refuses to
+#: touch a locked stage, so a dead worker's run resumes only after the lock expires
+#: (plus up to one cron period). Kept above a legitimate slow stage, and shortening
+#: it is what trades recovery speed for duplicate provider work.
 PROGRAM_STAGE_LOCK_TTL = 900
 
 

@@ -33,7 +33,15 @@ from app.models.chat import (
     GenerationResultType,
     UserRole,
 )
-from app.providers.models import Message
+from app.providers.models import (
+    Content,
+    FunctionCall,
+    GenerationResponse,
+    InputTokenDetails,
+    Message,
+    ToolCall,
+    Usage,
+)
 from app.tasks import api
 from tests.helpers import run_task
 
@@ -822,6 +830,8 @@ async def test_generate_chat_message_starts_a_programme_from_the_intake(
     mock_mode("stage")
     user = await rows.user()
     session = await rows.chat_session(user)
+    # A real chat always carries the system prompt; it must not end up in the brief.
+    await rows.message(session.session_id, "Ты — методист.", role=UserRole.SYSTEM)
     await rows.message(session.session_id, "Собери программу по анализу данных")
 
     await run_task(api.generate_chat_message, session.session_id)
@@ -927,3 +937,69 @@ async def test_an_approved_programme_continues_as_an_ordinary_chat(task_db, rows
     saved = await store.load(session.session_id)
     assert saved is not None
     assert saved.status is ProgramStatus.APPROVED
+
+
+class ScriptedProvider:
+    """Answers the intake with a fixed list of turns, so a tool call can be forced."""
+
+    def __init__(self, *turns: GenerationResponse) -> None:
+        self.turns = list(turns)
+        self.histories: list[list[Message]] = []
+        self.calls: list[tuple[int, tuple, dict]] = []
+
+    async def __call__(self, message_history: list[Message], *args, **kwargs) -> GenerationResponse | None:
+        # The extra positional arguments are the response format and the client
+        # ids; only the history matters to a scripted answer.
+        self.calls.append((len(self.histories), args, kwargs))
+        self.histories.append(list(message_history))
+        return self.turns.pop(0) if self.turns else None
+
+
+def turn(*, text: str = "", calls: list[ToolCall] | None = None) -> GenerationResponse:
+    return GenerationResponse(
+        messages=[Message(role="assistant", content=[Content(text=text)] if text else [])],
+        model="scripted",
+        created_at=datetime.now(UTC),
+        finish_reason="function_call" if calls else "stop",
+        usage=Usage(
+            input_tokens=1,
+            input_tokens_details=InputTokenDetails(prompt_tokens=1, cached_tokens=0),
+            output_tokens=1,
+            total_tokens=2,
+        ),
+        tool_calls=calls or [],
+    )
+
+
+async def test_the_intake_refuses_a_block_it_never_offered(task_db, rows, redis_keys, kiq_spy, stage_spy, monkeypatch):
+    """An approved programme is terminal; the intake must not let the model rewrite it."""
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    approved = new_state(session.session_id, requested_hours=2, requirements="Курс").approved()
+    state = await seed_programme(rows, redis_keys, session, approved)
+    await rows.message(session.session_id, "Поправь-ка компетенции")
+    block = {
+        "kind": "general_development",
+        "title": "Подмена",
+        "competencies": [
+            {"id": "comp-01", "statement": "Другое", "knowledge": [{"id": "ro-k-01", "statement": "Знает"}]}
+        ],
+    }
+    scripted = ScriptedProvider(
+        turn(
+            calls=[ToolCall(id="call-1", function=FunctionCall(name="save_program_draft", arguments=json.dumps(block)))]
+        ),
+        turn(text=json.dumps({"chat_name": None, "message": "Компетенции не меняю."}, ensure_ascii=False)),
+    )
+    monkeypatch.setattr(api.provider, "generate", scripted)
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    saved = await store.load(session.session_id)
+    assert saved is not None
+    assert saved.title is None
+    assert saved.version == state.version
+    assert saved.status is ProgramStatus.APPROVED
+    kiq_spy.assert_awaited_once()
+    assert json.loads(kiq_spy.await_args.args[2])["message"] == "Компетенции не меняю."
+    stage_spy.assert_not_awaited()

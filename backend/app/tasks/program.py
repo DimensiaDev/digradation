@@ -40,6 +40,7 @@ from app.agentic.tools import ToolContext, call_executor, stage_tools
 from app.cache import PROGRAM_STAGE_LOCK_TTL, get_program_stage_lock_key, get_redis_client
 from app.models.auth import User
 from app.models.chat import (
+    DEFAULT_CHAT_NAME,
     MAX_CHAT_NAME_LENGTH,
     ChatMessage,
     ChatSession,
@@ -54,8 +55,10 @@ from app.tasks.conf.broker import broker, tsq_db
 log = structlog.stdlib.get_logger(__name__)
 
 #: How long a run may go untouched before the recovery cron treats its stage as
-#: abandoned. Longer than a stage should take for every provider the project
-#: supports, and shorter than a methodist waits before writing again.
+#: abandoned. This is the second of two gates: a live stage lock always wins, so a
+#: killed worker's run resumes when `PROGRAM_STAGE_LOCK_TTL` expires, not here.
+#: The threshold is what catches a run whose message was lost while no worker held
+#: the stage at all.
 STALLED_AFTER = timedelta(minutes=10)
 
 #: Releases a stage lock only if it still holds the token of the worker that took
@@ -232,15 +235,25 @@ async def finalize_program_draft(session_id: uuid.UUID, run_id: uuid.UUID) -> No
 
     message = render_draft(draft)
     name = _chat_name(draft.title)
-    finalized = state.mark_finalized()
+    update_name = name
+    finalized = state
     try:
         async with store.locked(session_id) as (db, row):
             current = store.parse(row.program_state)
-            if current is None or current.run_id != run_id or current.finalized:
+            if current is None or current.run_id != run_id or current.finalized or current.failed:
                 return
+            # Built from the row, not from the copy read before the lock: another
+            # writer may have advanced the version, and finalising must not roll it
+            # back even when both writes say the same thing.
+            finalized = current.mark_finalized()
             row.program_state = store.dump(finalized)
-            row.name = name
-            await _write_result(db, session_id, message, update_name=name)
+            if row.name == DEFAULT_CHAT_NAME:
+                row.name = name
+            else:
+                # The intake already named the chat, so the title stays; only the
+                # default name is the pipeline's to replace.
+                update_name = None
+            await _write_result(db, session_id, message, update_name=update_name)
             db.add(
                 ChatMessage(
                     chat_session_id=session_id,
@@ -276,7 +289,12 @@ async def recover_stalled_programs() -> None:
             continue
         if now - state.updated_at < STALLED_AFTER:
             continue
-        await _recover(state)
+        try:
+            await _recover(state)
+        except store.StaleState:
+            # The row moved between the scan and the save: the run is alive and
+            # another sweep will see it. One stale row must not stop the others.
+            log.debug("program_recovery_stale", chat_session_id=str(state.session_id))
 
 
 async def _recover(state: ProgramState) -> None:
@@ -288,6 +306,10 @@ async def _recover(state: ProgramState) -> None:
     )
     if state.status is ProgramStatus.PENDING_APPROVAL:
         recover_log.warning("program_recovery_finalize", reason="the draft was never rendered")
+        # Age the row first: finalising writes no state of its own, so without this
+        # a finalize that always raises would be re-enqueued every five minutes
+        # forever, outside the stage budget.
+        await store.save(state.touched(), expected_run_id=state.run_id)
         await finalize_program_draft.kiq(state.session_id, state.run_id)
         return
     if state.status is not ProgramStatus.GENERATING:
@@ -323,6 +345,11 @@ async def _advance(state: ProgramState) -> None:
         return
     next_stage = state.current_stage
     if state.stage_status(next_stage) in (StageStatus.IN_PROGRESS, StageStatus.COMPLETED):
+        return
+    if state.attempts.get(next_stage.value):
+        # The successor was enqueued already: a replay of the stage that just
+        # completed reaches here, and enqueueing again would spend one of its
+        # three attempts on a duplicate the queue never lost.
         return
     saved = await store.save(state.enqueued(next_stage), expected_run_id=state.run_id)
     await program_stage.kiq(saved.session_id, next_stage.value, saved.run_id)

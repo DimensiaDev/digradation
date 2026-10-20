@@ -512,3 +512,47 @@ async def test_an_offered_tool_is_run(context: ToolContext) -> None:
     assert result.ok is True
     assert context.state is not None
     assert context.state.title == DRAFT_TITLE
+
+
+def at_hours(context: ToolContext) -> None:
+    """Commit the competences and stand the run at the hours stage."""
+    context.state = at_stage(context.state, Stage.HOURS)
+
+
+async def test_the_hours_block_is_refused_when_it_misses_the_volume(context: ToolContext) -> None:
+    """The model can fix the total in the same reply; finalising can only discard it."""
+    await execute_tool(context, save(competences_block()))
+    at_hours(context)
+    block = hours_block()
+    block["curriculum"]["modules"][0]["topics"][0]["hours"] = {"lecture": 1}
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert any("не совпадает" in line for line in (result.details or []))
+    assert context.state is not None
+    assert context.state.curriculum is None
+
+
+async def test_the_hours_block_is_refused_when_the_schedule_cannot_hold_it(context: ToolContext) -> None:
+    await execute_tool(context, save(competences_block()))
+    at_hours(context)
+    block = hours_block()
+    block["curriculum"]["schedule"] = {"days": 1, "hours_per_day": 1}
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert any("меньше объёма" in line for line in (result.details or []))
+
+
+async def test_a_topic_that_names_an_undeclared_outcome_is_refused(context: ToolContext) -> None:
+    await execute_tool(context, save(competences_block()))
+    at_hours(context)
+    block = hours_block()
+    block["curriculum"]["modules"][0]["topics"][0]["outcome_ids"] = ["ro-k-09"]
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert any("ro-k-09" in line for line in (result.details or []))

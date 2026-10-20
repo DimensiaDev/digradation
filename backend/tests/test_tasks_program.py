@@ -498,7 +498,7 @@ async def test_a_stage_of_a_run_that_is_not_generating_does_nothing(
     stages.assert_not_awaited()
 
 
-async def test_a_search_round_before_the_save_is_not_checkpointed(
+async def test_a_search_round_continues_the_loop_before_the_save(
     chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:
     state = await store.save(new_state(chat, requested_hours=72, requirements="Курс"))
@@ -744,3 +744,84 @@ async def test_finalising_replaces_the_result_the_intake_left(
     assert len(rows) == 1
     assert "подтверждаю" in rows[0].content
     assert rows[0].update_name == "Анализ данных на Python"
+
+
+async def test_a_replayed_stage_does_not_spend_an_attempt_on_its_successor(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """The successor was enqueued before the worker died, so the replay must not repeat it.
+
+    Enqueueing it again would burn one of the successor's three attempts on a
+    duplicate the queue never lost, and the run would fail a stage it never got
+    to try properly.
+    """
+    state = new_state(chat, requested_hours=None, requirements=None)
+    queued = await store.save(state.completed(Stage.COMPETENCES).enqueued(Stage.HOURS))
+
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, queued.run_id)
+
+    assert provider.calls == []
+    stages, _ = enqueued
+    stages.assert_not_awaited()
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.attempts[Stage.HOURS.value] == 1
+
+
+async def test_recovery_keeps_going_when_one_row_moved_under_it(
+    chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, enqueued, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    maker = async_sessionmaker(bind=engine, expire_on_commit=False)
+    async with maker() as db:
+        first = await db.get(ChatSession, chat)
+        assert first is not None
+        other = ChatSession(session_id=uuid.uuid4(), user_id=first.user_id)
+        db.add(other)
+        await db.commit()
+        other_id = other.session_id
+    try:
+        stale = await store.save(new_state(chat, requested_hours=None, requirements=None))
+        await store.save(aged(stale.started(Stage.COMPETENCES)))
+        live = await store.save(new_state(other_id, requested_hours=None, requirements=None))
+        await store.save(aged(live.started(Stage.COMPETENCES)))
+
+        original = store.save
+
+        async def save(state: ProgramState, *, expected_run_id: uuid.UUID | None = None) -> ProgramState:
+            if state.session_id == chat:
+                raise store.StaleState("moved")
+            return await original(state, expected_run_id=expected_run_id)
+
+        monkeypatch.setattr(program.store, "save", save)
+
+        await run_task(program.recover_stalled_programs)
+
+        stages, _ = enqueued
+        stages.assert_awaited_once_with(other_id, Stage.COMPETENCES.value, live.run_id)
+    finally:
+        async with maker() as db:
+            await db.execute(delete(ChatSession).where(ChatSession.session_id == other_id))
+            await db.commit()
+
+
+async def test_finalising_keeps_a_chat_name_the_intake_already_set(
+    chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, enqueued
+) -> None:
+    state = await store.save(complete_state(chat))
+    maker = async_sessionmaker(bind=engine, expire_on_commit=False)
+    async with maker() as db:
+        row = await db.get(ChatSession, chat)
+        assert row is not None
+        row.name = "Анализ данных: обсуждение"
+        await db.commit()
+
+    await run_task(program.finalize_program_draft, chat, state.run_id)
+
+    async with maker() as db:
+        row = await db.get(ChatSession, chat)
+        result = await db.get(GenerationResult, chat)
+    assert row is not None
+    assert row.name == "Анализ данных: обсуждение"
+    assert result is not None
+    assert result.update_name is None
+    assert "подтверждаю" in result.content

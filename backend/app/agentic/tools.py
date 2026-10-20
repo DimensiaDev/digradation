@@ -339,6 +339,19 @@ def _save_competences(ctx: ToolContext, state: ProgramState, block: CompetencesB
 
 
 def _save_hours(ctx: ToolContext, state: ProgramState, block: HoursBlock) -> SaveProgramDraftResult:
+    declared = {
+        outcome.id
+        for competence in state.competencies
+        for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
+    }
+    problems = state.topic_problems(block.curriculum, declared) + state.curriculum_problems(block.curriculum)
+    if problems:
+        return SaveProgramDraftResult(
+            ok=False,
+            error="Учебный план не принят",
+            details=problems,
+            note="Исправь часы и ссылки на результаты освоения и сохрани блок снова.",
+        )
     ctx.state = state.with_curriculum(block)
     ctx.dirty = True
     return SaveProgramDraftResult(

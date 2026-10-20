@@ -27,8 +27,8 @@ SOURCE_KIND_NAMES = {
 #: What the methodist is asked to answer. Kept next to the renderer because the
 #: approval phrase is matched literally by the chat worker.
 CONFIRMATION_PROMPT = (
-    "Черновик готов. Проверьте его и ответьте «подтверждаю», если всё верно; "
-    "если нужно что-то изменить, напишите, что именно."
+    "Черновик готов. Проверьте его и ответьте «подтверждаю», если всё верно. "
+    "Замечания к программе можно обсудить в этом же чате после утверждения."
 )
 
 

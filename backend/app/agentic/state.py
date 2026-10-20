@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, Self
 
@@ -185,6 +186,15 @@ class ProgramState(BaseModel):
         """The draft has been rendered into the chat and may be approved."""
         return self._replace(finalized=True)
 
+    def touched(self) -> Self:
+        """Advance the clock on a run that is being retried without a stage change.
+
+        Recovery uses it before re-enqueueing a finalize that writes no state of its
+        own: the version has to move for the save to be accepted, and ``updated_at``
+        is what spaces the retries out.
+        """
+        return self._replace()
+
     def approved(self) -> Self:
         """The methodist confirmed the rendered draft."""
         return self._replace(status=ProgramStatus.APPROVED)
@@ -275,21 +285,47 @@ class ProgramState(BaseModel):
         ]
         problems += [f"результат обучения {item} объявлен дважды" for item in _duplicates(outcomes)]
         declared = set(outcomes)
+        problems += self.topic_problems(draft.curriculum, declared)
+        problems += self.curriculum_problems(draft.curriculum)
+        problems += self.citation_problems(draft.summary.basis_source_ids)
+        problems += [
+            f"источник {source_id} упомянут, но не входит в список источников"
+            for source_id in self.citation_problems(
+                [competence.standard_source_id for competence in draft.competencies if competence.standard_source_id]
+            )
+        ]
+        return problems
 
-        for module in draft.curriculum.modules:
+    def topic_problems(self, curriculum: Curriculum, declared: set[str]) -> list[str]:
+        """Topics that refer to outcomes no competence declares.
+
+        Public because the hours stage checks it when its block arrives, with the
+        outcomes the competences already committed: the model can fix a topic id in
+        the same reply, where :meth:`to_draft` could only discard the whole run.
+        """
+        problems: list[str] = []
+        for module in curriculum.modules:
             for topic in module.topics:
                 missing = [outcome_id for outcome_id in topic.outcome_ids if outcome_id not in declared]
                 if missing:
                     problems.append(
                         f"тема {topic.id} ссылается на необъявленные результаты обучения: {', '.join(missing)}"
                     )
+        return problems
 
-        total = draft.curriculum.total_hours
+    def curriculum_problems(self, curriculum: Curriculum) -> list[str]:
+        """The hour totals: the requested volume, and the schedule that must fit it.
+
+        Public for the same reason as :meth:`topic_problems` — the hours stage can
+        answer a wrong total, and finalising can only refuse it.
+        """
+        problems: list[str] = []
+        total = curriculum.total_hours
         if self.requested_hours is not None and not math.isclose(total, self.requested_hours, abs_tol=1e-6):
             problems.append(
                 f"сумма часов тем {total:g} не совпадает с заявленным объёмом программы {self.requested_hours:g}"
             )
-        schedule = draft.curriculum.schedule
+        schedule = curriculum.schedule
         if schedule.days is not None and schedule.hours_per_day is not None:
             capacity = schedule.days * schedule.hours_per_day
             if capacity + 1e-6 < total:
@@ -297,16 +333,20 @@ class ProgramState(BaseModel):
                     f"расписание {schedule.days}×{schedule.hours_per_day:g} = {capacity:g} ч "
                     f"меньше объёма программы {total:g} ч"
                 )
-
-        source_ids = {source.id for source in draft.sources}
-        unknown = [source_id for source_id in draft.summary.basis_source_ids if source_id not in source_ids]
-        unknown += [
-            competence.standard_source_id
-            for competence in draft.competencies
-            if competence.standard_source_id is not None and competence.standard_source_id not in source_ids
-        ]
-        problems += [f"источник {source_id} упомянут, но не входит в список источников" for source_id in unknown]
         return problems
+
+    def citation_problems(self, source_ids: Iterable[str]) -> list[str]:
+        """Ids the run cites that are not among the sources it committed.
+
+        Public for :meth:`_save_summary`, which knows the sources and can refuse a
+        passport that names a document the programme does not carry.
+        """
+        known = {source.id for source in self.sources}
+        return [
+            f"источник {source_id} упомянут, но не входит в список источников"
+            for source_id in source_ids
+            if source_id not in known
+        ]
 
     def _successor(self, stage: Stage) -> Stage | None:
         """The stage that follows, or ``None`` once the draft is complete."""

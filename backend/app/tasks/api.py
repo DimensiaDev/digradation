@@ -10,7 +10,7 @@ from app.agentic import store
 from app.agentic.loop import run_tool_loop
 from app.agentic.models import ProgramStatus
 from app.agentic.state import ProgramState, is_approval_message
-from app.agentic.tools import INTAKE_TOOLS, ToolContext, execute_tool
+from app.agentic.tools import INTAKE_TOOLS, ToolContext, call_executor, execute_tool
 from app.cache import get_deletion_key, get_generation_key, get_redis_client
 from app.harness import HARNESS_STRUCTURED_SCHEMA
 from app.models.auth import User
@@ -168,7 +168,7 @@ async def _run_intake(
     text = await run_tool_loop(
         message_history,
         generate=generate,
-        call_tool=lambda call: execute_tool(context, call.function),
+        call_tool=call_executor(context, INTAKE_TOOLS),
         checkpoint=checkpoint,
         first_response=first_response,
     )

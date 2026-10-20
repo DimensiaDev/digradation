@@ -75,8 +75,20 @@ def _seed(*parts: str) -> int:
 
 
 def _last_text(message_history: list[Message]) -> str:
-    """Everything the conversation says, which is where the volume is named."""
-    return " ".join(part.text for message in message_history for part in message.content if part.text)
+    """What the user asked for: the last user turn, which is the brief.
+
+    A stage's brief is the whole user turn of that stage, and the history also
+    carries the system prompt, so joining everything would feed the mock's own
+    prompt back as the methodist's requirements.
+    """
+    return next(
+        (
+            " ".join(part.text for part in message.content if part.text)
+            for message in reversed(message_history)
+            if message.role == "user"
+        ),
+        "",
+    )
 
 
 def _requested_hours(text: str) -> float | None:
