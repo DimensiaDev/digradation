@@ -9,6 +9,7 @@ import {
 } from '@angular/forms';
 import { Router } from '@angular/router';
 import { catchError, EMPTY, finalize } from 'rxjs';
+import { MAX_MESSAGE_LENGTH } from '../../core/models/models';
 import { ChatStarterService } from '../../core/services/chat-starter.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
 import { NotificationService } from '../../core/services/notification.service';
@@ -36,7 +37,7 @@ export class ChatCreateComponent {
 
   readonly isSubmitting = signal<boolean>(false);
   readonly selectedFiles = signal<File[]>([]);
-  readonly MAX_SYMBOLS = 5000;
+  readonly MAX_SYMBOLS = MAX_MESSAGE_LENGTH;
   readonly COUNTER_VISIBLE_FROM = 1000;
 
   readonly messageForm = this.fb.nonNullable.group({

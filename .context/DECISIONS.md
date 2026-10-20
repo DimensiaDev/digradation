@@ -1238,3 +1238,11 @@ closes the dialog and keeps the draft for the authenticated start.
 bypassing the limit the drag-and-drop queue already enforced and inviting rate limits and
 network failures. The shared constant keeps both paths in sync; the per-file upload deadline
 still starts only when its slot is taken, so queued files are not timed out while waiting.
+
+## One message-length limit for both creation forms
+
+`MAX_MESSAGE_LENGTH = 5000` lives in `core/models/models.ts` and is used by both the
+`/create` form and the home composer. The home composer previously had no `maxlength` and no
+submit check, so it could hand the API text the other client-side path already rejected.
+`ChatCreateComponent.MAX_SYMBOLS` now aliases the shared constant so its existing tests and
+template keep working while the number has a single source.

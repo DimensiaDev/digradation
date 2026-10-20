@@ -59,6 +59,7 @@
         placeholder="Опишите программу или прикрепите файлы..."
         aria-label="Сообщение"
         autocomplete="off"
+        [attr.maxlength]="MAX_MESSAGE_LENGTH"
         [value]="message()"
         [readOnly]="isStarting()"
         (input)="onInput($event)"

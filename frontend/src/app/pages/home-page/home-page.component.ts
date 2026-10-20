@@ -18,7 +18,7 @@ import { EMPTY, TimeoutError, catchError, finalize } from 'rxjs';
 import { AuthModalService } from '../../core/services/auth-modal.service';
 import { ChatStarterService } from '../../core/services/chat-starter.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
-import { MAX_FILE_SIZE } from '../../core/models/models';
+import { MAX_FILE_SIZE, MAX_MESSAGE_LENGTH } from '../../core/models/models';
 import { NotificationService } from '../../core/services/notification.service';
 import { PendingChatDraftService } from '../../core/services/pending-chat-draft.service';
 import { ProfileService } from '../../core/services/profile.service';
@@ -60,6 +60,7 @@ export class HomePage {
   ];
 
   readonly acceptAttr = ACCEPTED_EXTENSIONS.join(',');
+  readonly MAX_MESSAGE_LENGTH = MAX_MESSAGE_LENGTH;
 
   readonly message = signal('');
   readonly files = signal<PendingFile[]>([]);
@@ -239,6 +240,13 @@ export class HomePage {
 
     const text = this.message().trim();
     if (!text || this.isStarting()) {
+      return;
+    }
+
+    if (text.length > this.MAX_MESSAGE_LENGTH) {
+      this.notifications.error('Сообщение слишком длинное', {
+        description: `Максимальная длина — ${this.MAX_MESSAGE_LENGTH} символов.`
+      });
       return;
     }
 

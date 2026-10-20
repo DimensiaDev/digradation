@@ -182,6 +182,32 @@ describe('HomePage', () => {
     expect(sendButton().disabled).toBe(false);
   });
 
+  it('caps the composer at the shared message length', () => {
+    expect(textarea().getAttribute('maxlength')).toBe('5000');
+  });
+
+  it('refuses to start a chat with an overlong message', () => {
+    signIn();
+    typeMessage('а'.repeat(5001));
+
+    submit();
+
+    expect(chatStarter.start).not.toHaveBeenCalled();
+    const notice = TestBed.inject(NotificationService).notifications().at(-1);
+    expect(notice?.type).toBe('error');
+    expect(notice?.message).toContain('слишком длинное');
+  });
+
+  it('sends a message at the length limit', () => {
+    vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    signIn();
+    typeMessage('а'.repeat(5000));
+
+    submit();
+
+    expect(chatStarter.start).toHaveBeenCalledWith('а'.repeat(5000), []);
+  });
+
   it('keeps the composer collapsed until a character is typed', () => {
     const field = () =>
       fixture.debugElement.query(By.css('.composer__field')).nativeElement as HTMLElement;
