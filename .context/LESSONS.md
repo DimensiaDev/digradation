@@ -900,3 +900,17 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   must total `requested_hours` or `to_draft` refuses the whole draft, and the hours stage only
   knows the volume because the brief states it — so the mock parses "Заявленный объём программы"
   from the same text the real model reads. Found 2026-10-20 on `feat/program-cycle`.
+- **The two TaskIQ worker services both consume both queues.** `AioPikaBroker.with_queue()`
+  *appends* to `_task_queues` and `listen()` consumes every declared queue, so
+  `worker_default` and `worker_network` are the same worker with different replica counts:
+  a `default`-queue task can run in `worker_network`. Messages are not duplicated (each queue
+  binds with routing key = its own name), so state guards still see one execution; but the
+  `queue_name` split buys no latency isolation until `with_queues()` replaces the list
+  instead. Found 2026-10-20 on `feat/program-cycle`, watching `finalize_program_draft` run in
+  a network worker.
+- **A `generation_results` row already exists during a run, so a mid-run message must upsert
+  it.** The intake's turn writes one, the finalize task writes the draft, and both key on
+  `chat_session_id`: the second insert fails on the primary key, the draft is never stored,
+  and the run sits in `pending_approval` until the recovery cron retries the same failing
+  write. Caught only by the Docker run, because every unit test started from a chat with no
+  result row. Found 2026-10-20 on `feat/program-cycle`.
