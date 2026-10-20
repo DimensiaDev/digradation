@@ -682,3 +682,37 @@ def test_a_long_programme_title_is_cut_to_the_column_length() -> None:
 
     assert len(name) == MAX_CHAT_NAME_LENGTH
     assert name.endswith("...")
+
+
+async def test_the_offline_mock_carries_a_run_through_every_stage(
+    chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, mock_mode, enqueued
+) -> None:
+    """The whole cycle on the mock provider: four stages, then a rendered draft.
+
+    This is what ``MOCK_PROVIDER_MODE=stage`` exists for, and what the Docker and
+    e2e stacks rely on. It is also the only test that proves the mock's fabricated
+    blocks pass the cross-block checks of :meth:`ProgramState.to_draft`.
+    """
+    mock_mode("stage")
+    await store.save(new_state(chat, requested_hours=40, requirements="Анализ данных"))
+    for stage in STAGE_ORDER:
+        current = await store.load(chat)
+        assert current is not None
+        await run_task(program.program_stage, chat, stage.value, current.run_id)
+
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.status is ProgramStatus.PENDING_APPROVAL
+    assert not saved.finalized
+    _, finalizes = enqueued
+    finalizes.assert_awaited()
+
+    await run_task(program.finalize_program_draft, chat, saved.run_id)
+
+    final = await store.load(chat)
+    assert final is not None
+    assert final.finalized
+    result = await read_result(engine, chat)
+    assert result is not None
+    assert "Программа (mock)" in result.content
+    assert "подтверждаю" in result.content

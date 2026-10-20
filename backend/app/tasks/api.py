@@ -6,10 +6,16 @@ import structlog.stdlib
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agentic import store
+from app.agentic.loop import run_tool_loop
+from app.agentic.models import ProgramStatus
+from app.agentic.state import ProgramState, is_approval_message
+from app.agentic.tools import INTAKE_TOOLS, ToolContext, execute_tool
 from app.cache import get_deletion_key, get_generation_key, get_redis_client
 from app.harness import HARNESS_STRUCTURED_SCHEMA
 from app.models.auth import User
 from app.models.chat import (
+    DEFAULT_CHAT_NAME,
     MAX_CHAT_NAME_LENGTH,
     ChatMessage,
     ChatSession,
@@ -19,11 +25,14 @@ from app.models.chat import (
 )
 from app.providers.containers import provider
 from app.providers.models import (
+    FunctionCall,
+    GenerationResponse,
     HarnessStructuredOutput,
     Message,
     ResponseFormat,
 )
 from app.tasks.conf.broker import broker, tsq_db
+from app.tasks.program import program_stage
 
 log = structlog.stdlib.get_logger(__name__)
 
@@ -49,6 +58,131 @@ def _history_up_to_last_user_message(rows: list[ChatMessage]) -> list[ChatMessag
     return []
 
 
+async def _reply(user_uuid: uuid.UUID, session_id: uuid.UUID, message: str) -> None:
+    """Store an assistant message through the ordinary result pipeline."""
+    payload = json.dumps({"chat_name": None, "message": message}, ensure_ascii=False)
+    await process_response.kiq(user_uuid, session_id, payload)
+
+
+def _intake_response_format() -> ResponseFormat:
+    return ResponseFormat(
+        type=ResponseFormat.TYPE_JSON_SCHEMA,
+        schema=HARNESS_STRUCTURED_SCHEMA,
+        strict=True,
+    )
+
+
+async def _handle_program_turn(
+    user: User,
+    session_id: uuid.UUID,
+    state: ProgramState,
+    last_user_text: str,
+) -> bool:
+    """Answer a message aimed at a programme that is already in the pipeline.
+
+    Returns ``True`` when the message was handled here. A failed run is not
+    handled: it is exactly the case where the model may start a new one from the
+    methodist's message, and :func:`~app.agentic.tools.begin_program` refuses a
+    chat whose run is still alive. An approved programme is not handled either,
+    so the chat continues as an ordinary conversation.
+    """
+    if state.failed:
+        return False
+    if state.status is ProgramStatus.GENERATING:
+        await _reply(
+            user.uuid,
+            session_id,
+            "Генерация программы ещё идёт. Черновик появится в чате, как только все блоки будут готовы.",
+        )
+        return True
+    if state.status is ProgramStatus.PENDING_APPROVAL:
+        if not state.finalized:
+            await _reply(
+                user.uuid,
+                session_id,
+                "Черновик ещё готовится: как только он будет записан в чат, его можно будет подтвердить.",
+            )
+            return True
+        if not is_approval_message(last_user_text):
+            await _reply(
+                user.uuid,
+                session_id,
+                "Черновик программы ждёт подтверждения. Проверьте его и напишите «подтверждаю», чтобы утвердить.",
+            )
+            return True
+        context = ToolContext(session_id=session_id, state=state)
+        result = await execute_tool(context, FunctionCall(name="approve_program_draft", arguments="{}"))
+        if not result.ok:
+            await _reply(user.uuid, session_id, result.error or "Не удалось утвердить черновик.")
+            return True
+        if context.dirty and context.state is not None:
+            try:
+                await store.save(context.state, expected_run_id=state.run_id)
+            except store.StaleState, store.MissingChat:
+                await _reply(user.uuid, session_id, "Не удалось сохранить утверждённый черновик. Попробуйте ещё раз.")
+                return True
+        await _reply(
+            user.uuid,
+            session_id,
+            "Черновик утверждён. Он сохранён и будет основой следующего этапа полной генерации.",
+        )
+        return True
+    return False
+
+
+async def _run_intake(
+    message_history: list[Message],
+    user: User,
+    session_id: uuid.UUID,
+    first_response: GenerationResponse,
+    initial_state: ProgramState | None,
+) -> str:
+    """Finish an intake reply, executing the tools the model asked for.
+
+    The provider call that produced ``first_response`` already happened in the
+    caller, because it carries the error branches the worker tests pin down. From
+    here the loop continues with the same format and the intake tools until the
+    model answers with text, and a run it started is committed and handed to the
+    first stage before the methodist is answered.
+    """
+    context = ToolContext(session_id=session_id, state=initial_state)
+
+    async def generate(history: list[Message]) -> GenerationResponse | None:
+        return await provider.generate(
+            history,
+            _intake_response_format(),
+            x_client_id=user.uuid,
+            x_session_id=session_id,
+            tools=INTAKE_TOOLS,
+        )
+
+    async def checkpoint() -> None:
+        if not context.dirty or context.state is None:
+            return
+        # A started run has a new run id, which the store accepts as a restart;
+        # naming the old one would refuse it.
+        saved = await store.save(context.state, expected_run_id=None)
+        context.state = saved
+        context.dirty = False
+
+    text = await run_tool_loop(
+        message_history,
+        generate=generate,
+        call_tool=lambda call: execute_tool(context, call.function),
+        checkpoint=checkpoint,
+        first_response=first_response,
+    )
+    started = context.state is not None and (initial_state is None or context.state.run_id != initial_state.run_id)
+    if started and context.state is not None:
+        saved = context.state
+        if context.dirty:
+            saved = await store.save(saved, expected_run_id=None)
+            context.dirty = False
+        log.info("program_run_started", chat_session_id=str(session_id), run_id=str(saved.run_id))
+        await program_stage.kiq(session_id, saved.current_stage.value, saved.run_id)
+    return text
+
+
 @broker.task(queue_name="default", schedule=[{"interval": timedelta(hours=1)}])
 async def cleanup_old_results():
     log.info("old_results_cleanup_start")
@@ -67,6 +201,8 @@ async def generate_chat_message(session: uuid.UUID):
         await db.commit()
 
         user = await db.scalar(select(User).join(User.chat_sessions).where(ChatSession.session_id == session).limit(1))
+        session_row = await db.get(ChatSession, session)
+        program_state = store.parse(session_row.program_state if session_row is not None else None)
         if user is None:
             log.error("no_user_for_session", session=session)
             await _add_error_result(db, session, "Invalid message session", uuid.uuid4())
@@ -90,17 +226,18 @@ async def generate_chat_message(session: uuid.UUID):
                 return
 
             log.debug("text_message_generation", last_message=messages[-1])
+            last_user_text = messages[-1].content[0].text if messages[-1].content else ""
+
+        if program_state is not None and await _handle_program_turn(user, session, program_state, last_user_text):
+            return
 
         try:
             response = await provider.generate(
                 messages,
-                ResponseFormat(
-                    type=ResponseFormat.TYPE_JSON_SCHEMA,
-                    schema=HARNESS_STRUCTURED_SCHEMA,
-                    strict=True,
-                ),
+                _intake_response_format(),
                 x_client_id=user.uuid,
                 x_session_id=session,
+                tools=INTAKE_TOOLS,
             )
             log.debug("text_generation_response", response=response)
             if response is None:
@@ -120,7 +257,7 @@ async def generate_chat_message(session: uuid.UUID):
                 db.add(result)
                 await db.commit()
                 return
-            if not response.messages or not response.messages[0].content:
+            if not response.messages or (not response.tool_calls and not response.messages[0].content):
                 log.error("empty_response", session=session)
                 await _add_error_result(db, session, "Provider did not respond properly", user.uuid)
                 return
@@ -131,7 +268,9 @@ async def generate_chat_message(session: uuid.UUID):
                 if await redis_client.delete(get_deletion_key(session)):
                     log.warning("execution_cancelled", session=session)
                     return
-            text = response.messages[0].content[0].text
+            text = response.messages[0].content[0].text if response.messages and response.messages[0].content else ""
+        if response.tool_calls:
+            text = await _run_intake(messages, user, session, response, program_state)
         await process_response.kiq(user.uuid, session, text)
     except Exception as e:
         log.error("generation_unknown_exception", exc=e)
@@ -152,7 +291,7 @@ async def process_response(user_uuid: uuid.UUID, session_id: uuid.UUID, response
             update_name = None
             if output.chat_name:
                 session = await db.get(ChatSession, session_id)
-                if session is not None and session.name == "Новый чат":
+                if session is not None and session.name == DEFAULT_CHAT_NAME:
                     chat_name = output.chat_name
                     if len(chat_name) > MAX_CHAT_NAME_LENGTH:
                         chat_name = chat_name[: MAX_CHAT_NAME_LENGTH - 3].rstrip() + "..."

@@ -9,9 +9,11 @@ from app.providers.sber import SberProvider
 api_key = os.environ["SBER_API_KEY"]
 scope = os.environ["SBER_API_SCOPE"]
 
-#: Tools offered to the model. Empty until a tool registry exists; defining the
-#: list here and passing it to every provider keeps the wiring in place without
-#: inventing tools, and makes the single place to fill in obvious.
+#: The provider's default tool set: empty on purpose. Every turn of the chat and
+#: of the programme pipeline names the set it offers — ``INTAKE_TOOLS`` at the
+#: intake, ``stage_tools(stage)`` inside a stage — because a stage that saw the
+#: intake tools could start a second run mid-document. A union here would also
+#: advertise four same-named ``save_program_draft`` specs, one per stage block.
 TOOLS: list[Tool] = []
 
 # Selection is driven by ``SBER_API_SCOPE``: ``openai`` uses the OpenAI-compatible
