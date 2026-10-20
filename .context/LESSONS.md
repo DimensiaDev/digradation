@@ -922,3 +922,5 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   Found 2026-10-20 on `feat/main-page`.
 
 - **A conditionally rendered dialog host is still a flex item.** Rendering `<app-file-preview>` at the end of the home's flex column inserted a zero-size host into the flow, and the column's `gap` shifted the composer up by one gap the moment a tile was clicked. `display: contents` on the host removes its box while the native `<dialog>` stays in the top layer. Found 2026-10-20 on `feat/main-page`.
+
+- **Commitlint needs three things that are all per clone.** The root `npm install` provides `@commitlint/*`, `pre-commit install --hook-type commit-msg` wires the hook, and the hook entry must let pre-commit pass the message path; with `pass_filenames: false`, `commitlint --edit` silently linted the stale `.git/COMMIT_EDITMSG` instead of the message being committed. Found 2026-10-20 on `feat/main-page`.
