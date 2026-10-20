@@ -883,3 +883,8 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   so `.field:focus-within` (0,2,0) outranks `.field--dragging` (0,1,0) no matter the source
   order; the focus ring kept painting under the drag blur until the state was repeated as
   `&--dragging:focus-within`. Found 2026-10-20 on `feat/main-page`.
+- **Changing `animation-duration` on a running animation jumps its progress.** The elapsed
+  time is kept, so the new duration maps it to a different keyframe and the element snaps;
+  the landing logo sped up 7s to 3.8s on focus and occasionally popped in size. Keep the
+  duration fixed and animate a separate property for the active state. Found 2026-10-20 on
+  `feat/main-page`.
