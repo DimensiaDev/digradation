@@ -73,7 +73,11 @@ class OpenAIEmbeddingProvider:
         self._client = AsyncOpenAI(**kwargs)
 
         self.model = model or os.getenv("OPENAI_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
-        raw_dim = dimension or int(os.getenv("OPENAI_EMBEDDING_DIMENSION", str(DEFAULT_EMBEDDING_DIMENSION)))
+        raw_dim = (
+            dimension
+            if dimension is not None
+            else int(os.getenv("OPENAI_EMBEDDING_DIMENSION", str(DEFAULT_EMBEDDING_DIMENSION)))
+        )
         if raw_dim <= 0:
             raise ValueError(f"dimension must be positive, got {raw_dim}")
         self.dimension = raw_dim
