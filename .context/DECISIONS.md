@@ -1187,3 +1187,36 @@ These are the choices that the code cannot explain on its own.
   format of a tool call is exactly the part that a scripted provider would not catch. The mode
   scripts one valid call per stage, so the Docker and e2e stacks can run the whole cycle with
   no model, and a single test proves the fabricated blocks pass the cross-block checks.
+
+## Refusals the model can act on, and the flags a run ends with (2026-10-20, review of #3)
+
+The review of the cycle found five places where the pipeline was correct but the person or the
+model on the other end was not served. These are the rules that came out of it.
+
+- **A block is validated when it is saved, not only when the draft is assembled.** The hours
+  stage already holds the requested volume and the declared outcomes, and the schedule is in
+  its own block, so `_save_hours` runs the same checks `to_draft` would and refuses the block
+  in the reply that produced it. `to_draft` stays the final gate — a summary can still cite a
+  source that a later change removed — but a fully built four-stage programme is no longer
+  discarded over one number the model could have fixed in the same turn.
+- **The intake dispatches through `call_executor`, not `execute_tool`.** `execute_tool` runs
+  whatever the registry knows; only `call_executor` refuses a tool the turn did not advertise.
+  Without it, a model that remembered `save_program_draft` could rewrite the blocks of an
+  approved programme, because an approved run is deliberately handed back to the model as an
+  ordinary chat.
+- **The rendered draft does not invite an edit it cannot accept.** The only way out of
+  `PENDING_APPROVAL` is the confirmation phrase (`begin_program` refuses a live run), so the
+  closing line asks for confirmation and says the remarks can be discussed after approval.
+- **`failed` is the only terminal flag; `status` is left as it was.** There is no
+  `ProgramStatus.FAILED`, and inventing one would have made every `status` reader a two-value
+  switch. The envelope therefore reads `generating` with `failed: true` and the reason in
+  `error` — worth knowing before reading the Redis mirror an operator inspects.
+- **Finalisation renames only a default-named chat.** The intake may already have named the
+  chat from the model's reply, and that name is the user's; the programme title replaces only
+  `DEFAULT_CHAT_NAME`, exactly as `process_response` does.
+- **Recovery ages the row before re-enqueueing a finalize, and skips a stale row.** Finalising
+  writes no state of its own, so without a touch it would be re-enqueued every five minutes
+  forever; and a row that moved between the scan and the save must not abort the sweep for
+  every other chat. The stage lock, not `STALLED_AFTER`, is what sets the recovery latency —
+  the cron refuses to touch a locked stage, so a killed worker's run resumes when the lock
+  expires, and both constants say so.

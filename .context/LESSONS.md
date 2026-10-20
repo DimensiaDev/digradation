@@ -914,3 +914,14 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   and the run sits in `pending_approval` until the recovery cron retries the same failing
   write. Caught only by the Docker run, because every unit test started from a chat with no
   result row. Found 2026-10-20 on `feat/program-cycle`.
+- **A replayed stage must not re-enqueue its successor.** The "worker died between the commit
+  and the enqueue" replay calls `_advance` again, and a second `kiq` spends one of the
+  successor's three attempts on a message the queue never lost; with the budget at three, one
+  such replay turns a healthy stage into a failed run. The state can tell the two cases apart
+  — a crash leaves `attempts[next] == 0`, a successful enqueue leaves `>= 1`. Found 2026-10-20
+  in review of `feat/program-cycle`.
+- **`execute_tool` is not the dispatcher; `call_executor` is.** The handlers are in a registry
+  keyed by name, so calling `execute_tool` runs any tool that exists, advertised or not. Every
+  new caller has to wrap the context in `call_executor(ctx, offered)` or the "only what this
+  turn offered" rule silently stops holding for that path. Found 2026-10-20 in review of
+  `feat/program-cycle`.
