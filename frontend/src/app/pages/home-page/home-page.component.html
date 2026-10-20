@@ -5,17 +5,24 @@
       <h1 class="h2 home__greeting">Готовы к созданию новой программы?</h1>
     </div>
 
-    <div class="home__examples">
-      <p class="h4 home__examples-label">Например:</p>
-      <ul class="home__examples-list">
-        @for (example of examples; track example) {
-          <li class="home__examples-item">
-            <button type="button" class="example-card" (click)="applyExample(example)">
-              {{ example }}
-            </button>
-          </li>
-        }
-      </ul>
+    <div
+      class="home__examples"
+      [class.home__examples--hidden]="hasContent()"
+      [attr.inert]="hasContent() ? '' : null"
+      [attr.aria-hidden]="hasContent()"
+    >
+      <div class="home__examples-inner">
+        <p class="h4 home__examples-label">Например:</p>
+        <ul class="home__examples-list">
+          @for (example of examples; track example) {
+            <li class="home__examples-item">
+              <button type="button" class="example-card" (click)="applyExample(example)">
+                {{ example }}
+              </button>
+            </li>
+          }
+        </ul>
+      </div>
     </div>
   </div>
 

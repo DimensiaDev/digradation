@@ -42,8 +42,8 @@ View Transitions API (`withViewTransitions`), direction derived from the sidebar
 admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`. `/home` is now a
 single-column program-creation landing (animated brand mark, prompt examples, a
 markup-only composer docked to the bottom of the viewport that stays collapsed until the
-first character, then expands upward and reveals the attach action while send stays visible, with
-drag-and-drop); `/help` is still an intentional `SectionPlaceholder` host, and
+first character, then expands upward, collapses the prompt examples away and reveals the attach action
+while send stays visible, with drag-and-drop); `/help` is still an intentional `SectionPlaceholder` host, and
 `programs` / `library` render the same placeholder behind the auth gate.
 
 **In flight: tool calling.** The provider layer advertises tools at construction, and both

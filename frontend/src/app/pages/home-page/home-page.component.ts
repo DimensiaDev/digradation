@@ -43,9 +43,8 @@ export class HomePage {
   readonly isDragging = signal(false);
 
   readonly canSend = computed(() => this.message().trim().length > 0);
-  readonly isExpanded = computed(
-    () => this.message().length > 0 || this.files().length > 0 || this.isDragging()
-  );
+  readonly hasContent = computed(() => this.message().length > 0 || this.files().length > 0);
+  readonly isExpanded = computed(() => this.hasContent() || this.isDragging());
 
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
   private readonly composerTextarea =

@@ -110,6 +110,24 @@ describe('HomePage', () => {
     expect(page().isComposerActive()).toBe(false);
   });
 
+  it('hides the examples once the user starts composing', () => {
+    const examples = () =>
+      fixture.debugElement.query(By.css('.home__examples')).nativeElement as HTMLElement;
+
+    expect(examples().classList).not.toContain('home__examples--hidden');
+    expect(examples().hasAttribute('inert')).toBe(false);
+
+    typeMessage('П');
+
+    expect(examples().classList).toContain('home__examples--hidden');
+    expect(examples().hasAttribute('inert')).toBe(true);
+
+    typeMessage('');
+
+    expect(examples().classList).not.toContain('home__examples--hidden');
+    expect(examples().hasAttribute('inert')).toBe(false);
+  });
+
   it('focuses the textarea when the composer wrapper is clicked', () => {
     const focusSpy = vi.spyOn(textarea(), 'focus');
 

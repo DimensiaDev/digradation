@@ -36,8 +36,6 @@
     align-items: center;
     justify-content: safe center;
 
-    gap: clamp(24px, 4vh, 44px);
-
     width: 100%;
     min-height: 0;
 
@@ -69,9 +67,34 @@
 
   &__examples {
     display: grid;
-    gap: 16px;
+    grid-template-rows: 1fr;
 
     width: 100%;
+    margin-top: clamp(24px, 4vh, 44px);
+
+    transition:
+      grid-template-rows 0.35s ease,
+      opacity 0.3s ease,
+      margin-top 0.35s ease;
+
+    &--hidden {
+      grid-template-rows: 0fr;
+
+      margin-top: 0;
+
+      opacity: 0;
+
+      pointer-events: none;
+    }
+  }
+
+  &__examples-inner {
+    display: grid;
+    gap: 16px;
+
+    min-height: 0;
+
+    overflow: hidden;
   }
 
   &__examples-label {
@@ -232,7 +255,7 @@
     border-color 0.15s ease,
     background-color 0.15s ease,
     box-shadow 0.15s ease,
-    padding 0.25s ease;
+    padding 0.35s ease;
 
   &:focus-within {
     border-color: var(--color-main);
@@ -318,13 +341,13 @@
   overflow-y: auto;
 
   transition:
-    min-height 0.25s ease,
-    padding 0.25s ease;
+    min-height 0.35s ease,
+    padding 0.35s ease;
 
   @include app-scrollbar;
 
   .composer__field--expanded & {
-    min-height: 100px;
+    min-height: 160px;
 
     padding-right: 0;
   }
