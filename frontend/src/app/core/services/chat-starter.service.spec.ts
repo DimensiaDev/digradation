@@ -10,7 +10,7 @@ import {
   ChatStarterService
 } from './chat-starter.service';
 import { AttachmentUploadService, AttachmentUploadOptions } from './attachment-upload.service';
-import { UploadItem } from '../models/models';
+import { MAX_CONCURRENT_UPLOADS, UploadItem } from '../models/models';
 import { environment } from '../../../environments/environment';
 
 const CHATS_URL = `${environment.apiUrl}/chats/`;
@@ -21,7 +21,14 @@ class FakeUploader {
   readonly removed: { sessionId: string; attachmentId: number }[] = [];
   failure: Error | null = null;
   hang = false;
+  manual = false;
   attachmentId: number | null = null;
+  active = 0;
+  peak = 0;
+  readonly pending: {
+    item: UploadItem;
+    observer: { next(value: number): void; complete(): void };
+  }[] = [];
 
   upload(
     item: UploadItem,
@@ -33,6 +40,16 @@ class FakeUploader {
     if (this.attachmentId !== null) {
       options.onAttachmentId?.(this.attachmentId);
     }
+    if (this.manual) {
+      this.active++;
+      this.peak = Math.max(this.peak, this.active);
+      return new Observable<number>((observer) => {
+        this.pending.push({ item, observer });
+        return () => {
+          this.active--;
+        };
+      });
+    }
     if (this.hang) {
       return NEVER;
     }
@@ -40,6 +57,15 @@ class FakeUploader {
       return throwError(() => this.failure);
     }
     return of(item.size);
+  }
+
+  finishNext(): void {
+    const next = this.pending.shift();
+    if (!next) {
+      return;
+    }
+    next.observer.next(next.item.size);
+    next.observer.complete();
   }
 
   remove(sessionId: string, attachmentId: number): Observable<{ deleted: boolean }> {
@@ -93,6 +119,32 @@ describe('ChatStarterService', () => {
     send.flush({ message: 'ok' });
 
     expect(sessionIds).toEqual(['sess-1']);
+  });
+
+  it('uploads no more than the concurrency limit at once', () => {
+    uploader.manual = true;
+    const files = Array.from({ length: 5 }, (_, index) =>
+      makeFile(`файл-${index}.pdf`, 100 + index)
+    );
+    const sessionIds: string[] = [];
+
+    service.start('Нужна программа', files).subscribe((sessionId) => sessionIds.push(sessionId));
+    http.expectOne(CHATS_URL).flush({ session_id: 'sess-8' });
+
+    expect(uploader.active).toBe(MAX_CONCURRENT_UPLOADS);
+    expect(uploader.peak).toBe(MAX_CONCURRENT_UPLOADS);
+
+    while (uploader.pending.length > 0) {
+      uploader.finishNext();
+      expect(uploader.active).toBeLessThanOrEqual(MAX_CONCURRENT_UPLOADS);
+    }
+
+    expect(uploader.items).toHaveLength(files.length);
+    expect(uploader.peak).toBe(MAX_CONCURRENT_UPLOADS);
+
+    http.expectOne(`${CHATS_URL}sess-8`).flush({ message: 'ok' });
+
+    expect(sessionIds).toEqual(['sess-8']);
   });
 
   it('skips uploads when no files are attached', () => {

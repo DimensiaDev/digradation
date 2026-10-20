@@ -5,15 +5,18 @@ import {
   TimeoutError,
   catchError,
   forkJoin,
+  from,
   map,
+  mergeMap,
   of,
   switchMap,
   throwError,
-  timeout
+  timeout,
+  toArray
 } from 'rxjs';
 import { createId } from '../../shared/utils/create-id';
 import { getFileExtension } from '../../shared/utils/upload-format';
-import { UploadItem } from '../models/models';
+import { MAX_CONCURRENT_UPLOADS, UploadItem } from '../models/models';
 import { AttachmentUploadService } from './attachment-upload.service';
 import { ChatService } from './chat.service';
 
@@ -69,10 +72,13 @@ export class ChatStarterService {
 
     return (
       files.length
-        ? forkJoin(
-            files.map((file) =>
-              withUploadDeadline(this.upload(sessionId, file, (id) => attachmentIds.add(id)))
-            )
+        ? from(files).pipe(
+            mergeMap(
+              (file) =>
+                withUploadDeadline(this.upload(sessionId, file, (id) => attachmentIds.add(id))),
+              MAX_CONCURRENT_UPLOADS
+            ),
+            toArray()
           )
         : of([])
     ).pipe(

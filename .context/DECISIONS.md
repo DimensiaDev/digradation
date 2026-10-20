@@ -1229,3 +1229,11 @@ same application instance send the previous guest's text and files under another
 without confirmation. Cleanup therefore sits in the dialog's dismissal path
 (`AuthDialogComponent.dismiss(true)`), not in `AuthModalService.close`, because the success
 path also closes the modal and still needs the draft.
+
+## Chat starts upload through the same three-slot queue
+
+`ChatStarterService` uploads with `mergeMap(..., MAX_CONCURRENT_UPLOADS)` rather than a
+`forkJoin` over every file. Attaching ten files used to open ten storage uploads at once,
+bypassing the limit the drag-and-drop queue already enforced and inviting rate limits and
+network failures. The shared constant keeps both paths in sync; the per-file upload deadline
+still starts only when its slot is taken, so queued files are not timed out while waiting.
