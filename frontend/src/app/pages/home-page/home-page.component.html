@@ -52,8 +52,10 @@
       (dragover)="onDragOver($event)"
       (dragleave)="onDragLeave()"
       (drop)="onDrop($event)"
+      (click)="onFieldClick($event)"
     >
       <textarea
+        #composerTextarea
         class="composer__textarea"
         rows="1"
         placeholder="Опишите программу или прикрепите файлы..."

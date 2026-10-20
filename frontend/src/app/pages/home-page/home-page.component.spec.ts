@@ -110,6 +110,16 @@ describe('HomePage', () => {
     expect(page().isComposerActive()).toBe(false);
   });
 
+  it('focuses the textarea when the composer wrapper is clicked', () => {
+    const focusSpy = vi.spyOn(textarea(), 'focus');
+
+    fixture.debugElement
+      .query(By.css('.composer__field'))
+      .nativeElement.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(focusSpy).toHaveBeenCalled();
+  });
+
   it('opens the file picker from the attach button', () => {
     const clickSpy = vi.spyOn(fileInput(), 'click');
 

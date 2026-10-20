@@ -48,11 +48,20 @@ export class HomePage {
   );
 
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
+  private readonly composerTextarea =
+    viewChild<ElementRef<HTMLTextAreaElement>>('composerTextarea');
 
   private dragDepth = 0;
 
   onInput(event: Event): void {
     this.message.set((event.target as HTMLTextAreaElement).value);
+  }
+
+  onFieldClick(event: MouseEvent): void {
+    if ((event.target as HTMLElement).closest('button, input, textarea, a, label')) {
+      return;
+    }
+    this.composerTextarea()?.nativeElement.focus();
   }
 
   onFocus(): void {
