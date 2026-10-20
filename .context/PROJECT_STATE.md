@@ -43,8 +43,9 @@ admin sections (`Журнал действий`, `О системе`) render `Se
 single-column program-creation landing (animated brand mark, prompt examples, a
 markup-only composer docked to the bottom of the viewport while empty; once the user types
 or attaches a file the prompt examples fold away, the composer rises into the freed space at
-its normal height and reveals the attach action, with drag-and-drop); `/help` is still an intentional `SectionPlaceholder` host, and
-`programs` / `library` render the same placeholder behind the auth gate.
+its normal height and reveals the attach action, with drag-and-drop); `/help` is still an
+intentional `SectionPlaceholder` host, and `programs` / `library` render the same placeholder
+behind the auth gate.
 
 **In flight: tool calling.** The provider layer advertises tools at construction, and both
 the OpenAI-compatible client and the GigaChat v2 client surface the calls the model requests
