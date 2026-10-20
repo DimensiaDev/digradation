@@ -1147,3 +1147,21 @@ morphed, and it is shared with the sidebar.
 - **The landing opts out of the routed-page pin.** It sets `:host { flex: 1 1 auto }` to fill
   `main` and centre its content; `:host` has higher specificity than the `main router-outlet
   + *` rule documented above.
+
+## A guest's home-page send survives the sign-in dialog (2026-10-20)
+
+`/home` is public and the composer is the first thing a visitor meets, so sending as a guest
+must not lose what was typed. The draft is kept in `PendingChatDraftService` (the trimmed
+text and the original `File`s) and consumed once `ProfileService.user()` becomes non-null.
+
+- **Why not `InitialChatStateService`:** it is keyed by a session id that does not exist yet.
+  The draft is what the session is created for; the initial-chat state still hands the sent
+  message to the chat page after creation.
+- **One starter for both entry points.** `ChatStarterService` owns create → upload files →
+  send, so `/create` and `/home` cannot drift apart. Home also uses it for an authenticated
+  user, which is what makes the send button meaningful without a sign-in detour.
+- **The sign-in dialog keeps returning to `/home`.** The resume effect lives in `HomePage`,
+  and a same-URL navigation keeps that component alive. A different return target would
+  destroy the only consumer of the draft.
+- **The draft is consumed before the request starts,** so retrying after a failure cannot
+  create two chats. The composer still holds the text and files for a manual retry.

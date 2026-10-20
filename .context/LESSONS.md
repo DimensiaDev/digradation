@@ -888,3 +888,14 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   the landing logo sped up 7s to 3.8s on focus and occasionally popped in size. Keep the
   duration fixed and animate a separate property for the active state. Found 2026-10-20 on
   `feat/main-page`.
+- **A click handler that only moves focus still trips two a11y lint rules.**
+  `click-events-have-key-events` and `interactive-supports-focus` treat the composer wrapper
+  as an interactive control even though its click only focuses the textarea. Adding
+  `tabindex` would create a redundant tab stop; `role="presentation"` is the accurate signal
+  that the wrapper is not an action, and both rules accept it. Found 2026-10-20 on
+  `feat/main-page`.
+- **A local `ng build` keeps the `__BACKEND_URL__` placeholder.** Only
+  `docker/rewrite-env.mjs` replaces it at image build time, so serving `dist/frontend/browser`
+  statically sends API calls to `/__BACKEND_URL__/api/v1/...`. Match that suffix in test
+  interception, or rewrite the output first; the app is not broken. Found 2026-10-20 on
+  `feat/main-page`.
