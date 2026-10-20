@@ -9,9 +9,41 @@ import { BrandLogoAnimatedComponent } from '../../shared/components/brand-logo-a
 import { AuthModalService } from '../../core/services/auth-modal.service';
 import { ChatStarterService } from '../../core/services/chat-starter.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
+import { NotificationService } from '../../core/services/notification.service';
 import { PendingChatDraftService } from '../../core/services/pending-chat-draft.service';
 import { ProfileService } from '../../core/services/profile.service';
+import { SpeechRecognitionService } from '../../core/services/speech-recognition.service';
 import { User } from '../../core/models/models';
+
+interface FakeSpeechOptions {
+  readonly lang?: string;
+  readonly onError?: (code: string) => void;
+}
+
+class FakeSpeechRecognitionService {
+  isSupported = true;
+
+  private readonly listening = signal(false);
+  private readonly transcriptState = signal({ final: '', interim: '' });
+
+  readonly isListening = this.listening.asReadonly();
+  readonly transcript = this.transcriptState.asReadonly();
+
+  lastOptions: FakeSpeechOptions | null = null;
+
+  readonly start = vi.fn((options: FakeSpeechOptions = {}) => {
+    this.lastOptions = options;
+    this.listening.set(true);
+  });
+
+  readonly stop = vi.fn(() => {
+    this.listening.set(false);
+  });
+
+  emit(final: string, interim: string): void {
+    this.transcriptState.set({ final, interim });
+  }
+}
 
 function makeFile(name: string, size: number): File {
   return new File(['x'.repeat(size)], name, { type: 'application/octet-stream' });
@@ -31,6 +63,7 @@ describe('HomePage', () => {
   let userSignal: ReturnType<typeof signal<User | null>>;
   let authModal: { open: ReturnType<typeof vi.fn> };
   let chatStarter: { start: ReturnType<typeof vi.fn> };
+  let speech: FakeSpeechRecognitionService;
   let pendingDraft: PendingChatDraftService;
   let initialChatState: InitialChatStateService;
   let router: Router;
@@ -40,6 +73,8 @@ describe('HomePage', () => {
     fixture.debugElement.query(By.css('.composer__textarea')).nativeElement as HTMLTextAreaElement;
   const sendButton = () =>
     fixture.debugElement.query(By.css('.composer__send')).nativeElement as HTMLButtonElement;
+  const micButton = () =>
+    fixture.debugElement.query(By.css('.composer__mic')).nativeElement as HTMLButtonElement;
   const fileInput = () =>
     fixture.debugElement.query(By.css('input[type="file"]')).nativeElement as HTMLInputElement;
   const chips = () => fixture.debugElement.queryAll(By.css('.file-chip'));
@@ -78,6 +113,7 @@ describe('HomePage', () => {
     userSignal = signal<User | null>(null);
     authModal = { open: vi.fn() };
     chatStarter = { start: vi.fn(() => of('sess-1')) };
+    speech = new FakeSpeechRecognitionService();
 
     await TestBed.configureTestingModule({
       imports: [HomePage],
@@ -85,7 +121,8 @@ describe('HomePage', () => {
         provideRouter([]),
         { provide: ProfileService, useValue: { user: userSignal.asReadonly() } },
         { provide: AuthModalService, useValue: authModal },
-        { provide: ChatStarterService, useValue: chatStarter }
+        { provide: ChatStarterService, useValue: chatStarter },
+        { provide: SpeechRecognitionService, useValue: speech }
       ]
     }).compileComponents();
 
@@ -268,6 +305,74 @@ describe('HomePage', () => {
     form.nativeElement.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('places the microphone to the left of the send button', () => {
+    expect(micButton().nextElementSibling).toBe(sendButton());
+    expect(micButton().disabled).toBe(false);
+    expect(micButton().getAttribute('aria-label')).toBe('Начать голосовой ввод');
+    expect(micButton().getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('dictates into the field and stops on a second click', () => {
+    micButton().click();
+    refresh();
+
+    expect(speech.start).toHaveBeenCalledWith(expect.objectContaining({ lang: 'ru-RU' }));
+    expect(micButton().classList).toContain('composer__mic--recording');
+    expect(micButton().getAttribute('aria-pressed')).toBe('true');
+    expect(micButton().getAttribute('aria-label')).toBe('Остановить голосовой ввод');
+
+    speech.emit('Нужна', 'программа');
+    refresh();
+
+    expect(textarea().value).toBe('Нужна программа');
+    expect(sendButton().disabled).toBe(false);
+
+    micButton().click();
+    refresh();
+
+    expect(speech.stop).toHaveBeenCalled();
+    expect(micButton().classList).not.toContain('composer__mic--recording');
+    expect(micButton().getAttribute('aria-pressed')).toBe('false');
+    expect(textarea().value).toBe('Нужна программа');
+  });
+
+  it('appends dictation to the text already in the field', () => {
+    typeMessage('Сделай программу');
+    micButton().click();
+    speech.emit('на Python', '');
+    refresh();
+
+    expect(textarea().value).toBe('Сделай программу на Python');
+  });
+
+  it('reports a denied microphone', () => {
+    micButton().click();
+    speech.lastOptions?.onError?.('not-allowed');
+    refresh();
+
+    const notices = TestBed.inject(NotificationService).notifications();
+    expect(notices.at(-1)?.message).toBe('Разрешите доступ к микрофону');
+  });
+
+  it('explains an unreachable browser recognition service', () => {
+    micButton().click();
+    speech.lastOptions?.onError?.('network');
+    refresh();
+
+    const notice = TestBed.inject(NotificationService).notifications().at(-1);
+    expect(notice?.message).toBe('Сервис распознавания речи недоступен');
+    expect(notice?.description).toContain('Safari');
+  });
+
+  it('disables the microphone when speech recognition is unavailable', () => {
+    speech.isSupported = false;
+    fixture = TestBed.createComponent(HomePage);
+    fixture.detectChanges();
+
+    expect(micButton().disabled).toBe(true);
+    expect(micButton().getAttribute('title')).toContain('не поддерживается');
   });
 
   it('opens the auth popup and keeps the message and files for a guest', () => {

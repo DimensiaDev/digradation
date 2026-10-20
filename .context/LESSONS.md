@@ -899,3 +899,18 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   statically sends API calls to `/__BACKEND_URL__/api/v1/...`. Match that suffix in test
   interception, or rewrite the output first; the app is not broken. Found 2026-10-20 on
   `feat/main-page`.
+- **TypeScript has no `SpeechRecognition` interface.** `lib.dom.d.ts` ships
+  `SpeechRecognitionResult`, `SpeechRecognitionResultList` and
+  `SpeechRecognitionAlternative`, but not the controller or either event, so a wrapper needs
+  minimal local interfaces for `start` / `stop` and the two events. Do not reach for `any`.
+  Found 2026-10-20 on `feat/main-page`.
+- **In continuous recognition, every result event carries all results seen so far.**
+  `event.resultIndex` is the first changed one; accumulating from `0` duplicates earlier
+  finals, while starting at `resultIndex` without having processed the earlier events drops
+  them. A real browser delivers from `0`, but a test that jumps straight to `resultIndex: 1`
+  produces a transcript missing the first phrase. Found 2026-10-20 on `feat/main-page`.
+- **A Web Speech `network` error in Chrome is the browser's cloud recogniser, not our
+  backend.** Chrome sends audio to Google; where that is blocked, or in Chromium builds
+  without the API keys, every start fails with `network`. Safari uses Apple and worked on the
+  same machine, which is the quick way to tell the two apart. Found 2026-10-20 on
+  `feat/main-page`.

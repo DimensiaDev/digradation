@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-20** (guest send from `/home` resumes as a chat after sign-in)
+Last updated: **2026-10-20** (voice input added to the home composer)
 
 ---
 
@@ -46,8 +46,12 @@ prompt examples fold away, the composer rises into the freed space at its normal
 reveals the attach action, with drag-and-drop). A send from `/home` starts a chat: an
 authenticated user goes straight to it, while a guest's text and files are held in
 `PendingChatDraftService`, the sign-in dialog opens, and the same chat is created and sent
-after login. `/help` is still an intentional `SectionPlaceholder` host, and `programs` /
-`library` render the same placeholder behind the auth gate.
+after login. The composer also dictates: a microphone button to the left of send starts
+continuous Russian recognition through the Web Speech API, fills the field with interim and
+final text, and turns red while recording; the button is disabled when the browser has no
+engine (Firefox keeps it behind an off-by-default preference). `/help` is still an
+intentional `SectionPlaceholder` host, and `programs` / `library` render the same placeholder
+behind the auth gate.
 
 **In flight: tool calling.** The provider layer advertises tools at construction, and both
 the OpenAI-compatible client and the GigaChat v2 client surface the calls the model requests

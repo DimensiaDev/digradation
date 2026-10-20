@@ -96,14 +96,31 @@
           <span>Прикрепить</span>
         </button>
 
-        <button
-          type="submit"
-          class="button button--main button--squared composer__send"
-          aria-label="Отправить"
-          [disabled]="!canSend()"
-        >
-          <svg size="20" lucideArrowUp aria-hidden="true"></svg>
-        </button>
+        <div class="composer__submit">
+          <button
+            type="button"
+            class="composer__mic"
+            [class.composer__mic--recording]="isRecording()"
+            [attr.aria-label]="speechLabel()"
+            [attr.aria-pressed]="isRecording()"
+            [attr.title]="
+              isSpeechSupported ? null : 'Голосовой ввод не поддерживается этим браузером'
+            "
+            [disabled]="!isSpeechSupported"
+            (click)="toggleSpeech()"
+          >
+            <svg size="20" lucideMic aria-hidden="true"></svg>
+          </button>
+
+          <button
+            type="submit"
+            class="button button--main button--squared composer__send"
+            aria-label="Отправить"
+            [disabled]="!canSend()"
+          >
+            <svg size="20" lucideArrowUp aria-hidden="true"></svg>
+          </button>
+        </div>
       </div>
     </div>
 

@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   computed,
   effect,
@@ -11,7 +12,13 @@ import {
 import { HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
 import type { LucideIconData } from '@lucide/angular';
-import { LucideArrowUp, LucideDynamicIcon, LucidePaperclip, LucideX } from '@lucide/angular';
+import {
+  LucideArrowUp,
+  LucideDynamicIcon,
+  LucideMic,
+  LucidePaperclip,
+  LucideX
+} from '@lucide/angular';
 import { EMPTY, catchError, finalize } from 'rxjs';
 import { AuthModalService } from '../../core/services/auth-modal.service';
 import { ChatStarterService } from '../../core/services/chat-starter.service';
@@ -19,6 +26,7 @@ import { InitialChatStateService } from '../../core/services/initial-chat-state.
 import { NotificationService } from '../../core/services/notification.service';
 import { PendingChatDraftService } from '../../core/services/pending-chat-draft.service';
 import { ProfileService } from '../../core/services/profile.service';
+import { SpeechRecognitionService } from '../../core/services/speech-recognition.service';
 import { BrandLogoAnimatedComponent } from '../../shared/components/brand-logo-animated/brand-logo-animated.component';
 import { createId } from '../../shared/utils/create-id';
 import { ACCEPTED_EXTENSIONS, fileTypeStyleFor } from '../../shared/utils/file-types';
@@ -34,7 +42,14 @@ interface PendingFile {
 
 @Component({
   selector: 'app-home-page',
-  imports: [BrandLogoAnimatedComponent, LucideArrowUp, LucideDynamicIcon, LucidePaperclip, LucideX],
+  imports: [
+    BrandLogoAnimatedComponent,
+    LucideArrowUp,
+    LucideDynamicIcon,
+    LucideMic,
+    LucidePaperclip,
+    LucideX
+  ],
   templateUrl: './home-page.component.html',
   styleUrl: './home-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
@@ -66,12 +81,20 @@ export class HomePage {
   private readonly initialChatState = inject(InitialChatStateService);
   private readonly notifications = inject(NotificationService);
   private readonly router = inject(Router);
+  private readonly speech = inject(SpeechRecognitionService);
+
+  readonly isSpeechSupported = this.speech.isSupported;
+  readonly isRecording = this.speech.isListening;
+  readonly speechLabel = computed(() =>
+    this.isRecording() ? 'Остановить голосовой ввод' : 'Начать голосовой ввод'
+  );
 
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
   private readonly composerTextarea =
     viewChild<ElementRef<HTMLTextAreaElement>>('composerTextarea');
 
   private dragDepth = 0;
+  private speechBase = '';
 
   constructor() {
     effect(() => {
@@ -82,6 +105,26 @@ export class HomePage {
       const draft = this.pendingDraft.consume();
       if (draft) {
         this.startChat(draft.text, draft.files);
+      }
+    });
+
+    effect(() => {
+      const { final, interim } = this.speech.transcript();
+      const spoken = [final, interim]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join(' ');
+      if (!spoken) {
+        return;
+      }
+
+      const base = this.speechBase.trim();
+      this.message.set(base ? `${base} ${spoken}` : spoken);
+    });
+
+    inject(DestroyRef).onDestroy(() => {
+      if (this.isRecording()) {
+        this.speech.stop();
       }
     });
   }
@@ -160,6 +203,10 @@ export class HomePage {
   onSubmit(event: Event): void {
     event.preventDefault();
 
+    if (this.isRecording()) {
+      this.speech.stop();
+    }
+
     const text = this.message().trim();
     if (!text || this.isStarting()) {
       return;
@@ -174,6 +221,46 @@ export class HomePage {
 
     this.pendingDraft.set({ text, files });
     this.authModal.open('/home');
+  }
+
+  toggleSpeech(): void {
+    if (this.isRecording()) {
+      this.speech.stop();
+      return;
+    }
+
+    this.speechBase = this.message().trimEnd();
+    this.speech.start({
+      lang: 'ru-RU',
+      onError: (code) => this.reportSpeechError(code)
+    });
+  }
+
+  private reportSpeechError(code: string): void {
+    if (code === 'no-speech') {
+      this.notifications.info('Речь не распознана', {
+        description: 'Попробуйте ещё раз.'
+      });
+      return;
+    }
+
+    const messages: Record<string, string> = {
+      'not-allowed': 'Разрешите доступ к микрофону',
+      'service-not-allowed': 'Доступ к микрофону запрещён браузером',
+      'audio-capture': 'Микрофон не найден',
+      network: 'Сервис распознавания речи недоступен',
+      'language-not-supported': 'Сервис распознавания не поддерживает русский язык'
+    };
+    const microphoneBlocked = code === 'not-allowed' || code === 'service-not-allowed';
+
+    let description: string | undefined;
+    if (microphoneBlocked) {
+      description = 'Разрешите микрофон в настройках браузера и попробуйте снова.';
+    } else if (code === 'network') {
+      description = 'Проверьте подключение или попробуйте Safari.';
+    }
+
+    this.notifications.error(messages[code] ?? 'Не удалось распознать речь', { description });
   }
 
   private startChat(text: string, files: readonly File[]): void {

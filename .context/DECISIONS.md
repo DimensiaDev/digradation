@@ -1165,3 +1165,28 @@ text and the original `File`s) and consumed once `ProfileService.user()` becomes
   destroy the only consumer of the draft.
 - **The draft is consumed before the request starts,** so retrying after a failure cannot
   create two chats. The composer still holds the text and files for a manual retry.
+
+## Voice input is the Web Speech API, wrapped in a service (2026-10-20)
+
+The home composer gained a microphone button beside send. Dictation uses the browser's
+native `SpeechRecognition` (`webkitSpeechRecognition` fallback) rather than an upload flow.
+
+- **Native, not `getUserMedia` + a speech backend.** This is a text-entry convenience, not
+  transcription as a product feature; a backend would add a service, credentials and latency
+  for the same text. Chromium and Safari ship an engine, and Firefox users get a disabled
+  button instead of a button that fails after the click.
+- **Continuous Russian with interim results.** `lang = 'ru-RU'`, `continuous = true`,
+  `interimResults = true`; each result recomposes `base + final + interim`, so the field
+  fills while the user speaks and the final text replaces the interim.
+- **The service owns recognition, the component owns the text policy.** The service normalizes
+  chunks into `{final, interim}` and reports errors; HomePage decides that dictation appends
+  to the existing text and that the transcript survives stopping.
+- **Errors become Russian notifications.** Microphone denial, a missing device, no network and
+  an unsupported language are errors; `no-speech` is information, because silence is not a
+  failure of the app.
+- **The engine is cloud-hosted and may be unreachable.** Chrome sends audio to Google and
+  fails with `network` where that service is blocked; Safari's Apple-backed engine recognised
+  the same speech on the same machine. The app keeps the native API and explains the failure
+  instead of shipping server-side STT. A Chrome-first audience would need a backend
+  recogniser (SaluteSpeech or a local Whisper), which is a separate decision with credentials
+  or a model to host.
