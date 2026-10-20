@@ -513,4 +513,19 @@ describe('HomePage', () => {
     });
     expect(navigate).toHaveBeenCalledWith(['/chats', 'sess-1']);
   });
+
+  it('restores the guest draft when resuming it after login fails', () => {
+    chatStarter.start.mockReturnValue(throwError(() => new Error('Ошибка сервера')));
+    const file = makeFile('план.pdf', 1024);
+    selectFiles([file]);
+    typeMessage('Нужна программа');
+    submit();
+
+    expect(pendingDraft.peek()).toEqual({ text: 'Нужна программа', files: [file] });
+
+    signIn();
+
+    expect(pendingDraft.peek()).toEqual({ text: 'Нужна программа', files: [file] });
+    expect(sendButton().disabled).toBe(false);
+  });
 });

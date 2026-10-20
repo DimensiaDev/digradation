@@ -99,10 +99,12 @@ export class HomePage {
         return;
       }
 
-      const draft = this.pendingDraft.consume();
-      if (draft) {
-        this.startChat(draft.text, draft.files);
-      }
+      untracked(() => {
+        const draft = this.pendingDraft.peek();
+        if (draft) {
+          this.startChat(draft.text, draft.files);
+        }
+      });
     });
 
     effect(() => {
@@ -335,6 +337,7 @@ export class HomePage {
         })
       )
       .subscribe((sessionId) => {
+        this.pendingDraft.clear();
         this.notifications.success('Новый чат создан', {
           description: 'Агент уже получил ваше сообщение.'
         });
