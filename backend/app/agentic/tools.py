@@ -83,6 +83,9 @@ class ToolContext:
     state: ProgramState | None = None
     known_source_ids: set[str] = field(default_factory=set)
     dirty: bool = False
+    #: Whether the stage's block was accepted in this turn. The stage task reads
+    #: it to tell "the model saved and answered" from "the model only answered".
+    saved: bool = False
 
 
 class ToolResult(BaseModel):
@@ -385,14 +388,18 @@ async def save_program_draft(ctx: ToolContext, arguments: BaseModel) -> SaveProg
         return SaveProgramDraftResult(ok=False, error="Программа ещё не начата")
     match arguments:
         case CompetencesBlock():
-            return _save_competences(ctx, state, arguments)
+            result = _save_competences(ctx, state, arguments)
         case HoursBlock():
-            return _save_hours(ctx, state, arguments)
+            result = _save_hours(ctx, state, arguments)
         case SourcesBlock():
-            return _save_sources(ctx, state, arguments)
+            result = _save_sources(ctx, state, arguments)
         case SummaryBlock():
-            return _save_summary(ctx, state, arguments)
-    return SaveProgramDraftResult(ok=False, error="Неизвестный блок программы")
+            result = _save_summary(ctx, state, arguments)
+        case _:
+            return SaveProgramDraftResult(ok=False, error="Неизвестный блок программы")
+    if result.ok:
+        ctx.saved = True
+    return result
 
 
 async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> BeginProgramResult:

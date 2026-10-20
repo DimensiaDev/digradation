@@ -303,7 +303,7 @@ async def task_db(monkeypatch, engine: AsyncEngine):
     # the name into their own namespace. Patching only the defining module leaves
     # those bindings pointing at the real database, so every consumer is patched.
     monkeypatch.setattr(broker_module, "tsq_db", _tsq_db)
-    for module_name in ("app.tasks.api", "app.tasks.files", "app.tasks.users"):
+    for module_name in ("app.tasks.api", "app.tasks.files", "app.tasks.users", "app.tasks.program"):
         monkeypatch.setattr(f"{module_name}.tsq_db", _tsq_db)
     yield
     cached_session_maker.cache_clear()
