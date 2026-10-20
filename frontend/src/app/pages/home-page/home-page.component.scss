@@ -206,6 +206,8 @@
   border: 1px solid var(--color-outline);
   border-radius: 20px;
 
+  overflow: hidden;
+
   transition:
     border-color 0.15s ease,
     background-color 0.15s ease,
@@ -216,7 +218,8 @@
     box-shadow: 0 0 0 2px var(--color-main);
   }
 
-  &--dragging {
+  &--dragging,
+  &--dragging:focus-within {
     border-color: var(--color-main);
     background-color: color-mix(in srgb, var(--color-main) 7%, var(--color-surface));
     box-shadow: none;
@@ -234,11 +237,11 @@
   justify-content: center;
   gap: 10px;
 
-  border-radius: inherit;
-
   font-size: 15px;
   font-weight: 500;
   color: var(--color-main);
+
+  background: color-mix(in srgb, var(--color-surface) 45%, transparent);
 
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);

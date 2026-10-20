@@ -878,3 +878,7 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   editing it to animate is not possible. It stays the sidebar mark unchanged; the landing's
   animated logo is a separate vector component. Read an SVG's contents before promising to
   animate it. Found 2026-10-19 on `feat/main-page`.
+- **A `--modifier` class loses to `&:focus-within`.** A pseudo-class counts like a class,
+  so `.field:focus-within` (0,2,0) outranks `.field--dragging` (0,1,0) no matter the source
+  order; the focus ring kept painting under the drag blur until the state was repeated as
+  `&--dragging:focus-within`. Found 2026-10-20 on `feat/main-page`.
