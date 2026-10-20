@@ -419,6 +419,7 @@
   }
 
   &:disabled {
+    cursor: not-allowed;
     transform: scale(0.92);
   }
 }
