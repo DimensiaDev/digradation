@@ -208,12 +208,42 @@
 
   transition:
     border-color 0.15s ease,
+    background-color 0.15s ease,
     box-shadow 0.15s ease;
 
   &:focus-within {
     border-color: var(--color-main);
     box-shadow: 0 0 0 2px var(--color-main);
   }
+
+  &--dragging {
+    border-color: var(--color-main);
+    background-color: color-mix(in srgb, var(--color-main) 7%, var(--color-surface));
+    box-shadow: none;
+  }
+}
+
+.composer__dropzone {
+  position: absolute;
+  inset: 0;
+
+  z-index: 1;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+
+  border-radius: inherit;
+
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-main);
+
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+
+  pointer-events: none;
 }
 
 .composer__textarea {
@@ -314,7 +344,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .composer__send {
+  .composer__send,
+  .composer__field {
     transition: none;
   }
 }

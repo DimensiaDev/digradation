@@ -40,10 +40,13 @@ export class HomePage {
   readonly message = signal('');
   readonly files = signal<PendingFile[]>([]);
   readonly isComposerActive = signal(false);
+  readonly isDragging = signal(false);
 
   readonly canSend = computed(() => this.message().trim().length > 0);
 
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
+
+  private dragDepth = 0;
 
   onInput(event: Event): void {
     this.message.set((event.target as HTMLTextAreaElement).value);
@@ -69,27 +72,40 @@ export class HomePage {
     const input = event.target as HTMLInputElement;
     const selected = Array.from(input.files ?? []);
     input.value = '';
+    this.addFiles(selected);
+  }
 
-    if (selected.length === 0) {
+  onDragEnter(event: DragEvent): void {
+    if (!this.hasFiles(event)) {
       return;
     }
+    event.preventDefault();
+    this.dragDepth++;
+    this.isDragging.set(true);
+  }
 
-    this.files.update((list) => {
-      const next = [...list];
-      for (const file of selected) {
-        const duplicate = next.some((item) => item.name === file.name && item.size === file.size);
-        if (duplicate) {
-          continue;
-        }
-        next.push({
-          id: createId(),
-          name: file.name,
-          size: file.size,
-          extension: getFileExtension(file.name)
-        });
-      }
-      return next;
-    });
+  onDragOver(event: DragEvent): void {
+    if (!this.hasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  }
+
+  onDragLeave(): void {
+    this.dragDepth = Math.max(0, this.dragDepth - 1);
+    if (this.dragDepth === 0) {
+      this.isDragging.set(false);
+    }
+  }
+
+  onDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.dragDepth = 0;
+    this.isDragging.set(false);
+    this.addFiles(Array.from(event.dataTransfer?.files ?? []));
   }
 
   removeFile(id: string): void {
@@ -110,5 +126,32 @@ export class HomePage {
 
   sizeLabel(file: PendingFile): string {
     return formatBytes(file.size);
+  }
+
+  private hasFiles(event: DragEvent): boolean {
+    return Array.from(event.dataTransfer?.types ?? []).includes('Files');
+  }
+
+  private addFiles(selected: File[]): void {
+    if (selected.length === 0) {
+      return;
+    }
+
+    this.files.update((list) => {
+      const next = [...list];
+      for (const file of selected) {
+        const duplicate = next.some((item) => item.name === file.name && item.size === file.size);
+        if (duplicate) {
+          continue;
+        }
+        next.push({
+          id: createId(),
+          name: file.name,
+          size: file.size,
+          extension: getFileExtension(file.name)
+        });
+      }
+      return next;
+    });
   }
 }

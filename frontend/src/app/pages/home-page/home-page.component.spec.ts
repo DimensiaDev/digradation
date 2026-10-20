@@ -8,6 +8,15 @@ function makeFile(name: string, size: number): File {
   return new File(['x'.repeat(size)], name, { type: 'application/octet-stream' });
 }
 
+function dragEvent(type: string, files: File[] = []): DragEvent {
+  const event = new Event(type, { bubbles: true, cancelable: true }) as unknown as DragEvent;
+  Object.defineProperty(event, 'dataTransfer', {
+    value: { types: files.length > 0 ? ['Files'] : [], files, dropEffect: '' },
+    configurable: true
+  });
+  return event;
+}
+
 describe('HomePage', () => {
   let fixture: ComponentFixture<HomePage>;
 
@@ -92,6 +101,54 @@ describe('HomePage', () => {
       .nativeElement.dispatchEvent(new Event('click'));
 
     expect(clickSpy).toHaveBeenCalled();
+  });
+
+  it('highlights the field while a file is dragged over it', () => {
+    const field = fixture.debugElement.query(By.css('.composer__field'));
+
+    field.nativeElement.dispatchEvent(dragEvent('dragenter', [makeFile('план.pdf', 1024)]));
+    refresh();
+
+    expect(page().isDragging()).toBe(true);
+    const dropzone = fixture.debugElement.query(By.css('.composer__dropzone'));
+    expect(dropzone.nativeElement.textContent).toContain('Перетащите файлы сюда');
+    expect(dropzone.query(By.css('svg'))).not.toBeNull();
+
+    field.nativeElement.dispatchEvent(dragEvent('dragleave', [makeFile('план.pdf', 1024)]));
+    refresh();
+
+    expect(page().isDragging()).toBe(false);
+    expect(fixture.debugElement.query(By.css('.composer__dropzone'))).toBeNull();
+  });
+
+  it('ignores a drag that carries no files', () => {
+    fixture.debugElement
+      .query(By.css('.composer__field'))
+      .nativeElement.dispatchEvent(dragEvent('dragenter'));
+
+    refresh();
+
+    expect(page().isDragging()).toBe(false);
+  });
+
+  it('accepts the file drag over the field', () => {
+    const event = dragEvent('dragover', [makeFile('план.pdf', 1024)]);
+
+    fixture.debugElement.query(By.css('.composer__field')).nativeElement.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('adds the dropped files', () => {
+    const field = fixture.debugElement.query(By.css('.composer__field'));
+
+    field.nativeElement.dispatchEvent(dragEvent('dragenter', [makeFile('план.pdf', 2048)]));
+    field.nativeElement.dispatchEvent(dragEvent('drop', [makeFile('план.pdf', 2048)]));
+    refresh();
+
+    expect(page().isDragging()).toBe(false);
+    expect(chips()).toHaveLength(1);
+    expect(fixture.nativeElement.textContent).toContain('план.pdf');
   });
 
   it('lists the selected files and lets the user remove one', () => {

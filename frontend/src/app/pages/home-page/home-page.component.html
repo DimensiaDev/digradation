@@ -42,7 +42,14 @@
       </ul>
     }
 
-    <div class="composer__field">
+    <div
+      class="composer__field"
+      [class.composer__field--dragging]="isDragging()"
+      (dragenter)="onDragEnter($event)"
+      (dragover)="onDragOver($event)"
+      (dragleave)="onDragLeave()"
+      (drop)="onDrop($event)"
+    >
       <textarea
         class="composer__textarea"
         rows="1"
@@ -54,6 +61,13 @@
         (focus)="onFocus()"
         (blur)="onBlur()"
       ></textarea>
+
+      @if (isDragging()) {
+        <div class="composer__dropzone" aria-hidden="true">
+          <svg size="20" lucidePaperclip aria-hidden="true"></svg>
+          <span>Перетащите файлы сюда</span>
+        </div>
+      }
 
       <div class="composer__actions">
         <button
