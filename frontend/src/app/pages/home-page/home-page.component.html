@@ -64,7 +64,10 @@
 
       @if (isDragging()) {
         <div class="composer__dropzone" aria-hidden="true">
-          <svg size="20" lucidePaperclip aria-hidden="true"></svg>
+          <svg class="composer__outline" aria-hidden="true">
+            <rect class="composer__outline-dash" x="1" y="1" rx="19" />
+          </svg>
+          <svg size="32" lucidePaperclip aria-hidden="true"></svg>
           <span>Перетащите файлы сюда</span>
         </div>
       }
