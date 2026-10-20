@@ -3,11 +3,22 @@ import {
   Component,
   ElementRef,
   computed,
+  effect,
+  inject,
   signal,
   viewChild
 } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Router } from '@angular/router';
 import type { LucideIconData } from '@lucide/angular';
 import { LucideArrowUp, LucideDynamicIcon, LucidePaperclip, LucideX } from '@lucide/angular';
+import { EMPTY, catchError, finalize } from 'rxjs';
+import { AuthModalService } from '../../core/services/auth-modal.service';
+import { ChatStarterService } from '../../core/services/chat-starter.service';
+import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
+import { NotificationService } from '../../core/services/notification.service';
+import { PendingChatDraftService } from '../../core/services/pending-chat-draft.service';
+import { ProfileService } from '../../core/services/profile.service';
 import { BrandLogoAnimatedComponent } from '../../shared/components/brand-logo-animated/brand-logo-animated.component';
 import { createId } from '../../shared/utils/create-id';
 import { ACCEPTED_EXTENSIONS, fileTypeStyleFor } from '../../shared/utils/file-types';
@@ -18,6 +29,7 @@ interface PendingFile {
   readonly name: string;
   readonly size: number;
   readonly extension: string;
+  readonly file: File;
 }
 
 @Component({
@@ -41,16 +53,38 @@ export class HomePage {
   readonly files = signal<PendingFile[]>([]);
   readonly isComposerActive = signal(false);
   readonly isDragging = signal(false);
+  readonly isStarting = signal(false);
 
-  readonly canSend = computed(() => this.message().trim().length > 0);
+  readonly canSend = computed(() => this.message().trim().length > 0 && !this.isStarting());
   readonly hasContent = computed(() => this.message().length > 0 || this.files().length > 0);
   readonly isExpanded = computed(() => this.hasContent() || this.isDragging());
+
+  private readonly profile = inject(ProfileService);
+  private readonly authModal = inject(AuthModalService);
+  private readonly pendingDraft = inject(PendingChatDraftService);
+  private readonly chatStarter = inject(ChatStarterService);
+  private readonly initialChatState = inject(InitialChatStateService);
+  private readonly notifications = inject(NotificationService);
+  private readonly router = inject(Router);
 
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
   private readonly composerTextarea =
     viewChild<ElementRef<HTMLTextAreaElement>>('composerTextarea');
 
   private dragDepth = 0;
+
+  constructor() {
+    effect(() => {
+      if (!this.profile.user()) {
+        return;
+      }
+
+      const draft = this.pendingDraft.consume();
+      if (draft) {
+        this.startChat(draft.text, draft.files);
+      }
+    });
+  }
 
   onInput(event: Event): void {
     this.message.set((event.target as HTMLTextAreaElement).value);
@@ -125,6 +159,52 @@ export class HomePage {
 
   onSubmit(event: Event): void {
     event.preventDefault();
+
+    const text = this.message().trim();
+    if (!text || this.isStarting()) {
+      return;
+    }
+
+    const files = this.files().map((item) => item.file);
+
+    if (this.profile.user()) {
+      this.startChat(text, files);
+      return;
+    }
+
+    this.pendingDraft.set({ text, files });
+    this.authModal.open('/home');
+  }
+
+  private startChat(text: string, files: readonly File[]): void {
+    if (this.isStarting()) {
+      return;
+    }
+
+    this.isStarting.set(true);
+    this.chatStarter
+      .start(text, files)
+      .pipe(
+        finalize(() => this.isStarting.set(false)),
+        catchError((err: HttpErrorResponse | Error) => {
+          if (!(err instanceof HttpErrorResponse)) {
+            this.notifications.error(
+              'Не удалось создать чат: ' + (err.message || 'Ошибка сервера'),
+              {
+                description: 'Проверьте соединение и попробуйте ещё раз.'
+              }
+            );
+          }
+          return EMPTY;
+        })
+      )
+      .subscribe((sessionId) => {
+        this.notifications.success('Новый чат создан', {
+          description: 'Агент уже получил ваше сообщение.'
+        });
+        this.initialChatState.set(sessionId, { text, files: [...files] });
+        this.router.navigate(['/chats', sessionId]);
+      });
   }
 
   colorFor(file: PendingFile): string {
@@ -159,7 +239,8 @@ export class HomePage {
           id: createId(),
           name: file.name,
           size: file.size,
-          extension: getFileExtension(file.name)
+          extension: getFileExtension(file.name),
+          file
         });
       }
       return next;

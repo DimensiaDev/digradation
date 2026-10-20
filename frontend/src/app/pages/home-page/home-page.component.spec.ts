@@ -1,8 +1,17 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { signal } from '@angular/core';
+import { Router, provideRouter } from '@angular/router';
+import { of } from 'rxjs';
 
 import { HomePage } from './home-page.component';
 import { BrandLogoAnimatedComponent } from '../../shared/components/brand-logo-animated/brand-logo-animated.component';
+import { AuthModalService } from '../../core/services/auth-modal.service';
+import { ChatStarterService } from '../../core/services/chat-starter.service';
+import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
+import { PendingChatDraftService } from '../../core/services/pending-chat-draft.service';
+import { ProfileService } from '../../core/services/profile.service';
+import { User } from '../../core/models/models';
 
 function makeFile(name: string, size: number): File {
   return new File(['x'.repeat(size)], name, { type: 'application/octet-stream' });
@@ -19,6 +28,12 @@ function dragEvent(type: string, files: File[] = []): DragEvent {
 
 describe('HomePage', () => {
   let fixture: ComponentFixture<HomePage>;
+  let userSignal: ReturnType<typeof signal<User | null>>;
+  let authModal: { open: ReturnType<typeof vi.fn> };
+  let chatStarter: { start: ReturnType<typeof vi.fn> };
+  let pendingDraft: PendingChatDraftService;
+  let initialChatState: InitialChatStateService;
+  let router: Router;
 
   const page = () => fixture.componentInstance;
   const textarea = () =>
@@ -39,6 +54,19 @@ describe('HomePage', () => {
     refresh();
   };
 
+  const submit = (): void => {
+    fixture.debugElement
+      .query(By.css('form'))
+      .nativeElement.dispatchEvent(new Event('submit', { cancelable: true }));
+    refresh();
+  };
+
+  const signIn = (): void => {
+    userSignal.set({} as User);
+    TestBed.tick();
+    refresh();
+  };
+
   const selectFiles = (files: File[]): void => {
     const input = fileInput();
     Object.defineProperty(input, 'files', { value: files, configurable: true });
@@ -47,7 +75,23 @@ describe('HomePage', () => {
   };
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [HomePage] }).compileComponents();
+    userSignal = signal<User | null>(null);
+    authModal = { open: vi.fn() };
+    chatStarter = { start: vi.fn(() => of('sess-1')) };
+
+    await TestBed.configureTestingModule({
+      imports: [HomePage],
+      providers: [
+        provideRouter([]),
+        { provide: ProfileService, useValue: { user: userSignal.asReadonly() } },
+        { provide: AuthModalService, useValue: authModal },
+        { provide: ChatStarterService, useValue: chatStarter }
+      ]
+    }).compileComponents();
+
+    pendingDraft = TestBed.inject(PendingChatDraftService);
+    initialChatState = TestBed.inject(InitialChatStateService);
+    router = TestBed.inject(Router);
 
     fixture = TestBed.createComponent(HomePage);
     fixture.detectChanges();
@@ -224,5 +268,55 @@ describe('HomePage', () => {
     form.nativeElement.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('opens the auth popup and keeps the message and files for a guest', () => {
+    const file = makeFile('план.pdf', 1024);
+    selectFiles([file]);
+    typeMessage('  Составь программу  ');
+
+    submit();
+
+    expect(authModal.open).toHaveBeenCalledWith('/home');
+    expect(pendingDraft.peek()).toEqual({ text: 'Составь программу', files: [file] });
+    expect(chatStarter.start).not.toHaveBeenCalled();
+  });
+
+  it('starts a chat right away for an authenticated user', () => {
+    signIn();
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    const file = makeFile('план.pdf', 1024);
+    selectFiles([file]);
+    typeMessage('Нужна программа');
+
+    submit();
+
+    expect(authModal.open).not.toHaveBeenCalled();
+    expect(chatStarter.start).toHaveBeenCalledWith('Нужна программа', [file]);
+    expect(initialChatState.consume('sess-1')).toEqual({
+      text: 'Нужна программа',
+      files: [file]
+    });
+    expect(navigate).toHaveBeenCalledWith(['/chats', 'sess-1']);
+  });
+
+  it('starts the saved chat after a guest signs in', () => {
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    const file = makeFile('план.pdf', 1024);
+    selectFiles([file]);
+    typeMessage('Нужна программа');
+    submit();
+
+    expect(chatStarter.start).not.toHaveBeenCalled();
+
+    signIn();
+
+    expect(chatStarter.start).toHaveBeenCalledWith('Нужна программа', [file]);
+    expect(pendingDraft.peek()).toBeNull();
+    expect(initialChatState.consume('sess-1')).toEqual({
+      text: 'Нужна программа',
+      files: [file]
+    });
+    expect(navigate).toHaveBeenCalledWith(['/chats', 'sess-1']);
   });
 });
