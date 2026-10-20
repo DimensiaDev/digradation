@@ -875,9 +875,10 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   the conflict has to be resolved first. Found 2026-10-18 on `feat/gen-cicle`.
 - **`public/assets/svgs/logo.svg` is not a vector mark.** It is a 1.6 MB SVG whose only
   child is one `<image>` holding a base64 PNG, so there are no paths to recolour or morph and
-  editing it to animate is not possible. It stays the sidebar mark unchanged; the landing's
-  animated logo is a separate vector component. Read an SVG's contents before promising to
-  animate it. Found 2026-10-19 on `feat/main-page`.
+  editing it to animate is not possible. It stays the sidebar mark unchanged; the landing
+  animates around the rendered `<img>` (aura, breathing, masked sheen) rather than editing the
+  file. Read an SVG's contents before promising to animate it. Found 2026-10-19 on
+  `feat/main-page`.
 - **A `--modifier` class loses to `&:focus-within`.** A pseudo-class counts like a class,
   so `.field:focus-within` (0,2,0) outranks `.field--dragging` (0,1,0) no matter the source
   order; the focus ring kept painting under the drag blur until the state was repeated as

@@ -199,7 +199,7 @@
 
   width: 100%;
 
-  padding: 16px 16px 60px;
+  padding: 14px 16px;
 
   background: var(--color-surface);
 
@@ -211,11 +211,16 @@
   transition:
     border-color 0.15s ease,
     background-color 0.15s ease,
-    box-shadow 0.15s ease;
+    box-shadow 0.15s ease,
+    padding 0.25s ease;
 
   &:focus-within {
     border-color: var(--color-main);
     box-shadow: 0 0 0 2px var(--color-main);
+  }
+
+  &--expanded {
+    padding: 16px 16px 60px;
   }
 
   &--dragging,
@@ -274,7 +279,7 @@
 
 .composer__textarea {
   width: 100%;
-  min-height: 100px;
+  min-height: 24px;
   max-height: 240px;
 
   resize: none;
@@ -292,7 +297,13 @@
 
   overflow-y: auto;
 
+  transition: min-height 0.25s ease;
+
   @include app-scrollbar;
+
+  .composer__field--expanded & {
+    min-height: 100px;
+  }
 
   &::placeholder {
     color: var(--color-gray);
@@ -315,6 +326,24 @@
   justify-content: space-between;
 
   gap: 12px;
+
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px);
+  pointer-events: none;
+
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    visibility 0s linear 0.2s;
+
+  .composer__field--expanded & {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    pointer-events: auto;
+    transition-delay: 0s;
+  }
 }
 
 .composer__attach {
@@ -371,7 +400,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .composer__send,
-  .composer__field {
+  .composer__field,
+  .composer__textarea,
+  .composer__actions {
     transition: none;
   }
 }

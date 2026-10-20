@@ -81,6 +81,23 @@ describe('HomePage', () => {
     expect(sendButton().disabled).toBe(false);
   });
 
+  it('keeps the composer collapsed until a character is typed', () => {
+    const field = () =>
+      fixture.debugElement.query(By.css('.composer__field')).nativeElement as HTMLElement;
+
+    expect(page().isExpanded()).toBe(false);
+    expect(field().classList).not.toContain('composer__field--expanded');
+
+    typeMessage('П');
+
+    expect(page().isExpanded()).toBe(true);
+    expect(field().classList).toContain('composer__field--expanded');
+
+    typeMessage('');
+
+    expect(page().isExpanded()).toBe(false);
+  });
+
   it('marks the composer active while the field is focused', () => {
     expect(page().isComposerActive()).toBe(false);
 

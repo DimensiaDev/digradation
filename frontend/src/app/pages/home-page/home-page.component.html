@@ -45,6 +45,7 @@
     <div
       class="composer__field"
       [class.composer__field--dragging]="isDragging()"
+      [class.composer__field--expanded]="isExpanded()"
       (dragenter)="onDragEnter($event)"
       (dragover)="onDragOver($event)"
       (dragleave)="onDragLeave()"
