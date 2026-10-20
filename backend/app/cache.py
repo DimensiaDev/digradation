@@ -5,6 +5,17 @@ from functools import cache
 
 from redis.asyncio import ConnectionPool, Redis
 
+#: How long the live mirror of a programme state stays readable. Long enough to
+#: watch a stage run and to answer an operator's question, short enough that an
+#: abandoned run does not sit in Redis forever; PostgreSQL keeps the canonical
+#: copy and repopulates the mirror on the next load.
+PROGRAM_STATE_TTL = 3600
+
+#: How long one stage may hold its lock. A stage is a handful of model turns, so
+#: a lock older than this belongs to a worker that is gone, and the recovery cron
+#: is allowed to re-enqueue the stage.
+PROGRAM_STAGE_LOCK_TTL = 900
+
 
 @cache
 def get_redis_pool() -> ConnectionPool:
@@ -51,3 +62,11 @@ def get_attachment_ownership_key(session_id: uuid.UUID, attachment_id: int) -> s
 
 def get_attachment_url_key(attachment_id: int) -> str:
     return f"attachment:url:{attachment_id}"
+
+
+def get_program_state_key(session_id: uuid.UUID) -> str:
+    return f"program:state:{session_id}"
+
+
+def get_program_stage_lock_key(session_id: uuid.UUID, stage: str) -> str:
+    return f"program:stage:{session_id}:{stage}"
