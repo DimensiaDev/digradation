@@ -1,25 +1,23 @@
 <div class="file-tile">
-  @if (thumbnail(); as thumbnail) {
-    <img class="file-tile__image" [src]="thumbnail" alt="" />
-  } @else {
-    <span class="file-tile__icon" [style.color]="color()">
-      <svg size="28" [lucideIcon]="icon()" aria-hidden="true"></svg>
-    </span>
-  }
+  <button
+    type="button"
+    class="file-tile__media"
+    [disabled]="!previewable()"
+    [attr.aria-label]="previewable() ? 'Открыть предпросмотр файла ' + name() : null"
+    (click)="preview.emit()"
+  >
+    @if (thumbnail(); as thumbnail) {
+      <img class="file-tile__image" [src]="thumbnail" alt="" />
+    } @else {
+      <span class="file-tile__icon" [style.color]="color()">
+        <svg size="28" [lucideIcon]="icon()" aria-hidden="true"></svg>
+      </span>
+    }
+  </button>
 
   <span class="file-tile__name" [title]="name()">{{ name() }}</span>
 
   <span class="file-tile__actions">
-    @if (previewable()) {
-      <button
-        type="button"
-        class="file-tile__action file-tile__preview"
-        [attr.aria-label]="'Предпросмотр файла ' + name()"
-        (click)="preview.emit()"
-      >
-        <svg size="14" lucideEye aria-hidden="true"></svg>
-      </button>
-    }
     <button
       type="button"
       class="file-tile__action file-tile__action--danger file-tile__remove"

@@ -920,3 +920,5 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   declarations rather than raising the budget, or move a self-contained block into its own
   component as the attachment tile did, and run `npm run build` after styling this page.
   Found 2026-10-20 on `feat/main-page`.
+
+- **A conditionally rendered dialog host is still a flex item.** Rendering `<app-file-preview>` at the end of the home's flex column inserted a zero-size host into the flow, and the column's `gap` shifted the composer up by one gap the moment a tile was clicked. `display: contents` on the host removes its box while the native `<dialog>` stays in the top layer. Found 2026-10-20 on `feat/main-page`.

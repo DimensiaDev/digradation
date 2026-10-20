@@ -51,8 +51,9 @@ continuous Russian recognition through the Web Speech API, fills the field with 
 final text, and turns red while recording; the button is disabled when the browser has no
 engine (Firefox keeps it behind an off-by-default preference). Attached files render as
 tiles inside the composer field, above the textarea: images show a small preview, other
-types the same tile with a file icon, and preview/remove actions appear on hover. `/help` is
-still an
+types the same tile with a file icon. Clicking the tile opens the preview (there is no
+separate preview button); the file name and remove action appear on hover and keyboard
+focus, and stay visible on touch devices. `/help` is still an
 intentional `SectionPlaceholder` host, and `programs` / `library` render the same placeholder
 behind the auth gate.
 

@@ -9,13 +9,13 @@ import {
   output,
   signal
 } from '@angular/core';
-import { LucideDynamicIcon, LucideEye, LucideX } from '@lucide/angular';
+import { LucideDynamicIcon, LucideX } from '@lucide/angular';
 import { fileTypeStyleFor, previewKindFor } from '../../utils/file-types';
 import { getFileExtension } from '../../utils/upload-format';
 
 @Component({
   selector: 'app-file-tile',
-  imports: [LucideDynamicIcon, LucideEye, LucideX],
+  imports: [LucideDynamicIcon, LucideX],
   templateUrl: './file-tile.component.html',
   styleUrl: './file-tile.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush

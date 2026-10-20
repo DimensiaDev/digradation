@@ -1202,8 +1202,10 @@ The home composer renders each pending file as an `app-file-tile` above the text
 - **Preview reuses `FilePreviewComponent`.** The composer passes the pending `File` to the
   existing dialog, so PDFs and images preview before upload, and the heavy docx/xlsx
   renderers stay lazy.
-- **Preview is gated by `previewKindFor`, not by the accepted-extension list.** A file with
-  an unknown extension still gets the same tile, name and remove action, just no preview.
+- **The image area is the preview trigger.** There is no separate eye button: the media is a
+  button that opens the preview, and it is disabled when `previewKindFor` returns null. A
+  file with an unknown extension still gets the same tile, name and remove action, just no
+  preview.
 - **The tile lives in `shared/components/file-tile` partly for the style budget.** The home
   stylesheet was at the 10 kB `anyComponentStyle` error line; a tile's worth of CSS belonged
   in its own component rather than pushing the page over.

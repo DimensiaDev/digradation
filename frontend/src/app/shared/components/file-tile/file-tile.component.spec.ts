@@ -58,10 +58,27 @@ describe('FileTileComponent', () => {
   });
 
   it('offers a preview only for previewable files', () => {
-    expect(fixture.debugElement.query(By.css('.file-tile__preview'))).not.toBeNull();
+    const previewable = fixture.debugElement.query(By.css('.file-tile__media'))
+      .nativeElement as HTMLButtonElement;
+    expect(previewable.disabled).toBe(false);
 
     const textFixture = create('заметки.txt');
-    expect(textFixture.debugElement.query(By.css('.file-tile__preview'))).toBeNull();
+    const text = textFixture.debugElement.query(By.css('.file-tile__media'))
+      .nativeElement as HTMLButtonElement;
+    expect(text.disabled).toBe(true);
+    textFixture.destroy();
+  });
+
+  it('does not preview files without a previewer', () => {
+    const textFixture = create('заметки.txt');
+    const preview = vi.fn();
+    textFixture.componentInstance.preview.subscribe(preview);
+
+    (
+      textFixture.debugElement.query(By.css('.file-tile__media')).nativeElement as HTMLButtonElement
+    ).click();
+
+    expect(preview).not.toHaveBeenCalled();
     textFixture.destroy();
   });
 
@@ -72,7 +89,7 @@ describe('FileTileComponent', () => {
     fixture.componentInstance.remove.subscribe(remove);
 
     (
-      fixture.debugElement.query(By.css('.file-tile__preview')).nativeElement as HTMLButtonElement
+      fixture.debugElement.query(By.css('.file-tile__media')).nativeElement as HTMLButtonElement
     ).click();
     (
       fixture.debugElement.query(By.css('.file-tile__remove')).nativeElement as HTMLButtonElement

@@ -305,7 +305,7 @@ describe('HomePage', () => {
   it('opens a preview from a previewable tile', () => {
     selectFiles([makeFile('план.pdf', 2048)]);
 
-    const preview = fixture.debugElement.query(By.css('.file-tile__preview'))
+    const preview = fixture.debugElement.query(By.css('.file-tile__media'))
       .nativeElement as HTMLButtonElement;
     preview.click();
 
