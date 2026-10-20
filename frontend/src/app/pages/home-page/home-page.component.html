@@ -60,6 +60,7 @@
         aria-label="Сообщение"
         autocomplete="off"
         [value]="message()"
+        [readOnly]="isStarting()"
         (input)="onInput($event)"
         (focus)="onFocus()"
         (blur)="onBlur()"
@@ -80,6 +81,7 @@
           type="button"
           class="composer__attach"
           aria-label="Прикрепить файлы"
+          [disabled]="isStarting()"
           (click)="openFilePicker()"
         >
           <svg size="18" lucidePaperclip aria-hidden="true"></svg>
@@ -96,7 +98,7 @@
             [attr.title]="
               isSpeechSupported ? null : 'Голосовой ввод не поддерживается этим браузером'
             "
-            [disabled]="!isSpeechSupported"
+            [disabled]="!isSpeechSupported || isStarting()"
             (click)="toggleSpeech()"
           >
             <svg size="20" lucideMic aria-hidden="true"></svg>
@@ -121,6 +123,7 @@
       multiple
       tabindex="-1"
       [accept]="acceptAttr"
+      [disabled]="isStarting()"
       (change)="onFilesSelected($event)"
     />
   </form>

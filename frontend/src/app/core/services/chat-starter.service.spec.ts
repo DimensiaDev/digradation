@@ -1,10 +1,15 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { Observable, of, throwError } from 'rxjs';
+import { Observable, NEVER, TimeoutError, of, throwError } from 'rxjs';
+import { vi } from 'vitest';
 
-import { ChatStarterService } from './chat-starter.service';
-import { AttachmentUploadService } from './attachment-upload.service';
+import {
+  CHAT_RESPONSE_TIMEOUT_MS,
+  CHAT_UPLOAD_TIMEOUT_MS,
+  ChatStarterService
+} from './chat-starter.service';
+import { AttachmentUploadService, AttachmentUploadOptions } from './attachment-upload.service';
 import { UploadItem } from '../models/models';
 import { environment } from '../../../environments/environment';
 
@@ -13,15 +18,33 @@ const CHATS_URL = `${environment.apiUrl}/chats/`;
 class FakeUploader {
   readonly items: UploadItem[] = [];
   readonly sessionIds: string[] = [];
+  readonly removed: { sessionId: string; attachmentId: number }[] = [];
   failure: Error | null = null;
+  hang = false;
+  attachmentId: number | null = null;
 
-  upload(item: UploadItem, sessionId: string): Observable<number> {
+  upload(
+    item: UploadItem,
+    sessionId: string,
+    options: AttachmentUploadOptions = {}
+  ): Observable<number> {
     this.items.push(item);
     this.sessionIds.push(sessionId);
+    if (this.attachmentId !== null) {
+      options.onAttachmentId?.(this.attachmentId);
+    }
+    if (this.hang) {
+      return NEVER;
+    }
     if (this.failure) {
       return throwError(() => this.failure);
     }
     return of(item.size);
+  }
+
+  remove(sessionId: string, attachmentId: number): Observable<{ deleted: boolean }> {
+    this.removed.push({ sessionId, attachmentId });
+    return of({ deleted: true });
   }
 }
 
@@ -85,7 +108,7 @@ describe('ChatStarterService', () => {
     expect(sessionIds).toEqual(['sess-2']);
   });
 
-  it('does not send the message when an upload fails', () => {
+  it('does not send the message when an upload fails and removes the session', () => {
     uploader.failure = new Error('Не удалось обработать файл');
     let received: unknown;
 
@@ -95,7 +118,93 @@ describe('ChatStarterService', () => {
 
     http.expectOne(CHATS_URL).flush({ session_id: 'sess-3' });
 
+    expect(received).toBeUndefined();
+
+    const cleanup = http.expectOne(`${CHATS_URL}sess-3`);
+    expect(cleanup.request.method).toBe('DELETE');
+    cleanup.flush({ deleted: true });
+
     expect(received).toBeInstanceOf(Error);
-    http.expectNone(`${CHATS_URL}sess-3`);
+  });
+
+  it('removes registered attachments and the session when an upload fails', () => {
+    uploader.failure = new Error('Не удалось загрузить файл в хранилище');
+    uploader.attachmentId = 42;
+    let received: unknown;
+
+    service.start('Нужна программа', [makeFile('план.pdf', 1024)]).subscribe({
+      error: (err) => (received = err)
+    });
+
+    http.expectOne(CHATS_URL).flush({ session_id: 'sess-6' });
+
+    expect(uploader.removed).toEqual([{ sessionId: 'sess-6', attachmentId: 42 }]);
+
+    http.expectOne(`${CHATS_URL}sess-6`).flush({ deleted: true });
+    expect(received).toBeInstanceOf(Error);
+  });
+
+  it('removes the session when sending the message fails', () => {
+    let received: unknown;
+
+    service.start('Нужна программа', []).subscribe({ error: (err) => (received = err) });
+
+    http.expectOne(CHATS_URL).flush({ session_id: 'sess-7' });
+    http
+      .expectOne(`${CHATS_URL}sess-7`)
+      .flush({ detail: 'broken' }, { status: 500, statusText: 'Server Error' });
+
+    const cleanup = http.expectOne(`${CHATS_URL}sess-7`);
+    expect(cleanup.request.method).toBe('DELETE');
+    cleanup.flush({ deleted: true });
+
+    expect(received).toBeTruthy();
+  });
+
+  it('times out an upload that never finishes instead of blocking the start', () => {
+    vi.useFakeTimers();
+    uploader.hang = true;
+    let received: unknown;
+
+    service.start('Нужна программа', [makeFile('план.pdf', 1024)]).subscribe({
+      error: (err) => (received = err)
+    });
+
+    http.expectOne(CHATS_URL).flush({ session_id: 'sess-4' });
+    vi.advanceTimersByTime(CHAT_UPLOAD_TIMEOUT_MS);
+
+    expect(received).toBeUndefined();
+
+    http.expectOne(`${CHATS_URL}sess-4`).flush({ deleted: true });
+    expect(received).toBeInstanceOf(TimeoutError);
+    vi.useRealTimers();
+  });
+
+  it('times out a create request that never answers', () => {
+    vi.useFakeTimers();
+    let received: unknown;
+
+    service.start('Нужна программа', []).subscribe({ error: (err) => (received = err) });
+
+    http.expectOne(CHATS_URL);
+    vi.advanceTimersByTime(CHAT_RESPONSE_TIMEOUT_MS);
+
+    expect(received).toBeInstanceOf(TimeoutError);
+    vi.useRealTimers();
+  });
+
+  it('times out a send request that never answers and removes the session', () => {
+    vi.useFakeTimers();
+    let received: unknown;
+
+    service.start('Нужна программа', []).subscribe({ error: (err) => (received = err) });
+
+    http.expectOne(CHATS_URL).flush({ session_id: 'sess-5' });
+    http.expectOne(`${CHATS_URL}sess-5`);
+    vi.advanceTimersByTime(CHAT_RESPONSE_TIMEOUT_MS);
+
+    http.expectOne(`${CHATS_URL}sess-5`).flush({ deleted: true });
+    expect(received).toBeInstanceOf(TimeoutError);
+    vi.useRealTimers();
   });
 });

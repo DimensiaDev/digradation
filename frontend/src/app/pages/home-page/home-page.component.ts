@@ -7,12 +7,14 @@ import {
   effect,
   inject,
   signal,
+  untracked,
   viewChild
 } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { LucideArrowUp, LucideMic, LucidePaperclip } from '@lucide/angular';
-import { EMPTY, catchError, finalize } from 'rxjs';
+import { EMPTY, TimeoutError, catchError, finalize } from 'rxjs';
 import { AuthModalService } from '../../core/services/auth-modal.service';
 import { ChatStarterService } from '../../core/services/chat-starter.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
@@ -76,6 +78,7 @@ export class HomePage {
   private readonly notifications = inject(NotificationService);
   private readonly router = inject(Router);
   private readonly speech = inject(SpeechRecognitionService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly isSpeechSupported = this.speech.isSupported;
   readonly isRecording = this.speech.isListening;
@@ -88,7 +91,7 @@ export class HomePage {
     viewChild<ElementRef<HTMLTextAreaElement>>('composerTextarea');
 
   private dragDepth = 0;
-  private speechBase = '';
+  private appliedSpeech = '';
 
   constructor() {
     effect(() => {
@@ -112,8 +115,21 @@ export class HomePage {
         return;
       }
 
-      const base = this.speechBase.trim();
-      this.message.set(base ? `${base} ${spoken}` : spoken);
+      const current = untracked(this.message);
+      const previous = this.appliedSpeech;
+      this.appliedSpeech = spoken;
+
+      if (previous) {
+        const index = current.lastIndexOf(previous);
+        if (index !== -1) {
+          this.message.set(
+            current.slice(0, index) + spoken + current.slice(index + previous.length)
+          );
+          return;
+        }
+      }
+
+      this.message.set(current ? `${current.trimEnd()} ${spoken}` : spoken);
     });
 
     inject(DestroyRef).onDestroy(() => {
@@ -124,6 +140,9 @@ export class HomePage {
   }
 
   onInput(event: Event): void {
+    if (this.isStarting()) {
+      return;
+    }
     this.message.set((event.target as HTMLTextAreaElement).value);
   }
 
@@ -143,14 +162,23 @@ export class HomePage {
   }
 
   applyExample(text: string): void {
+    if (this.isStarting()) {
+      return;
+    }
     this.message.set(text);
   }
 
   openFilePicker(): void {
+    if (this.isStarting()) {
+      return;
+    }
     this.fileInput()?.nativeElement.click();
   }
 
   onFilesSelected(event: Event): void {
+    if (this.isStarting()) {
+      return;
+    }
     const input = event.target as HTMLInputElement;
     const selected = Array.from(input.files ?? []);
     input.value = '';
@@ -158,7 +186,7 @@ export class HomePage {
   }
 
   onDragEnter(event: DragEvent): void {
-    if (!this.hasFiles(event)) {
+    if (this.isStarting() || !this.hasFiles(event)) {
       return;
     }
     event.preventDefault();
@@ -167,7 +195,7 @@ export class HomePage {
   }
 
   onDragOver(event: DragEvent): void {
-    if (!this.hasFiles(event)) {
+    if (this.isStarting() || !this.hasFiles(event)) {
       return;
     }
     event.preventDefault();
@@ -184,6 +212,9 @@ export class HomePage {
   }
 
   onDrop(event: DragEvent): void {
+    if (this.isStarting() || !this.hasFiles(event)) {
+      return;
+    }
     event.preventDefault();
     this.dragDepth = 0;
     this.isDragging.set(false);
@@ -191,15 +222,25 @@ export class HomePage {
   }
 
   removeFile(id: string): void {
+    if (this.isStarting()) {
+      return;
+    }
     this.files.update((list) => list.filter((file) => file.id !== id));
   }
 
   openPreview(file: PendingFile): void {
+    if (this.isStarting()) {
+      return;
+    }
     this.previewedFile.set(file.file);
   }
 
   onSubmit(event: Event): void {
     event.preventDefault();
+
+    if (this.isStarting()) {
+      return;
+    }
 
     if (this.isRecording()) {
       this.speech.stop();
@@ -222,12 +263,16 @@ export class HomePage {
   }
 
   toggleSpeech(): void {
+    if (this.isStarting()) {
+      return;
+    }
+
     if (this.isRecording()) {
       this.speech.stop();
       return;
     }
 
-    this.speechBase = this.message().trimEnd();
+    this.appliedSpeech = '';
     this.speech.start({
       lang: 'ru-RU',
       onError: (code) => this.reportSpeechError(code)
@@ -270,11 +315,17 @@ export class HomePage {
     this.chatStarter
       .start(text, files)
       .pipe(
+        takeUntilDestroyed(this.destroyRef),
         finalize(() => this.isStarting.set(false)),
-        catchError((err: HttpErrorResponse | Error) => {
-          if (!(err instanceof HttpErrorResponse)) {
+        catchError((err: unknown) => {
+          if (err instanceof TimeoutError) {
+            this.notifications.error('Превышено время ожидания', {
+              description:
+                'Сервер или хранилище не ответили вовремя. Проверьте соединение и попробуйте ещё раз.'
+            });
+          } else if (!(err instanceof HttpErrorResponse)) {
             this.notifications.error(
-              'Не удалось создать чат: ' + (err.message || 'Ошибка сервера'),
+              'Не удалось создать чат: ' + ((err as Error).message || 'Ошибка сервера'),
               {
                 description: 'Проверьте соединение и попробуйте ещё раз.'
               }

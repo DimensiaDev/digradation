@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { signal } from '@angular/core';
 import { Router, provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { Subject, TimeoutError, of, throwError } from 'rxjs';
 
 import { HomePage } from './home-page.component';
 import { BrandLogoAnimatedComponent } from '../../shared/components/brand-logo-animated/brand-logo-animated.component';
@@ -368,6 +368,19 @@ describe('HomePage', () => {
     expect(textarea().value).toBe('Сделай программу на Python');
   });
 
+  it('keeps edits made while dictation is still running', () => {
+    typeMessage('Сделай программу');
+    micButton().click();
+    speech.emit('на Python', '');
+    refresh();
+
+    typeMessage('Сделай программу на Python и добавь примеры');
+    speech.emit('на Python', 'срочно');
+    refresh();
+
+    expect(textarea().value).toBe('Сделай программу на Python срочно и добавь примеры');
+  });
+
   it('reports a denied microphone', () => {
     micButton().click();
     speech.lastOptions?.onError?.('not-allowed');
@@ -424,6 +437,61 @@ describe('HomePage', () => {
       files: [file]
     });
     expect(navigate).toHaveBeenCalledWith(['/chats', 'sess-1']);
+  });
+
+  it('locks the composer while the chat is starting so submitted text cannot change', () => {
+    signIn();
+    const start$ = new Subject<string>();
+    chatStarter.start.mockReturnValue(start$.asObservable());
+    vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    const attach = () =>
+      fixture.debugElement.query(By.css('.composer__attach')).nativeElement as HTMLButtonElement;
+    typeMessage('Нужна программа');
+
+    submit();
+
+    expect(textarea().readOnly).toBe(true);
+    expect(attach().disabled).toBe(true);
+
+    typeMessage('Изменённый текст');
+    expect(page().message()).toBe('Нужна программа');
+
+    start$.next('sess-1');
+    start$.complete();
+    refresh();
+
+    expect(textarea().readOnly).toBe(false);
+    expect(attach().disabled).toBe(false);
+  });
+
+  it('does not navigate when the page is destroyed while the chat is starting', () => {
+    signIn();
+    const start$ = new Subject<string>();
+    chatStarter.start.mockReturnValue(start$.asObservable());
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    typeMessage('Нужна программа');
+
+    submit();
+    fixture.destroy();
+    start$.next('sess-1');
+    start$.complete();
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(initialChatState.consume('sess-1')).toBeNull();
+  });
+
+  it('reports an upload timeout and lets the user retry', () => {
+    signIn();
+    chatStarter.start.mockReturnValue(throwError(() => new TimeoutError()));
+    typeMessage('Нужна программа');
+
+    submit();
+
+    const notice = TestBed.inject(NotificationService).notifications().at(-1);
+    expect(notice?.type).toBe('error');
+    expect(notice?.message).toContain('время ожидания');
+    expect(notice?.description).toBeTruthy();
+    expect(sendButton().disabled).toBe(false);
   });
 
   it('starts the saved chat after a guest signs in', () => {

@@ -1209,3 +1209,13 @@ The home composer renders each pending file as an `app-file-tile` above the text
 - **The tile lives in `shared/components/file-tile` partly for the style budget.** The home
   stylesheet was at the 10 kB `anyComponentStyle` error line; a tile's worth of CSS belonged
   in its own component rather than pushing the page over.
+
+## Failed chat starts clean up after themselves
+
+`ChatStarterService.start` deletes a session it created as soon as uploading or sending
+fails, together with every attachment the backend has already registered. Without this a
+failed attempt left an empty or half-filled chat in the user's history while the UI claimed
+nothing was created. Cleanup is best effort: deletions run with a short timeout, their own
+errors are swallowed, and the original failure is rethrown so the user still sees the real
+reason. Attachment ids are collected through `onAttachmentId`, which fires before the
+storage POST, so a file whose bytes never arrived is still deleted.
