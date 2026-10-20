@@ -1,20 +1,22 @@
 <section class="home">
-  <div class="home__hero">
-    <app-brand-logo-animated class="home__logo" [size]="200" [active]="isComposerActive()" />
-    <h1 class="h2 home__greeting">Готовы к созданию новой программы?</h1>
-  </div>
+  <div class="home__body">
+    <div class="home__hero">
+      <app-brand-logo-animated class="home__logo" [size]="200" [active]="isComposerActive()" />
+      <h1 class="h2 home__greeting">Готовы к созданию новой программы?</h1>
+    </div>
 
-  <div class="home__examples">
-    <p class="h4 home__examples-label">Например:</p>
-    <ul class="home__examples-list">
-      @for (example of examples; track example) {
-        <li class="home__examples-item">
-          <button type="button" class="example-card" (click)="applyExample(example)">
-            {{ example }}
-          </button>
-        </li>
-      }
-    </ul>
+    <div class="home__examples">
+      <p class="h4 home__examples-label">Например:</p>
+      <ul class="home__examples-list">
+        @for (example of examples; track example) {
+          <li class="home__examples-item">
+            <button type="button" class="example-card" (click)="applyExample(example)">
+              {{ example }}
+            </button>
+          </li>
+        }
+      </ul>
+    </div>
   </div>
 
   <form class="composer" (submit)="onSubmit($event)">

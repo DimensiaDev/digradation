@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-20** (public `/home` landing refined with a collapsible composer)
+Last updated: **2026-10-20** (public `/home` landing refined with a bottom-docked composer)
 
 ---
 
@@ -41,8 +41,8 @@ View Transitions API (`withViewTransitions`), direction derived from the sidebar
 **Not started or placeholder.** The profile page body, the user settings page body, and two
 admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`. `/home` is now a
 single-column program-creation landing (animated brand mark, prompt examples, a
-markup-only composer that stays collapsed until the first character, then expands and
-reveals its actions, with drag-and-drop); `/help` is still an intentional `SectionPlaceholder` host, and
+markup-only composer docked to the bottom of the viewport that stays collapsed until the
+first character, then expands upward and reveals its actions, with drag-and-drop); `/help` is still an intentional `SectionPlaceholder` host, and
 `programs` / `library` render the same placeholder behind the auth gate.
 
 **In flight: tool calling.** The provider layer advertises tools at construction, and both
