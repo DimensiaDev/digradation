@@ -1226,9 +1226,10 @@ Dismissing the auth dialog clears `PendingChatDraftService`; a successful login 
 The draft is created only when a guest submits the home composer, and it is meant for the
 login flow that dialog was opened for. Keeping it after dismissal let a later sign-in in the
 same application instance send the previous guest's text and files under another account
-without confirmation. Cleanup therefore sits in the dialog's dismissal path
-(`AuthDialogComponent.dismiss(true)`), not in `AuthModalService.close`, because the success
-path also closes the modal and still needs the draft.
+without confirmation. Cleanup therefore lives in `AuthModalService.close()`, which every
+cancellation path reaches, rather than in the dialog component, where an external
+`modal.close()` could bypass it. The success path calls the separate `complete()`, which
+closes the dialog and keeps the draft for the authenticated start.
 
 ## Chat starts upload through the same three-slot queue
 
