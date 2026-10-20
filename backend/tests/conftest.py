@@ -1,7 +1,9 @@
 import os
 import time
+import uuid
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 # These must be set before anything under `app` is imported. `app.storage` builds
 # an `ObjectStorage` at import time and `app.providers.containers` builds the
@@ -37,7 +39,7 @@ import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from redis.asyncio import ConnectionPool, Redis  # noqa: E402
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import delete, select  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncEngine,
     AsyncSession,
@@ -49,9 +51,16 @@ from testcontainers.community.redis import AsyncRedisContainer  # noqa: E402
 from testcontainers.core.container import DockerContainer  # noqa: E402
 
 from app.auth import hash_password  # noqa: E402
-from app.cache import get_redis_pool  # noqa: E402
+from app.cache import get_redis_client, get_redis_pool  # noqa: E402
 from app.database import Base, get_db  # noqa: E402
 from app.models.auth import AccountRole, User  # noqa: E402
+from app.models.chat import (  # noqa: E402
+    ChatMessage,
+    ChatSession,
+    GenerationResult,
+    GenerationResultType,
+    UserRole,
+)
 
 GARAGE_IMAGE = "dxflrs/garage:v2.4.1"
 S3_ACCESS_KEY = _S3_ACCESS_KEY
@@ -303,7 +312,7 @@ async def task_db(monkeypatch, engine: AsyncEngine):
     # the name into their own namespace. Patching only the defining module leaves
     # those bindings pointing at the real database, so every consumer is patched.
     monkeypatch.setattr(broker_module, "tsq_db", _tsq_db)
-    for module_name in ("app.tasks.api", "app.tasks.files", "app.tasks.users"):
+    for module_name in ("app.tasks.api", "app.tasks.files", "app.tasks.users", "app.tasks.program"):
         monkeypatch.setattr(f"{module_name}.tsq_db", _tsq_db)
     yield
     cached_session_maker.cache_clear()
@@ -317,6 +326,148 @@ async def db_session(engine: AsyncEngine):
         yield session
         await session.close()
         await transaction.rollback()
+
+
+class Rows:
+    """Committed rows for worker tests, removed again on teardown.
+
+    ``db_session`` writes inside a transaction that is rolled back, while task
+    bodies open their own connection through ``tsq_db``. A worker cannot see
+    anything ``db_session`` left uncommitted, so data a worker test needs has to
+    be committed on its own connection and cleaned up explicitly.
+    """
+
+    def __init__(self, maker: async_sessionmaker):
+        self._maker = maker
+        self._session_ids: list[uuid.UUID] = []
+        self._user_ids: list[int] = []
+
+    @asynccontextmanager
+    async def session(self):
+        async with self._maker() as db:
+            yield db
+
+    async def user(self, username: str = "worker-test") -> User:
+        async with self.session() as db:
+            row = User(username=username, password_hash=hash_password("password1234"))
+            db.add(row)
+            await db.commit()
+            await db.refresh(row)
+        self._user_ids.append(row.id)
+        return row
+
+    async def chat_session(self, user: User, name: str = "Новый чат") -> ChatSession:
+        async with self.session() as db:
+            row = ChatSession(session_id=uuid.uuid4(), user_id=user.id, name=name)
+            db.add(row)
+            await db.commit()
+            await db.refresh(row)
+        self._session_ids.append(row.session_id)
+        return row
+
+    async def message(
+        self,
+        session_id: uuid.UUID,
+        content: str = "Считай, пожалуйста",
+        *,
+        role: UserRole = UserRole.USER,
+        display_text: str | None = None,
+    ) -> ChatMessage:
+        async with self.session() as db:
+            row = ChatMessage(
+                chat_session_id=session_id,
+                role=role,
+                content=content,
+                display_text=display_text,
+            )
+            db.add(row)
+            await db.commit()
+            await db.refresh(row)
+        return row
+
+    async def result(
+        self,
+        session_id: uuid.UUID,
+        *,
+        type: GenerationResultType = GenerationResultType.SUCCESS,
+        content: str = "старое",
+        timestamp: datetime | None = None,
+    ) -> GenerationResult:
+        async with self.session() as db:
+            row = GenerationResult(chat_session_id=session_id, type=type, content=content, timestamp=timestamp)
+            db.add(row)
+            await db.commit()
+            await db.refresh(row)
+        return row
+
+    async def drop_sessions(self, session_ids: list[uuid.UUID]) -> None:
+        async with self.session() as db:
+            for session_id in session_ids:
+                await db.execute(delete(ChatSession).where(ChatSession.session_id == session_id))
+            await db.commit()
+        self._session_ids = [sid for sid in self._session_ids if sid not in session_ids]
+
+    async def purge(self) -> None:
+        async with self.session() as db:
+            await db.execute(delete(ChatSession).where(ChatSession.session_id.in_(self._session_ids)))
+            await db.execute(delete(User).where(User.id.in_(self._user_ids)))
+            await db.commit()
+        self._session_ids.clear()
+        self._user_ids.clear()
+
+
+@pytest_asyncio.fixture()
+async def rows(engine: AsyncEngine):
+    maker = async_sessionmaker(bind=engine, expire_on_commit=False)
+    helper = Rows(maker)
+    try:
+        yield helper
+    finally:
+        await helper.purge()
+
+
+class RedisKeys:
+    """Redis helper that removes every key it touched during teardown.
+
+    Keep it in the signature of every worker test, including ones that never
+    call it. Requesting it pulls in ``redis_session``, which is what stands the
+    Redis testcontainer up and repoints the cached pool at it; without it the
+    worker still dials the Compose ``redis`` hostname and fails with
+    ``socket.gaierror``.
+    """
+
+    def __init__(self) -> None:
+        self._tracked: list[str] = []
+
+    def track(self, key: str) -> str:
+        self._tracked.append(key)
+        return key
+
+    async def put(self, key: str, value: str = "1", ex: int = 300) -> str:
+        self.track(key)
+        async with get_redis_client() as redis:
+            await redis.set(key, value, ex=ex)
+        return key
+
+    async def get(self, key: str):
+        async with get_redis_client() as redis:
+            return await redis.get(key)
+
+    async def purge(self) -> None:
+        if not self._tracked:
+            return
+        async with get_redis_client() as redis:
+            await redis.delete(*self._tracked)
+        self._tracked.clear()
+
+
+@pytest_asyncio.fixture()
+async def redis_keys(redis_session) -> RedisKeys:
+    helper = RedisKeys()
+    try:
+        yield helper
+    finally:
+        await helper.purge()
 
 
 @pytest_asyncio.fixture()

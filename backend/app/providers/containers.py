@@ -1,5 +1,6 @@
 import os
 
+from app.agentic.tools import AGENT_TOOLS
 from app.providers.client import AIClient
 from app.providers.mock import MOCK_API_KEY, MockProvider
 from app.providers.models import Tool
@@ -9,10 +10,10 @@ from app.providers.sber import SberProvider
 api_key = os.environ["SBER_API_KEY"]
 scope = os.environ["SBER_API_SCOPE"]
 
-#: Tools offered to the model. Empty until a tool registry exists; defining the
-#: list here and passing it to every provider keeps the wiring in place without
-#: inventing tools, and makes the single place to fill in obvious.
-TOOLS: list[Tool] = []
+#: Tools offered to the model. The intake request and the stage tasks pass their
+#: own subsets explicitly; this list is the union the provider advertises when a
+#: caller does not narrow it.
+TOOLS: list[Tool] = AGENT_TOOLS
 
 # Selection is driven by ``SBER_API_SCOPE``: ``openai`` uses the OpenAI-compatible
 # client, ``mock`` the offline stand-in, anything else the real GigaChat client.

@@ -3,32 +3,42 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-18** (tool calling merged; the agentic tool registry begins)
+Last updated: **2026-10-20** (sequential programme pipeline implemented on the backend)
 
 ---
 
 ## Current status
 
 The project was an AI quotation engine for sheet-metal fabrication — drawings in, a priced
-commercial offer out. It is now a **bare chat application with file attachments**, awaiting a
-purpose. Every commercial concept is gone: no `processing` package, no DXF parser, no
-`calc.xlsx`, no `positions` in the LLM contract. See "Repurposed from a quotation engine to a
-chat application" in `DECISIONS.md` for why each piece went.
+commercial offer out. It is now a **chat application with file attachments** that is growing
+an educational-programme workflow. Every commercial concept is gone: no `processing` package,
+no DXF parser, no `calc.xlsx`, no `positions` in the LLM contract. See "Repurposed from a
+quotation engine to a chat application" in `DECISIONS.md` for why each piece went.
 
 Everything described below is working and running via Docker Compose.
 
 | Component | State |
 |---|---|
-| `backend/` | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness |
-| `frontend/` | Complete: login, chat create, chat with polling and file panel, history, profile, admin users, admin settings |
-| `e2e/` | Complete: 8 spec files, 27 tests against the real Compose stack with the offline provider |
-| Infra | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup |
+| `backend/` | Complete base: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness. Programme pipeline (#3) implemented, see below |
+| `frontend/` | Complete: login, chat create, chat with polling and file panel, history, profile, admin users, admin settings. No programme-specific UI yet |
+| `e2e/` | Playwright against the real Compose stack with the offline provider. No programme-cycle spec yet |
+| Infra | Compose stack with dev and memory-limit overrides, healthcheck-gated startup |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
 sessions with async generation, attachment upload / list / delete, presigned S3 results.
-Alembic is a **single squashed `initial` revision** (`d7e256a71a55`) generated from the new
-models. Nine TaskIQ tasks across the `default` and `network` queues, with hourly and
-10-minute cleanup crons.
+Alembic has the squashed `initial` revision (`d7e256a71a55`) and the programme-state column
+(`b7c1d2e3f4a5`). TaskIQ jobs live on the `default` and `network` queues, with hourly and
+five-minute cron schedules.
+
+**Programme pipeline (#3).** The intake chat records the requirements and calls
+`begin_program`; the worker stores a `ProgramState` in `chat_sessions.program_state` (JSONB),
+mirrors it to Redis with a one-hour TTL, and enqueues one TaskIQ stage at a time:
+competences → hours → sources → summary. Each stage asks the provider for one block through
+the tool loop, validates and commits it, then enqueues the next stage after the commit.
+`finalize_program_draft` renders the complete draft into the chat and waits for an explicit
+confirmation phrase, which the chat worker turns into `approve_program_draft`. A per-stage
+Redis lock, `run_id`, state version and `recover_stalled_programs` cron cover worker death.
+`assessment` and `materials` remain pending for the full-package stage (#5).
 
 **Frontend.** Angular 21.2 standalone with signals. Reactive forms, cookie auth, 2-second
 polling for generation results, inline preview for PDF, image, docx and xlsx, light/dark
@@ -37,13 +47,9 @@ theme, admin user management, admin prompt-extension editor. Specs colocated wit
 **Not started or placeholder.** The profile page body, the user settings page body, and two
 admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`.
 
-**In flight: tool calling.** The provider layer advertises tools at construction, and both
-the OpenAI-compatible client and the GigaChat v2 client surface the calls the model requests
-on `GenerationResponse.tool_calls`. `backend/app/agentic/` is the beginning of the registry:
-the АЦР programme schema, the agent's tools and their handlers. Nothing executes a call yet —
-the loop that answers or runs one is the next step, and the source catalog behind
-`sources.py` waits for the RAG index. The handlers keep no storage of their own: the validated
-draft travels on `ToolContext` until the zone that owns the database has a table for it.
+**Known limitation of the cycle.** The frontend polls a generation result for five minutes;
+the four-stage pipeline can legitimately take longer, so a slow run can look finished before
+the draft arrives. The frontend and endpoints are deliberately out of scope for #3.
 
 **Two dead placeholder directories** are still tracked: `frontend/src/app/shared/components/
 chat-widget/` and `.../param-table/`, each holding only a `.gitkeep`. They are leftovers from
@@ -55,11 +61,12 @@ the quotation UI and nothing imports them.
 
 ## Database
 
-One revision, eight tables (`users`, `sessions`, `chat_sessions`, `chat_messages`,
+Two revisions. Eight tables (`users`, `sessions`, `chat_sessions`, `chat_messages`,
 `attachments`, `generation_results`, `processing_result_uploadables`, `settings`) and two
-enums (`userrole`, `generationresulttype`). The TaskIQ dashboard keeps its own separate
-`taskiq_dashboard` database on the same PostgreSQL instance, created by
-`conf/postgres-init/01-taskiq-dashboard.sql`.
+enums (`userrole`, `generationresulttype`). `chat_sessions.program_state` is nullable JSONB:
+`None` for an ordinary chat, the pipeline envelope for a chat that is building a programme.
+The TaskIQ dashboard keeps its own separate `taskiq_dashboard` database on the same PostgreSQL
+instance, created by `conf/postgres-init/01-taskiq-dashboard.sql`.
 
 `processing_result_uploadables` is the artifact store a processed upload can write into. The
 `artifacts` bucket exists and the model is there, but **nothing writes rows yet** — that is the
@@ -71,16 +78,17 @@ first extension point if a feature starts deriving files from an upload.
 
 | Suite | Command | Needs |
 |---|---|---|
-| Backend | `poetry -C backend run pytest` | 353 tests; needs a Docker daemon |
-| Backend coverage | `poetry -C backend run pytest --cov` | **99.33%** across 353 tests, gated at 90% by `fail_under` |
-| Frontend | `npm --prefix frontend test` | Vitest, 382 tests in 40 files; runs in `frontend-ci.yml` |
-| Frontend coverage | `npx ng test --coverage` | 92.13% stmts, 86.29% branches, 92.46% funcs; gated at 90% |
-| End-to-end | `./e2e/scripts/run.sh` | Playwright against the Compose stack, `SBER_API_KEY=mock`; 27 tests |
+| Backend | `poetry -C backend run pytest` | Docker daemon (testcontainers); provider is the offline mock |
+| Backend coverage | `poetry -C backend run pytest --cov` | same run, gated by `fail_under` in `backend/pyproject.toml` |
+| Frontend | `npm --prefix frontend test` | Vitest through the Angular builder |
+| Frontend coverage | `npx ng test --coverage` | same builder, gated by `coverageThresholds` in `frontend/angular.json` |
+| End-to-end | `./e2e/scripts/run.sh` | Playwright against the Compose stack, `SBER_API_KEY=mock` |
 
-**Both coverage gates are enforced at 90%**, each in exactly one place:
+**Both coverage gates are enforced by the configuration, each in exactly one place:**
 `fail_under` in `backend/pyproject.toml` and `coverageThresholds` on the `test` target in
-`frontend/angular.json`. Neither a pre-commit hook nor a workflow names a percentage, so
-they cannot drift apart. Frontend branches are deliberately not gated.
+`frontend/angular.json`. Neither a pre-commit hook nor a workflow names the value, so they
+cannot drift apart. Read the current thresholds from those two files. Frontend branches are
+deliberately not gated.
 
 Test counts and coverage percentages are deliberately not recorded here: they are
 deterministic, the commands above print them in seconds, and a recorded copy goes stale
@@ -88,16 +96,15 @@ silently. See the rule in `AGENTS.md`.
 
 PostgreSQL, Redis and Garage are real testcontainers in the backend suite. The LLM is faked by
 `app/providers/mock.py`, selected with `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) and
-switchable via `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`); the real GigaChat is only
-reachable through `@pytest.mark.live` tests, which are deselected by default.
+switchable via `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`, `stage`); the real providers are
+only reachable through `@pytest.mark.live` tests, which are deselected by default.
 
 `SBER_API_SCOPE` selects the provider: `PERS` / `B2B` / `CORP` use the GigaChat client,
 `openai` the OpenAI-compatible one (any endpoint via `OPENAI_URL`, model via `OPENAI_MODEL`),
-`mock` the offline stand-in. Tool calling is implemented for both the OpenAI-compatible and
-the GigaChat v2 clients: tools are defined at provider construction and requested calls come
-back on `GenerationResponse.tool_calls`. Nothing executes a call yet. The OpenAI live tests
-carry an extra `openai` marker and are selected with `-m 'live and openai'`; the GigaChat
-tool test shares `-m live` with the rest of `test_live_gigachat.py`.
+`mock` the offline stand-in. Tools are defined at provider construction, and the programme
+tasks execute the calls through the shared tool loop. The OpenAI live tests carry an extra
+`openai` marker and are selected with `-m 'live and openai'`; the GigaChat tool test shares
+`-m live` with the rest of `test_live_gigachat.py`.
 
 ---
 
@@ -134,27 +141,30 @@ future rename has to move all of them together. The PostgreSQL role and database
 
 Ordered by value, not by commitment:
 
-0. **Decide what the application is for.** Everything else is downstream. The base system
-   prompt is one paragraph and the schema carries only `{chat_name, message}`, which is
-   deliberate headroom rather than an oversight.
-1. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
+0. **Finish the programme cycle.** Add UI for the draft and the explicit confirmation, and
+   decide whether the five-minute polling window is enough for a four-stage run.
+1. **Full programme package (#5).** Fill `assessment` and `materials`, extend the stage order,
+   and generate the complete document once the draft is approved.
+2. **RAG sources (#11).** `search_sources` is wired but the catalog is empty; the source stage
+   legitimately saves an empty list until the index lands.
+3. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
    where per-content-type preparation belongs. The first content type that needs work is the
    first thing that goes in it, offloaded with `asyncio.to_thread`.
-2. **Extend the e2e suite.** It covers authentication, the chat journey, a follow-up
+4. **Extend the e2e suite.** It covers authentication, the chat journey, a follow-up
    message, attachments, the paginated history list, admin roles and the admin prompt editor.
-   Not yet covered: the docx/xlsx preview, avatar upload, the theme toggle, and the error
-   paths (a generation that fails, a session deleted mid-flight).
-3. **Fill the placeholder sections:** profile, user settings, the admin action log
+   Not yet covered: the programme cycle, the docx/xlsx preview, avatar upload, the theme
+   toggle, and the error paths (a generation that fails, a session deleted mid-flight).
+5. **Fill the placeholder sections:** profile, user settings, the admin action log
    (`Журнал действий`) and system info.
-4. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
-5. **Mirror the Garage image into a registry we control** and pin it by digest. MinIO's
+6. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
+7. **Mirror the Garage image into a registry we control** and pin it by digest. MinIO's
    deletion cost a CI outage and this migration; the same event could happen to
    `dxflrs/garage`.
-6. **Add a LICENSE file**, currently absent.
-7. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
+8. **Add a LICENSE file**, currently absent.
+9. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
    and in the code, but not in the example env file.
-8. **Add a per-test e2e user.** The suite shares one seeded user and works around the
-   5-per-minute rate limit by clearing Redis between tests.
+10. **Add a per-test e2e user.** The suite shares one seeded user and works around the
+    5-per-minute rate limit by clearing Redis between tests.
 
 ---
 
@@ -167,8 +177,6 @@ Ordered by value, not by commitment:
 - `TEST_INSTANCE_MODE` is absent from `.env.example`.
 - The frontend dev override bind-mounts `./frontend` over `/app`. If `node_modules` inside it
   is stale or partially populated, `ng serve` fails in ways that look like source errors.
-- Frontend statement coverage (91.27%) sits close to the 90% gate. Any new uncovered
-  component will fail CI, and branches at 85.94% have little headroom.
 - **`cleanup_orphan_attachments` in `app/tasks/files.py` iterates an already exhausted
   `ScalarResult`,** so it logs `count=0` and never deletes an S3 object. Rows are still
   deleted; the objects fall to the 7-day lifecycle rule. Reported, not fixed. See

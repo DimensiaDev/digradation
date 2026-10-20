@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from typing import ClassVar, Literal, Self
+from typing import Any, ClassVar, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -46,12 +46,27 @@ class ContentFunctionCall(BaseModel):
         return v
 
 
+class FunctionResult(BaseModel):
+    """The value of a function call, sent back as a ``tool`` message part.
+
+    GigaChat v2 ties the result to the call by ``id`` and ``name`` inside the
+    content part, while the OpenAI shape keeps the id on the ``tool`` message.
+    The loop fills both, so either wire format can be produced from one history.
+    """
+
+    id: str | None = None
+    name: str
+    result: Any
+
+
 class Content(BaseModel):
     text: str = ""
     inline_data: dict[str, str] | None = None
     files: list[FileSchema] = Field(default_factory=list)
     #: Present on a GigaChat v2 content part that asks for a tool call.
     function_call: ContentFunctionCall | None = None
+    #: Present on a GigaChat v2 ``tool`` content part carrying a call's result.
+    function_result: FunctionResult | None = None
 
     @field_validator("files", mode="before")
     @classmethod
@@ -101,9 +116,18 @@ class ToolCall(BaseModel):
 
 class Message(BaseModel):
     role: Literal["user", "system", "assistant", "tool"]
-    content: list[Content]
+    content: list[Content] = Field(default_factory=list)
     #: Set on a ``tool`` message to tie it back to the assistant's ``ToolCall``.
     tool_call_id: str | None = None
+    #: The calls an assistant message requested. GigaChat v2 already carries them
+    #: inside its content parts; this field is what the OpenAI wire format and the
+    #: loop read, and both are filled for the same turn.
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    #: GigaChat v2 may put the requested call at message level instead of inside
+    #: a content part; the SDK accepts both, so the history preserves it.
+    function_call: ContentFunctionCall | None = None
+    #: GigaChat v2 ties the results of one round together with this id.
+    tools_state_id: str | None = None
 
     @classmethod
     def from_chat_message(cls, obj: ChatMessage) -> Self:
@@ -214,6 +238,8 @@ class GenerationResponse(BaseModel):
     #: Tools the model wants called before it can answer. A response may carry
     #: both text and tool calls, or tool calls with no text at all.
     tool_calls: list[ToolCall] = Field(default_factory=list)
+    #: GigaChat v2 answer to a tool round; echoed back on the next request.
+    tools_state_id: str | None = None
 
     @field_validator("created_at", mode="before")
     @classmethod

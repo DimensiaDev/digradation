@@ -1,25 +1,27 @@
 """The user functions the model may call, and their implementations.
 
 This module is one half of the agent contract. The specifications below are sent
-to the provider with every generation request, and the pydantic schemas of
-``app.agentic.models`` are the other half: the model fills the arguments from the
-specification, the arguments are validated against those schemas at the call
-boundary, and the handlers work with the validated models on both sides — in and
-out — rather than with dictionaries.
+to the provider with a generation request, and the pydantic schemas of
+``app.agentic.models`` and ``app.agentic.state`` are the other half: the model
+fills the arguments from the specification, the arguments are validated at the
+call boundary, and the handlers work with the validated models rather than with
+dictionaries.
 
-The handlers keep no storage of their own: they resolve citations against the
-catalog, answer, and leave the validated draft on :class:`ToolContext` for the
-caller to store.
+The handlers keep no storage of their own. They mutate :class:`ToolContext`,
+which carries the programme state of the run, and the caller checkpoints that
+state after every call. That is what makes a worker death survivable: the block
+saved before the death is already committed, and the stage that follows it
+reads the state back instead of starting over.
 
 :func:`execute_tool` is the boundary with the provider: it turns a
 :class:`FunctionCall` — a name and the JSON string of arguments — into one handler
 call, and every failure, arguments that do not validate included, comes back as a
 result with ``ok: false`` instead of a raise, so the model can correct itself
-inside the same reply. Validating the arguments is the caller's job, never the
-handler's: a handler may take its arguments model for granted.
+inside the same reply.
 """
 
-import copy
+from __future__ import annotations
+
 import json
 import uuid
 from collections.abc import Awaitable, Callable
@@ -29,8 +31,16 @@ from typing import Any
 import structlog.stdlib
 from pydantic import BaseModel, Field, ValidationError
 
-from app.agentic.models import ProgramDraft, ProgramStatus, Source, SourceKind
+from app.agentic.models import ProgramDraft, ProgramStatus, Source, SourceKind, Stage, StageStatus
 from app.agentic.sources import SourceFragment, get_source, search
+from app.agentic.state import (
+    STAGE_BLOCKS,
+    ProgramState,
+    apply_block,
+    approve_state,
+    new_state,
+    set_known_sources,
+)
 from app.providers.models import FunctionCall, FunctionDefinition, Tool
 
 log = structlog.stdlib.get_logger(__name__)
@@ -40,17 +50,19 @@ log = structlog.stdlib.get_logger(__name__)
 class ToolContext:
     """What a handler needs beyond the arguments of the call.
 
-    ``session_id`` names the chat in the logs. ``draft`` is what
-    :func:`save_program_draft` validated and kept for the caller to store — a
-    later revision of the same run reads it back through
-    :func:`get_program_draft`. ``known_source_ids`` is the provenance of the run:
-    only a document the model has actually seen — through ``search_sources`` or in
-    the draft it saved — may be cited, so an invented or half-remembered id is
-    refused rather than kept.
+    ``state`` is the programme envelope the intake created and the stages fill;
+    it is ``None`` until :func:`begin_program` runs. ``stage`` is the stage the
+    current worker is executing, which is how :func:`save_program_draft` knows
+    which block the model is allowed to write. ``dirty`` is set by every handler
+    that changed the state, and the loop's checkpoint acts on it.
     """
 
     session_id: uuid.UUID
-    draft: ProgramDraft | None = None
+    state: ProgramState | None = None
+    stage: Stage | None = None
+    dirty: bool = False
+    started: bool = False
+    approved: bool = False
     known_source_ids: set[str] = field(default_factory=set)
 
 
@@ -74,16 +86,33 @@ class SearchSourcesResult(ToolResult):
     fragments: list[SourceFragment] = Field(default_factory=list)
 
 
+class BeginProgramResult(ToolResult):
+    """State of the process after the intake started it."""
+
+    status: ProgramStatus | None = None
+    current_stage: Stage | None = None
+
+
 class SaveProgramDraftResult(ToolResult):
-    """State of the process after a draft was accepted."""
+    """State of the process after one stage's block was accepted."""
+
+    status: ProgramStatus | None = None
+    stage: Stage | None = None
+    current_stage: Stage | None = None
+
+
+class ApproveProgramDraftResult(ToolResult):
+    """State of the process after the methodist confirmed the draft."""
 
     status: ProgramStatus | None = None
 
 
 class GetProgramDraftResult(ToolResult):
-    """The draft this run has saved, if there is one."""
+    """The programme state this run has, and the draft if it is complete."""
 
     status: ProgramStatus
+    current_stage: Stage | None = None
+    state: ProgramState | None = None
     draft: ProgramDraft | None = None
 
 
@@ -106,26 +135,37 @@ class GetProgramDraftArguments(BaseModel):
     """Arguments of :func:`get_program_draft`: the tool takes none."""
 
 
-def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
-    """Inline ``$defs``/``$ref`` so the parameters are one self-contained object.
+class BeginProgramArguments(BaseModel):
+    """Arguments of :func:`begin_program`."""
 
-    The arguments schema is sent to the model verbatim, and a schema that requires
-    walking ``$defs`` to understand is needless work for it. The definitions of
-    the draft are small enough to inline without bloating the request.
+    requested_hours: float = Field(
+        gt=0,
+        le=2000,
+        description="Заявленный объём программы в академических часах",
+    )
+    requirements: str = Field(
+        min_length=1,
+        max_length=8000,
+        description="Тема, аудитория, цель и дополнительные требования одним текстом",
+    )
+    title: str | None = Field(default=None, max_length=500, description="Рабочее название, если оно уже известно")
+
+
+class ApproveProgramDraftArguments(BaseModel):
+    """Arguments of :func:`approve_program_draft`: the tool takes none."""
+
+
+class SaveProgramDraftArguments(BaseModel):
+    """Arguments of :func:`save_program_draft`.
+
+    The payload is validated against the block model of ``stage`` inside the
+    handler. Keeping it a dictionary here lets one tool specification serve all
+    stages: the stage prompt carries the exact block schema, and the handler
+    refuses a payload that does not match it.
     """
-    definitions = schema.get("$defs", {})
 
-    def resolve(node: Any) -> Any:
-        if isinstance(node, dict):
-            reference = node.get("$ref")
-            if isinstance(reference, str) and reference.startswith("#/$defs/"):
-                return resolve(copy.deepcopy(definitions[reference.removeprefix("#/$defs/")]))
-            return {key: resolve(value) for key, value in node.items() if key != "$defs"}
-        if isinstance(node, list):
-            return [resolve(item) for item in node]
-        return node
-
-    return resolve(schema)
+    stage: Stage = Field(description="Этап, блок которого сохраняется")
+    payload: dict[str, Any] = Field(description="Блок документа по схеме текущего этапа")
 
 
 SEARCH_SOURCES_SPEC = FunctionDefinition(
@@ -135,38 +175,88 @@ SEARCH_SOURCES_SPEC = FunctionDefinition(
         "примеры образовательных программ. Возвращает фрагменты с идентификаторами документов; "
         "ссылаться в программе можно только на документы из результата поиска."
     ),
-    parameters=_inline_refs(SearchSourcesArguments.model_json_schema()),
+    parameters=SearchSourcesArguments.model_json_schema(),
+)
+
+BEGIN_PROGRAM_SPEC = FunctionDefinition(
+    name="begin_program",
+    description=(
+        "Начать разработку образовательной программы. Вызывай, когда методист назвал тему, "
+        "аудиторию, цель, объём в часах и дополнительные требования. После вызова backend "
+        "последовательно сгенерирует блоки программы и пришлёт черновик на подтверждение. "
+        "Если критически важных сведений не хватает, сначала задай уточняющие вопросы."
+    ),
+    parameters=BeginProgramArguments.model_json_schema(),
 )
 
 SAVE_PROGRAM_DRAFT_SPEC = FunctionDefinition(
     name="save_program_draft",
     description=(
-        "Сохранить структурированный черновик программы и передать его методисту на подтверждение. "
-        "Вызывай, когда собраны тема, аудитория, цель, часы и требования. После сохранения представь "
-        "черновик в читаемом виде, попроси подтверждение и остановись."
+        "Сохранить один блок программы на текущем этапе. Параметр stage — текущий этап, "
+        "payload — блок по схеме из системной инструкции этапа. Вызывай ровно один раз, "
+        "когда блок готов; после сохранения следующий этап запустит backend."
     ),
-    parameters=_inline_refs(ProgramDraft.model_json_schema()),
+    parameters=SaveProgramDraftArguments.model_json_schema(),
 )
 
 GET_PROGRAM_DRAFT_SPEC = FunctionDefinition(
     name="get_program_draft",
     description=(
-        "Получить черновик программы, сохранённый в этом диалоге, и его состояние (draft — черновика "
-        "ещё нет, pending_approval — ждёт подтверждения). Вызывай перед правками по просьбе методиста."
+        "Получить текущее состояние программы и сохранённый черновик, если все блоки уже "
+        "заполнены. Вызывай перед правками или если нужно вспомнить, что уже сохранено."
     ),
-    parameters=_inline_refs(GetProgramDraftArguments.model_json_schema()),
+    parameters=GetProgramDraftArguments.model_json_schema(),
 )
+
+APPROVE_PROGRAM_DRAFT_SPEC = FunctionDefinition(
+    name="approve_program_draft",
+    description=(
+        "Утвердить готовый черновик программы. Вызывай только после явного подтверждения "
+        "методиста («подтверждаю», «утверждаю», «согласен»). После утверждения черновик "
+        "становится основой следующего этапа полной генерации."
+    ),
+    parameters=ApproveProgramDraftArguments.model_json_schema(),
+)
+
+
+def _tool(spec: FunctionDefinition) -> Tool:
+    return Tool(function=spec)
+
+
+SEARCH_SOURCES_TOOL = _tool(SEARCH_SOURCES_SPEC)
+BEGIN_PROGRAM_TOOL = _tool(BEGIN_PROGRAM_SPEC)
+SAVE_PROGRAM_DRAFT_TOOL = _tool(SAVE_PROGRAM_DRAFT_SPEC)
+GET_PROGRAM_DRAFT_TOOL = _tool(GET_PROGRAM_DRAFT_SPEC)
+APPROVE_PROGRAM_DRAFT_TOOL = _tool(APPROVE_PROGRAM_DRAFT_SPEC)
+
+#: The tools the intake chat uses: it starts the process or approves the draft.
+INTAKE_TOOLS: list[Tool] = [BEGIN_PROGRAM_TOOL, APPROVE_PROGRAM_DRAFT_TOOL, GET_PROGRAM_DRAFT_TOOL]
+
+#: The tools a stage uses: it searches and saves exactly one block.
+STAGE_TOOLS: list[Tool] = [SEARCH_SOURCES_TOOL, SAVE_PROGRAM_DRAFT_TOOL, GET_PROGRAM_DRAFT_TOOL]
+
+#: Every tool, kept for the provider container's default and for tests.
+AGENT_TOOLS: list[Tool] = [
+    SEARCH_SOURCES_TOOL,
+    BEGIN_PROGRAM_TOOL,
+    SAVE_PROGRAM_DRAFT_TOOL,
+    GET_PROGRAM_DRAFT_TOOL,
+    APPROVE_PROGRAM_DRAFT_TOOL,
+]
 
 
 async def search_sources(ctx: ToolContext, arguments: SearchSourcesArguments) -> SearchSourcesResult:
     """Search the source catalog and return the fragments to cite.
 
     The ids of everything returned are remembered on the context: a source the
-    model has not seen here (or read back in the draft it saved) must not end up
-    in the draft, so this is the only place that widens what may be cited.
+    model has not seen here (or read back in the state) must not end up in the
+    programme, so this is the only place that widens what may be cited.
     """
     fragments = await search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
-    ctx.known_source_ids.update(fragment.source.id for fragment in fragments)
+    if fragments:
+        ctx.known_source_ids.update(fragment.source.id for fragment in fragments)
+        if ctx.state is not None:
+            ctx.dirty = True
     if not fragments:
         return SearchSourcesResult(
             query=arguments.query,
@@ -178,17 +268,9 @@ async def search_sources(ctx: ToolContext, arguments: SearchSourcesArguments) ->
     return SearchSourcesResult(query=arguments.query, fragments=fragments)
 
 
-def _cited_source_ids(draft: ProgramDraft) -> list[str]:
-    """Every source id the draft refers to, in first-seen order, once each."""
-    ids = [source.id for source in draft.sources]
-    ids.extend(draft.summary.basis_source_ids)
-    ids.extend(competence.standard_source_id for competence in draft.competencies if competence.standard_source_id)
-    return list(dict.fromkeys(ids))
-
-
 @dataclass(frozen=True)
 class _Citations:
-    """What resolving the draft's citations against the catalog found."""
+    """What resolving cited ids against the catalog found."""
 
     sources: list[Source]
     unknown: list[str]
@@ -196,25 +278,28 @@ class _Citations:
     not_standards: list[str]
 
 
-def _resolve_sources(ctx: ToolContext, draft: ProgramDraft) -> _Citations:
-    """Replace the cited sources with their catalog records.
+def _resolve_citations(
+    ctx: ToolContext,
+    source_ids: list[str],
+    *,
+    standards: frozenset[str] = frozenset(),
+) -> _Citations:
+    """Replace cited ids with their catalog records.
 
-    Three ways a citation can be wrong, and all of them must be refused. An id the
+    Three ways a citation can be wrong, and all of them are refused. An id the
     catalog does not know is an invented document. An id the catalog knows but
     this run has not shown the model — no ``search_sources`` call returned it and
-    no saved draft carried it — is equally unverified: the catalog is wide, and a
-    plausible-looking ``src-NN`` is easy to guess. An id a competence names as its
-    ``standard_source_id`` must be a professional standard, because that field
-    says where the competence comes from: a ФГОС or a handbook there would
-    misattribute the labour function. The canonical record is kept instead of the
-    one the model reproduced, so titles cannot drift.
-
-    The last two refusals wait for the catalog: while it answers nothing, every id
-    is unknown and neither branch below can trigger.
+    no earlier block recorded it — is equally unverified. An id a competence
+    names as its ``standard_source_id`` must be a professional standard, because
+    that field says where the competence comes from. The canonical catalog record
+    wins over the one the model reproduced, so titles cannot drift.
     """
-    standards = {competence.standard_source_id for competence in draft.competencies if competence.standard_source_id}
     citations = _Citations(sources=[], unknown=[], unsearched=[], not_standards=[])
-    for source_id in _cited_source_ids(draft):
+    seen: set[str] = set()
+    for source_id in source_ids:
+        if source_id in seen:
+            continue
+        seen.add(source_id)
         source = get_source(source_id)
         if source is None:
             citations.unknown.append(source_id)
@@ -224,25 +309,11 @@ def _resolve_sources(ctx: ToolContext, draft: ProgramDraft) -> _Citations:
             citations.not_standards.append(source_id)
         else:
             citations.sources.append(source)
+            ctx.known_source_ids.add(source_id)
     return citations
 
 
-def _describe_validation_error(error: ValidationError) -> list[str]:
-    """Flatten pydantic errors into ``path: message`` lines the model can act on."""
-    return [f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}" for item in error.errors()]
-
-
-async def save_program_draft(ctx: ToolContext, arguments: ProgramDraft) -> SaveProgramDraftResult:
-    """Bind the draft's citations to the catalog and keep the draft.
-
-    The arguments are the draft schema itself, so a draft that does not match the
-    schema never reaches this handler. Saving is what moves the process to
-    ``pending_approval``: from this call on the methodist has something to
-    confirm, and until they do, the agent is told to present the draft and stop.
-    The validated draft — the handler's own copy of it, which is what the caller
-    stores — stays on the context.
-    """
-    citations = _resolve_sources(ctx, arguments)
+def _citation_error(citations: _Citations) -> SaveProgramDraftResult | None:
     if citations.unknown:
         return SaveProgramDraftResult(
             ok=False,
@@ -261,29 +332,190 @@ async def save_program_draft(ctx: ToolContext, arguments: ProgramDraft) -> SaveP
             error="Не профессиональные стандарты в standard_source_id: " + ", ".join(citations.not_standards),
             details=["Компетенция опирается на профстандарт: у стандарта kind = professional_standard."],
         )
-    ctx.draft = arguments.model_copy(update={"sources": citations.sources}, deep=True)
+    return None
 
-    log.info("program_draft_validated", chat_session_id=str(ctx.session_id), sources=len(citations.sources))
+
+def _describe_validation_error(error: ValidationError) -> list[str]:
+    """Flatten pydantic errors into ``path: message`` lines the model can act on."""
+    return [f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}" for item in error.errors()]
+
+
+async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> BeginProgramResult:
+    """Start a programme run from the intake conversation.
+
+    The handler only creates the envelope; the worker that owns the chat enqueues
+    the first stage after this reply is stored. That keeps the tool free of a
+    dependency on the task module and makes the transition testable on its own.
+    """
+    if ctx.stage is not None:
+        return BeginProgramResult(ok=False, error="Начать программу можно только из обычного диалога.")
+    if ctx.state is not None and not ctx.state.failed:
+        return BeginProgramResult(
+            ok=False,
+            error="Программа уже создана.",
+            details=["Дождись черновика или подтверди его; начинать заново не нужно."],
+        )
+    ctx.state = new_state(
+        ctx.session_id,
+        requested_hours=arguments.requested_hours,
+        requirements=arguments.requirements,
+        title=arguments.title,
+    )
+    ctx.known_source_ids = set(ctx.state.known_source_ids)
+    ctx.started = True
+    ctx.dirty = True
+    log.info("program_started", chat_session_id=str(ctx.session_id), requested_hours=arguments.requested_hours)
+    return BeginProgramResult(
+        status=ctx.state.status,
+        current_stage=ctx.state.current_stage,
+        note="Программа поставлена в работу. Блоки будут сгенерированы последовательно.",
+    )
+
+
+async def save_program_draft(ctx: ToolContext, arguments: SaveProgramDraftArguments) -> SaveProgramDraftResult:
+    """Validate one stage's block and write it into the programme state."""
+    if ctx.stage is None:
+        return SaveProgramDraftResult(
+            ok=False,
+            error="Сохранение блока доступно только внутри этапа генерации.",
+        )
+    if ctx.state is None:
+        return SaveProgramDraftResult(ok=False, error="Программа ещё не создана.")
+    if arguments.stage is not ctx.stage:
+        return SaveProgramDraftResult(
+            ok=False,
+            error=f"Сейчас выполняется этап {ctx.stage.value}, а передан блок {arguments.stage.value}.",
+            details=["Сохрани блок текущего этапа и не переходи к следующему."],
+        )
+    if ctx.state.stage_status(arguments.stage) is StageStatus.COMPLETED:
+        return SaveProgramDraftResult(
+            status=ctx.state.status,
+            stage=arguments.stage,
+            current_stage=ctx.state.current_stage,
+            note="Блок этого этапа уже сохранён.",
+        )
+
+    block_type = STAGE_BLOCKS[arguments.stage]
+    try:
+        block = block_type.model_validate(arguments.payload)
+    except ValidationError as error:
+        return SaveProgramDraftResult(
+            ok=False,
+            error="Блок не соответствует схеме этапа",
+            details=_describe_validation_error(error),
+        )
+
+    citations = _resolve_citations(
+        ctx,
+        _cited_ids(block),
+        standards=_standard_ids(block),
+    )
+    refusal = _citation_error(citations)
+    if refusal is not None:
+        refusal.stage = arguments.stage
+        return refusal
+
+    block = _with_canonical_sources(block, citations.sources)
+    try:
+        ctx.state = apply_block(ctx.state, arguments.stage, block)
+    except ValueError as error:
+        return SaveProgramDraftResult(ok=False, error=str(error))
+    ctx.dirty = True
     return SaveProgramDraftResult(
-        status=ProgramStatus.PENDING_APPROVAL,
-        note="Черновик проверен и ждёт подтверждения методиста. Представь его и остановись.",
+        status=ctx.state.status,
+        stage=arguments.stage,
+        current_stage=ctx.state.current_stage,
+        note="Блок сохранён. Следующий этап запустит backend.",
+    )
+
+
+def _cited_ids(block: BaseModel) -> list[str]:
+    """Every source id the block refers to, in first-seen order."""
+    ids: list[str] = []
+    sources = getattr(block, "sources", None)
+    if sources:
+        ids.extend(source.id for source in sources)
+    summary = getattr(block, "summary", None)
+    if summary is not None:
+        ids.extend(summary.basis_source_ids)
+    competencies = getattr(block, "competencies", None)
+    if competencies:
+        ids.extend(item.standard_source_id for item in competencies if item.standard_source_id)
+    return ids
+
+
+def _standard_ids(block: BaseModel) -> frozenset[str]:
+    competencies = getattr(block, "competencies", None) or []
+    return frozenset(item.standard_source_id for item in competencies if item.standard_source_id)
+
+
+def _with_canonical_sources(block: BaseModel, sources: list[Source]) -> BaseModel:
+    """Replace the reproduced records with the catalog ones where the block has a list."""
+    if not sources or not hasattr(block, "sources"):
+        return block
+    return block.model_copy(update={"sources": sources})
+
+
+async def approve_program_draft(
+    ctx: ToolContext, _arguments: ApproveProgramDraftArguments
+) -> ApproveProgramDraftResult:
+    """Freeze a complete draft after the methodist explicitly confirmed it."""
+    if ctx.state is None:
+        return ApproveProgramDraftResult(ok=False, error="Черновик ещё не создан.")
+    if ctx.state.status is ProgramStatus.APPROVED:
+        return ApproveProgramDraftResult(status=ctx.state.status, note="Черновик уже утверждён.")
+    if ctx.state.status is not ProgramStatus.PENDING_APPROVAL:
+        return ApproveProgramDraftResult(
+            ok=False,
+            error="Черновик ещё не готов к утверждению.",
+            details=["Дождись, пока все блоки программы будут сгенерированы."],
+        )
+    try:
+        ctx.state = approve_state(ctx.state)
+    except (ValueError, ValidationError) as error:
+        return ApproveProgramDraftResult(
+            ok=False,
+            error="Черновик не прошёл проверку",
+            details=[str(error)],
+        )
+    ctx.approved = True
+    ctx.dirty = True
+    log.info("program_approved", chat_session_id=str(ctx.session_id))
+    return ApproveProgramDraftResult(
+        status=ctx.state.status,
+        note="Черновик утверждён и сохранён для следующего этапа.",
     )
 
 
 async def get_program_draft(ctx: ToolContext, _arguments: GetProgramDraftArguments) -> GetProgramDraftResult:
-    """Return a copy of the draft this run has saved.
+    """Return a copy of the current state and, when complete, the draft."""
+    if ctx.state is None:
+        return GetProgramDraftResult(status=ProgramStatus.DRAFT, note="Программа ещё не создана.")
+    ctx.known_source_ids.update(ctx.state.known_source_ids)
+    state = ctx.state.model_copy(deep=True)
+    draft = None
+    try:
+        draft = state.to_draft()
+    except ValueError, ValidationError:
+        draft = None
+    return GetProgramDraftResult(
+        status=state.status,
+        current_stage=state.current_stage,
+        state=state,
+        draft=draft,
+    )
 
-    Reading the draft back is what a revision starts with, and the citations it
-    just read must stay usable on the way out: the sources of the saved draft are
-    therefore counted as known to this run. The answer is a copy, because the
-    lists inside a frozen model are still mutable: editing what a call returned
-    must not edit the draft the context holds, which is the one already bound to
-    the catalog and about to be stored.
+
+def snapshot_state(ctx: ToolContext) -> ProgramState | None:
+    """The state to persist, with the run's known sources folded in.
+
+    The handlers track provenance on the context because a search does not touch
+    a document block; this is where that provenance joins the envelope so it
+    survives the worker that found it.
     """
-    if ctx.draft is None:
-        return GetProgramDraftResult(status=ProgramStatus.DRAFT, note="Черновик ещё не сохранён.")
-    ctx.known_source_ids.update(source.id for source in ctx.draft.sources)
-    return GetProgramDraftResult(status=ProgramStatus.PENDING_APPROVAL, draft=ctx.draft.model_copy(deep=True))
+    if ctx.state is None:
+        return None
+    return set_known_sources(ctx.state, ctx.known_source_ids)
 
 
 #: A handler takes the context and its own arguments model, and answers a result.
@@ -299,18 +531,15 @@ class AgentTool:
     handler: Handler
 
 
-#: The tools the model may call, keyed by the name in the specification. A
-#: provider takes the specifications at construction — the v2 endpoint's
-#: ``functions.specifications`` grouping is the provider's business, not the
-#: agent's — and the dispatcher takes the arguments model to validate a call with.
 AGENT_TOOL_REGISTRY: dict[str, AgentTool] = {
     SEARCH_SOURCES_SPEC.name: AgentTool(SEARCH_SOURCES_SPEC, SearchSourcesArguments, search_sources),
-    SAVE_PROGRAM_DRAFT_SPEC.name: AgentTool(SAVE_PROGRAM_DRAFT_SPEC, ProgramDraft, save_program_draft),
+    BEGIN_PROGRAM_SPEC.name: AgentTool(BEGIN_PROGRAM_SPEC, BeginProgramArguments, begin_program),
+    SAVE_PROGRAM_DRAFT_SPEC.name: AgentTool(SAVE_PROGRAM_DRAFT_SPEC, SaveProgramDraftArguments, save_program_draft),
     GET_PROGRAM_DRAFT_SPEC.name: AgentTool(GET_PROGRAM_DRAFT_SPEC, GetProgramDraftArguments, get_program_draft),
+    APPROVE_PROGRAM_DRAFT_SPEC.name: AgentTool(
+        APPROVE_PROGRAM_DRAFT_SPEC, ApproveProgramDraftArguments, approve_program_draft
+    ),
 }
-
-#: The tools offered to the model, one per function.
-AGENT_TOOLS: list[Tool] = [Tool(function=tool.spec) for tool in AGENT_TOOL_REGISTRY.values()]
 
 
 async def execute_tool(ctx: ToolContext, call: FunctionCall) -> ToolResult:

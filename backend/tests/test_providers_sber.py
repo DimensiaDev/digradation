@@ -21,6 +21,8 @@ import pytest_asyncio
 
 from app.providers.client import AIClient, AuthorizationError
 from app.providers.models import (
+    Content,
+    ContentFunctionCall,
     FunctionDefinition,
     GenerationResponse,
     Message,
@@ -672,3 +674,66 @@ async def test_pers_api_lock_releases_when_the_body_raises(provider_factory, red
 
     async with get_redis_client() as redis:
         assert await redis.exists("api:global:lock") == 0
+
+
+@pytest.mark.asyncio
+async def test_generate_maps_a_message_level_function_call(provider_factory):
+    body = generation_body()
+    body["messages"] = [
+        {
+            "role": "assistant",
+            "function_call": {"id": "call-1", "name": "get_weather", "arguments": {"city": "Москва"}},
+            "tools_state_id": "state-1",
+        }
+    ]
+    body["finish_reason"] = "function_call"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == AUTH_PATH:
+            return httpx.Response(200, json=auth_body())
+        return httpx.Response(200, json=body)
+
+    provider = provider_factory(httpx.MockTransport(handler))
+
+    result = await _generate(provider)
+
+    assert result.tool_calls[0].id == "call-1"
+    assert result.tool_calls[0].function.name == "get_weather"
+    assert result.tool_calls[0].function.arguments == '{"city": "Москва"}'
+    assert result.tools_state_id == "state-1"
+
+
+@pytest.mark.asyncio
+async def test_generate_sends_function_call_arguments_back_as_an_object(provider_factory):
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+    history = [
+        Message(
+            role="assistant",
+            content=[
+                Content(
+                    function_call=ContentFunctionCall(id="call-1", name="get_weather", arguments='{"city": "Москва"}')
+                )
+            ],
+        ),
+        Message(
+            role="tool",
+            content=[Content(text='{"ok": true}')],
+            tool_call_id="call-1",
+            tools_state_id="state-1",
+        ),
+    ]
+
+    await provider.generate(
+        message_history=history,
+        response_format=ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    body = json.loads(captured[-1].read().decode())
+    assistant = body["messages"][0]
+    assert assistant["content"][0]["function_call"]["arguments"] == {"city": "Москва"}
+    assert "tool_calls" not in assistant
+    assert body["messages"][1]["tools_state_id"] == "state-1"
+    assert "tool_call_id" not in body["messages"][1]

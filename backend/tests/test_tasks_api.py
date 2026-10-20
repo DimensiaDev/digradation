@@ -8,19 +8,28 @@ would otherwise need a live RabbitMQ.
 
 import json
 import uuid
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from app.auth import hash_password
-from app.cache import get_deletion_key, get_generation_key, get_redis_client
-from app.models.auth import User
+from app.agentic.models import ProgramStatus, Stage, StageStatus
+from app.agentic.state import (
+    CompetencesBlock,
+    HoursBlock,
+    ProgramState,
+    SourcesBlock,
+    SummaryBlock,
+    apply_block,
+    approve_state,
+    mark_finalized,
+    mark_stage_started,
+    new_state,
+)
+from app.cache import get_deletion_key, get_generation_key, get_program_state_key
 from app.models.chat import (
     MAX_CHAT_NAME_LENGTH,
     Attachment,
@@ -30,8 +39,19 @@ from app.models.chat import (
     GenerationResultType,
     UserRole,
 )
-from app.providers.models import Message
+from app.providers.models import (
+    Content,
+    FunctionCall,
+    GenerationResponse,
+    InputTokenDetails,
+    Message,
+    ToolCall,
+    Usage,
+)
 from app.tasks import api
+from app.tasks import program as program_module
+from app.tasks.program import finalize_program_draft as finalize_task
+from app.tasks.program import program_stage as stage_task
 from tests.helpers import run_task
 
 # --------------------------------------------------------------------------------------
@@ -69,148 +89,6 @@ class FalsyResponse:
 # --------------------------------------------------------------------------------------
 # fixtures
 # --------------------------------------------------------------------------------------
-
-
-class Rows:
-    """Rows committed for real, then removed again.
-
-    ``db_session`` writes inside a transaction that is rolled back, while the task
-    bodies open their own connection through ``tsq_db``. A worker therefore cannot
-    see anything ``db_session`` left uncommitted, so the data these tests need has
-    to be committed on its own connection and cleaned up explicitly.
-    """
-
-    def __init__(self, maker: async_sessionmaker):
-        self._maker = maker
-        self._session_ids: list[uuid.UUID] = []
-        self._user_ids: list[int] = []
-
-    @asynccontextmanager
-    async def session(self):
-        async with self._maker() as db:
-            yield db
-
-    async def user(self, username: str = "worker-test") -> User:
-        async with self.session() as db:
-            row = User(username=username, password_hash=hash_password("password1234"))
-            db.add(row)
-            await db.commit()
-            await db.refresh(row)
-        self._user_ids.append(row.id)
-        return row
-
-    async def chat_session(self, user: User, name: str = "Новый чат") -> ChatSession:
-        async with self.session() as db:
-            row = ChatSession(session_id=uuid.uuid4(), user_id=user.id, name=name)
-            db.add(row)
-            await db.commit()
-            await db.refresh(row)
-        self._session_ids.append(row.session_id)
-        return row
-
-    async def message(
-        self,
-        session_id: uuid.UUID,
-        content: str = "Считай, пожалуйста",
-        *,
-        role: UserRole = UserRole.USER,
-        display_text: str | None = None,
-    ) -> ChatMessage:
-        async with self.session() as db:
-            row = ChatMessage(
-                chat_session_id=session_id,
-                role=role,
-                content=content,
-                display_text=display_text,
-            )
-            db.add(row)
-            await db.commit()
-            await db.refresh(row)
-        return row
-
-    async def result(
-        self,
-        session_id: uuid.UUID,
-        *,
-        type: GenerationResultType = GenerationResultType.SUCCESS,
-        content: str = "старое",
-        timestamp: datetime | None = None,
-    ) -> GenerationResult:
-        async with self.session() as db:
-            row = GenerationResult(chat_session_id=session_id, type=type, content=content, timestamp=timestamp)
-            db.add(row)
-            await db.commit()
-            await db.refresh(row)
-        return row
-
-    async def drop_sessions(self, session_ids: list[uuid.UUID]) -> None:
-        async with self.session() as db:
-            for session_id in session_ids:
-                await db.execute(delete(ChatSession).where(ChatSession.session_id == session_id))
-            await db.commit()
-        self._session_ids = [sid for sid in self._session_ids if sid not in session_ids]
-
-    async def purge(self) -> None:
-        async with self.session() as db:
-            await db.execute(delete(ChatSession).where(ChatSession.session_id.in_(self._session_ids)))
-            await db.execute(delete(User).where(User.id.in_(self._user_ids)))
-            await db.commit()
-        self._session_ids.clear()
-        self._user_ids.clear()
-
-
-@pytest_asyncio.fixture()
-async def rows(engine: AsyncEngine):
-    maker = async_sessionmaker(bind=engine, expire_on_commit=False)
-    helper = Rows(maker)
-    try:
-        yield helper
-    finally:
-        await helper.purge()
-
-
-class RedisKeys:
-    """Redis helper that removes every key it touched during teardown.
-
-    Keep this in the signature of every worker test, including ones that never
-    call it. Requesting it pulls in ``redis_session``, which is what stands the
-    Redis testcontainer up and repoints the cached pool at it; without it the
-    worker still dials the Compose ``redis`` hostname and fails with
-    ``socket.gaierror``.
-    """
-
-    def __init__(self) -> None:
-        self._tracked: list[str] = []
-
-    def track(self, key: str) -> str:
-        self._tracked.append(key)
-        return key
-
-    async def put(self, key: str, value: str = "1", ex: int = 300) -> str:
-        self.track(key)
-        async with get_redis_client() as redis:
-            await redis.set(key, value, ex=ex)
-        return key
-
-    async def get(self, key: str):
-        async with get_redis_client() as redis:
-            return await redis.get(key)
-
-    async def purge(self) -> None:
-        if not self._tracked:
-            return
-        async with get_redis_client() as redis:
-            await redis.delete(*self._tracked)
-        self._tracked.clear()
-
-
-@pytest_asyncio.fixture()
-async def redis_keys(redis_session) -> RedisKeys:
-    helper = RedisKeys()
-    try:
-        yield helper
-    finally:
-        await helper.purge()
 
 
 @pytest.fixture()
@@ -791,3 +669,456 @@ async def test_process_response_for_a_deleted_session_still_releases_the_lock(ta
         await run_task(api.process_response, user.uuid, session.session_id, payload())
 
     assert await redis_keys.get(key) is None
+
+
+# --------------------------------------------------------------------------------------
+# generate_chat_message: the programme branch
+# --------------------------------------------------------------------------------------
+
+PROGRAM_TITLE = "Тестовая программа"
+
+
+def program_response(
+    text: str = "готово",
+    *,
+    calls: list[ToolCall] | None = None,
+    finish_reason: str = "stop",
+) -> GenerationResponse:
+    return GenerationResponse(
+        messages=[Message(role="assistant", content=[Content(text=text)])],
+        model="test",
+        thread_id="thread-1",
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
+        finish_reason=finish_reason,
+        usage=Usage(
+            input_tokens=1,
+            input_tokens_details=InputTokenDetails(prompt_tokens=1, cached_tokens=0),
+            output_tokens=1,
+            total_tokens=2,
+        ),
+        tool_calls=calls or [],
+    )
+
+
+def program_json(message: str = "Программа запущена.") -> str:
+    return json.dumps({"chat_name": PROGRAM_TITLE, "message": message}, ensure_ascii=False)
+
+
+def begin_call() -> ToolCall:
+    arguments = {
+        "requested_hours": 2,
+        "requirements": "Тема: анализ данных. Аудитория: взрослые.",
+        "title": PROGRAM_TITLE,
+    }
+    return ToolCall(
+        id="call-begin",
+        function=FunctionCall(name="begin_program", arguments=json.dumps(arguments, ensure_ascii=False)),
+    )
+
+
+def _competences_block() -> CompetencesBlock:
+    return CompetencesBlock.model_validate(
+        {
+            "competencies": [
+                {
+                    "id": "comp-01",
+                    "statement": "Способен анализировать данные",
+                    "knowledge": [{"id": "ro-k-01", "statement": "Знает методы"}],
+                }
+            ]
+        }
+    )
+
+
+def _hours_block(hours: float = 2) -> HoursBlock:
+    return HoursBlock.model_validate(
+        {
+            "curriculum": {
+                "modules": [
+                    {
+                        "id": "m-01",
+                        "title": "Модуль 1",
+                        "topics": [{"id": "t-01.1", "title": "Тема 1", "hours": {"lecture": hours}}],
+                    }
+                ],
+                "schedule": {"days": 1, "hours_per_day": hours},
+            }
+        }
+    )
+
+
+def _summary_block() -> SummaryBlock:
+    return SummaryBlock.model_validate(
+        {
+            "kind": "general_development",
+            "title": PROGRAM_TITLE,
+            "summary": {
+                "goal": "Научить работать с данными",
+                "target_audience": "Взрослые слушатели",
+                "form": "очная",
+                "issued_document": "сертификат",
+            },
+        }
+    )
+
+
+def program_started(session_id: uuid.UUID, *, run_id: str = "run-1") -> ProgramState:
+    return new_state(
+        session_id,
+        requested_hours=2,
+        requirements="Тема: анализ данных",
+        title=PROGRAM_TITLE,
+        run_id=run_id,
+    )
+
+
+def program_complete(session_id: uuid.UUID, *, run_id: str = "run-1") -> ProgramState:
+    state = apply_block(program_started(session_id, run_id=run_id), Stage.COMPETENCES, _competences_block())
+    state = apply_block(state, Stage.HOURS, _hours_block())
+    state = apply_block(state, Stage.SOURCES, SourcesBlock(sources=[]))
+    return apply_block(state, Stage.SUMMARY, _summary_block())
+
+
+def program_finalized(session_id: uuid.UUID, *, run_id: str = "run-1") -> ProgramState:
+    return mark_finalized(program_complete(session_id, run_id=run_id))
+
+
+def program_approved(session_id: uuid.UUID, *, run_id: str = "run-1") -> ProgramState:
+    return approve_state(program_finalized(session_id, run_id=run_id))
+
+
+async def seed_program(rows, state: ProgramState) -> None:
+    async with rows.session() as db:
+        row = await db.get(ChatSession, state.meta.session_id)
+        assert row is not None
+        row.program_state = state.model_dump(mode="json")
+        await db.commit()
+
+
+async def load_program(rows, session_id: uuid.UUID) -> ProgramState | None:
+    async with rows.session() as db:
+        row = await db.get(ChatSession, session_id)
+        if row is None or row.program_state is None:
+            return None
+        return ProgramState.model_validate(row.program_state)
+
+
+class ProgramScript:
+    """A provider whose turns are queued in advance."""
+
+    def __init__(self, *turns: GenerationResponse):
+        self._turns = list(turns)
+        self.calls = 0
+
+    async def generate(self, messages, response_format, *, x_client_id, x_session_id, tools=None):
+        del messages, response_format, x_client_id, x_session_id, tools
+        self.calls += 1
+        return self._turns.pop(0)
+
+
+@pytest.fixture()
+def program_stage_spy(monkeypatch) -> AsyncMock:
+    spy = AsyncMock(name="program_stage.kiq")
+    monkeypatch.setattr(api.program_stage, "kiq", spy)
+    return spy
+
+
+async def test_an_intake_tool_call_starts_the_pipeline(
+    task_db, rows, redis_keys, kiq_spy, program_stage_spy, mock_mode, monkeypatch
+):
+    """The model asks for ``begin_program``; the worker persists the run and enqueues stage one."""
+    mock_mode("ok")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Сделай программу по анализу данных на 2 часа")
+    script = ProgramScript(program_response(calls=[begin_call()]), program_response(program_json()))
+    monkeypatch.setattr(api.provider, "generate", script.generate)
+    state_key = redis_keys.track(get_program_state_key(session.session_id))
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    state = await load_program(rows, session.session_id)
+    assert state is not None
+    assert state.stage_status(Stage.COMPETENCES) is StageStatus.IN_PROGRESS
+    assert state.requested_hours == 2
+    assert script.calls == 2
+    program_stage_spy.assert_awaited_once_with(session.session_id, Stage.COMPETENCES, state.meta.run_id)
+    kiq_spy.assert_awaited_once()
+    assert json.loads(kiq_spy.await_args.args[2])["message"] == "Программа запущена."
+    assert await redis_keys.get(state_key) is not None
+
+
+async def test_a_failed_run_can_be_restarted_with_a_new_run_id(
+    task_db, rows, redis_keys, kiq_spy, program_stage_spy, mock_mode, monkeypatch
+):
+    mock_mode("ok")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Попробуй ещё раз")
+    failed = program_started(session.session_id, run_id="old-run").model_copy(update={"failed": True})
+    await seed_program(rows, failed)
+    script = ProgramScript(program_response(calls=[begin_call()]), program_response(program_json()))
+    monkeypatch.setattr(api.provider, "generate", script.generate)
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    state = await load_program(rows, session.session_id)
+    assert state is not None
+    assert state.meta.run_id != "old-run"
+    assert state.failed is False
+    program_stage_spy.assert_awaited_once_with(session.session_id, Stage.COMPETENCES, state.meta.run_id)
+
+
+async def test_a_message_during_generation_gets_a_waiting_reply(
+    task_db, rows, redis_keys, kiq_spy, mock_mode, monkeypatch
+):
+    mock_mode("ok")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Что там с программой?")
+    redis_keys.track(get_generation_key(user.uuid))
+    state = mark_stage_started(program_started(session.session_id), Stage.COMPETENCES)
+    await seed_program(rows, state)
+    script = ProgramScript()
+    monkeypatch.setattr(api.provider, "generate", script.generate)
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    assert script.calls == 0
+    payload = json.loads(kiq_spy.await_args.args[2])
+    assert "ещё идёт" in payload["message"]
+    unchanged = await load_program(rows, session.session_id)
+    assert unchanged is not None
+    assert unchanged.meta.run_id == "run-1"
+
+
+async def test_a_non_approval_message_on_a_ready_draft_gets_an_explanation(
+    task_db, rows, redis_keys, kiq_spy, mock_mode, monkeypatch
+):
+    mock_mode("ok")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Переделайте третий модуль")
+    await seed_program(rows, program_finalized(session.session_id))
+    script = ProgramScript()
+    monkeypatch.setattr(api.provider, "generate", script.generate)
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    assert script.calls == 0
+    payload = json.loads(kiq_spy.await_args.args[2])
+    assert "ждёт подтверждения" in payload["message"]
+    state = await load_program(rows, session.session_id)
+    assert state is not None
+    assert state.status is ProgramStatus.PENDING_APPROVAL
+
+
+async def test_a_draft_that_has_not_been_rendered_is_not_approved(
+    task_db, rows, redis_keys, kiq_spy, mock_mode, monkeypatch
+):
+    """Approval is only possible after the draft exists in the chat."""
+    mock_mode("ok")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "подтверждаю")
+    await seed_program(rows, program_complete(session.session_id))
+    script = ProgramScript()
+    monkeypatch.setattr(api.provider, "generate", script.generate)
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    assert script.calls == 0
+    state = await load_program(rows, session.session_id)
+    assert state is not None
+    assert state.status is ProgramStatus.PENDING_APPROVAL
+    assert state.finalized is False
+    payload = json.loads(kiq_spy.await_args.args[2])
+    assert "ещё готовится" in payload["message"]
+
+
+async def test_an_explicit_confirmation_approves_the_draft(task_db, rows, redis_keys, kiq_spy, mock_mode, monkeypatch):
+    mock_mode("ok")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "подтверждаю")
+    await seed_program(rows, program_finalized(session.session_id))
+    script = ProgramScript()
+    monkeypatch.setattr(api.provider, "generate", script.generate)
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    assert script.calls == 0
+    state = await load_program(rows, session.session_id)
+    assert state is not None
+    assert state.status is ProgramStatus.APPROVED
+    assert state.approved_at is not None
+    payload = json.loads(kiq_spy.await_args.args[2])
+    assert "утверждён" in payload["message"]
+
+
+async def test_an_invalid_ready_draft_is_not_approved(task_db, rows, redis_keys, kiq_spy, mock_mode, monkeypatch):
+    """A state that skipped validation must not pass the approval gate."""
+    mock_mode("ok")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "подтверждаю")
+    broken = program_finalized(session.session_id).model_copy(update={"curriculum": _hours_block(10).curriculum})
+    await seed_program(rows, broken)
+    script = ProgramScript()
+    monkeypatch.setattr(api.provider, "generate", script.generate)
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    state = await load_program(rows, session.session_id)
+    assert state is not None
+    assert state.status is ProgramStatus.PENDING_APPROVAL
+    payload = json.loads(kiq_spy.await_args.args[2])
+    assert "не прошёл проверку" in payload["message"]
+
+
+async def test_an_approval_that_cannot_be_saved_is_reported(task_db, rows, redis_keys, kiq_spy, mock_mode, monkeypatch):
+    mock_mode("ok")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "подтверждаю")
+    await seed_program(rows, program_finalized(session.session_id))
+
+    class FailingStore:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+        async def save(self, *args, **kwargs):
+            del args, kwargs
+            return
+
+    monkeypatch.setattr(api, "ProgramStateStore", FailingStore)
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    payload = json.loads(kiq_spy.await_args.args[2])
+    assert "Не удалось сохранить" in payload["message"]
+
+
+async def test_an_approved_program_continues_as_a_normal_chat(
+    task_db, rows, redis_keys, kiq_spy, mock_mode, monkeypatch
+):
+    mock_mode("ok")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Расскажи подробнее о модуле")
+    await seed_program(rows, program_approved(session.session_id))
+    script = ProgramScript(program_response(program_json("Подробности.")))
+    monkeypatch.setattr(api.provider, "generate", script.generate)
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    assert script.calls == 1
+    assert json.loads(kiq_spy.await_args.args[2])["message"] == "Подробности."
+    state = await load_program(rows, session.session_id)
+    assert state is not None
+    assert state.status is ProgramStatus.APPROVED
+
+
+async def test_an_unreadable_program_state_is_treated_as_an_ordinary_chat(
+    task_db, rows, redis_keys, kiq_spy, mock_mode, monkeypatch
+):
+    mock_mode("ok")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Привет")
+    async with rows.session() as db:
+        row = await db.get(ChatSession, session.session_id)
+        row.program_state = {"unexpected": "shape"}
+        await db.commit()
+    script = ProgramScript(program_response(program_json("Обычный ответ.")))
+    monkeypatch.setattr(api.provider, "generate", script.generate)
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    assert script.calls == 1
+    assert json.loads(kiq_spy.await_args.args[2])["message"] == "Обычный ответ."
+
+
+async def test_the_stage_mock_drives_the_intake_through_a_tool_call(
+    task_db, rows, redis_keys, kiq_spy, program_stage_spy, mock_mode
+):
+    """The offline provider's ``stage`` mode is what lets the cycle run without an LLM."""
+    mock_mode("stage")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Сделай программу по анализу данных")
+    redis_keys.track(get_program_state_key(session.session_id))
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    state = await load_program(rows, session.session_id)
+    assert state is not None
+    assert state.stage_status(Stage.COMPETENCES) is StageStatus.IN_PROGRESS
+    program_stage_spy.assert_awaited_once_with(session.session_id, Stage.COMPETENCES, state.meta.run_id)
+    payload = json.loads(kiq_spy.await_args.args[2])
+    assert payload["message"]
+
+
+async def test_the_stage_mock_runs_the_whole_cycle_to_a_finalised_draft(
+    task_db, rows, redis_keys, kiq_spy, program_stage_spy, mock_mode, monkeypatch
+):
+    """Drive the intake and all four stages with the offline provider's stage script."""
+    mock_mode("stage")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Сделай программу по анализу данных на 6 часов")
+    redis_keys.track(get_program_state_key(session.session_id))
+    stage_enqueue = AsyncMock()
+    finalize_enqueue = AsyncMock()
+    monkeypatch.setattr(program_module, "program_stage", SimpleNamespace(kiq=stage_enqueue))
+    monkeypatch.setattr(program_module, "finalize_program_draft", SimpleNamespace(kiq=finalize_enqueue))
+
+    await run_task(api.generate_chat_message, session.session_id)
+    state = await load_program(rows, session.session_id)
+    assert state is not None
+    run_id = state.meta.run_id
+    program_stage_spy.assert_awaited_once_with(session.session_id, Stage.COMPETENCES, run_id)
+
+    for stage in (Stage.COMPETENCES, Stage.HOURS, Stage.SOURCES, Stage.SUMMARY):
+        await run_task(stage_task, session.session_id, stage, run_id)
+        state = await load_program(rows, session.session_id)
+        assert state is not None
+
+    assert state.status is ProgramStatus.PENDING_APPROVAL
+    finalize_enqueue.assert_awaited_once_with(session.session_id, run_id)
+
+    await run_task(finalize_task, session.session_id, run_id)
+
+    state = await load_program(rows, session.session_id)
+    assert state is not None
+    assert state.finalized is True
+    async with rows.session() as db:
+        chat = await db.get(ChatSession, session.session_id)
+        result = await db.scalar(select(GenerationResult).where(GenerationResult.chat_session_id == session.session_id))
+    assert chat is not None
+    assert chat.name == "Офлайн-программа (mock)"
+    assert result is not None
+    assert "Черновик программы готов к подтверждению." in result.content
+    kiq_spy.assert_awaited_once()
+
+
+async def test_a_failed_program_is_not_answered_with_the_approval_prompt(
+    task_db, rows, redis_keys, kiq_spy, mock_mode, monkeypatch
+):
+    """A terminal run falls through to the model, which can start a new one."""
+    mock_mode("ok")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Давай начнём заново")
+    failed = program_complete(session.session_id).model_copy(update={"failed": True})
+    await seed_program(rows, failed)
+    script = ProgramScript(program_response(program_json("Начинаем заново.")))
+    monkeypatch.setattr(api.provider, "generate", script.generate)
+
+    await run_task(api.generate_chat_message, session.session_id)
+
+    assert script.calls == 1
+    assert json.loads(kiq_spy.await_args.args[2])["message"] == "Начинаем заново."
+    state = await load_program(rows, session.session_id)
+    assert state is not None
+    assert state.status is ProgramStatus.PENDING_APPROVAL

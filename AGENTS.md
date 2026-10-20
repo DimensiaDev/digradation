@@ -363,19 +363,57 @@ endpoint from `OPENAI_URL` (empty = official OpenAI) and its model from `OPENAI_
 
 Tools are defined once, at provider construction: pass `tools=[Tool(...)]` to any provider.
 `OpenAIProvider` and `SberProvider` implement them; each advertises the set on every request
-and maps the model's requests onto `GenerationResponse.tool_calls`. `mock` accepts `tools=`
-and ignores it. Nothing executes a call yet.
+and maps the model's requests onto `GenerationResponse.tool_calls`. A caller can narrow the
+advertised set with the provider's `tools=` keyword, which is how the intake and stage tasks
+receive different subsets. `mock` accepts `tools=` and ignores it.
 
 The two real providers use different wire shapes, and the internal model hides the difference:
 
-- **OpenAI**: `tools[].function` with `arguments` as a JSON *string*.
+- **OpenAI**: `tools[].function` with `arguments` as a JSON *string*; an assistant tool call
+  is `message.tool_calls`, and the result is a `role: "tool"` message with `tool_call_id`.
 - **GigaChat v2** (`/v2/chat/completions`): `tools[].functions.specifications[]` plus
-  `tool_config.mode`, and the reply nests `function_call` inside `content[]` with
-  `arguments` as a JSON *object*. `SberProvider` normalises both back to `ToolCall`.
+  `tool_config.mode`, and the reply nests `function_call` inside `content[]` (or on the
+  assistant message) with `arguments` as a JSON *object*. A result is a `content[]` part with
+  `function_result`, tied together by `tools_state_id` on the message. `SberProvider`
+  normalises both back to `ToolCall` and strips the OpenAI-only message keys before sending.
 
-The container passes one module-level `TOOLS` list (currently empty) to every provider, so
-registering a tool later means filling that list. `SberProvider` rejects `strict=True` tools
-at construction because GigaChat v2 has no strict mode; the OpenAI client honours `strict`.
+The container passes the module-level `TOOLS = AGENT_TOOLS` list to every provider.
+`SberProvider` rejects `strict=True` tools at construction because GigaChat v2 has no strict
+mode; the OpenAI client honours `strict`.
+
+### The programme pipeline
+
+The sequential educational-programme cycle lives in `app/agentic/` and
+`app/tasks/program.py`. It is the reference implementation for any future multi-stage job:
+
+- `state.py` defines `ProgramState`, an envelope over the first-task `ProgramDraft` blocks
+  plus `requested_hours`, `requirements`, per-stage status, attempts and `run_id`.
+  `to_draft` is the completeness gate: a partial state cannot become a draft. The state is
+  stored in `chat_sessions.program_state` (JSONB), with no separate table.
+- `store.py` is the only writer: PostgreSQL first, then the `program:state:{session_id}`
+  Redis mirror with a one-hour TTL. A cache failure never fails the task. Saves use
+  `expected_run_id` and a version check scoped to the current run.
+- One TaskIQ task owns one stage. The order is competences -> hours -> sources -> summary
+  (`STAGE_ORDER`); `assessment` and `materials` stay pending for #5. A stage commits its
+  block and only then enqueues the next task (or finalisation), so there is no
+  `while not ready` loop and a worker death stops at a committed boundary.
+- The tools are `begin_program`, `save_program_draft`, `approve_program_draft`,
+  `get_program_draft` and `search_sources`. `execute_tool` is the boundary that parses a
+  `FunctionCall` and returns `ok: false` instead of raising. `INTAKE_TOOLS` and `STAGE_TOOLS`
+  keep a stage from starting another programme and the intake from saving a block.
+- The intake creates the run; approval happens from the chat worker on an exact confirmation
+  phrase (`is_approval_message`), because no endpoint may be added. Confirmation is only
+  accepted once `finalized` is true, so it cannot overtake the transaction that renders the
+  draft. `finalize_program_draft` renders the draft, renames a default-named chat, writes the
+  result and the assistant message, and sets `finalized` in one transaction. If the committed
+  blocks cannot produce a valid draft, the state is marked failed and stays terminal instead
+  of being retried by the recovery cron.
+- A per-stage Redis lock (900 s), the `run_id`, idempotent stage replays and the
+  `recover_stalled_programs` five-minute cron cover a worker that dies mid-way. The cron
+  also re-enqueues a pending-approval state that was never finalised, because the summary
+  stage reaches that status before the draft has been rendered. The third failed attempt
+  marks the run failed and posts an error to the chat.
+
 
 ### The mock provider
 
@@ -389,6 +427,7 @@ without credentials and without LLM cost. Its behaviour is set by `MOCK_PROVIDER
 | `ok` (default) | a well-formed reply and a chat name | the happy path, e2e |
 | `empty` | a response with no content | "Provider did not respond properly" |
 | `error` | returns `None` | the backend's error path |
+| `stage` | scripts `begin_program` for the intake and the matching `save_program_draft` block per `STAGE:` marker | the whole programme cycle without a real model |
 
 Output is deterministic: the reply derives from a hash of the conversation, so the same
 input always yields the same text.

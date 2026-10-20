@@ -1006,3 +1006,87 @@ implementing them now would have re-done a zone this branch deliberately does no
 - **A save needs no idempotency key inside one context.** The context lives in memory for one
   worker run and calls execute sequentially, so an older save cannot land after a newer one;
   ordering is the loop's business (#26) and the upsert is the worker's (block F3).
+
+## The programme pipeline is a chain of stages over one JSONB state (2026-10-20)
+
+Issue #3 turned the draft contract into a running sequential cycle. The decisions below are
+the load-bearing ones; the code is `app/agentic/state.py`, `store.py`, `loop.py`,
+`tools.py` and `app/tasks/program.py`. This section supersedes the scope note in "The
+draft's checks: schema bounds here, cross-block rules in #4" where the two conflict.
+
+- **The cross-block validators belong on `ProgramDraft` after all.** The earlier #24 note
+  deferred id uniqueness, outcome references and hour totals because a single stage could not
+  see the assembled document. The sequential cycle makes that exactly the finalisation gate:
+  `to_draft` constructs the one `ProgramDraft` and runs its validators before anything is
+  rendered or approved. Putting them anywhere else would either duplicate the rules per stage
+  or let a set of individually valid blocks reach the user inconsistent. #4 can extend this
+  class; it does not need a second validator layer.
+- **`requested_hours` travels in the envelope, not only in the chat message.** `new_state`
+  records the number `begin_program` received, and `to_draft` passes it to `ProgramDraft`, so
+  the final gate can check that topic hours and the schedule match the volume the methodist
+  asked for. Without it the draft only knew its own total and could not detect a mis-sized
+  programme.
+
+- **The state is an envelope on `chat_sessions.program_state`, not a separate table.** A run
+  needs the first task's blocks plus where the pipeline stopped, and every read wants the
+  whole document rather than a query over one block. A JSONB column keeps the document and
+  its progress in the row the chat already owns; a one-to-one table would add a join and a
+  second lifecycle to keep in sync for no query benefit. The migration adds the column only.
+- **`ProgramState` wraps the first task's models instead of duplicating them.** The blocks
+  are the same `Competence`, `Curriculum`, `ProgramSummary` and `Source`; the envelope adds
+  `requested_hours`, `requirements`, per-stage status, attempts and the `run_id`. `to_draft`
+  is the only way back to a `ProgramDraft`, and it refuses an incomplete stage or a missing
+  block before the cross-block validators run. That keeps one schema for the model and one
+  completeness gate for the worker.
+- **One TaskIQ task owns one stage; there is no `while not ready` loop.** The four stages
+  are competences, hours, sources and summary, in that order. A stage commits its block,
+  then enqueues the next task after the commit, so the queue is the state machine and a
+  worker death stops at a committed boundary. `assessment` and `materials` stay pending for
+  the full-package stage (#5).
+- **PostgreSQL is canonical; Redis is a mirror with a TTL.** Every save writes the row and
+  then `program:state:{session_id}` with a one-hour TTL. A cache failure is logged and does
+  not fail the task: a load reads the row, reparses it and repopulates the mirror. The mirror
+  exists for operators and a live task, never as the source of truth.
+- **Resilience is `run_id` plus a per-stage lock plus idempotent stages.** A stage holds
+  `program:stage:{session_id}:{stage}` for 900 seconds, refuses to write when the row's
+  `run_id` moved on, treats an already-completed stage as a reason to enqueue its successor,
+  and counts attempts on the state. A failure before the budget leaves the stage retryable;
+  the third failure marks the run failed and posts an error the user can see. The recovery
+  cron scans every five minutes for a stale generating state or a pending-approval state that
+  was never finalised, checks the relevant lock, and re-enqueues only work that is still
+  retryable.
+- **A version guard is scoped to one run.** `ProgramStateStore.save` refuses an older
+  version within the same `run_id`, but a restart deliberately starts a new run at version 0
+  and must overwrite the failed run it replaces. Comparing versions across runs would make a
+  restart impossible after a long run.
+- **The lock value is unique per acquisition, not per run.** A slow worker whose lock expired
+  must not release the lock a replacement acquired for the same run; `_release_lock` compares
+  the full token (`run_id:uuid`) and deletes only on a match. A run-id-only value would let
+  the stale worker do exactly that.
+- **Intake and approval are tools, not endpoints.** `begin_program` creates the envelope from
+  the intake conversation and `approve_program_draft` freezes a complete draft. Without a new
+  endpoint, the chat worker recognises the exact confirmation phrases and runs the approval
+  tool itself; whole-phrase matching keeps "не подтверждаю" from approving anything. Approval
+  is only accepted once `finalized` is true, so a confirmation cannot overtake the worker
+  that is still writing the draft. The frontend is unchanged.
+- **The provider round trip speaks both wire formats.** The shared history carries
+  `tool_calls`, `tool_call_id`, `tools_state_id` and a `function_result` content part; the
+  OpenAI client serialises the OpenAI shape and the GigaChat client serialises the v2 shape
+  and strips the OpenAI-only keys. GigaChat may put the function call and the state id on the
+  assistant message rather than in a content part or the envelope, so the client accepts both
+  places, links the id it generates to the content-part call, and converts the normalised
+  string arguments back to an object for the v2 wire. The
+  intake and stage tasks pass explicit tool subsets (`INTAKE_TOOLS`, `STAGE_TOOLS`) through
+  the provider's `tools=` override, so a stage cannot start another programme and the intake
+  cannot save a block.
+- **The mock provider has a `stage` mode.** It scripts `begin_program` for the intake and the
+  correct block per `STAGE:` marker, which is what lets the whole cycle run in tests and e2e
+  without a real model. Its intake final answer is still the structured JSON the chat worker
+  stores; a stage's final line is plain text because it never reaches `process_response`.
+- **Finalisation is one transaction, and an invalid draft ends the run.** Rendering the draft,
+  renaming the chat, writing the `GenerationResult` and the assistant message, and setting
+  `finalized` happen together, so a worker dying before the commit leaves no half-written chat
+  and the recovery path can rerun the task. If the committed blocks cannot pass the cross-block
+  validators, `mark_run_failed` sets `failed` and posts one error: retrying would produce the
+  same invalid draft, and leaving the state retryable made the recovery cron repost that error
+  every five minutes. The chat name is only changed when it is still the default.

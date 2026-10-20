@@ -805,3 +805,52 @@ match S3_SECRET_KEY`. It is not a bug: keep `S3_SECRET_KEY` stable, or start the
   commits. After #26 merged and `main` moved, PR #24's checks vanished this way. Re-pushing
   and reopening the pull request do not help — `reopened` is skipped for the same reason —
   the conflict has to be resolved first. Found 2026-10-18 on `feat/gen-cicle`.
+- **The last stage leaves `GENERATING`, so `_advance` cannot gate finalisation on that
+  status.** `apply_block` moves the completed pipeline to `PENDING_APPROVAL` and clears
+  `current_stage`; an advance helper that returns early unless the status is `GENERATING`
+  silently stops one task short of the draft. Advance on "no next stage" first, then on the
+  status. Found 2026-10-20 while testing the summary stage.
+- **The stage mock has to tell the intake and a stage apart when it answers after a tool
+  result.** Both histories contain a `tool` message. The intake must still return
+  `{"chat_name", "message"}` because `process_response` parses it; a stage may answer with
+  plain text because the loop drops it. Returning the stage's confirmation line to the
+  intake makes the chat worker report invalid JSON. Found 2026-10-20 on `feat/loop-cicle`.
+- **A version guard that ignores `run_id` makes a restart impossible.** The failed run can
+  have version 10 while the restarted run begins at version 0, so a plain
+  `current.version > incoming.version` refusal rejects the new run. Compare versions only
+  when the run ids match; `expected_run_id` is the stronger guard when it is supplied.
+  Found 2026-10-20 while adding the restart path.
+- **A released stage lock must be checked against the acquisition, not the run.** A worker
+  whose lock expired can finish after a replacement worker acquired the same stage for the
+  same run; a run-id-only comparison would let the stale worker delete the replacement's
+  lock and admit a third worker. Store a fresh `run_id:uuid` token on every acquisition and
+  delete only when the stored value is that token. Found 2026-10-20 while reviewing the
+  worker-death path.
+- **`get_program_draft` must deep-copy before building the draft.** `frozen=True` on the
+  schema does not freeze the lists inside a model, so a returned `ProgramDraft` can share
+  its `sources`, `competencies` and `curriculum` with the stored state. Copy the state, then
+  call `to_draft` on the copy. Found 2026-10-20 in the handler tests.
+- **GigaChat v2 can put `function_call` and `tools_state_id` outside the content parts.**
+  The SDK accepts a function call at message level, and the official example reads the state
+  id from the assistant message before falling back to a part. Parsing only `content[].function_call`
+  yields an empty reply whose call is never executed; parsing only the envelope's
+  `tools_state_id` sends the tool result back without the id the next round expects. Accept
+  both places. Found 2026-10-20 while checking the v2 wire shape against the SDK models.
+- **A completed stage cannot be marked failed, so an invalid final draft needs its own
+  terminal state.** `mark_stage_failed` returns the state unchanged when the stage is
+  `COMPLETED`, and by the time the cross-block validators run every stage is complete. Without
+  `mark_run_failed`, the finalisation task posts the error but leaves the state retryable, and
+  the five-minute recovery cron reposts the same error forever. Found 2026-10-20 while
+  reviewing the finalisation error path.
+- **Approval must wait for `finalized`, not just for `PENDING_APPROVAL`.** The state reaches
+  `PENDING_APPROVAL` as soon as the summary block commits, before the finalisation transaction
+  has rendered anything into the chat. A user who confirms in that window would approve a
+  draft they have not seen, and a concurrent finalisation could overwrite the approval. The
+  chat worker refuses confirmation until `finalized` is true; the completion state alone is
+  not proof that the draft is reviewable. Found 2026-10-20 on `feat/loop-cicle`.
+- **A finalisation worker that dies leaves a state the old recovery scan ignored.** The summary
+  stage commits `PENDING_APPROVAL` before finalisation renders anything, and the recovery cron
+  used to skip every non-`GENERATING` state, so a lost finalisation task stranded the draft
+  forever. Treat a stale `PENDING_APPROVAL` with `finalized == false` as recoverable and
+  re-enqueue finalisation; a finalized state is the one genuinely waiting for the methodist.
+  Found 2026-10-20 while checking worker-death coverage.

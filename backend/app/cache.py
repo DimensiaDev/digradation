@@ -51,3 +51,22 @@ def get_attachment_ownership_key(session_id: uuid.UUID, attachment_id: int) -> s
 
 def get_attachment_url_key(attachment_id: int) -> str:
     return f"attachment:url:{attachment_id}"
+
+
+#: How long the current programme state stays in Redis. The database is
+#: canonical, so the mirror is a convenience for a live task and deliberately
+#: expires: an hour is far longer than a stage takes, and a stale copy is then
+#: gone rather than mistaken for the truth.
+PROGRAM_STATE_TTL = 3600
+
+#: A stage holds this lock while it runs. It is the worker-death seam: the lock
+#: expires on its own, and the recovery cron re-enqueues the stage it guarded.
+PROGRAM_STAGE_LOCK_TTL = 900
+
+
+def get_program_state_key(session_id: uuid.UUID) -> str:
+    return f"program:state:{session_id}"
+
+
+def get_program_stage_lock_key(session_id: uuid.UUID, stage: str) -> str:
+    return f"program:stage:{session_id}:{stage}"
