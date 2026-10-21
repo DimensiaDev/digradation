@@ -98,15 +98,10 @@ class SberProvider(AIClient):
             tool_config=ToolConfig(mode="auto") if tool_payload else None,
         )
         request_body = data.model_dump(exclude_unset=True, exclude_none=True, by_alias=True)
-        # ``tool_calls`` and ``tool_call_id`` are the OpenAI half of the shared
-        # history; v2 carries the same information in the content parts and
-        # rejects unknown message keys.
+        # v2 rejects the OpenAI-only message keys and takes ``arguments`` as an object.
         for message in request_body["messages"]:
             message.pop("tool_calls", None)
             message.pop("tool_call_id", None)
-            # The shared history normalises ``arguments`` to a JSON string so
-            # OpenAI can use it verbatim. GigaChat takes the object, which is the
-            # shape its responses use, so restore it for the wire.
             for function_call in (
                 message.get("function_call"),
                 *(
@@ -139,11 +134,9 @@ class SberProvider(AIClient):
         json_data = r.json()
         log.debug("completion_response", data=json_data)
         response = GenerationResponse.model_validate(json_data)
-        # v2 may nest a requested call inside a content part or put it on the
-        # message itself; the shared model surfaces both at the top level, as the
-        # OpenAI client does. The SDK example prefers the message-level field and
-        # falls back to the parts, so a response carrying both is not counted
-        # twice.
+        # v2 nests a requested call in a content part or on the message itself;
+        # surface both at the top level, as the OpenAI client does, and count a
+        # response carrying both only once.
         calls: list[ToolCall] = []
         for message in response.messages:
             function_call = message.function_call
@@ -164,8 +157,7 @@ class SberProvider(AIClient):
                 if part.function_call is not None
             )
         response.tool_calls = calls
-        # The state id can arrive on the assistant message rather than the
-        # envelope; the next request has to echo whichever one is present.
+        # The state id may arrive on the assistant message rather than the envelope.
         if response.tools_state_id is None:
             response.tools_state_id = next(
                 (message.tools_state_id for message in response.messages if message.tools_state_id is not None),

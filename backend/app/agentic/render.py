@@ -1,10 +1,7 @@
 """Render an assembled draft into the message the methodist reads.
 
-The draft is the document; this module is its presentation in the chat, not a
-serialiser of the internal models. Ids stay visible next to the things they name,
-because the methodist corrects the model by id ("в теме t-01.1 лишний ro-k-02"),
-but nothing that is only bookkeeping — attempt counts, versions, the run id —
-reaches the message.
+Ids stay visible next to the things they name, because the methodist corrects
+the model by id; bookkeeping — attempts, versions, the run id — stays out.
 """
 
 from __future__ import annotations

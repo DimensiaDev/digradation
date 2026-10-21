@@ -32,12 +32,10 @@ class AIClient(ABC):
     def __init__(self, api_key: str, scope: Scope, tools: list[Tool] | None = None):
         self.api_key = api_key
         self.scope = scope
-        #: Tools offered to the model on every generation unless the caller names
-        #: a narrower set. Defined once at construction because it is the default
-        #: a deployment wants; a caller that has its own contract for this turn —
-        #: the programme pipeline — passes ``tools=`` to ``generate`` instead.
-        #: The OpenAI and GigaChat clients both advertise them; the mock accepts
-        #: and ignores them.
+        #: Tools offered to the model on every generation. Defined once at
+        #: construction because the set is a property of the deployment, not of
+        #: a single request. The OpenAI and GigaChat clients both advertise them;
+        #: the mock accepts and ignores them.
         self.tools = tools or []
         self._log = structlog.stdlib.get_logger(__name__)
         self.token = None

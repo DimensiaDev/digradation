@@ -1,18 +1,14 @@
 """The sequential programme pipeline: one task per stage.
 
-A stage does one thing. It asks the model for one block, commits the block when
-the model saves it, marks the stage complete and enqueues what follows. Stages are
-separate tasks, not a loop inside one task, and the state in the database is the
-only thing that passes between them — no worker memory, no transcript, nothing
-else. That is what lets a worker die at any point without losing the blocks it
-already committed: the next task reads them and carries on.
+A stage asks the model for one block, commits it, marks the stage complete and
+enqueues what follows. The state in the database is the only thing that passes
+between stages, so a worker may die at any point without losing a committed
+block.
 
-Failure has three outcomes, and the difference between them matters. A provider
-or tool failure spends one of the stage's attempts and enqueues the same stage
-again. Spending the last attempt ends the run and tells the methodist, because a
-retry would fail the same way. A worker that vanished without failing anything is
-noticed by :func:`recover_stalled_programs`, which enqueues the stage the run
-stopped on — otherwise nothing would ever resume it.
+A failed stage spends one attempt and is retried; spending the last one ends the
+run and tells the methodist. A worker that vanished without failing anything is
+found by :func:`recover_stalled_programs`, which enqueues the stage the run
+stopped on.
 """
 
 from __future__ import annotations
@@ -25,17 +21,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agentic import store
-from app.agentic.loop import (
-    AnswerTruncated,
-    ProviderDidNotRespond,
-    ToolCallFailed,
-    ToolLoopExceeded,
-    run_tool_loop,
+from app.agentic.errors import (
+    IncompleteDraft,
+    MissingChat,
+    ProgramError,
+    StageNotCompleted,
+    StaleState,
 )
+from app.agentic.loop import run_tool_loop
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.prompts import stage_messages
 from app.agentic.render import render_draft
-from app.agentic.state import MAX_STAGE_ATTEMPTS, IncompleteDraft, ProgramState
+from app.agentic.state import MAX_STAGE_ATTEMPTS, ProgramState
 from app.agentic.tools import ToolContext, call_executor, stage_tools
 from app.cache import PROGRAM_STAGE_LOCK_TTL, get_program_stage_lock_key, get_redis_client
 from app.models.auth import User
@@ -54,17 +51,14 @@ from app.tasks.conf.broker import broker, tsq_db
 
 log = structlog.stdlib.get_logger(__name__)
 
-#: How long a run may go untouched before the recovery cron treats its stage as
-#: abandoned. This is the second of two gates: a live stage lock always wins, so a
-#: killed worker's run resumes when `PROGRAM_STAGE_LOCK_TTL` expires, not here.
-#: The threshold is what catches a run whose message was lost while no worker held
-#: the stage at all.
+#: How long a run may go untouched before recovery treats its stage as abandoned.
+#: A live stage lock always wins, so a killed worker's run resumes when
+#: ``PROGRAM_STAGE_LOCK_TTL`` expires, not here; this threshold catches a run
+#: whose message was lost while no worker held the stage at all.
 STALLED_AFTER = timedelta(minutes=10)
 
 #: Releases a stage lock only if it still holds the token of the worker that took
-#: it. A plain ``DEL`` after a ``GET`` would remove a lock that expired and was
-#: taken by another worker in between, which is exactly the overlap the lock
-#: exists to prevent.
+#: it, so an expired-and-retaken lock is not deleted by the previous owner.
 _UNLOCK = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
     return redis.call("del", KEYS[1])
@@ -77,9 +71,8 @@ return 0
 async def program_stage(session_id: uuid.UUID, stage: str, run_id: uuid.UUID) -> None:
     """Run one stage of the programme a chat is building.
 
-    ``run_id`` is in the signature, not read from the row, so a stage task that
-    arrives after the methodist started a new run refuses itself instead of
-    writing a block into the new document.
+    ``run_id`` is in the signature so a task that arrives after the methodist
+    started a new run refuses itself instead of writing into the new document.
     """
     stage_value = Stage(stage)
     stage_log = log.bind(chat_session_id=str(session_id), stage=stage, run_id=str(run_id))
@@ -92,7 +85,7 @@ async def program_stage(session_id: uuid.UUID, stage: str, run_id: uuid.UUID) ->
         return
     if state.stage_status(stage_value) is StageStatus.COMPLETED:
         # The worker died between committing the stage and enqueueing its
-        # successor. Hand over instead of paying for the same block twice.
+        # successor: hand over instead of paying for the same block twice.
         await _advance(state)
         return
     if state.status is not ProgramStatus.GENERATING:
@@ -149,18 +142,15 @@ async def _run_stage(
             call_tool=call_executor(ctx, offered),
             checkpoint=checkpoint,
         )
-    except (ProviderDidNotRespond, ToolCallFailed, AnswerTruncated, ToolLoopExceeded) as error:
-        await _stage_failed(ctx.state or started, stage, _reason(error), stage_log)
+    except (StaleState, MissingChat) as error:
+        stage_log.warning("program_stage_superseded", reason=str(error))
         return
-    except store.StaleState:
-        stage_log.warning("program_stage_superseded", reason="the row moved on")
-        return
-    except store.MissingChat:
-        stage_log.info("program_stage_chat_deleted")
+    except ProgramError as error:
+        await _stage_failed(ctx.state or started, stage, error, stage_log)
         return
 
     if not ctx.saved or ctx.state is None:
-        await _stage_failed(ctx.state or started, stage, "модель не сохранила блок этапа", stage_log)
+        await _stage_failed(ctx.state or started, stage, StageNotCompleted(), stage_log)
         return
     saved = await store.save(ctx.state.completed(stage), expected_run_id=state.run_id)
     stage_log.info("program_stage_completed", version=saved.version)
@@ -170,34 +160,18 @@ async def _run_stage(
 async def _stage_failed(
     state: ProgramState,
     stage: Stage,
-    reason: str,
+    error: ProgramError,
     stage_log: structlog.stdlib.BoundLogger,
 ) -> None:
     """Spend an attempt, then either retry the stage or end the run."""
-    failed = state.failed_stage(stage, reason)
+    failed = state.failed_stage(stage, str(error))
     if failed.terminal:
         saved = await store.save(failed, expected_run_id=state.run_id)
-        stage_log.error("program_stage_gave_up", error=reason)
-        await _notify(saved.session_id, _failure_message(reason))
+        stage_log.error("program_stage_gave_up", error=str(error))
+        await _notify(saved.session_id, _failure_message(str(error)))
         return
-    retry = failed.enqueued(stage)
-    saved = await store.save(retry, expected_run_id=state.run_id)
-    stage_log.warning("program_stage_retry", attempt=saved.attempts.get(stage.value), error=reason)
-    await program_stage.kiq(saved.session_id, stage.value, saved.run_id)
-
-
-def _reason(error: Exception) -> str:
-    """The failure as the methodist is told about it."""
-    match error:
-        case ProviderDidNotRespond():
-            return "провайдер не ответил"
-        case AnswerTruncated():
-            return "ответ модели обрезан по длине"
-        case ToolLoopExceeded():
-            return "модель не смогла завершить блок"
-        case ToolCallFailed():
-            return "модель вернула некорректный вызов инструмента"
-    return str(error)
+    saved = await _enqueue_stage(failed, stage)
+    stage_log.warning("program_stage_retry", attempt=saved.attempts.get(stage), error=str(error))
 
 
 def _failure_message(reason: str) -> str:
@@ -209,13 +183,11 @@ def _failure_message(reason: str) -> str:
 
 @broker.task(queue_name="default")
 async def finalize_program_draft(session_id: uuid.UUID, run_id: uuid.UUID) -> None:
-    """Assemble the committed blocks, render the draft and ask for confirmation.
+    """Render the committed blocks into the chat and ask for confirmation.
 
-    Finalising is idempotent by the state it commits: the row lock and the
-    ``finalized`` flag inside it make a duplicate task return without rendering a
-    second message. A draft that cannot be assembled ends the run — the same
-    blocks would be refused again, so spending stage attempts on it would only
-    delay the answer the methodist is owed.
+    Idempotent by the ``finalized`` flag it commits under the row lock, so a
+    duplicate task does not render a second message. A draft that cannot be
+    assembled ends the run: the same blocks would be refused again.
     """
     finalize_log = log.bind(chat_session_id=str(session_id), run_id=str(run_id))
     state = await store.load(session_id)
@@ -234,8 +206,6 @@ async def finalize_program_draft(session_id: uuid.UUID, run_id: uuid.UUID) -> No
         return
 
     message = render_draft(draft)
-    name = _chat_name(draft.title)
-    update_name = name
     finalized = state
     try:
         async with store.locked(session_id) as (db, row):
@@ -243,16 +213,14 @@ async def finalize_program_draft(session_id: uuid.UUID, run_id: uuid.UUID) -> No
             if current is None or current.run_id != run_id or current.finalized or current.failed:
                 return
             # Built from the row, not from the copy read before the lock: another
-            # writer may have advanced the version, and finalising must not roll it
-            # back even when both writes say the same thing.
+            # writer may have advanced the version, and finalizing must not roll
+            # it back even when both writes say the same thing.
             finalized = current.mark_finalized()
             row.program_state = store.dump(finalized)
+            update_name = None
             if row.name == DEFAULT_CHAT_NAME:
-                row.name = name
-            else:
-                # The intake already named the chat, so the title stays; only the
-                # default name is the pipeline's to replace.
-                update_name = None
+                row.name = _chat_name(draft.title)
+                update_name = row.name
             await _write_result(db, session_id, message, update_name=update_name)
             db.add(
                 ChatMessage(
@@ -262,7 +230,7 @@ async def finalize_program_draft(session_id: uuid.UUID, run_id: uuid.UUID) -> No
                     display_text=message,
                 )
             )
-    except store.MissingChat:
+    except MissingChat:
         finalize_log.info("program_finalize_chat_deleted")
         return
     await store.mirror(finalized)
@@ -273,12 +241,9 @@ async def finalize_program_draft(session_id: uuid.UUID, run_id: uuid.UUID) -> No
 async def recover_stalled_programs() -> None:
     """Restart the stage of every run that stopped moving.
 
-    ``program_stage`` is enqueued before it starts, so a worker that dies between
-    the enqueue and the commit leaves a run marked as generating with nothing
-    running. This task is what notices. It skips a stage whose Redis lock is still
-    held, so a slow stage is never doubled, and it spends an attempt on the
-    re-enqueue: a stage that kills its worker must end the run rather than cycle
-    through the queue forever.
+    Skips a stage whose Redis lock is still held, so a slow stage is never
+    doubled, and spends an attempt on the re-enqueue so a stage that kills its
+    worker ends the run instead of cycling through the queue forever.
     """
     async with tsq_db() as db:
         rows = list(await db.scalars(select(ChatSession).where(ChatSession.program_state.is_not(None))))
@@ -291,9 +256,8 @@ async def recover_stalled_programs() -> None:
             continue
         try:
             await _recover(state)
-        except store.StaleState:
-            # The row moved between the scan and the save: the run is alive and
-            # another sweep will see it. One stale row must not stop the others.
+        except StaleState:
+            # The row moved between the scan and the save: another sweep sees it.
             log.debug("program_recovery_stale", chat_session_id=str(state.session_id))
 
 
@@ -306,9 +270,8 @@ async def _recover(state: ProgramState) -> None:
     )
     if state.status is ProgramStatus.PENDING_APPROVAL:
         recover_log.warning("program_recovery_finalize", reason="the draft was never rendered")
-        # Age the row first: finalising writes no state of its own, so without this
-        # a finalize that always raises would be re-enqueued every five minutes
-        # forever, outside the stage budget.
+        # Age the row first: finalizing writes no state of its own, so without this
+        # a finalize that always raises would be re-enqueued every five minutes.
         await store.save(state.touched(), expected_run_id=state.run_id)
         await finalize_program_draft.kiq(state.session_id, state.run_id)
         return
@@ -318,16 +281,22 @@ async def _recover(state: ProgramState) -> None:
     if await _locked(state.session_id, stage):
         recover_log.info("program_recovery_worker_alive")
         return
-    spent = state.attempts.get(stage.value, 0)
+    spent = state.attempts.get(stage, 0)
     if spent >= MAX_STAGE_ATTEMPTS:
-        failed = state.failed_run(f"этап не завершился за {spent} попытки")
+        failed = state.failed_run(f"этап не завершился после {spent} попыток")
         saved = await store.save(failed, expected_run_id=state.run_id)
         recover_log.error("program_recovery_gave_up", attempts=spent)
         await _notify(saved.session_id, _failure_message("этап не завершился"))
         return
+    saved = await _enqueue_stage(state, stage)
+    recover_log.warning("program_recovery_requeue", attempt=saved.attempts.get(stage))
+
+
+async def _enqueue_stage(state: ProgramState, stage: Stage) -> ProgramState:
+    """Spend an attempt on the stage and put it on the queue."""
     saved = await store.save(state.enqueued(stage), expected_run_id=state.run_id)
-    recover_log.warning("program_recovery_requeue", attempt=saved.attempts.get(stage.value))
     await program_stage.kiq(saved.session_id, stage.value, saved.run_id)
+    return saved
 
 
 async def _advance(state: ProgramState) -> None:
@@ -335,8 +304,7 @@ async def _advance(state: ProgramState) -> None:
 
     Both enqueues of the pipeline happen here — the next stage and the finalize
     task — and both read the state the database has, so replaying a stage task
-    does not start a second copy of anything. A successor that is already running
-    or done is left alone.
+    does not start a second copy of anything.
     """
     if state.failed or state.terminal:
         return
@@ -346,13 +314,11 @@ async def _advance(state: ProgramState) -> None:
     next_stage = state.current_stage
     if state.stage_status(next_stage) in (StageStatus.IN_PROGRESS, StageStatus.COMPLETED):
         return
-    if state.attempts.get(next_stage.value):
-        # The successor was enqueued already: a replay of the stage that just
-        # completed reaches here, and enqueueing again would spend one of its
-        # three attempts on a duplicate the queue never lost.
+    if state.attempts.get(next_stage):
+        # The successor was enqueued already: enqueueing again would spend one of
+        # its three attempts on a duplicate the queue never lost.
         return
-    saved = await store.save(state.enqueued(next_stage), expected_run_id=state.run_id)
-    await program_stage.kiq(saved.session_id, next_stage.value, saved.run_id)
+    await _enqueue_stage(state, next_stage)
 
 
 async def _user_uuid(session_id: uuid.UUID) -> uuid.UUID | None:
@@ -373,10 +339,8 @@ async def _write_result(
 ) -> None:
     """Write this turn's result, replacing the row the chat already holds.
 
-    ``generation_results.chat_session_id`` is the primary key — one result per chat,
-    deleted when the next message arrives — so a worker that posts a draft or a
-    failure in the middle of a run has to update the row the intake left behind.
-    Inserting a second one fails on the key, which is how a finished draft was lost.
+    ``generation_results.chat_session_id`` is the primary key, so a second insert
+    fails; a draft or a failure posted mid-run updates the row instead.
     """
     result = await db.get(GenerationResult, session_id)
     if result is None:
@@ -448,7 +412,7 @@ async def _locked(session_id: uuid.UUID, stage: Stage) -> bool:
     """Whether a worker holds the stage lock right now.
 
     A Redis outage must not turn recovery into a stampede, so an unreadable lock
-    counts as held: the next cron tick will ask again.
+    counts as held and the next cron tick asks again.
     """
     try:
         async with get_redis_client() as redis:

@@ -23,6 +23,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.agentic import store
+from app.agentic.errors import StaleState
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.state import (
     STAGE_ORDER,
@@ -789,7 +790,7 @@ async def test_recovery_keeps_going_when_one_row_moved_under_it(
 
         async def save(state: ProgramState, *, expected_run_id: uuid.UUID | None = None) -> ProgramState:
             if state.session_id == chat:
-                raise store.StaleState("moved")
+                raise StaleState("moved")
             return await original(state, expected_run_id=expected_run_id)
 
         monkeypatch.setattr(program.store, "save", save)

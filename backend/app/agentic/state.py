@@ -1,19 +1,9 @@
-"""The state of a programme being built in a chat.
+"""The run state of a programme being built in a chat.
 
-The first task defined the document schema (:mod:`app.agentic.models`): the
-blocks a methodist reviews and the ``EducationalProgram`` they grow into. This
-module wraps that schema in the envelope the sequential cycle needs — the same
-``Competence``, ``Curriculum``, ``ProgramSummary`` and ``Source`` models, plus
-where the run currently stands.
-
-The envelope is what ``chat_sessions.program_state`` holds and what a worker
-mirrors to Redis while a stage works on it. One stage writes one block and moves
-the envelope to the next stage; :meth:`ProgramState.to_draft` is the gate that
-opens only when every block is present and the assembled draft passes the
-cross-block checks no single stage could make.
-
-The state is a value: every transition returns a new instance, so a worker can
-checkpoint one state without a later stage mutating the one already committed.
+The envelope holds the blocks the first task defined in :mod:`app.agentic.models`
+plus where the sequential pipeline stands. One stage writes one block and moves
+the envelope to the next; :meth:`ProgramState.to_draft` is the gate that opens
+only when every block is present and the document passes the cross-block checks.
 """
 
 from __future__ import annotations
@@ -26,6 +16,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.agentic.errors import IncompleteDraft
 from app.agentic.models import (
     Competence,
     Curriculum,
@@ -40,12 +31,11 @@ from app.agentic.models import (
 )
 
 #: Stages that produce a block of the draft, in the order they run. ``assessment``
-#: and ``materials`` belong to the full document (#5) and stay pending until then.
+#: and ``materials`` belong to the full document (#5) and stay pending.
 STAGE_ORDER: tuple[Stage, ...] = (Stage.COMPETENCES, Stage.HOURS, Stage.SOURCES, Stage.SUMMARY)
 
-#: How many times a stage may be enqueued before the run is given up on. The
-#: counter moves when a stage is put on the queue, not when a worker picks it up,
-#: so a lost message and a dead worker both spend the same budget.
+#: Enqueues a stage may spend before the run is given up on. The counter moves
+#: when a stage is put on the queue, not when a worker picks it up.
 MAX_STAGE_ATTEMPTS = 3
 
 #: Answers that confirm a rendered draft. Whole phrases only: "не подтверждаю" is
@@ -64,19 +54,6 @@ _APPROVAL_PHRASES = frozenset(
 )
 
 _PUNCTUATION = " \t\r\n.!?,;:—–-«»\"'"
-
-
-class IncompleteDraft(ValueError):
-    """The committed blocks cannot produce a valid draft.
-
-    ``problems`` is what the user is told when the run ends: retrying the same
-    blocks would produce the same refusal, so the caller marks the run failed
-    instead of spending the stage budget on it.
-    """
-
-    def __init__(self, problems: list[str]) -> None:
-        super().__init__("; ".join(problems))
-        self.problems = problems
 
 
 class CompetencesBlock(BaseModel):
@@ -115,8 +92,7 @@ class ProgramState(BaseModel):
     status: ProgramStatus = ProgramStatus.DRAFT
     current_stage: Stage = Stage.COMPETENCES
     stages: StageStatuses = Field(default_factory=StageStatuses)
-    #: Enqueues per stage, keyed by ``Stage.value``; the failure budget reads it.
-    attempts: dict[str, int] = Field(default_factory=dict)
+    attempts: dict[Stage, int] = Field(default_factory=dict)
     requested_hours: float | None = Field(default=None, gt=0, description="Заявленный объём программы в часах")
     requirements: str | None = Field(default=None, description="Требования методиста из вступительного сообщения")
 
@@ -129,7 +105,6 @@ class ProgramState(BaseModel):
 
     #: True once the draft has been rendered into the chat and may be approved.
     finalized: bool = False
-    #: Terminal failure: a retry would produce the same result.
     failed: bool = False
     error: str | None = None
     version: int = 0
@@ -146,19 +121,13 @@ class ProgramState(BaseModel):
         return self.status is ProgramStatus.PENDING_APPROVAL and self.finalized and not self.failed
 
     def stage_status(self, stage: Stage) -> StageStatus:
-        """Status of one stage of this run."""
         return getattr(self.stages, stage.value)
 
     def enqueued(self, stage: Stage) -> Self:
-        """Put a stage on the queue and spend one attempt of its budget."""
-        attempts = {**self.attempts, stage.value: self.attempts.get(stage.value, 0) + 1}
+        """Put a stage on the queue and spend one attempt."""
+        attempts = {**self.attempts, stage: self.attempts.get(stage, 0) + 1}
         stages = self.stages.model_copy(update={stage.value: StageStatus.PENDING})
-        return self._replace(
-            status=ProgramStatus.GENERATING,
-            current_stage=stage,
-            stages=stages,
-            attempts=attempts,
-        )
+        return self._replace(status=ProgramStatus.GENERATING, current_stage=stage, stages=stages, attempts=attempts)
 
     def started(self, stage: Stage) -> Self:
         """Mark the stage as running; its attempt was counted when it was enqueued."""
@@ -175,7 +144,7 @@ class ProgramState(BaseModel):
     def failed_stage(self, stage: Stage, error: str) -> Self:
         """Record a stage failure; the run ends once the stage's budget is spent."""
         stages = self.stages.model_copy(update={stage.value: StageStatus.FAILED})
-        spent = self.attempts.get(stage.value, 0) >= MAX_STAGE_ATTEMPTS
+        spent = self.attempts.get(stage, 0) >= MAX_STAGE_ATTEMPTS
         return self._replace(stages=stages, failed=spent, error=error)
 
     def failed_run(self, error: str) -> Self:
@@ -183,20 +152,17 @@ class ProgramState(BaseModel):
         return self._replace(failed=True, error=error)
 
     def mark_finalized(self) -> Self:
-        """The draft has been rendered into the chat and may be approved."""
         return self._replace(finalized=True)
 
     def touched(self) -> Self:
-        """Advance the clock on a run that is being retried without a stage change.
+        """Advance the version and the clock without changing the stage.
 
-        Recovery uses it before re-enqueueing a finalize that writes no state of its
-        own: the version has to move for the save to be accepted, and ``updated_at``
-        is what spaces the retries out.
+        Recovery uses it before re-enqueueing a finalize that writes no state of
+        its own, so the save is accepted and the retries stay spaced out.
         """
         return self._replace()
 
     def approved(self) -> Self:
-        """The methodist confirmed the rendered draft."""
         return self._replace(status=ProgramStatus.APPROVED)
 
     def with_competences(self, block: CompetencesBlock, sources: list[Source]) -> Self:
@@ -209,7 +175,6 @@ class ProgramState(BaseModel):
         )
 
     def with_curriculum(self, block: HoursBlock) -> Self:
-        """Save the curriculum block."""
         return self._replace(curriculum=block.curriculum)
 
     def with_sources(self, block: SourcesBlock) -> Self:
@@ -221,28 +186,13 @@ class ProgramState(BaseModel):
         return self._replace(summary=block.summary, sources=self._merged_sources(sources))
 
     def _merged_sources(self, sources: list[Source]) -> list[Source]:
-        """The union of the cited sources, keeping the canonical record of each.
-
-        Every stage that resolves a citation adds it here, so the draft's source
-        list is the document's citation list rather than whatever the last stage
-        happened to return. A repeated id keeps its first position and its latest
-        record.
-        """
+        """Union of the cited sources: first position, latest record."""
         merged = {source.id: source for source in self.sources}
         merged.update({source.id: source for source in sources})
         return list(merged.values())
 
     def to_draft(self) -> ProgramDraft:
-        """Assemble the draft, or explain why the committed blocks cannot be one.
-
-        Completeness is checked first, so the message names the missing stage's
-        block rather than a field of some half-built model. The assembled draft
-        then has to pass the cross-block checks: duplicate identifiers, outcomes
-        a topic refers to but nobody declared, hour totals that disagree with the
-        requested volume or with the schedule, and citations that are not among
-        the draft's sources. Each of them is invisible to a single stage and
-        obvious to the document as a whole.
-        """
+        """Assemble the draft, or explain why the committed blocks cannot be one."""
         kind, title, curriculum, summary = self.kind, self.title, self.curriculum, self.summary
         problems: list[str] = []
         if kind is None:
@@ -273,35 +223,27 @@ class ProgramState(BaseModel):
 
     def _consistency_problems(self, draft: ProgramDraft) -> list[str]:
         """The checks that need the assembled document rather than one block."""
-        problems = [
-            f"компетенция {item} объявлена дважды"
-            for item in _duplicates(competence.id for competence in draft.competencies)
-        ]
-
         outcomes = [
             outcome.id
             for competence in draft.competencies
             for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
         ]
-        problems += [f"результат обучения {item} объявлен дважды" for item in _duplicates(outcomes)]
-        declared = set(outcomes)
-        problems += self.topic_problems(draft.curriculum, declared)
-        problems += self.curriculum_problems(draft.curriculum)
-        problems += self.citation_problems(draft.summary.basis_source_ids)
-        problems += [
-            f"источник {source_id} упомянут, но не входит в список источников"
-            for source_id in self.citation_problems(
-                [competence.standard_source_id for competence in draft.competencies if competence.standard_source_id]
-            )
+        standards = [item.standard_source_id for item in draft.competencies if item.standard_source_id]
+        problems = [
+            f"компетенция {item} объявлена дважды"
+            for item in _duplicates(competence.id for competence in draft.competencies)
         ]
+        problems += [f"результат обучения {item} объявлен дважды" for item in _duplicates(outcomes)]
+        problems += self.topic_problems(draft.curriculum, set(outcomes))
+        problems += self.curriculum_problems(draft.curriculum)
+        problems += self.citation_problems([*draft.summary.basis_source_ids, *standards])
         return problems
 
     def topic_problems(self, curriculum: Curriculum, declared: set[str]) -> list[str]:
         """Topics that refer to outcomes no competence declares.
 
-        Public because the hours stage checks it when its block arrives, with the
-        outcomes the competences already committed: the model can fix a topic id in
-        the same reply, where :meth:`to_draft` could only discard the whole run.
+        Public so the hours stage can refuse a wrong topic id in the reply that
+        produced it, where :meth:`to_draft` could only discard the whole run.
         """
         problems: list[str] = []
         for module in curriculum.modules:
@@ -314,11 +256,7 @@ class ProgramState(BaseModel):
         return problems
 
     def curriculum_problems(self, curriculum: Curriculum) -> list[str]:
-        """The hour totals: the requested volume, and the schedule that must fit it.
-
-        Public for the same reason as :meth:`topic_problems` — the hours stage can
-        answer a wrong total, and finalising can only refuse it.
-        """
+        """The hour totals against the requested volume and the schedule."""
         problems: list[str] = []
         total = curriculum.total_hours
         if self.requested_hours is not None and not math.isclose(total, self.requested_hours, abs_tol=1e-6):
@@ -336,11 +274,7 @@ class ProgramState(BaseModel):
         return problems
 
     def citation_problems(self, source_ids: Iterable[str]) -> list[str]:
-        """Ids the run cites that are not among the sources it committed.
-
-        Public for :meth:`_save_summary`, which knows the sources and can refuse a
-        passport that names a document the programme does not carry.
-        """
+        """Ids the run cites that are not among the sources it committed."""
         known = {source.id for source in self.sources}
         return [
             f"источник {source_id} упомянут, но не входит в список источников"
@@ -349,14 +283,12 @@ class ProgramState(BaseModel):
         ]
 
     def _successor(self, stage: Stage) -> Stage | None:
-        """The stage that follows, or ``None`` once the draft is complete."""
         if stage not in STAGE_ORDER:
             return None
         index = STAGE_ORDER.index(stage)
         return STAGE_ORDER[index + 1] if index + 1 < len(STAGE_ORDER) else None
 
     def _replace(self, **changes: Any) -> Self:
-        """A new value with the given fields changed and the version advanced."""
         changes.setdefault("version", self.version + 1)
         changes.setdefault("updated_at", datetime.now(UTC))
         return self.model_copy(update=changes)
@@ -369,7 +301,7 @@ def new_state(session_id: uuid.UUID, *, requested_hours: float | None, requireme
         run_id=uuid.uuid4(),
         status=ProgramStatus.GENERATING,
         current_stage=Stage.COMPETENCES,
-        attempts={Stage.COMPETENCES.value: 1},
+        attempts={Stage.COMPETENCES: 1},
         requested_hours=requested_hours,
         requirements=requirements,
     )
@@ -381,7 +313,7 @@ def is_approval_message(text: str) -> bool:
     return normalised in _APPROVAL_PHRASES
 
 
-def _duplicates(items: Any) -> list[str]:
+def _duplicates(items: Iterable[str]) -> list[str]:
     """Values that appear more than once, each reported once, in first-seen order."""
     seen: set[str] = set()
     repeated: list[str] = []

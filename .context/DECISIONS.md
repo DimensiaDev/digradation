@@ -1240,3 +1240,17 @@ that lives in the chat worker's turn.
   `program_state`.
 - **#3 stays open.** A merge delivers stages, finalisation and recovery, not "the agent asks
   for a course and gets a draft", which is the issue's acceptance criterion.
+
+## One error base, and names instead of literals (2026-10-21, review of #32)
+
+The review of the cycle asked for a single hierarchy, fewer comments and enums instead of
+hard-coded strings.
+
+- **Every pipeline failure derives from `app.agentic.errors.ProgramError`.** `reason` on each
+  subclass is the sentence the methodist is told, so `tasks/program.py` catches one class and
+  writes `str(error)`; the `match` that mapped exception types to Russian text is gone.
+- **Wire values the pipeline compares are enums.** `Role` and `FinishReason` live in
+  `app.providers.models`; a stage's attempts are keyed by `Stage`, not by its value, so
+  `state.attempts[Stage.HOURS]` reads the same before and after the JSON round trip.
+- **Comments describe behaviour, not the history of the feature.** The rationale and the
+  review notes go here; files the change only passes through keep the comments `main` had.

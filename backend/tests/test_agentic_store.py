@@ -18,6 +18,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.agentic import store
+from app.agentic.errors import MissingChat, StaleState
 from app.agentic.state import ProgramState, new_state
 from app.auth import hash_password
 from app.cache import PROGRAM_STATE_TTL, get_program_state_key
@@ -122,7 +123,7 @@ async def test_a_state_derived_from_an_older_copy_is_refused(
     saved = await store.save(state)
     await store.save(saved.started(saved.current_stage))
 
-    with pytest.raises(store.StaleState):
+    with pytest.raises(StaleState):
         await store.save(saved.approved())
 
 
@@ -130,7 +131,7 @@ async def test_an_older_version_is_refused(state: ProgramState, task_db: None, r
     saved = await store.save(state)
     await store.save(saved.enqueued(saved.current_stage).enqueued(saved.current_stage))
 
-    with pytest.raises(store.StaleState):
+    with pytest.raises(StaleState):
         await store.save(saved)
 
 
@@ -148,14 +149,14 @@ async def test_a_restart_replaces_a_finished_run(state: ProgramState, task_db: N
 async def test_naming_another_run_is_refused(state: ProgramState, task_db: None, redis_client: Redis) -> None:
     await store.save(state)
 
-    with pytest.raises(store.StaleState):
+    with pytest.raises(StaleState):
         await store.save(state.approved(), expected_run_id=uuid.uuid4())
 
 
 async def test_a_deleted_chat_is_reported(task_db: None, redis_client: Redis) -> None:
     orphan = new_state(uuid.uuid4(), requested_hours=None, requirements=None)
 
-    with pytest.raises(store.MissingChat):
+    with pytest.raises(MissingChat):
         await store.save(orphan)
 
 

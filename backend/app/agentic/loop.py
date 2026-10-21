@@ -1,14 +1,11 @@
 """Bounded function-calling loop around the provider.
 
-The programme pipeline is a sequence of model turns: each stage asks the model
-for one block, executes the ``save_program_draft`` call it makes, sends the
-result back, and accepts the next text answer. This module owns that round trip
-and nothing else: the provider, the tool dispatcher and the checkpoint are
-injected, so the loop can be tested with scripted turns and no database.
+Each stage asks the model for one block, executes the calls it makes, sends the
+results back and accepts the next text answer. The provider, the dispatcher and
+the checkpoint are injected, so the loop runs against scripted turns in tests.
 
-The loop never outlives one stage. It does not persist the transcript; what it
-persists, through ``checkpoint``, is the programme state after each executed
-call, so a worker that dies mid-stage leaves the blocks it already saved behind.
+The loop persists nothing itself: ``checkpoint`` is called after every executed
+call, which is where a stage commits the block it just received.
 """
 
 from __future__ import annotations
@@ -20,7 +17,16 @@ from typing import Any
 
 import structlog.stdlib
 
-from app.providers.models import Content, FunctionResult, GenerationResponse, Message, ToolCall
+from app.agentic.errors import AnswerTruncated, ProviderDidNotRespond, ToolCallFailed, ToolLoopExceeded
+from app.providers.models import (
+    Content,
+    FinishReason,
+    FunctionResult,
+    GenerationResponse,
+    Message,
+    Role,
+    ToolCall,
+)
 
 log = structlog.stdlib.get_logger(__name__)
 
@@ -29,36 +35,16 @@ log = structlog.stdlib.get_logger(__name__)
 MAX_TOOL_ROUNDS = 6
 
 
-class ProviderDidNotRespond(RuntimeError):
-    """The provider returned nothing at all (``MockProvider`` "error" mode)."""
-
-
-class ToolCallFailed(RuntimeError):
-    """The model's function call came back malformed (``function_call_error``)."""
-
-
-class AnswerTruncated(RuntimeError):
-    """The model stopped at the token limit, so its text is half-written."""
-
-
-class ToolLoopExceeded(RuntimeError):
-    """The model kept calling functions without ever writing an answer."""
-
-
-class StageNotCompleted(RuntimeError):
-    """The model answered without saving the block the stage is responsible for."""
-
-
 def _answer_text(messages: list[Message]) -> str:
     """The text the model wrote, assembling the parts of its messages."""
     return "".join(
-        part.text or "" for message in messages if message.role == "assistant" for part in message.content
+        part.text or "" for message in messages if message.role == Role.ASSISTANT for part in message.content
     ).strip()
 
 
 def _answer(response: GenerationResponse) -> str:
     """The answer of a turn, refusing one the provider cut off mid-writing."""
-    if response.finish_reason == "length":
+    if response.finish_reason == FinishReason.LENGTH:
         raise AnswerTruncated()
     return _answer_text(response.messages)
 
@@ -70,54 +56,46 @@ async def _generate_turn(
     response = await generate(messages)
     if response is None:
         raise ProviderDidNotRespond()
-    if response.finish_reason == "function_call_error":
+    if response.finish_reason == FinishReason.FUNCTION_CALL_ERROR:
         raise ToolCallFailed()
     return response
 
 
 def _normalise_call_ids(calls: list[ToolCall]) -> None:
-    """Give every call an id.
-
-    OpenAI requires one on both the assistant tool call and the ``tool`` result.
-    GigaChat may omit it, so an id generated here is the only thing that lets the
-    same history serve both wire formats.
-    """
+    """Give every call an id; GigaChat may omit the one OpenAI requires."""
     for call in calls:
         if call.id is None:
             call.id = f"call_{uuid.uuid4().hex}"
 
 
-def _link_content_call_ids(response: GenerationResponse, calls: list[ToolCall]) -> None:
-    """Give GigaChat's content-part call the id the normaliser generated.
+def _take_call(pending: list[ToolCall], call: Any) -> None:
+    """Give a content-part call the id of the matching entry in ``pending``."""
+    if call is None:
+        return
+    for candidate in pending:
+        if candidate.function.name == call.name:
+            call.id = candidate.id
+            pending.remove(candidate)
+            return
 
-    GigaChat may omit the id on an assistant content part. The tool result then
-    carries the generated id, and sending the assistant turn without the same id
-    makes the round ambiguous on the wire. OpenAI has no content-part calls, so
-    this only touches the v2 history.
+
+def _attach_call_ids(response: GenerationResponse, calls: list[ToolCall]) -> None:
+    """Echo the generated ids onto GigaChat's content-part calls.
+
+    The tool result carries the generated id, so sending the assistant turn
+    without the same id would make the round ambiguous on the wire.
     """
     pending = list(calls)
     for message in response.messages:
         if message.function_call is not None:
-            match = next((call for call in pending if call.function.name == message.function_call.name), None)
-            if match is not None:
-                message.function_call.id = match.id
-                pending.remove(match)
+            _take_call(pending, message.function_call)
             continue
         for part in message.content:
-            if part.function_call is None:
-                continue
-            match = next((call for call in pending if call.function.name == part.function_call.name), None)
-            if match is not None:
-                part.function_call.id = match.id
-                pending.remove(match)
+            _take_call(pending, part.function_call)
 
 
 def _tools_state_id(response: GenerationResponse) -> str | None:
-    """The tool-round id, from the envelope or the assistant message.
-
-    GigaChat v2 is not consistent about where it puts ``tools_state_id``; the
-    SDK example reads it from the assistant message, so both places count.
-    """
+    """The tool-round id, from the envelope or the assistant message."""
     return response.tools_state_id or next(
         (message.tools_state_id for message in response.messages if message.tools_state_id is not None),
         None,
@@ -125,27 +103,20 @@ def _tools_state_id(response: GenerationResponse) -> str | None:
 
 
 def _assistant_messages(response: GenerationResponse) -> list[Message]:
-    """The assistant turn, annotated with the calls the top-level response lists.
-
-    GigaChat already nests the calls in the content parts, but the loop reads
-    ``tool_calls``; OpenAI has no content parts at all. Copying the calls onto the
-    stored assistant message makes the history carry both representations. A
-    message that already carries a state id keeps it; the envelope value is only
-    the fallback.
-    """
+    """The assistant turn, carrying the calls in both wire shapes."""
     state_id = _tools_state_id(response)
     messages = [
         message.model_copy(
             update={"tool_calls": response.tool_calls, "tools_state_id": message.tools_state_id or state_id}
         )
         for message in response.messages
-        if message.role == "assistant"
+        if message.role == Role.ASSISTANT
     ]
     if messages:
         return messages
     return [
         Message(
-            role="assistant",
+            role=Role.ASSISTANT,
             content=[Content(text=_answer_text(response.messages))],
             tool_calls=response.tool_calls,
             tools_state_id=state_id,
@@ -154,11 +125,7 @@ def _assistant_messages(response: GenerationResponse) -> list[Message]:
 
 
 def _result_payload(result: Any) -> Any:
-    """Serialise a tool result for the provider.
-
-    The dispatcher returns pydantic models, but the loop stays usable with a
-    plain dict in a test or another caller.
-    """
+    """Serialise a tool result for the provider."""
     if hasattr(result, "model_dump"):
         return result.model_dump(mode="json", exclude_none=True)
     return result
@@ -169,7 +136,7 @@ def _tool_message(call: ToolCall, result: Any, tools_state_id: str | None) -> Me
     payload = _result_payload(result)
     function_result = FunctionResult(id=call.id, name=call.function.name, result=payload)
     return Message(
-        role="tool",
+        role=Role.TOOL,
         content=[Content(text=json.dumps(payload, ensure_ascii=False), function_result=function_result)],
         tool_call_id=call.id,
         tools_state_id=tools_state_id,
@@ -186,21 +153,16 @@ async def run_tool_loop(
 ) -> str:
     """Run the model until it answers with text instead of calling a tool.
 
-    ``generate`` receives the whole conversation of this stage, including the
-    assistant turn that requested a call and the ``tool`` turn carrying its
-    result. ``checkpoint`` is called after every executed call, before the result
-    goes back to the model, which is where a stage commits the block it just
-    received.
-
+    ``checkpoint`` is called after every executed call, before the result goes
+    back to the model, which is where a stage commits the block it just received.
     The bound counts tool rounds, not model turns: after the last round the model
-    still gets one turn to answer from the results it already has, and only a
-    turn that reacts with another call is a model stuck in a loop.
+    still gets one turn to answer from the results it already has.
     """
     messages = list(message_history)
     if first_response is None:
         response = await _generate_turn(generate, messages)
     else:
-        if first_response.finish_reason == "function_call_error":
+        if first_response.finish_reason == FinishReason.FUNCTION_CALL_ERROR:
             raise ToolCallFailed()
         response = first_response
 
@@ -210,7 +172,7 @@ async def run_tool_loop(
             return _answer(response)
 
         _normalise_call_ids(calls)
-        _link_content_call_ids(response, calls)
+        _attach_call_ids(response, calls)
         messages.extend(_assistant_messages(response))
         tools_state_id = _tools_state_id(response)
         for call in calls:

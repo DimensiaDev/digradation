@@ -84,10 +84,8 @@ class ChatSession(Base):
     name: Mapped[str] = mapped_column(String(length=MAX_CHAT_NAME_LENGTH), nullable=False, default=DEFAULT_CHAT_NAME)
     session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    #: The programme being built in this chat: an envelope over the draft blocks
-    #: plus where the sequential pipeline stopped. Nullable because most chats
-    #: never start a programme, and JSONB because every read wants the whole
-    #: document rather than a query over one block.
+    #: The programme being built in this chat: the draft blocks plus the pipeline
+    #: position, or ``None`` for a chat that never started one.
     program_state: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
 
     user: Mapped[User] = relationship("User", back_populates="chat_sessions")

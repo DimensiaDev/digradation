@@ -6,9 +6,9 @@ official OpenAI endpoint is used. The model defaults to the GigaChat model the
 school hub exposes and can be overridden with ``OPENAI_MODEL``.
 
 This provider advertises tools on every request, and the calls the model asks
-for come back on ``GenerationResponse.tool_calls``. The caller decides when to
-execute them; ``app.agentic.loop`` is the programme pipeline's caller. The
-GigaChat client implements the same contract on its own wire format.
+for come back on ``GenerationResponse.tool_calls``. Nothing executes them yet:
+the caller decides whether to answer the call or run it. The GigaChat client
+implements the same contract on its own wire format.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from app.providers.models import (
     InputTokenDetails,
     Message,
     ResponseFormat,
+    Role,
     Tool,
     ToolCall,
     Usage,
@@ -125,13 +126,13 @@ class OpenAIProvider(AIClient):
 
     @classmethod
     def _message_to_openai(cls, message: Message) -> dict:
-        if message.role == "tool":
+        if message.role == Role.TOOL:
             return {
                 "role": "tool",
                 "content": cls._text(message.content),
                 "tool_call_id": message.tool_call_id or "",
             }
-        if message.role == "assistant" and message.tool_calls:
+        if message.role == Role.ASSISTANT and message.tool_calls:
             return {
                 "role": "assistant",
                 "content": cls._text(message.content) or None,

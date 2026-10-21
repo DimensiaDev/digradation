@@ -5,19 +5,15 @@ from functools import cache
 
 from redis.asyncio import ConnectionPool, Redis
 
-#: How long the live mirror of a programme state stays readable. Long enough to
-#: watch a stage run and to answer an operator's question, short enough that an
-#: abandoned run does not sit in Redis forever; PostgreSQL keeps the canonical
-#: copy and repopulates the mirror on the next load.
+from app.agentic.models import Stage
+
+#: How long the Redis mirror of a programme state stays readable; PostgreSQL keeps
+#: the canonical copy and repopulates the mirror on the next load.
 PROGRAM_STATE_TTL = 3600
 
-#: How long one stage may hold its lock. A stage is a handful of model turns, so
-#: a lock older than this belongs to a worker that is gone, and the recovery cron
-#: is allowed to re-enqueue the stage. **This, not the cron's threshold, is what
-#: sets the recovery latency** for a worker that was killed: the cron refuses to
-#: touch a locked stage, so a dead worker's run resumes only after the lock expires
-#: (plus up to one cron period). Kept above a legitimate slow stage, and shortening
-#: it is what trades recovery speed for duplicate provider work.
+#: How long one stage may hold its lock. This, not ``STALLED_AFTER``, sets the
+#: recovery latency of a killed worker: the cron refuses a locked stage, so the
+#: run resumes only after the lock expires.
 PROGRAM_STAGE_LOCK_TTL = 900
 
 
@@ -72,5 +68,5 @@ def get_program_state_key(session_id: uuid.UUID) -> str:
     return f"program:state:{session_id}"
 
 
-def get_program_stage_lock_key(session_id: uuid.UUID, stage: str) -> str:
-    return f"program:stage:{session_id}:{stage}"
+def get_program_stage_lock_key(session_id: uuid.UUID, stage: Stage) -> str:
+    return f"program:stage:{session_id}:{stage.value}"

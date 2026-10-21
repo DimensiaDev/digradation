@@ -14,14 +14,13 @@ from typing import Any
 
 import pytest
 
-from app.agentic.loop import (
-    MAX_TOOL_ROUNDS,
+from app.agentic.errors import (
     AnswerTruncated,
     ProviderDidNotRespond,
     ToolCallFailed,
     ToolLoopExceeded,
-    run_tool_loop,
 )
+from app.agentic.loop import MAX_TOOL_ROUNDS, run_tool_loop
 from app.providers.models import (
     Content,
     ContentFunctionCall,

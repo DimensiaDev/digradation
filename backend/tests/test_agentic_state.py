@@ -16,10 +16,10 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from app.agentic.errors import IncompleteDraft
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.state import (
     STAGE_ORDER,
-    IncompleteDraft,
     ProgramState,
     is_approval_message,
     new_state,

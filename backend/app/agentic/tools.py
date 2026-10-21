@@ -1,29 +1,13 @@
-"""The user functions the model may call, and their implementations.
+"""Tools of the programme pipeline: the specs the model sees and their handlers.
 
-This module is one half of the agent contract. The specifications below are sent
-to the provider with a generation request, and the pydantic schemas of
-:mod:`app.agentic.state` are the other half: the model fills the arguments from
-the specification, the arguments are validated against that schema at the call
-boundary, and the handlers work with validated models on both sides — in and out.
+The specs are one half of the contract and the block models of
+:mod:`app.agentic.state` are the other: the model fills the arguments from the
+spec, the dispatcher validates them against the model, and the handler works with
+a validated block.
 
-The handlers keep no storage of their own. They resolve citations against the
-catalog and leave the run state on :class:`ToolContext` for the caller to
-checkpoint; that is what makes a worker that dies mid-stage lose nothing, because
-the block it already saved is on the state the worker commits after every call.
-
-What is offered depends on where the run is. The intake offers
-:func:`begin_program` and :func:`approve_program_draft`; each stage offers
-:func:`save_program_draft` with the arguments model of its own block, plus the
-catalog search where the stage cites documents. The dispatcher refuses a call the
-caller did not offer, so a model that remembers a tool from another stage cannot
-write a block early.
-
-:func:`execute_tool` is the boundary with the provider: it turns a
-:class:`FunctionCall` — a name and the JSON string of arguments — into one handler
-call, and every failure, arguments that do not validate included, comes back as a
-result with ``ok: false`` instead of a raise, so the model can correct itself
-inside the same reply. Validating the arguments is the caller's job, never the
-handler's: a handler may take its arguments model for granted.
+Handlers keep no storage of their own. They move the run state on
+:class:`ToolContext` and leave it to the caller to checkpoint, which is what lets
+a worker that dies mid-stage lose nothing.
 """
 
 import copy
@@ -51,8 +35,8 @@ from app.providers.models import FunctionCall, FunctionDefinition, Tool, ToolCal
 
 log = structlog.stdlib.get_logger(__name__)
 
-#: Name of the tool that saves the block of the current stage. One name, and the
-#: arguments model changes with the stage, so the model has one habit to learn.
+#: One name for the save tool, with the arguments changing per stage, so the
+#: model has one habit to learn.
 SAVE_PROGRAM_DRAFT = "save_program_draft"
 
 #: The block model of each stage, in the order the stages run.
@@ -69,31 +53,20 @@ SEARCHING_STAGES = frozenset({Stage.COMPETENCES, Stage.SOURCES, Stage.SUMMARY})
 
 @dataclass
 class ToolContext:
-    """What a handler needs beyond the arguments of the call.
-
-    ``state`` is the run this call belongs to; a handler that saves a block
-    replaces it with the transitioned state and sets ``dirty`` so the caller knows
-    there is something to commit. ``known_source_ids`` is the provenance of the
-    run: only a document the model has actually seen — through ``search_sources``
-    or in a block an earlier stage committed — may be cited, so an invented or
-    half-remembered id is refused rather than kept.
-    """
+    """What a handler needs beyond the arguments of the call."""
 
     session_id: uuid.UUID
     state: ProgramState | None = None
+    #: Documents the model has actually seen, through ``search_sources`` or an
+    #: earlier block. Only these may be cited.
     known_source_ids: set[str] = field(default_factory=set)
     dirty: bool = False
-    #: Whether the stage's block was accepted in this turn. The stage task reads
-    #: it to tell "the model saved and answered" from "the model only answered".
+    #: Whether the stage's block was accepted in this turn.
     saved: bool = False
 
 
 class ToolResult(BaseModel):
-    """What a call answers.
-
-    A refusal shares the shape of a success, so the model can always tell what the
-    call did and, when it did nothing, what to change before calling again.
-    """
+    """A refusal shares the shape of a success, so the model can correct itself."""
 
     ok: bool = True
     error: str | None = None
@@ -102,22 +75,16 @@ class ToolResult(BaseModel):
 
 
 class SearchSourcesResult(ToolResult):
-    """Fragments the catalog returned for the query."""
-
     query: str
     fragments: list[SourceFragment] = Field(default_factory=list)
 
 
 class SaveProgramDraftResult(ToolResult):
-    """State of the run after a block was accepted."""
-
     status: ProgramStatus | None = None
     stage: Stage | None = None
 
 
 class BeginProgramResult(ToolResult):
-    """What starting a run tells the model."""
-
     stage: Stage | None = None
 
 
@@ -126,23 +93,16 @@ class ApproveProgramDraftResult(ToolResult):
 
 
 class SearchSourcesArguments(BaseModel):
-    """Arguments of :func:`search_sources`."""
-
     query: str = Field(
         min_length=1,
         max_length=500,
         description="Поисковый запрос: тема, вид деятельности или компетенция",
     )
-    kinds: list[SourceKind] = Field(
-        default_factory=list,
-        description="Ограничить типы источников (необязательно)",
-    )
+    kinds: list[SourceKind] = Field(default_factory=list, description="Ограничить типы источников (необязательно)")
     limit: int = Field(default=5, ge=1, le=10, description="Сколько фрагментов вернуть")
 
 
 class BeginProgramArguments(BaseModel):
-    """Arguments of :func:`begin_program`."""
-
     requirements: str = Field(
         min_length=1,
         max_length=4000,
@@ -164,12 +124,7 @@ class ApproveProgramDraftArguments(BaseModel):
 
 
 def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
-    """Inline ``$defs``/``$ref`` so the parameters are one self-contained object.
-
-    The arguments schema is sent to the model verbatim, and a schema that requires
-    walking ``$defs`` to understand is needless work for it. The definitions of
-    the blocks are small enough to inline without bloating the request.
-    """
+    """Inline ``$defs``/``$ref`` so the parameters are one self-contained object."""
     definitions = schema.get("$defs", {})
 
     def resolve(node: Any) -> Any:
@@ -228,7 +183,7 @@ _SAVE_DESCRIPTIONS: dict[Stage, str] = {
         "Сохранить источники, на которые опирается программа. Ссылайся только на документы, "
         "которые вернул search_sources."
     ),
-    Stage.SUMMARY: ("Сохранить паспорт программы: цель, задачи, аудиторию, форму обучения и документ по итогам."),
+    Stage.SUMMARY: "Сохранить паспорт программы: цель, задачи, аудиторию, форму обучения и документ по итогам.",
 }
 
 #: The save specification of each stage, built from that stage's block model, so
@@ -244,12 +199,7 @@ STAGE_SPECS: dict[Stage, FunctionDefinition] = {
 
 
 async def search_sources(ctx: ToolContext, arguments: SearchSourcesArguments) -> SearchSourcesResult:
-    """Search the source catalog and return the fragments to cite.
-
-    The ids of everything returned are remembered on the context: a source the
-    model has not seen here (or in a block an earlier stage committed) must not end
-    up in the draft, so this is the only place that widens what may be cited.
-    """
+    """Search the catalog and remember the ids the model may now cite."""
     fragments = await search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
     ctx.known_source_ids.update(fragment.source.id for fragment in fragments)
     if not fragments:
@@ -274,18 +224,7 @@ class _Citations:
 
 
 def _resolve_sources(ctx: ToolContext, source_ids: Iterable[str], *, standards: Iterable[str] = ()) -> _Citations:
-    """Replace the cited ids with their catalog records.
-
-    Three ways a citation can be wrong, and all of them must be refused. An id the
-    catalog does not know is an invented document. An id the catalog knows but
-    this run has not shown the model — no ``search_sources`` call returned it and
-    no earlier block carried it — is equally unverified: the catalog is wide, and a
-    plausible-looking ``src-NN`` is easy to guess. An id a competence names as its
-    ``standard_source_id`` must be a professional standard, because that field
-    says where the competence comes from: a ФГОС or a handbook there would
-    misattribute the labour function. The canonical record is kept instead of the
-    one the model reproduced, so titles cannot drift.
-    """
+    """Replace the cited ids with their catalog records, collecting every refusal."""
     standard_ids = set(standards)
     citations = _Citations(sources=[], unknown=[], unsearched=[], not_standards=[])
     for source_id in dict.fromkeys(source_ids):
@@ -324,104 +263,98 @@ def _citation_error(citations: _Citations) -> SaveProgramDraftResult | None:
     return None
 
 
-def _save_competences(ctx: ToolContext, state: ProgramState, block: CompetencesBlock) -> SaveProgramDraftResult:
-    standards = [competence.standard_source_id for competence in block.competencies if competence.standard_source_id]
-    citations = _resolve_sources(ctx, standards, standards=standards)
-    if error := _citation_error(citations):
-        return error
-    ctx.state = state.with_competences(block, citations.sources)
-    ctx.dirty = True
-    return SaveProgramDraftResult(
-        status=ctx.state.status,
-        stage=ctx.state.current_stage,
-        note="Компетенции сохранены. Кратко подтверди, что блок готов, и остановись.",
-    )
+def _no_ids(_block: Any) -> Iterable[str]:
+    return ()
 
 
-def _save_hours(ctx: ToolContext, state: ProgramState, block: HoursBlock) -> SaveProgramDraftResult:
+def _no_problems(_state: ProgramState, _block: Any) -> list[str]:
+    return []
+
+
+def _standard_ids(block: CompetencesBlock) -> Iterable[str]:
+    return [competence.standard_source_id for competence in block.competencies if competence.standard_source_id]
+
+
+def _source_ids(block: SourcesBlock) -> Iterable[str]:
+    return [source.id for source in block.sources]
+
+
+def _basis_ids(block: SummaryBlock) -> Iterable[str]:
+    return block.summary.basis_source_ids
+
+
+def _hours_problems(state: ProgramState, block: HoursBlock) -> list[str]:
     declared = {
         outcome.id
         for competence in state.competencies
         for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
     }
-    problems = state.topic_problems(block.curriculum, declared) + state.curriculum_problems(block.curriculum)
-    if problems:
-        return SaveProgramDraftResult(
-            ok=False,
-            error="Учебный план не принят",
-            details=problems,
-            note="Исправь часы и ссылки на результаты освоения и сохрани блок снова.",
-        )
-    ctx.state = state.with_curriculum(block)
-    ctx.dirty = True
-    return SaveProgramDraftResult(
-        status=ctx.state.status,
-        stage=ctx.state.current_stage,
+    return state.topic_problems(block.curriculum, declared) + state.curriculum_problems(block.curriculum)
+
+
+@dataclass(frozen=True)
+class _Save:
+    """How one stage's block becomes state."""
+
+    apply: Callable[[ProgramState, Any, list[Source]], ProgramState]
+    note: str
+    cited: Callable[[Any], Iterable[str]] = _no_ids
+    standards: Callable[[Any], Iterable[str]] = _no_ids
+    problems: Callable[[ProgramState, Any], list[str]] = _no_problems
+    rejected: str = "Блок не принят"
+    retry: str | None = None
+
+
+_SAVERS: dict[type[BaseModel], _Save] = {
+    CompetencesBlock: _Save(
+        apply=lambda state, block, sources: state.with_competences(block, sources),
+        cited=_standard_ids,
+        standards=_standard_ids,
+        note="Компетенции сохранены. Кратко подтверди, что блок готов, и остановись.",
+    ),
+    HoursBlock: _Save(
+        apply=lambda state, block, _sources: state.with_curriculum(block),
+        problems=_hours_problems,
+        rejected="Учебный план не принят",
+        retry="Исправь часы и ссылки на результаты освоения и сохрани блок снова.",
         note="Учебный план сохранён. Кратко подтверди, что блок готов, и остановись.",
-    )
-
-
-def _save_sources(ctx: ToolContext, state: ProgramState, block: SourcesBlock) -> SaveProgramDraftResult:
-    citations = _resolve_sources(ctx, [source.id for source in block.sources])
-    if error := _citation_error(citations):
-        return error
-    ctx.state = state.with_sources(SourcesBlock(sources=citations.sources))
-    ctx.dirty = True
-    return SaveProgramDraftResult(
-        status=ctx.state.status,
-        stage=ctx.state.current_stage,
+    ),
+    SourcesBlock: _Save(
+        apply=lambda state, block, _sources: state.with_sources(block),
+        cited=_source_ids,
         note="Источники сохранены. Кратко подтверди, что блок готов, и остановись.",
-    )
-
-
-def _save_summary(ctx: ToolContext, state: ProgramState, block: SummaryBlock) -> SaveProgramDraftResult:
-    citations = _resolve_sources(ctx, block.summary.basis_source_ids)
-    if error := _citation_error(citations):
-        return error
-    ctx.state = state.with_summary(block, citations.sources)
-    ctx.dirty = True
-    return SaveProgramDraftResult(
-        status=ctx.state.status,
-        stage=ctx.state.current_stage,
+    ),
+    SummaryBlock: _Save(
+        apply=lambda state, block, sources: state.with_summary(block, sources),
+        cited=_basis_ids,
         note="Паспорт программы сохранён. Черновик собирается, подтверждение попросит методист.",
-    )
+    ),
+}
 
 
 async def save_program_draft(ctx: ToolContext, arguments: BaseModel) -> SaveProgramDraftResult:
-    """Keep the block the stage produced, after binding its citations.
-
-    The dispatcher validates the arguments against the block model of the stage
-    the run is on, so the handler body only has to route the block to its
-    transition. A block saved here is not a stage completed: the worker marks the
-    stage done after the model stops calling tools, and the caller checkpoints the
-    state in between.
-    """
+    """Keep the block the stage produced, after binding its citations."""
     state = ctx.state
     if state is None:
         return SaveProgramDraftResult(ok=False, error="Программа ещё не начата")
-    match arguments:
-        case CompetencesBlock():
-            result = _save_competences(ctx, state, arguments)
-        case HoursBlock():
-            result = _save_hours(ctx, state, arguments)
-        case SourcesBlock():
-            result = _save_sources(ctx, state, arguments)
-        case SummaryBlock():
-            result = _save_summary(ctx, state, arguments)
-        case _:
-            return SaveProgramDraftResult(ok=False, error="Неизвестный блок программы")
-    if result.ok:
-        ctx.saved = True
-    return result
+    rule = _SAVERS.get(type(arguments))
+    if rule is None:
+        return SaveProgramDraftResult(ok=False, error="Неизвестный блок программы")
+    if problems := rule.problems(state, arguments):
+        return SaveProgramDraftResult(ok=False, error=rule.rejected, details=problems, note=rule.retry)
+    citations = _resolve_sources(ctx, rule.cited(arguments), standards=rule.standards(arguments))
+    if error := _citation_error(citations):
+        return error
+    ctx.state = rule.apply(state, arguments, citations.sources)
+    ctx.dirty = ctx.saved = True
+    return SaveProgramDraftResult(status=ctx.state.status, stage=ctx.state.current_stage, note=rule.note)
 
 
 async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> BeginProgramResult:
     """Start a run from the methodist's task.
 
-    A chat holds one programme. A failed run may be started again — that is the
-    retry the methodist is owed after the pipeline gave up — but a run that is
-    still working, still awaiting confirmation, or already approved is not
-    silently replaced: its blocks would be lost with no way to get them back.
+    A chat holds one programme: only a failed run may be replaced, because a run
+    that is working, awaiting confirmation or approved would lose its blocks.
     """
     if ctx.state is not None and not ctx.state.failed:
         return BeginProgramResult(
@@ -446,12 +379,7 @@ async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> B
 async def approve_program_draft(
     ctx: ToolContext, _arguments: ApproveProgramDraftArguments
 ) -> ApproveProgramDraftResult:
-    """Confirm the rendered draft.
-
-    Only a rendered draft can be approved: before the finalize task writes it the
-    methodist has not seen the document, and approving a state they never read is
-    not a confirmation.
-    """
+    """Confirm the rendered draft; before it is written the methodist saw nothing."""
     state = ctx.state
     if state is None:
         return ApproveProgramDraftResult(ok=False, error="В этом чате нет программы")
@@ -486,7 +414,7 @@ class AgentTool:
     handler: Handler
 
 
-#: The tools the model may call, keyed by the name in the specification. What the
+#: Every tool the model may call, keyed by the name in the specification. What the
 #: caller offers is a subset: :data:`INTAKE_TOOLS` or :func:`stage_tools`.
 AGENT_TOOL_REGISTRY: dict[str, AgentTool] = {
     SEARCH_SOURCES_SPEC.name: AgentTool(SEARCH_SOURCES_SPEC, SearchSourcesArguments, search_sources),
@@ -512,12 +440,8 @@ def stage_tools(stage: Stage) -> list[Tool]:
 async def execute_tool(ctx: ToolContext, call: FunctionCall) -> ToolResult:
     """Run one function call: validate its arguments, then hand them to the tool.
 
-    ``FunctionCall.arguments`` is the JSON string the providers normalise to, and
-    validation belongs here rather than in a handler, which receives its arguments
-    model ready to use. A broken call is not a broken generation: the model may
-    correct itself in the next round, so every failure — an unknown name,
-    malformed JSON, arguments that do not validate, an unexpected exception —
-    becomes a result rather than a raise.
+    A broken call is not a broken generation: the model may correct itself in the
+    next round, so every failure becomes a result rather than a raise.
     """
     tool = AGENT_TOOL_REGISTRY.get(call.name)
     if tool is None:
@@ -527,7 +451,9 @@ async def execute_tool(ctx: ToolContext, call: FunctionCall) -> ToolResult:
     if arguments_model is None:
         if ctx.state is None:
             return ToolResult(ok=False, error="Программа ещё не начата")
-        arguments_model = STAGE_BLOCK[ctx.state.current_stage]
+        arguments_model = STAGE_BLOCK.get(ctx.state.current_stage)
+        if arguments_model is None:
+            return ToolResult(ok=False, error="Для этого этапа нет сохраняемого блока")
     try:
         arguments = json.loads(call.arguments)
     except json.JSONDecodeError as error:
@@ -550,9 +476,8 @@ async def execute_tool(ctx: ToolContext, call: FunctionCall) -> ToolResult:
 def call_executor(ctx: ToolContext, offered: list[Tool]) -> Callable[[ToolCall], Awaitable[ToolResult]]:
     """A call handler that runs only the tools the caller offered.
 
-    The provider sees one list per turn, but the registry holds every tool. This
-    is what keeps a model that remembers ``begin_program`` from starting a second
-    run in the middle of a stage.
+    The registry holds every tool; this keeps a model that remembers
+    ``begin_program`` from starting a second run in the middle of a stage.
     """
     names = {tool.function.name for tool in offered}
 

@@ -931,3 +931,7 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   only stops them being re-added. Recover with `git show <last-commit-with-them>:.context/X.md`;
   recover *before* letting a rebase run over the deletion commit. Found 2026-10-20 on
   `feat/program-cycle`.
+- **Do not rewrite comments in files the change only passes through.** A provider docstring
+  that gains a sentence about the pipeline makes the diff look as if every provider changed,
+  and the reviewer has to diff prose before code. Rationale belongs in `.context`. Review of
+  #32, 2026-10-21.

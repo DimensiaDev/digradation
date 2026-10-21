@@ -5,16 +5,19 @@ import os
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Literal, get_args
+from enum import StrEnum
+from typing import get_args
 
 from app.providers.client import AIClient, Scope
 from app.providers.models import (
     Content,
+    FinishReason,
     FunctionCall,
     GenerationResponse,
     InputTokenDetails,
     Message,
     ResponseFormat,
+    Role,
     Tool,
     ToolCall,
     Usage,
@@ -29,17 +32,21 @@ MOCK_API_KEY = "mock"
 #: rejected would fail at import instead.
 MOCK_SCOPES = get_args(Scope)
 
-Mode = Literal["ok", "empty", "error", "stage"]
 
-#: Modes the mock understands. ``ok`` is the happy path: a well-formed reply and a
-#: chat name. ``empty`` returns a response with no content at all, and ``error``
-#: returns ``None``, both of which drive the backend's error paths. ``stage``
-#: drives the programme pipeline: the mock starts a run at the intake, then saves
-#: one valid block per stage, which is what lets the whole cycle run end to end
-#: with no provider and no cost.
-MODES: tuple[Mode, ...] = ("ok", "empty", "error", "stage")
+class Mode(StrEnum):
+    """What the mock answers: ``empty`` and ``error`` drive the error paths,
+    ``stage`` scripts one valid call per programme stage."""
 
-DEFAULT_MODE: Mode = "ok"
+    OK = "ok"
+    EMPTY = "empty"
+    ERROR = "error"
+    STAGE = "stage"
+
+
+MODES: tuple[Mode, ...] = tuple(Mode)
+_RAW_MODES = frozenset(mode.value for mode in Mode)
+
+DEFAULT_MODE = Mode.OK
 
 MOCK_CHAT_NAME = "Чат (mock)"
 
@@ -55,13 +62,9 @@ DAILY_HOURS = 4
 
 
 def get_mock_mode() -> Mode:
-    """Read the mode from the environment, falling back to the happy path.
-
-    Kept as a function (not a module constant) so tests can change
-    ``MOCK_PROVIDER_MODE`` with ``monkeypatch.setenv``.
-    """
+    """Read the mode from the environment, falling back to the happy path."""
     raw = os.getenv("MOCK_PROVIDER_MODE", DEFAULT_MODE).strip().lower()
-    return raw if raw in MODES else DEFAULT_MODE  # type: ignore[return-value]
+    return Mode(raw) if raw in _RAW_MODES else DEFAULT_MODE
 
 
 def _seed(*parts: str) -> int:
@@ -75,30 +78,19 @@ def _seed(*parts: str) -> int:
 
 
 def _last_text(message_history: list[Message]) -> str:
-    """What the user asked for: the last user turn, which is the brief.
-
-    A stage's brief is the whole user turn of that stage, and the history also
-    carries the system prompt, so joining everything would feed the mock's own
-    prompt back as the methodist's requirements.
-    """
+    """The last user turn: the methodist's task or a stage's brief."""
     return next(
         (
             " ".join(part.text for part in message.content if part.text)
             for message in reversed(message_history)
-            if message.role == "user"
+            if message.role == Role.USER
         ),
         "",
     )
 
 
 def _requested_hours(text: str) -> float | None:
-    """The volume in the text, or ``None`` when nobody named one.
-
-    Two kinds of text reach this: the brief of a stage, which states the volume in
-    one fixed phrase, and the methodist's own message at the intake, which names it
-    however they like. Parsing both keeps the fabricated programme the size the
-    methodist asked for.
-    """
+    """The volume named in a stage brief or in the methodist's own message."""
     match = re.search(r"Заявленный объём программы:\s*(\d+(?:[.,]\d+)?)", text)
     if match is None:
         match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:академических\s+)?час", text)
@@ -188,26 +180,24 @@ class MockProvider(AIClient):
             mode=mode,
             messages=len(message_history),
             format=response_format.type,
-            # The mock answers without the model, so the offered set is only
-            # logged; ``stage`` mode uses it to pick the call to script.
             tools=len(offered),
             x_client_id=str(x_client_id),
             x_session_id=str(x_session_id),
         )
 
-        if mode == "error":
+        if mode is Mode.ERROR:
             return None
 
-        if mode == "empty":
+        if mode is Mode.EMPTY:
             # A well-formed response carrying no content, which the backend must
             # treat as "Provider did not respond properly".
-            return self._wrap([Message(role="assistant", content=[])], fingerprint)
+            return self._wrap([Message(role=Role.ASSISTANT, content=[])], fingerprint)
 
-        if mode == "stage":
+        if mode is Mode.STAGE:
             return self._stage(message_history, response_format, offered, fingerprint)
 
         payload = json.dumps(self._payload(fingerprint), ensure_ascii=False)
-        return self._wrap([Message(role="assistant", content=[Content(text=payload)])], fingerprint)
+        return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=payload)])], fingerprint)
 
     def _stage(
         self,
@@ -216,18 +206,10 @@ class MockProvider(AIClient):
         offered: list[Tool],
         fingerprint: str,
     ) -> GenerationResponse:
-        """Answer one turn of the programme pipeline with a usable call.
-
-        The model is replaced by a fixed script: at the intake it starts a run, at
-        each stage it saves the block that stage offered, and once a call has come
-        back it answers. The block is picked from the offered tool — every stage
-        offers ``save_program_draft`` with a different block — and the fabricated
-        document is one fixed programme, because the pipeline validates the blocks
-        against each other and the mock has to pass those checks.
-        """
-        if message_history and message_history[-1].role == "tool":
+        """Script one turn: start a run, save the offered block, then answer."""
+        if message_history and message_history[-1].role == Role.TOOL:
             return self._wrap(
-                [Message(role="assistant", content=[Content(text=self._stage_answer(response_format))])],
+                [Message(role=Role.ASSISTANT, content=[Content(text=self._stage_answer(response_format))])],
                 fingerprint,
             )
         names = {tool.function.name for tool in offered}
@@ -242,7 +224,7 @@ class MockProvider(AIClient):
                 arguments["requested_hours"] = hours
             return self._call(BEGIN_PROGRAM, arguments, fingerprint)
         payload = json.dumps(self._payload(fingerprint), ensure_ascii=False)
-        return self._wrap([Message(role="assistant", content=[Content(text=payload)])], fingerprint)
+        return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=payload)])], fingerprint)
 
     def _block(self, parameters: dict | None, message_history: list[Message]) -> dict:
         """The block of the stage, told apart by the fields its spec requires."""
@@ -265,9 +247,7 @@ class MockProvider(AIClient):
             total = _requested_hours(_last_text(message_history)) or DEFAULT_PROGRAMME_HOURS
             return {"curriculum": _curriculum(total)}
         if "sources" in properties:
-            # The catalog is empty until the RAG index (#11), and a citation that
-            # search never returned is refused, so an empty list is the only block
-            # the pipeline accepts today.
+            # The catalog is empty until the RAG index (#11), so nothing may be cited.
             return {"sources": []}
         return {
             "summary": {
@@ -291,7 +271,7 @@ class MockProvider(AIClient):
 
     def _call(self, name: str, arguments: dict, fingerprint: str) -> GenerationResponse:
         call = ToolCall(function=FunctionCall(name=name, arguments=json.dumps(arguments, ensure_ascii=False)))
-        return self._wrap([Message(role="assistant", content=[])], fingerprint, calls=[call])
+        return self._wrap([Message(role=Role.ASSISTANT, content=[])], fingerprint, calls=[call])
 
     def _wrap(
         self, messages: list[Message], fingerprint: str, *, calls: list[ToolCall] | None = None
@@ -302,7 +282,7 @@ class MockProvider(AIClient):
             model="mock-model",
             thread_id=f"mock-thread-{seed:08x}",
             created_at=datetime(2024, 1, 1, tzinfo=UTC),
-            finish_reason="function_call" if calls else "stop",
+            finish_reason=FinishReason.FUNCTION_CALL if calls else FinishReason.STOP,
             usage=Usage(
                 input_tokens=100 + seed % 400,
                 input_tokens_details=InputTokenDetails(prompt_tokens=100 + seed % 400, cached_tokens=0),

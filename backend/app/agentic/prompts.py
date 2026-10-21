@@ -1,15 +1,8 @@
 """Prompts of the sequential programme pipeline.
 
 Each stage is one model turn with one job: fill one block of the document and
-save it. The prompts therefore say what the stage is for, hand the model the task
-the methodist gave and everything earlier stages committed, and name the id
-conventions of the schema — the blocks have patterns (``comp-NN``, ``ro-k-NN``,
-``m-NN``, ``t-NN.MM``) that a model cannot guess, and a save that breaks one comes
-back as a validation refusal instead of a block.
-
-The prompt is rebuilt for every stage from the state, never from a stored
-transcript: the state is the only thing that survives a worker death, so anything
-the model must know has to be derivable from it.
+save it. The prompt is rebuilt from the state, never from a stored transcript,
+because the state is the only thing that survives a worker death.
 """
 
 from __future__ import annotations
@@ -61,12 +54,7 @@ STAGE_TASKS: dict[Stage, str] = {
 
 
 def saved_blocks(state: ProgramState) -> dict[str, Any]:
-    """The blocks the earlier stages committed, as the model should see them.
-
-    Only what exists is included: an empty block is a stage that has not run yet,
-    and showing it as ``null`` invites the model to fill a block that is not its
-    own.
-    """
+    """The blocks the earlier stages committed, as the model should see them."""
     blocks: dict[str, Any] = {}
     if state.kind is not None:
         blocks["вид программы"] = state.kind.value

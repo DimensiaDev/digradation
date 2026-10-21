@@ -1,10 +1,36 @@
 import json
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any, ClassVar, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.chat import ChatMessage
+
+
+class Role(StrEnum):
+    """Who wrote a message."""
+
+    USER = "user"
+    SYSTEM = "system"
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+
+
+class FinishReason(StrEnum):
+    """Why the provider stopped generating."""
+
+    STOP = "stop"
+    LENGTH = "length"
+    FUNCTION_CALL = "function_call"
+    FUNCTION_CALL_ERROR = "function_call_error"
+    TOOL_CALLS = "tool_calls"
+    CONTENT_FILTER = "content_filter"
+    BLACKLIST = "blacklist"
+    REQUEST_BLACKLIST = "request_blacklist"
+    REQUEST_WHITELIST = "request_whitelist"
+    REQUEST_FILTER = "request_filter"
+    RESPONSE_BLACKLIST = "response_blacklist"
 
 
 class AuthResponse(BaseModel):
@@ -115,7 +141,7 @@ class ToolCall(BaseModel):
 
 
 class Message(BaseModel):
-    role: Literal["user", "system", "assistant", "tool"]
+    role: Role
     content: list[Content] = Field(default_factory=list)
     #: Set on a ``tool`` message to tie it back to the assistant's ``ToolCall``.
     tool_call_id: str | None = None
@@ -221,19 +247,7 @@ class GenerationResponse(BaseModel):
     model: str
     thread_id: str | None = None
     created_at: datetime
-    finish_reason: Literal[
-        "stop",
-        "length",
-        "function_call",
-        "function_call_error",
-        "tool_calls",
-        "content_filter",
-        "blacklist",
-        "request_blacklist",
-        "request_whitelist",
-        "request_filter",
-        "response_blacklist",
-    ]
+    finish_reason: FinishReason
     usage: Usage
     #: Tools the model wants called before it can answer. A response may carry
     #: both text and tool calls, or tool calls with no text at all.
