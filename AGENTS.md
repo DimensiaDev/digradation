@@ -450,11 +450,13 @@ Three constraints worth knowing before adding a spec:
   navigate" error.
 - **The mock provider names every chat the same** (`Чат (mock)`), so identify a
   session by its URL id, not by its title.
-- **Every blocking wait is bounded.** The config sets the global test, expect, action and
-  navigation ceilings; `waitForRequest` / `waitForResponse` / `waitForEvent` calls also pass
-  their own `timeout`. Docker calls in the helpers use `execFileSync` with a `timeout`,
-  because Playwright cannot interrupt a synchronous subprocess: without one, a stuck
-  `docker compose exec` can outlive the test timeout and hang the worker.
+- **Every blocking wait is bounded, and a failed cleanup fails the fixture.** The config
+  sets the global test, expect, action and navigation ceilings; `waitForRequest` /
+  `waitForResponse` / `waitForEvent` calls also pass their own `timeout`. Docker calls in
+  the helpers use `execFileSync` with a `timeout`, because Playwright cannot interrupt a
+  synchronous subprocess: without one, a stuck `docker compose exec` can outlive the test
+  timeout. The rate-limit clear retries within 15s and the idle-generation scan within 45s,
+  then throws rather than letting the next test report a misleading 429 or 409.
 
 ### Frontend
 

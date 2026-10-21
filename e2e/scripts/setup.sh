@@ -54,9 +54,14 @@ fi
 echo "==> Starting the stack"
 E2E_FRONTEND_PORT="$E2E_FRONTEND_PORT" "${DC[@]}" up -d --build
 
+# One deadline for both probes: the frontend and backend start together, and
+# separate loops would let setup wait twice as long as the message promises.
+READINESS_TIMEOUT=120
+readiness_deadline=$((SECONDS + READINESS_TIMEOUT))
+
 echo "==> Waiting for the frontend"
 frontend_ready=false
-for _ in $(seq 1 60); do
+while [ "$SECONDS" -lt "$readiness_deadline" ]; do
   if curl -fsS --max-time 5 -o /dev/null "http://localhost:${E2E_FRONTEND_PORT}/" 2>/dev/null; then
     frontend_ready=true
     break
@@ -64,7 +69,7 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 if [ "$frontend_ready" != "true" ]; then
-  echo "Frontend did not answer on port ${E2E_FRONTEND_PORT} within 120s." >&2
+  echo "Frontend did not answer on port ${E2E_FRONTEND_PORT} within the ${READINESS_TIMEOUT}s readiness deadline." >&2
   exit 1
 fi
 
@@ -74,7 +79,7 @@ fi
 # unauthenticated 401 is the correct answer here and means the routes are loaded.
 echo "==> Waiting for the backend API"
 backend_ready=false
-for _ in $(seq 1 60); do
+while [ "$SECONDS" -lt "$readiness_deadline" ]; do
   code=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' \
     "http://localhost:${E2E_FRONTEND_PORT}/api/v1/users/me" 2>/dev/null)
   if [ "$code" = "401" ]; then
@@ -84,7 +89,7 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 if [ "$backend_ready" != "true" ]; then
-  echo "Backend API did not answer with 401 on port ${E2E_FRONTEND_PORT} within 120s." >&2
+  echo "Backend API did not answer with 401 on port ${E2E_FRONTEND_PORT} within the ${READINESS_TIMEOUT}s readiness deadline." >&2
   exit 1
 fi
 

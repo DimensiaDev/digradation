@@ -1135,15 +1135,17 @@ showed a scrollbar with nothing to scroll to.
 
 ## E2E waits are explicitly bounded (2026-10-21)
 
-- **The global test timeout is 120s, and every potentially blocking wait also carries its
-  own bound.** The autouse fixture may wait up to 45s for an in-flight generation, and the
-  generation assertions allow 45s, so the old 60s ceiling could expire inside setup before
-  the body ran. `waitForRequest`, `waitForResponse` and `waitForEvent` calls now pass an
-  explicit 15s.
+- **The global test timeout is 240s, and every potentially blocking wait also carries its
+  own bound.** The autouse fixture may spend 45s waiting for an in-flight generation plus
+  15s clearing rate limits, and `chat-flow` makes two sequential 45s generation assertions,
+  so a 120s ceiling could expire before the second one. `waitForRequest`, `waitForResponse`
+  and `waitForEvent` calls pass an explicit 15s.
 - **Docker subprocesses get a timeout because Playwright cannot interrupt a synchronous
   `execFileSync`.** A stuck `docker compose exec` would otherwise outlive the test timeout
-  and hang the worker: the rate-limit clear is bounded at 15s, each idle-generation poll at
-  10s, and the pagination seed at 60s.
-- **`setup.sh` exits when its readiness loops expire.** The loops already waited 120s but
-  fell through to seeding, turning an unready stack into a confusing login failure. Each
-  `curl` attempt is capped at 5s, so a hung connection cannot stretch the loop past its bound.
+  and hang the worker: the pagination seed is bounded at 60s, each rate-limit attempt at 5s
+  within a 15s retry budget, and each idle-generation poll at 10s within a 45s retry budget.
+  A failure to clear the counters or confirm the lock fails the fixture instead of letting
+  the next test report a misleading 429 or 409.
+- **`setup.sh` shares one 120s readiness deadline between the frontend and backend probes.**
+  Each `curl` attempt is capped at 5s, so a hung connection cannot stretch the deadline; the
+  script exits when the deadline passes instead of seeding an unready stack.

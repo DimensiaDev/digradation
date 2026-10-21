@@ -882,3 +882,8 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   Docker call would outlive the test's deadline and hang the worker. Bound the subprocess
   with `execFileSync(..., { timeout })` and the loop with its own deadline; the global test
   timeout is not a backstop for either. Found 2026-10-21.
+- **A fixture that swallows a Redis or Docker timeout leaves stale state for the test.** A
+  failed rate-limit clear or an unconfirmed generation lock used to be ignored, so the next
+  test failed later with a misleading 429 or 409. Retry within a deadline, then throw with
+  the underlying reason; "the suite is already broken" is not a reason to let the next
+  assertion misdiagnose it. Found 2026-10-21.
