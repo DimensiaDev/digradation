@@ -80,6 +80,13 @@ async def search_knowledge_base(
         A list of :class:`SearchHit`, sorted by descending score. Empty
         when no fragment clears ``min_score`` or the relative floor —
         never a "best of a bad bunch" fallback.
+
+        Each hit carries enough for a citation: ``doc_id`` (stable across
+        runs), ``metadata["document_title"]`` (human-readable name),
+        ``metadata["source_type"]`` (``fgos`` / ``prof_stand`` /
+        ``edu_programs``), ``section_title`` and ``page_number``.
+        ALA is expected to map these onto its own ``SourceFragment`` DTO;
+        the rag module has no visibility into consumer-specific shapes.
     """
     if not query or not query.strip():
         return []
@@ -90,11 +97,10 @@ async def search_knowledge_base(
 
     filter_dict = {"source_type": source_type} if source_type else None
 
-    hits = await store.search(
-        query_vec,
-        top_k=top_k,
-        filter=filter_dict,
-    )
+    if filter_dict is None:
+        hits = await store.search(query_vec, top_k=top_k)
+    else:
+        hits = await store.search(query_vec, top_k=top_k, filter=filter_dict)
 
     if not hits:
         return []

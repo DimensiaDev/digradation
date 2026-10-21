@@ -79,14 +79,3 @@ class IndexResult(BaseModel):
     @property
     def total(self) -> int:
         return self.indexed + self.skipped + self.failed
-
-
-class SearchResult(BaseModel):
-    chunk_id: str
-    text: str
-    document_title: str
-    section: str | None
-    page: int | None
-    source_type: str
-    score: float
-    metadata: dict = {}

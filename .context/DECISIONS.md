@@ -1501,3 +1501,32 @@ weaker than it looked. These are the rules that came out of it.
   `function_result` part; `test_live_gigachat_completes_a_tool_round` and its OpenAI twin run
   model -> tool -> model through `run_tool_loop`, so the exact shape that blocked the merge is
   exercised by the real API. They stay deselected by default and need a real key.
+
+## 2026-10-21 — RAG reindex is not atomic across batches
+
+`DocumentIndexer.index` upserts new chunks in batches, then deletes
+orphans. An interrupted reindex leaves a mix of old and new chunk
+versions in the store. Acceptable for the current single-process
+taskiq integration (no mid-flight cancellation); a crash-safe design
+would stamp each chunk with a generation counter and switch the
+search to the newest complete generation. Deferred until the taskiq
+task exists.
+
+## 2026-10-21 — RAG public DTO is SearchHit, no SearchResult
+
+`search_knowledge_base` returns `list[SearchHit]`. There is no
+`SearchResult` DTO in `edu_rag/models.py`. A `SearchResult` was
+introduced during an intermediate iteration of the search PR, never
+wired into the return path, and removed in review. Consumers (ALA) map
+`SearchHit` onto their own `SourceFragment`; `edu_rag` does not own the
+consumer-side shapes and adding one would create two contracts to keep
+in sync.
+
+## 2026-10-21 — RAG reindex is not atomic across batches
+
+`DocumentIndexer.index` upserts new chunks in batches, then deletes
+orphans. An interrupted reindex leaves a mix of old and new chunk
+versions in the store. Acceptable for the current single-process
+taskiq integration; a crash-safe design would stamp each chunk with a
+generation counter and switch the search to the newest complete
+generation. Deferred until the taskiq task exists.

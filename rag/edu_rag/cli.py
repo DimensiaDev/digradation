@@ -63,8 +63,16 @@ def _make_real_provider() -> EmbeddingProvider:  # pragma: no cover - live path
     return provider
 
 
-async def _build_index(parsed_dir: Path, provider: EmbeddingProvider) -> InMemoryVectorStore:
-    """Load every parsed document and index it into a fresh in-memory store."""
+async def _build_index(
+    parsed_dir: Path,
+    provider: EmbeddingProvider,
+) -> InMemoryVectorStore:
+    """Load every parsed document and index it into a fresh in-memory store.
+
+    Raises ``RuntimeError`` if any batch failed to index: continuing to
+    search a partial index silently returns incomplete answers, which is
+    worse than failing loudly. The CLI reports the error and exits 2.
+    """
     store = InMemoryVectorStore()
     config = EmbeddingConfig(
         model=provider.model,
@@ -75,13 +83,25 @@ async def _build_index(parsed_dir: Path, provider: EmbeddingProvider) -> InMemor
 
     files = _iter_parsed_docs(parsed_dir)
     print(f"indexing {len(files)} document(s) from {parsed_dir}")
+
+    failed_total = 0
+    error_lines: list[str] = []
+
     for path in files:
         chunks = load_chunks_from_json(path)
         result = await indexer.index(
             doc_id=chunks[0].doc_id if chunks else path.parent.name,
             chunks=chunks,
         )
+        failed_total += result.failed
+        error_lines.extend(result.errors)
         print(f"  {path.parent.name}: indexed={result.indexed} " f"skipped={result.skipped} failed={result.failed}")
+
+    if failed_total:
+        raise RuntimeError(
+            f"indexing failed for {failed_total} chunk(s); "
+            f"first error: {error_lines[0] if error_lines else 'unknown'}"
+        )
     return store
 
 
@@ -92,7 +112,11 @@ async def _cmd_index(args: argparse.Namespace) -> int:
         return 2
 
     provider = _make_provider(args.real)
-    store = await _build_index(parsed_dir, provider)
+    try:
+        store = await _build_index(parsed_dir, provider)
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     print(f"store: {await store.list_docs()}")
     return 0
 
@@ -109,7 +133,11 @@ async def _cmd_search(args: argparse.Namespace) -> int:
         return 2
 
     provider = _make_provider(args.real)
-    store = await _build_index(parsed_dir, provider)
+    try:
+        store = await _build_index(parsed_dir, provider)
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
     hits = await search_knowledge_base(
         query=args.query,

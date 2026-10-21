@@ -53,3 +53,27 @@ poetry run python -m edu_rag.cli search \
   --parsed-dir ../edu_materials/parsed \
   --query "<relevant query>" \
   --top-k 5 --real --min-score 0.0 --min-relative 0.0
+```
+
+### Public API
+
+`search_knowledge_base(query, provider, store, *, source_type, top_k,
+min_score, min_relative)` returns `list[SearchHit]`.
+
+`SearchHit` fields:
+
+| Field | Source | Purpose |
+|---|---|---|
+| `doc_id` | parser `document.json` | stable identifier across runs |
+| `ordinal` | parser | chunk position within the document |
+| `kind` | parser | `text` or `table` |
+| `section_title` | parser | hierarchical section (e.g. `Пояснительная записка > 1.1. Актуальность`) |
+| `page_number` | parser (PDF only) | for citation |
+| `content` | parser | the fragment text |
+| `score` | store | cosine similarity, 0.0–1.0 |
+| `metadata["document_title"]` | loader | human-readable title |
+| `metadata["source_type"]` | loader | `fgos` / `prof_stand` / `edu_programs` |
+
+Consumers (ALA) map `SearchHit` onto their own DTOs. `edu_rag` does not
+own the ALA-side shapes, so no `SearchResult` DTO exists here — adding
+one would create two contracts to keep in sync.
