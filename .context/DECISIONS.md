@@ -1359,3 +1359,14 @@ The catalog now opens a right-side detail view from a card, without leaving `/pr
   neither while it stays open: scrolling would pull the open dropdown away from the pointer.
 - **`scroll-margin-top: 72px` clears the sticky application header.** Focus scrolling uses
   the same offset as `scrollIntoView`, so neither lands under the header.
+
+## Program action menus implement the menu button keyboard pattern (2026-10-21)
+
+- **Both card and panel action menus keep `role="menu"` and add the missing keyboard
+  behaviour.** Opening the menu focuses its first item; ArrowDown/ArrowUp wrap, Home/End
+  jump, and Escape still closes and restores focus to the trigger.
+- **The items use a roving `tabindex`.** Only the active item is in the tab order, so Tab
+  does not walk through every command before leaving the menu.
+- **Navigation lives in `shared/utils/menu-keyboard.ts`.** The card and panel menus have the
+  same command set and would otherwise drift; the helper returns the next index and leaves
+  unrelated keys alone.

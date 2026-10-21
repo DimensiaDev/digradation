@@ -60,6 +60,7 @@ mock-backed, lazy-loaded catalog: type, update-month and tag filters, a responsi
 grid, local duplicate / archive / delete actions, pagination, and a non-modal right-side
 detail aside opened from a card. Filter and page changes update a polite live summary;
 pagination and reset return focus to a labelled results region at the top of the grid. The
+card and panel action menus use the menu-button keyboard pattern with roving tab focus. The
 aside floats above the page and is set off its edges as a rounded card at wide viewports;
 below 980px it fills the viewport. It shows the programme metadata, description and goals,
 plus derived demo tabs for structure, competencies and materials; its header menu and footer

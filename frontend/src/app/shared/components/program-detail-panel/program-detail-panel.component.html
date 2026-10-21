@@ -41,14 +41,18 @@
           <div
             class="program-panel__dropdown program-panel__dropdown--header popover-menu popover-menu--below"
             role="menu"
+            tabindex="-1"
             [id]="menuId"
+            (keydown)="onMenuKeydown($event)"
             animate.enter="popover-menu--enter"
             animate.leave="popover-menu--leave"
           >
             <button
+              #menuItem
               type="button"
               class="program-panel__menu-item popover-menu__item"
               role="menuitem"
+              [attr.tabindex]="activeMenuItem() === 0 ? 0 : -1"
               (click)="runMenuAction()"
             >
               <svg size="16" lucideCopy aria-hidden="true"></svg>
@@ -57,9 +61,11 @@
 
             @if (!isArchived()) {
               <button
+                #menuItem
                 type="button"
                 class="program-panel__menu-item popover-menu__item"
                 role="menuitem"
+                [attr.tabindex]="activeMenuItem() === 1 ? 0 : -1"
                 (click)="runMenuAction()"
               >
                 <svg size="16" lucideArchive aria-hidden="true"></svg>
@@ -68,9 +74,11 @@
             }
 
             <button
+              #menuItem
               type="button"
               class="program-panel__menu-item program-panel__menu-item--danger popover-menu__item popover-menu__item--danger"
               role="menuitem"
+              [attr.tabindex]="activeMenuItem() === deleteMenuIndex() ? 0 : -1"
               (click)="runMenuAction()"
             >
               <svg size="16" lucideTrash2 aria-hidden="true"></svg>

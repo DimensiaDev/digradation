@@ -1,10 +1,11 @@
 import {
+  afterRenderEffect,
   ChangeDetectionStrategy,
   Component,
-  ElementRef,
-  HostListener,
   computed,
   effect,
+  ElementRef,
+  HostListener,
   input,
   output,
   signal,
@@ -35,6 +36,7 @@ import {
   buildProgramModules,
   formatProgramHours
 } from '../../utils/program-detail-content';
+import { nextMenuIndex } from '../../utils/menu-keyboard';
 import { PROGRAM_THEME_ICONS } from '../../utils/program-theme';
 
 type ProgramTab = 'description' | 'structure' | 'competencies' | 'materials';
@@ -99,7 +101,9 @@ export class ProgramDetailPanelComponent {
   });
   readonly materials = computed(() => buildProgramMaterials());
   readonly isArchived = computed(() => this.program()?.status === 'archived');
+  readonly deleteMenuIndex = computed(() => (this.isArchived() ? 1 : 2));
   readonly formatHours = formatProgramHours;
+  readonly activeMenuItem = signal(0);
 
   private readonly programId = computed(() => this.program()?.id ?? null);
   private readonly scroll = viewChild<ElementRef<HTMLElement>>('scroll');
@@ -107,8 +111,21 @@ export class ProgramDetailPanelComponent {
   private readonly tabButtons = viewChildren<ElementRef<HTMLButtonElement>>('tabButton');
   private readonly headerMenu = viewChild<ElementRef<HTMLElement>>('headerMenu');
   private readonly headerMenuButton = viewChild<ElementRef<HTMLButtonElement>>('headerMenuButton');
+  private readonly menuItems = viewChildren<ElementRef<HTMLButtonElement>>('menuItem');
+  private pendingMenuFocus = false;
 
   constructor() {
+    afterRenderEffect({
+      write: () => {
+        if (!this.menuOpen() || !this.pendingMenuFocus) {
+          return;
+        }
+
+        this.pendingMenuFocus = false;
+        this.menuItems()[this.activeMenuItem()]?.nativeElement.focus();
+      }
+    });
+
     effect(() => {
       if (!this.programId()) {
         return;
@@ -162,7 +179,14 @@ export class ProgramDetailPanelComponent {
   }
 
   toggleMenu(): void {
-    this.menuOpen.update((open) => !open);
+    if (this.menuOpen()) {
+      this.closeMenu();
+      return;
+    }
+
+    this.activeMenuItem.set(0);
+    this.pendingMenuFocus = true;
+    this.menuOpen.set(true);
   }
 
   closeMenu(restoreFocus = false): void {
@@ -170,10 +194,23 @@ export class ProgramDetailPanelComponent {
       return;
     }
 
+    this.pendingMenuFocus = false;
     this.menuOpen.set(false);
     if (restoreFocus) {
       this.headerMenuButton()?.nativeElement.focus();
     }
+  }
+
+  onMenuKeydown(event: KeyboardEvent): void {
+    const items = this.menuItems();
+    const nextIndex = nextMenuIndex(event.key, this.activeMenuItem(), items.length);
+    if (nextIndex === null) {
+      return;
+    }
+
+    event.preventDefault();
+    this.activeMenuItem.set(nextIndex);
+    items[nextIndex]?.nativeElement.focus();
   }
 
   runMenuAction(): void {

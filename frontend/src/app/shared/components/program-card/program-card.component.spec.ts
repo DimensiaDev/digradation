@@ -30,7 +30,10 @@ describe('ProgramCardComponent', () => {
   const menuItem = (label: string) =>
     menuItems().find((item) => item.nativeElement.textContent.trim() === label);
 
-  const detect = () => fixture.detectChanges();
+  const detect = () => {
+    fixture.detectChanges();
+    TestBed.tick();
+  };
 
   const openMenu = () => {
     menuButton().nativeElement.click();
@@ -146,6 +149,39 @@ describe('ProgramCardComponent', () => {
 
     expect(menu()).toBeNull();
     expect(document.activeElement).toBe(menuButton().nativeElement);
+  });
+
+  it('moves through the menu with the arrow keys, Home and End', () => {
+    openMenu();
+    const items = menuItems().map((item) => item.nativeElement as HTMLButtonElement);
+
+    expect(document.activeElement).toBe(items[0]);
+    expect(items[0].getAttribute('tabindex')).toBe('0');
+    expect(items[1].getAttribute('tabindex')).toBe('-1');
+
+    const press = (key: string) => {
+      (document.activeElement as HTMLElement).dispatchEvent(
+        new KeyboardEvent('keydown', { key, bubbles: true })
+      );
+      detect();
+    };
+
+    press('ArrowDown');
+    expect(document.activeElement).toBe(items[1]);
+    expect(items[1].getAttribute('tabindex')).toBe('0');
+    expect(items[0].getAttribute('tabindex')).toBe('-1');
+
+    press('End');
+    expect(document.activeElement).toBe(items[2]);
+
+    press('ArrowDown');
+    expect(document.activeElement).toBe(items[0]);
+
+    press('ArrowUp');
+    expect(document.activeElement).toBe(items[2]);
+
+    press('Home');
+    expect(document.activeElement).toBe(items[0]);
   });
 
   it('emits duplicate and closes the menu', () => {

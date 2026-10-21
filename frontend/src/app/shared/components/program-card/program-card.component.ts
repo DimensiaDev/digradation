@@ -1,14 +1,16 @@
 import {
+  afterRenderEffect,
   ChangeDetectionStrategy,
   Component,
+  computed,
   ElementRef,
   HostListener,
-  computed,
   inject,
   input,
   output,
   signal,
-  viewChild
+  viewChild,
+  viewChildren
 } from '@angular/core';
 import {
   LucideArchive,
@@ -19,6 +21,7 @@ import {
   LucideTrash2
 } from '@lucide/angular';
 import { PROGRAM_STATUS_LABELS, Program, ProgramAction } from '../../../core/models/models';
+import { nextMenuIndex } from '../../utils/menu-keyboard';
 import { PROGRAM_THEME_ICONS } from '../../utils/program-theme';
 
 function formatDate(timestamp: string): string {
@@ -61,11 +64,28 @@ export class ProgramCardComponent {
   readonly initials = computed(() => initialsFor(this.program().author.name));
   readonly isArchived = computed(() => this.program().status === 'archived');
   readonly menuId = computed(() => `program-menu-${this.program().id}`);
+  readonly deleteMenuIndex = computed(() => (this.isArchived() ? 1 : 2));
 
   readonly menuOpen = signal(false);
+  readonly activeMenuItem = signal(0);
 
   private readonly elementRef = inject(ElementRef<HTMLElement>);
   private readonly menuButton = viewChild<ElementRef<HTMLButtonElement>>('menuButton');
+  private readonly menuItems = viewChildren<ElementRef<HTMLButtonElement>>('menuItem');
+  private pendingMenuFocus = false;
+
+  constructor() {
+    afterRenderEffect({
+      write: () => {
+        if (!this.menuOpen() || !this.pendingMenuFocus) {
+          return;
+        }
+
+        this.pendingMenuFocus = false;
+        this.menuItems()[this.activeMenuItem()]?.nativeElement.focus();
+      }
+    });
+  }
 
   openProgram(): void {
     this.closeMenu();
@@ -73,7 +93,14 @@ export class ProgramCardComponent {
   }
 
   toggleMenu(): void {
-    this.menuOpen.update((open) => !open);
+    if (this.menuOpen()) {
+      this.closeMenu();
+      return;
+    }
+
+    this.activeMenuItem.set(0);
+    this.pendingMenuFocus = true;
+    this.menuOpen.set(true);
   }
 
   closeMenu(restoreFocus = false): void {
@@ -81,10 +108,23 @@ export class ProgramCardComponent {
       return;
     }
 
+    this.pendingMenuFocus = false;
     this.menuOpen.set(false);
     if (restoreFocus) {
       this.menuButton()?.nativeElement.focus();
     }
+  }
+
+  onMenuKeydown(event: KeyboardEvent): void {
+    const items = this.menuItems();
+    const nextIndex = nextMenuIndex(event.key, this.activeMenuItem(), items.length);
+    if (nextIndex === null) {
+      return;
+    }
+
+    event.preventDefault();
+    this.activeMenuItem.set(nextIndex);
+    items[nextIndex]?.nativeElement.focus();
   }
 
   run(action: ProgramAction): void {

@@ -45,6 +45,32 @@ test.describe("programs catalog", () => {
     await expect(summary).toContainText("Показано 7–8 из 8 программ");
   });
 
+  test("navigates the card action menu with the keyboard", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.goto("/programs");
+
+    const trigger = page.locator(".program-card__menu-button").first();
+    await trigger.click();
+
+    const items = page.locator(".program-card__dropdown [role=\"menuitem\"]");
+    await expect(items.first()).toBeFocused();
+
+    await page.keyboard.press("ArrowDown");
+    await expect(items.nth(1)).toBeFocused();
+    await expect(items.nth(1)).toHaveAttribute("tabindex", "0");
+
+    await page.keyboard.press("End");
+    await expect(items.last()).toBeFocused();
+
+    await page.keyboard.press("Home");
+    await expect(items.first()).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+  });
+
   test("opens the detail panel full-screen on a narrow viewport", async ({
     page,
   }) => {
