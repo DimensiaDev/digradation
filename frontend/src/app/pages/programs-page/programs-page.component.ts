@@ -1,13 +1,11 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { LucideChevronLeft, LucideChevronRight, LucideFolderOpen } from '@lucide/angular';
 import { FormsModule } from '@angular/forms';
-import { Program } from '../../core/models/models';
+import { Program, ProgramAction } from '../../core/models/models';
 import { NotificationService } from '../../core/services/notification.service';
 import { PROGRAMS_PAGE_SIZE, ProgramsService } from '../../core/services/programs.service';
-import {
-  ProgramAction,
-  ProgramCardComponent
-} from '../../shared/components/program-card/program-card.component';
+import { ProgramDetailPanelComponent } from '../../shared/components/program-detail-panel/program-detail-panel.component';
+import { ProgramCardComponent } from '../../shared/components/program-card/program-card.component';
 import { Select, SelectOption } from '../../shared/components/select/select.component';
 
 const MONTH_LABELS = [
@@ -31,10 +29,10 @@ function monthLabel(value: string): string {
 }
 
 function buildTypeOptions(programs: readonly Program[]): SelectOption[] {
-  const directions = [...new Set(programs.map((program) => program.direction))];
+  const types = [...new Set(programs.map((program) => program.type))];
   return [
     { value: 'all', label: 'Все типы' },
-    ...directions.map((direction) => ({ value: direction, label: direction }))
+    ...types.map((type) => ({ value: type, label: type }))
   ];
 }
 
@@ -62,6 +60,7 @@ function buildDateOptions(programs: readonly Program[]): SelectOption[] {
   selector: 'app-programs-page',
   imports: [
     ProgramCardComponent,
+    ProgramDetailPanelComponent,
     FormsModule,
     Select,
     LucideChevronLeft,
@@ -84,6 +83,9 @@ export class ProgramsPage {
   readonly dateFilter = signal('all');
   readonly tagFilter = signal<readonly string[]>([]);
   readonly page = signal(0);
+  readonly selectedProgramId = signal<string | null>(null);
+
+  private lastTrigger: HTMLElement | null = null;
 
   readonly pageSize = PROGRAMS_PAGE_SIZE;
 
@@ -102,6 +104,12 @@ export class ProgramsPage {
   );
 
   readonly programs = computed(() => this.result().items);
+  readonly selectedProgram = computed(() => {
+    const id = this.selectedProgramId();
+    return id
+      ? (this.programsService.programs().find((program) => program.id === id) ?? null)
+      : null;
+  });
   readonly total = computed(() => this.result().total);
   readonly totalPages = computed(() => Math.max(1, Math.ceil(this.total() / this.pageSize)));
   readonly canGoBack = computed(() => this.page() > 0);
@@ -181,6 +189,22 @@ export class ProgramsPage {
     }
   }
 
+  openProgram(program: Program): void {
+    this.lastTrigger =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.selectedProgramId.set(program.id);
+  }
+
+  closeProgram(): void {
+    const trigger = this.lastTrigger;
+    this.lastTrigger = null;
+    this.selectedProgramId.set(null);
+
+    if (trigger?.isConnected) {
+      trigger.focus();
+    }
+  }
+
   onAction(program: Program, action: ProgramAction): void {
     switch (action) {
       case 'duplicate':
@@ -196,6 +220,10 @@ export class ProgramsPage {
         this.notifications.info('Программа архивирована');
         return;
       case 'delete':
+        if (this.selectedProgramId() === program.id) {
+          this.selectedProgramId.set(null);
+          this.lastTrigger = null;
+        }
         this.programsService.remove(program.id);
         this.clampPage();
         this.notifications.info('Программа удалена');

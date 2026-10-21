@@ -1,24 +1,28 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { Program } from '../../../core/models/models';
-import { ProgramAction, ProgramCardComponent } from './program-card.component';
+import { Program, ProgramAction } from '../../../core/models/models';
+import { ProgramCardComponent } from './program-card.component';
 
 const PROGRAM: Program = {
   id: 'it-python',
   title: 'Python для анализа данных',
-  direction: 'Повышение квалификации',
+  type: 'Повышение квалификации',
+  direction: 'IT и аналитика',
   hours: 72,
   tags: ['IT', 'Python', 'Аналитика'],
   status: 'published',
   theme: 'it',
   author: { name: 'Иванова А. В.', avatarUrl: null },
-  updatedAt: '2025-10-12T12:00:00Z'
+  updatedAt: '2025-10-12T12:00:00Z',
+  description: 'Практический курс по анализу данных.',
+  goals: ['Освоить Python.', 'Научиться анализировать данные.']
 };
 
 describe('ProgramCardComponent', () => {
   let fixture: ComponentFixture<ProgramCardComponent>;
   let component: ProgramCardComponent;
   let actions: ProgramAction[];
+  let opens: number;
 
   const menuButton = () => fixture.debugElement.query(By.css('.program-card__menu-button'));
   const menu = () => fixture.debugElement.query(By.css('.program-card__dropdown'));
@@ -49,7 +53,9 @@ describe('ProgramCardComponent', () => {
     component = fixture.componentInstance;
     fixture.componentRef.setInput('program', PROGRAM);
     actions = [];
+    opens = 0;
     component.action.subscribe((action) => actions.push(action));
+    component.open.subscribe(() => opens++);
     detect();
   });
 
@@ -58,6 +64,7 @@ describe('ProgramCardComponent', () => {
 
     expect(text).toContain('Python для анализа данных');
     expect(text).toContain('Повышение квалификации');
+    expect(text).not.toContain('IT и аналитика');
     expect(text).toContain('72 ч');
     expect(text).toContain('IT');
     expect(text).toContain('Python');
@@ -65,6 +72,16 @@ describe('ProgramCardComponent', () => {
     expect(text).toContain('Иванова А. В.');
     expect(text).toContain('12.10.2025');
     expect(text).toContain('Опубликовано');
+  });
+
+  it('opens the program from the full-card action', () => {
+    const open = fixture.debugElement.query(By.css('.program-card__open'));
+
+    expect(open.attributes['aria-label']).toBe('Открыть программу «Python для анализа данных»');
+    open.nativeElement.click();
+    detect();
+
+    expect(opens).toBe(1);
   });
 
   it('renders the date as a machine-readable time element', () => {

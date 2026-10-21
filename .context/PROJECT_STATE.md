@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-21** (programs catalog filters)
+Last updated: **2026-10-21** (program detail panel)
 
 ---
 
@@ -57,10 +57,14 @@ focus, and stay visible on touch devices. `/help` is still an
 intentional `SectionPlaceholder` host, `library` renders the same placeholder behind the
 auth gate, and `/programs/new` uses it until the form exists. `/programs` is now a
 mock-backed catalog: type, update-month and technology filters, a responsive card grid,
-and local duplicate / archive / delete actions, with pagination. Program creation lives on the home page, so the
-catalog has no create button. Guests see the catalogue behind a blurred, inert overlay
-with the "Требуется вход" prompt; signing in unlocks it in place. Its data lives in
-`ProgramsService`; no API call is made yet.
+local duplicate / archive / delete actions, pagination, and a non-modal right-side detail
+aside opened from a card. The aside floats above the page, aligned to the viewport and set off
+its edges as a rounded card, and shows the programme metadata, description and goals, plus derived demo tabs
+for structure, competencies and materials; its header menu and footer actions are
+visual-only, while the card context menu remains functional. Program
+creation lives on the home page, so the catalog has no create button. Guests see the
+catalogue behind a blurred, inert overlay with the "Требуется вход" prompt; signing in
+unlocks it in place. Its data lives in `ProgramsService`; no API call is made yet.
 
 **In flight: tool calling.** The provider layer advertises tools at construction, and both
 the OpenAI-compatible client and the GigaChat v2 client surface the calls the model requests
@@ -163,8 +167,9 @@ Ordered by value, not by commitment:
 0. **Decide what the application is for.** Everything else is downstream. The base system
    prompt is one paragraph and the schema carries only `{chat_name, message}`, which is
    deliberate headroom rather than an oversight.
-1. **Turn the programs catalog into a real feature.** `ProgramsService` is an in-memory mock;
-   replace it with API calls, persistence, and the create/edit form behind `/programs/new`.
+1. **Turn the programs catalog into a real feature.** `ProgramsService` is an in-memory mock
+   and the detail aside's tabs are derived demo content; replace both with API calls,
+   persistence, and the create/edit form behind `/programs/new`.
 2. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
    where per-content-type preparation belongs. The first content type that needs work is the
    first thing that goes in it, offloaded with `asyncio.to_thread`.

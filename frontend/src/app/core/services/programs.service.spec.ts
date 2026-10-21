@@ -13,6 +13,9 @@ describe('ProgramsService', () => {
     expect(service.programs().length).toBe(8);
     expect(service.programs().some((program) => program.status === 'draft')).toBe(true);
     expect(service.programs().some((program) => program.status === 'archived')).toBe(true);
+    expect(service.programs()[0].type).toBe('Повышение квалификации');
+    expect(service.programs()[0].direction).toBe('IT и аналитика');
+    expect(service.programs()[0].goals.length).toBeGreaterThan(0);
   });
 
   it('paginates the catalog with a server-shaped response', () => {
@@ -55,6 +58,8 @@ describe('ProgramsService', () => {
     expect(copy.status).toBe('draft');
     expect(copy.tags).toEqual(source.tags);
     expect(copy.tags).not.toBe(source.tags);
+    expect(copy.goals).toEqual(source.goals);
+    expect(copy.goals).not.toBe(source.goals);
   });
 
   it('does nothing when duplicating an unknown program', () => {

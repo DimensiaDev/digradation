@@ -15,6 +15,8 @@ describe('ProgramsPage', () => {
     );
   const statuses = () => cards().map((card) => card.attributes['data-status']);
   const emptyState = () => fixture.debugElement.query(By.css('.programs-page__empty'));
+  const detailPanel = () => fixture.debugElement.query(By.css('.program-panel'));
+  const openButtons = () => fixture.debugElement.queryAll(By.css('.program-card__open'));
   const filters = () => fixture.debugElement.queryAll(By.directive(Select));
   const pagination = () => fixture.debugElement.query(By.css('.pagination'));
   const paginationNav = () => fixture.debugElement.query(By.css('.pagination__nav'));
@@ -52,6 +54,15 @@ describe('ProgramsPage', () => {
   const openFirstMenu = () => {
     const button = fixture.debugElement.queryAll(By.css('.program-card__menu-button'))[0];
     button.nativeElement.click();
+    fixture.detectChanges();
+  };
+
+  const openFirstProgram = () => {
+    const button = openButtons()[0];
+    button.nativeElement.focus();
+    button.nativeElement.click();
+    fixture.detectChanges();
+    TestBed.tick();
     fixture.detectChanges();
   };
 
@@ -266,5 +277,67 @@ describe('ProgramsPage', () => {
     expect(emptyState().nativeElement.textContent).toContain('Пока нет программ');
 
     expect(fixture.debugElement.query(By.css('.programs-page__empty-action'))).toBeNull();
+  });
+
+  it('opens the detail panel from a program card', () => {
+    openFirstProgram();
+
+    expect(detailPanel()).toBeTruthy();
+    expect(detailPanel().nativeElement.textContent).toContain('Python для анализа данных');
+    expect(detailPanel().nativeElement.textContent).toContain('72 часа');
+    expect(detailPanel().nativeElement.textContent).toContain('Практический курс');
+  });
+
+  it('closes the panel and restores focus to the card', () => {
+    const trigger = openButtons()[0].nativeElement as HTMLButtonElement;
+    openFirstProgram();
+
+    fixture.debugElement.query(By.css('.program-panel__close')).nativeElement.click();
+    fixture.detectChanges();
+    TestBed.tick();
+    fixture.detectChanges();
+
+    expect(detailPanel()).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('keeps the panel menu actions visual-only', () => {
+    openFirstProgram();
+
+    fixture.debugElement
+      .query(By.css('.program-panel__menu--header .program-panel__menu-button'))
+      .nativeElement.click();
+    fixture.detectChanges();
+
+    const duplicate = fixture.debugElement
+      .queryAll(By.css('.program-panel__menu-item'))
+      .find((item) => item.nativeElement.textContent.trim() === 'Дублировать');
+    duplicate?.nativeElement.click();
+    fixture.detectChanges();
+
+    expect(service.programs().length).toBe(8);
+    expect(detailPanel()).toBeTruthy();
+  });
+
+  it('reflects an archived status in the open panel', () => {
+    openFirstProgram();
+
+    service.archive('it-python');
+    fixture.detectChanges();
+    TestBed.tick();
+    fixture.detectChanges();
+
+    expect(detailPanel().nativeElement.textContent).toContain('Архив');
+  });
+
+  it('closes the panel when the selected program disappears', () => {
+    openFirstProgram();
+
+    service.remove('it-python');
+    fixture.detectChanges();
+    TestBed.tick();
+    fixture.detectChanges();
+
+    expect(detailPanel()).toBeNull();
   });
 });

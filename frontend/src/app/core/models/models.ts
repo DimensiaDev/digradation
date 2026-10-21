@@ -175,6 +175,7 @@ export interface ProgramAuthor {
 export interface Program {
   id: string;
   title: string;
+  type: string;
   direction: string;
   hours: number;
   tags: readonly string[];
@@ -182,7 +183,11 @@ export interface Program {
   theme: ProgramTheme;
   author: ProgramAuthor;
   updatedAt: string;
+  description: string;
+  goals: readonly string[];
 }
+
+export type ProgramAction = 'duplicate' | 'archive' | 'delete';
 
 export const PROGRAM_STATUS_LABELS: Record<ProgramStatus, string> = {
   draft: 'Черновик',

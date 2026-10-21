@@ -1255,8 +1255,9 @@ template keep working while the number has a single source.
   signal and the duplicate / archive / delete mutations, so the page contains no mock data
   and replacing the service body with HTTP calls later is the only integration point.
 - **The filter row is type + update month + technology tag, not status.** Status stays a
-  card badge and a draft is not a separate browsing section. Type options come from
-  `direction`, date options are the months present in `updatedAt`, and tag options are the
+  card badge and a draft is not a separate browsing section. Type options come from `type`
+  (split from `direction` when the detail panel landed; see the later section), date
+  options are the months present in `updatedAt`, and tag options are the
   distinct `tags` values, all derived from `ProgramsService` so a duplicated row appears
   under its new month immediately.
 - **Technology filtering is multi-select and OR-based.** The shared `Select` gains a
@@ -1294,3 +1295,37 @@ The programs catalogue is the first route that is useful to see before signing i
 - **The outlet is not recreated on login.** The preview wrapper stays mounted and only loses
   its locked class; a guest who signs in keeps the same page instance instead of resetting
   filters and local mock state.
+
+## The program detail panel is a side aside with demo content (2026-10-21)
+
+The catalog now opens a right-side detail view from a card, without leaving `/programs`.
+
+- **`type` is split from `direction`.** `Program.type` is the filterable programme kind
+  ("Повышение квалификации", "Корпоративное обучение", ...), while `direction` is the
+  subject area shown in the panel's metadata. The earlier catalog note that type options
+  come from `direction` is superseded; `ProgramsService.query` filters on `type`.
+- **The panel is page state, not a route.** `ProgramsPage` owns `selectedProgramId` and
+  renders the panel beside the grid, so filters, pagination and the scroll position survive
+  opening and closing it. The URL is unchanged, and the card that opened the panel is the
+  focus-restoration target.
+- **The detail view is a floating aside, not a modal and not a grid column.** The panel is
+  `position: fixed` above the page, so its alignment is relative to the viewport and it stays
+  in place while the catalog scrolls. The page does not reflow. There is no backdrop, focus
+  trap or scroll lock: the page stays a normal document. The component host is always mounted,
+  but its content lives behind `@if (program(); as program)` so `animate.leave` can finish
+  before Angular removes it. Closing is available from the arrow and Escape; focus returns to
+  the triggering card.
+- **The panel is a card set off the viewport edges.** It uses `top: 20px`, `right: 5px`,
+  `width: min(640px, calc(100vw - 10px))`, `height: calc(100dvh - 40px)` and a full
+  `--color-outline` border with a 20px radius, mirroring the existing side panels instead of
+  touching the screen edge with a left border-only drawer.
+- **The panel's header menu and footer actions are deliberately visual-only.** Per the product
+  decision, "Дублировать", "Архивировать" and "Удалить" in the header menu only close the
+  menu, and "Открыть программу" / "Редактировать" are styled buttons with no handlers. The
+  card's context menu remains the functional path for duplicate / archive / delete.
+- **Demo detail content is derived, not placeholder text.** Modules split the programme hours,
+  competencies are built from tags and direction, and materials come from the existing file
+  type styles. This keeps the panel presentable until the programs API and editor exist.
+- **The card opens through a full-card button.** The button sits under the card's content;
+  the content has `pointer-events: none` and the context menu opts back in with
+  `pointer-events: auto`, so the whole card is one target without swallowing the menu.

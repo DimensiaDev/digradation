@@ -946,3 +946,20 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   the transcript `effect()` runs on a later tick than the awaited continuation.
 - **A 1px border on a rounded corner is a dotted arc at DPR 1, and `outline` draws the same dots.** The border's antialiasing leaves partially covered pixels that blend with the page background; dark theme makes that worse because the background is darker than the surface, so the arc reads as fading out. Raising `--color-outline` (`#263349` to `#33445f`) keeps the arc visible without thickening it. Verified against the running dev server at 1x and 2x, 2026-10-21.
 - **A masked gradient sheen must not tile.** The logo wave animated `background-position` on a `260%` gradient, so the image repeated and its edge crossed the mark, cutting the highlight off with a straight line mid-sweep. Move the band to an oversized (`inset: -100%`) pseudo-element and animate `transform` instead; the tile seam then stays outside the mask. Found 2026-10-21 on `feat/main-page`.
+- **Angular `animate.leave` does not run in jsdom.** `areAnimationSupported` checks for
+  `document.documentElement.getAnimations`, which jsdom does not provide, so `@if` content is
+  removed immediately and a test cannot wait for `animationend`. Assert removal after
+  `TestBed.tick()` instead of trying to observe the leave animation. Found 2026-10-21 on
+  `feat/my-programs-page`.
+- **A full-card overlay button does not receive clicks through a higher content layer, even
+  when that content is non-interactive.** The overlay is a sibling, and the content catches
+  the hit first; give the content `pointer-events: none` and opt the context menu back in
+  with `pointer-events: auto`. Found 2026-10-21 on `feat/my-programs-page`.
+- **A component stylesheet over the 10 kB `anyComponentStyle` error budget fails `ng build`,
+  even if the repeated rules could live globally.** Moving the shared popover block to
+  `_menu.scss` took the panel from a 12.01 kB error to 9.51 kB (a warning), because global
+  styles do not count against the component budget. Found 2026-10-21 on
+  `feat/my-programs-page`.
+- **`@HostListener('document:keydown.tab')` types `$event` as `Event`, not `KeyboardEvent`.**
+  Strict template checking rejects reading `event.key`; listen on `document:keydown` and
+  branch on `event.key === 'Tab'` instead. Found 2026-10-21 on `feat/my-programs-page`.

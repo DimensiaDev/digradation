@@ -12,31 +12,14 @@ import {
 } from '@angular/core';
 import {
   LucideArchive,
-  LucideBriefcase,
   LucideCalendar,
-  LucideChartColumn,
-  LucideCode2,
   LucideCopy,
   LucideDynamicIcon,
   LucideEllipsisVertical,
-  LucideRefreshCw,
-  LucideShieldCheck,
-  LucideTrash2,
-  LucideUsers,
-  type LucideIcon
+  LucideTrash2
 } from '@lucide/angular';
-import { PROGRAM_STATUS_LABELS, Program } from '../../../core/models/models';
-
-export type ProgramAction = 'duplicate' | 'archive' | 'delete';
-
-const PROGRAM_THEME_ICONS: Record<Program['theme'], LucideIcon> = {
-  it: LucideCode2,
-  analytics: LucideChartColumn,
-  'soft-skills': LucideUsers,
-  agile: LucideRefreshCw,
-  management: LucideBriefcase,
-  security: LucideShieldCheck
-};
+import { PROGRAM_STATUS_LABELS, Program, ProgramAction } from '../../../core/models/models';
+import { PROGRAM_THEME_ICONS } from '../../utils/program-theme';
 
 function formatDate(timestamp: string): string {
   return new Date(timestamp).toLocaleDateString('ru-RU', {
@@ -69,6 +52,7 @@ function initialsFor(name: string): string {
 })
 export class ProgramCardComponent {
   readonly program = input.required<Program>();
+  readonly open = output<void>();
   readonly action = output<ProgramAction>();
 
   readonly icon = computed(() => PROGRAM_THEME_ICONS[this.program().theme]);
@@ -82,6 +66,11 @@ export class ProgramCardComponent {
 
   private readonly elementRef = inject(ElementRef<HTMLElement>);
   private readonly menuButton = viewChild<ElementRef<HTMLButtonElement>>('menuButton');
+
+  openProgram(): void {
+    this.closeMenu();
+    this.open.emit();
+  }
 
   toggleMenu(): void {
     this.menuOpen.update((open) => !open);

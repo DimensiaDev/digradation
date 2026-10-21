@@ -9,6 +9,12 @@
   max-width: 1600px;
   margin-inline: auto;
 
+  &__main {
+    min-width: 0;
+
+    padding: 32px 40px;
+  }
+
   &__header {
     display: flex;
     align-items: center;
@@ -177,7 +183,9 @@
 
 @media (max-width: 720px) {
   .programs-page {
-    padding: 24px 20px;
+    &__main {
+      padding: 24px 20px;
+    }
 
     &__header {
       align-items: stretch;

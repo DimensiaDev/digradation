@@ -3,6 +3,13 @@
   [attr.data-status]="program().status"
   [attr.data-theme]="program().theme"
 >
+  <button
+    type="button"
+    class="program-card__open"
+    [attr.aria-label]="'Открыть программу «' + program().title + '»'"
+    (click)="openProgram()"
+  ></button>
+
   <svg class="program-card__watermark" [lucideIcon]="icon()" aria-hidden="true"></svg>
 
   <header class="program-card__top">
@@ -16,7 +23,7 @@
     <h2 class="program-card__title">{{ program().title }}</h2>
 
     <p class="program-card__meta">
-      <span>{{ program().direction }}</span>
+      <span>{{ program().type }}</span>
       <span class="program-card__meta-separator" aria-hidden="true">•</span>
       <span>{{ program().hours }} ч</span>
     </p>
@@ -63,15 +70,15 @@
 
       @if (menuOpen()) {
         <div
-          class="program-card__dropdown"
+          class="program-card__dropdown popover-menu popover-menu--above"
           role="menu"
           [id]="menuId()"
-          animate.enter="program-card__dropdown--enter"
-          animate.leave="program-card__dropdown--leave"
+          animate.enter="popover-menu--enter"
+          animate.leave="popover-menu--leave"
         >
           <button
             type="button"
-            class="program-card__menu-item"
+            class="program-card__menu-item popover-menu__item"
             role="menuitem"
             (click)="run('duplicate')"
           >
@@ -82,7 +89,7 @@
           @if (!isArchived()) {
             <button
               type="button"
-              class="program-card__menu-item"
+              class="program-card__menu-item popover-menu__item"
               role="menuitem"
               (click)="run('archive')"
             >
@@ -93,7 +100,7 @@
 
           <button
             type="button"
-            class="program-card__menu-item program-card__menu-item--danger"
+            class="program-card__menu-item program-card__menu-item--danger popover-menu__item popover-menu__item--danger"
             role="menuitem"
             (click)="run('delete')"
           >
