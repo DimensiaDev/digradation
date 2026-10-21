@@ -5,22 +5,21 @@ Parser writes one JSON file per source document with ``text_chunks`` and
 ``source_type`` from the leading path segment (``fgos/...`` →
 ``source_type="fgos"``) so the search filter can scope by corpus.
 
-The ``source_type`` derivation has two known limits, both surfaced here
-rather than hidden:
+The ``source_type`` derivation is a whitelist check, not a "take the
+first segment" heuristic. Two known failure modes are avoided:
 
-- **Path separators.** ``source_path`` is a ``str`` from the parser's
-  manifest. On a parser run under Windows the separators are ``\\``, so
-  the loader normalises both before splitting; otherwise a Windows run
-  would store the whole path as ``source_type`` and no corpus filter
-  would ever match.
+- **Parser run against a corpus subdirectory.** If ``--input`` was
+  ``edu_materials/fgos``, ``source_path`` is ``origs/x.pdf`` and the
+  first segment is ``origs`` — not a corpus name. A whitelist returns
+  ``"unknown"`` instead of storing ``"origs"`` as source_type, which
+  would silently match nothing under a corpus filter.
 
-- **Corpus root not in path.** If the parser was run with
-  ``--input edu_materials/fgos``, ``source_path`` starts with ``origs/``
-  or a filename, not ``fgos/``. The loader falls back to
-  ``source_type="unknown"``, which means a filter by corpus silently
-  drops those documents. Pass ``source_type=`` explicitly when the
-  parser root is a corpus subdirectory; the CLI does not do that yet
-  because it always runs on ``edu_materials`` itself.
+- **Windows path separators.** ``source_path`` from a Windows run
+  contains ``\\``. The loader normalises both before splitting.
+
+When ``source_type`` is ``"unknown"``, a caller filtering by corpus will
+not see that document. Pass ``source_type=`` explicitly to the loader
+when parsing a corpus subdirectory.
 """
 
 from __future__ import annotations
@@ -31,22 +30,26 @@ from pathlib import Path
 
 from .models import ChunkRecord
 
+_KNOWN_CORPORA = frozenset({"fgos", "prof_stand", "edu_programs"})
+
 
 def _content_hash(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 def _source_type_from_path(source_path: str) -> str:
-    """Leading path segment, e.g. ``fgos/origs/x.pdf`` → ``fgos``.
+    """Corpus name from ``source_path``, or ``"unknown"`` if not a corpus.
 
-    Normalises ``\\`` to ``/`` first so a Windows-parsed manifest does
-    not produce a source_type that contains the whole path. Returns
-    ``"unknown"`` when the path has no directory part — see the module
-    docstring for why that happens.
+    Normalises ``\\`` to ``/`` first, then takes the leading segment and
+    checks it against :data:`_KNOWN_CORPORA`. Anything else — a filename
+    with no directory part, a ``origs/`` prefix from a parser run
+    against a corpus subdirectory, an unexpected top-level folder — is
+    ``"unknown"``. This deliberately avoids returning a segment that
+    looks like a corpus but is not one.
     """
     normalised = source_path.replace("\\", "/")
     head, _, _ = normalised.partition("/")
-    return head or "unknown"
+    return head if head in _KNOWN_CORPORA else "unknown"
 
 
 def load_chunks_from_json(
@@ -56,11 +59,10 @@ def load_chunks_from_json(
 ) -> list[ChunkRecord]:
     """Read one ``document.json`` and return its chunks as records.
 
-    ``source_type`` overrides the value derived from ``source_path``.
-    Use it when the parser was pointed at a corpus subdirectory rather
-    than at ``edu_materials/`` — otherwise the derived value is
-    ``"unknown"`` and corpus filters will not match. See the module
-    docstring.
+    ``source_type`` overrides the value derived from ``source_path``. Use
+    it when the parser was pointed at a corpus subdirectory — the
+    derived value will be ``"unknown"`` and corpus filters would not
+    match. See the module docstring.
     """
     payload = json.loads(json_path.read_text(encoding="utf-8"))
 

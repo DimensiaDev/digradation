@@ -25,8 +25,14 @@ class _Entry:
 
 
 def _matches(metadata: dict, filter: dict) -> bool:
-    """True if every (k, v) in ``filter`` is present in ``metadata``."""
-    return all(metadata.get(key) == expected for key, expected in filter.items())
+    """True if every (key, value) in ``filter`` matches ``metadata``.
+
+    A key that is *missing* from ``metadata`` does not match a filter
+    expecting ``None``. ``metadata.get(key)`` would return ``None`` for
+    both cases and silently let missing keys through; the explicit
+    membership check closes that.
+    """
+    return all(key in metadata and metadata[key] == expected for key, expected in filter.items())
 
 
 def _cosine(a: list[float] | np.ndarray, b: list[float] | np.ndarray) -> float:

@@ -52,8 +52,9 @@ def test_source_type_from_path_first_segment():
     assert _source_type_from_path("edu_programs/origs/x.docx") == "edu_programs"
 
 
-def test_source_type_from_bare_filename():
-    assert _source_type_from_path("document.pdf") == "document.pdf"
+def test_source_type_unknown_for_bare_filename():
+    """Regression: a filename alone is not a corpus."""
+    assert _source_type_from_path("document.pdf") == "unknown"
 
 
 def test_source_type_empty_path():

@@ -35,6 +35,21 @@ def _chunk(
     )
 
 
+class _SpyProvider:
+    """Provider that records calls and raises if called unexpectedly."""
+
+    model = "spy"
+    dimension = 3
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+        self._delegate = MockEmbeddingProvider(EmbeddingConfig(dimension=3))
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.calls.append(list(texts))
+        return await self._delegate.embed(texts)
+
+
 class _FixedProvider:
     """Deterministic provider: known query → known vector.
 
@@ -97,6 +112,28 @@ async def test_empty_store_returns_empty(provider):
     store = InMemoryVectorStore()
     result = await search_knowledge_base("any query", provider=provider, store=store)
     assert result == []
+
+
+async def test_empty_query_returns_empty_without_embedding():
+    """Regression: empty query must not call the provider at all."""
+    spy = _SpyProvider()
+    store = InMemoryVectorStore()
+
+    result = await search_knowledge_base("", provider=spy, store=store)
+
+    assert result == []
+    assert spy.calls == [], f"provider was called: {spy.calls}"
+
+
+async def test_whitespace_query_returns_empty_without_embedding():
+    """Regression: whitespace-only query must not call the provider."""
+    spy = _SpyProvider()
+    store = InMemoryVectorStore()
+
+    result = await search_knowledge_base("   \t\n", provider=spy, store=store)
+
+    assert result == []
+    assert spy.calls == [], f"provider was called: {spy.calls}"
 
 
 async def test_no_match_above_threshold_returns_empty():

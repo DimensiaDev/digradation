@@ -77,3 +77,20 @@ min_score, min_relative)` returns `list[SearchHit]`.
 Consumers (ALA) map `SearchHit` onto their own DTOs. `edu_rag` does not
 own the ALA-side shapes, so no `SearchResult` DTO exists here — adding
 one would create two contracts to keep in sync.
+
+### Source-type derivation
+
+`load_chunks_from_json` derives `source_type` from the leading path
+segment of `source_path`, but **only** if that segment is one of
+`fgos`, `prof_stand`, `edu_programs`. Anything else — a filename with no
+directory, `origs/` from a parser run against a corpus subdirectory, an
+unexpected folder — yields `source_type="unknown"`, which a corpus
+filter will not match.
+
+If you ran the parser against a corpus subdirectory
+(`python -m edu_parser.cli --input edu_materials/fgos ...`), pass
+`source_type="fgos"` explicitly:
+
+```python
+chunks = load_chunks_from_json(path, source_type="fgos")
+```

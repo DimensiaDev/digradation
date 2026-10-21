@@ -56,16 +56,54 @@ def test_search_command_prints_hits(tmp_path, capsys):
     assert "hello" in out
 
 
-def test_search_command_no_results(tmp_path, capsys):
+def test_search_command_no_results(tmp_path, capsys, monkeypatch):
+    """Regression: the CLI must actually pass --min-score to the API.
+
+    If _cmd_search drops the threshold, a mock provider whose score is
+    between 0.0 (API default) and 0.99 (CLI flag) would print a hit
+    instead of "(no results)". We control the score exactly, so this
+    fails only when the threshold plumbing breaks.
+    """
     parsed = tmp_path / "parsed"
-    _write_doc(parsed, "d1", "short")
+    _write_doc(parsed, "d1", "hello")
+
+    from edu_rag import cli as cli_module
+
+    async def fake_build(_dir, _provider):
+        import hashlib
+
+        from edu_rag import ChunkRecord, InMemoryVectorStore
+
+        fvec = [0.5, 0.866, 0.0]
+
+        store = InMemoryVectorStore()
+        chunk = ChunkRecord(
+            doc_id="d1",
+            ordinal=0,
+            kind="text",
+            content="hello",
+            content_hash=hashlib.sha256(b"hello").hexdigest(),
+        )
+        await store.upsert_chunks("d1", [chunk], [fvec], ["fp-0"])
+        return store
+
+    class _FixedProvider:
+        model = "fixed"
+        dimension = 3
+
+        async def embed(self, _texts):
+            return [[1.0, 0.0, 0.0]]
+
+    monkeypatch.setattr(cli_module, "_build_index", fake_build)
+    monkeypatch.setattr(cli_module, "_make_provider", lambda _real: _FixedProvider())
+
     code = main(
         [
             "search",
             "--parsed-dir",
             str(parsed),
             "--query",
-            "абракадабраззз",
+            "hello",
             "--top-k",
             "1",
             "--min-score",
