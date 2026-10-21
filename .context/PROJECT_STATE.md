@@ -60,24 +60,19 @@ separate preview button); the file name and remove action appear on hover and ke
 focus, and stay visible on touch devices. `/help` is still an
 intentional `SectionPlaceholder` host, `library` renders the same placeholder behind the
 auth gate, and `/programs/new` uses it until the form exists. `/programs` is now
-`Мои программы`, a mock-backed, lazy-loaded workspace: every program belongs to the demo
-user `Админ Демо`. It has type, update-month and tag filters, a responsive card
-grid, local duplicate / archive / delete actions, pagination, and a non-modal right-side
-detail aside opened from a card. Filter and page changes update a polite live summary;
-pagination and reset return focus to a labelled results region at the top of the grid. A
-selected type, month or tag stays visible as a selected option even after its last matching
-program is deleted, so an active filter never collapses into a placeholder. The
-card and panel action menus use the menu-button keyboard pattern with roving tab focus.
-Duplicate and archive return focus to the card trigger, delete moves it to the next card or
-the empty results region, and the detail panel uses the explicit opening trigger. Delete asks
-for confirmation, and archived cards can be restored from the card menu. The
-aside floats above the page and is set off its edges as a rounded card at wide viewports;
-below 980px it fills the viewport. It shows the programme metadata, description and goals,
-plus derived demo tabs for structure, competencies and materials; its header menu and footer
-actions are visual-only, while the card context menu remains functional. Program creation
-has no entry point yet, so the catalog has no create button. Guests see the catalogue behind
-a blurred, inert overlay with the "Требуется вход" prompt; signing in unlocks it in place.
-Its data lives in `ProgramsService`; no API call is made yet.
+`Мои программы`, a lazy-loaded workspace backed by `GET /chats/programmes`.
+`ProgramsService` fetches every page of the catalogue (the endpoint caps a page at 100),
+keeps filters and the six-item paging client-side, and opens a programme through
+`GET /chats/{session_id}/program`; a run whose `busy` is true is polled every two seconds.
+The detail aside fills the description, goals, competencies, curriculum modules and hours
+from the returned draft; type, tags and author stay in the card and panel and are read when
+the catalogue starts returning them, with placeholders until then. A guest sees the page
+behind the blurred overlay, but the catalogue is empty because the endpoint is
+authenticated. Duplicate / archive / restore / delete still mutate the loaded list only:
+there are no endpoints for them yet. The card and panel action menus use the menu-button
+keyboard pattern with roving tab focus, and the detail panel remains a non-modal right-side
+aside that fills the viewport below 980px. Program creation has no entry point yet, so the
+catalog has no create button.
 
 **The programme cycle (#3).** A chat can build one educational programme. A run is one
 `ProgramState` in `chat_sessions.program_state` (JSONB), mirrored to Redis for an hour, and it
@@ -100,8 +95,9 @@ carries the questions a programme is waiting an answer to, and
 `POST /chats/{session_id}` takes those answers in an `answers` array next to `content`.
 `GET /chats/programmes` lists the user's programmes, paginated. A run may ask the methodist
 questions: `begin_program` takes them, the run waits in `awaiting_answers`, and the answers
-move it on. The frontend has no programme UI yet, and its five-minute poll can time out
-before a slow run finishes.
+move it on. The catalogue and its detail aside consume both endpoints; the chat-side
+programme flow (answering the run's questions and approving a rendered draft) is still not
+built, and the chat's five-minute poll can time out before a slow run finishes.
 
 **Two dead placeholder directories** are still tracked: `frontend/src/app/shared/components/
 chat-widget/` and `.../param-table/`, each holding only a `.gitkeep`. They are leftovers from

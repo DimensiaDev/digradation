@@ -1104,3 +1104,9 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   failure looked like the change under test rather than the seed. The seed now asks the
   container for its own `POSTGRES_USER` and `POSTGRES_DB`, and the script goes in on stdin
   because a `DO $$ ... $$` block cannot survive the shell quoting of `-c`. Found 2026-10-21.
+- `GET /chats/programmes` returns only `session_id`, `title`, `status` and `updated_at`.
+  Type, hours, tags, author and the draft text are absent; they come from
+  `GET /chats/{session_id}/program`, which is a per-chat request. Do not render a catalogue
+  field as if the list had it, and do not open a detail request for every card to fill one.
+  The optional fields in `ProgramApiItem` are the seam for the catalogue contract growing.
+  Found 2026-10-21.

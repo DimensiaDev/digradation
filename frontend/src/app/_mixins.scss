@@ -83,16 +83,25 @@
 @mixin program-status-color {
   --program-status: var(--color-gray);
 
-  &[data-status='in_progress'] {
+  &[data-status='in_progress'],
+  &[data-status='generating'] {
     --program-status: var(--color-status-progress);
   }
 
-  &[data-status='review'] {
+  &[data-status='review'],
+  &[data-status='pending_approval'],
+  &[data-status='awaiting_answers'] {
     --program-status: var(--color-danger);
   }
 
-  &[data-status='published'] {
+  &[data-status='published'],
+  &[data-status='approved'],
+  &[data-status='verified'] {
     --program-status: var(--color-success);
+  }
+
+  &[data-status='failed'] {
+    --program-status: var(--color-danger);
   }
 
   &[data-status='archived'] {

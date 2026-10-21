@@ -1,4 +1,4 @@
-import type { Program } from '../../core/models/models';
+import type { Program, ProgramModule } from '../../core/models/models';
 import { fileTypeStyleFor, type FileTypeStyle } from './file-types';
 
 export interface ProgramModulePreview {
@@ -65,7 +65,14 @@ export function formatProgramHours(hours: number): string {
   return `${total} ${word}`;
 }
 
-export function buildProgramModules(hours: number): readonly ProgramModulePreview[] {
+export function buildProgramModules(
+  hours: number,
+  modules?: readonly ProgramModule[]
+): readonly ProgramModulePreview[] {
+  if (modules?.length) {
+    return modules;
+  }
+
   const total = Math.max(0, Math.round(hours));
   const first = Math.round(total * 0.2);
   const second = Math.round(total * 0.3);
@@ -80,6 +87,10 @@ export function buildProgramModules(hours: number): readonly ProgramModulePrevie
 }
 
 export function buildProgramCompetencies(program: Program): readonly string[] {
+  if (program.competencyStatements?.length) {
+    return program.competencyStatements;
+  }
+
   const tagLine =
     program.tags.length > 0
       ? `Применять на практике: ${program.tags.join(', ')}.`

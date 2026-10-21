@@ -26,6 +26,9 @@ import { nextMenuIndex } from '../../utils/menu-keyboard';
 import { PROGRAM_THEME_ICONS } from '../../utils/program-theme';
 
 function formatDate(timestamp: string): string {
+  if (!timestamp) {
+    return '—';
+  }
   return new Date(timestamp).toLocaleDateString('ru-RU', {
     day: '2-digit',
     month: '2-digit',

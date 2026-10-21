@@ -11,6 +11,8 @@ import {
   AdminUser,
   ChatMessageApi,
   InstanceSettings,
+  ProgramApiItem,
+  ProgramStateApi,
   User,
   UserChat,
   UserRole
@@ -65,6 +67,127 @@ const settings: InstanceSettings = {
   last_update_by: null,
   last_update_at: null
 };
+
+const PROGRAMMES: ProgramApiItem[] = [
+  {
+    session_id: 'mock-programme-1',
+    title: 'Python для анализа данных',
+    status: 'draft',
+    updated_at: '2025-10-12T09:00:00Z',
+    type: 'Повышение квалификации',
+    direction: 'IT и аналитика',
+    hours: 72,
+    tags: ['IT', 'Python', 'Аналитика'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'it',
+    description: 'Практический курс для специалистов, которые хотят освоить Python.',
+    goals: ['Уверенно работать с синтаксисом Python.']
+  },
+  {
+    session_id: 'mock-programme-2',
+    title: 'Кибербезопасность для сотрудников',
+    status: 'generating',
+    updated_at: '2025-10-08T09:00:00Z',
+    type: 'Корпоративное обучение',
+    direction: 'Информационная безопасность',
+    hours: 40,
+    tags: ['IT', 'Безопасность'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'security'
+  },
+  {
+    session_id: 'mock-programme-3',
+    title: 'Основы машинного обучения',
+    status: 'pending_approval',
+    updated_at: '2025-10-05T09:00:00Z',
+    type: 'Профессиональная переподготовка',
+    direction: 'Искусственный интеллект',
+    hours: 256,
+    tags: ['ML', 'Python', 'Аналитика'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'analytics'
+  },
+  {
+    session_id: 'mock-programme-4',
+    title: 'Agile-трансформация команд',
+    status: 'approved',
+    updated_at: '2025-09-28T09:00:00Z',
+    type: 'Корпоративное обучение',
+    direction: 'Управление и процессы',
+    hours: 16,
+    tags: ['Agile', 'Soft skills'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'agile'
+  },
+  {
+    session_id: 'mock-programme-5',
+    title: 'Управление проектами',
+    status: 'draft',
+    updated_at: '2025-09-24T09:00:00Z',
+    type: 'Повышение квалификации',
+    direction: 'Управление и процессы',
+    hours: 36,
+    tags: ['Менеджмент', 'Agile'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'management'
+  },
+  {
+    session_id: 'mock-programme-6',
+    title: 'Soft skills для руководителей',
+    status: 'awaiting_answers',
+    updated_at: '2025-09-19T09:00:00Z',
+    type: 'Корпоративное обучение',
+    direction: 'Развитие руководителей',
+    hours: 24,
+    tags: ['Soft skills', 'Коммуникация'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'soft-skills'
+  },
+  {
+    session_id: 'mock-programme-7',
+    title: 'Веб-разработка: полный цикл',
+    status: 'approved',
+    updated_at: '2025-08-30T09:00:00Z',
+    type: 'Профессиональная переподготовка',
+    direction: 'IT и аналитика',
+    hours: 256,
+    tags: ['IT', 'JavaScript'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'it'
+  },
+  {
+    session_id: 'mock-programme-8',
+    title: 'Продуктовая аналитика',
+    status: 'verified',
+    updated_at: '2025-08-22T09:00:00Z',
+    type: 'Повышение квалификации',
+    direction: 'IT и аналитика',
+    hours: 48,
+    tags: ['Аналитика', 'Data'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'analytics'
+  }
+];
+
+const programmeState = (programme: ProgramApiItem): ProgramStateApi => ({
+  status: programme.status,
+  current_stage: null,
+  stages: {},
+  running: false,
+  busy: false,
+  error: null,
+  updated_at: programme.updated_at,
+  version: 1,
+  questions: [],
+  draft: {
+    kind: null,
+    title: programme.title,
+    competencies: [],
+    curriculum: null,
+    sources: [],
+    summary: null
+  }
+});
 
 const CHAT_NAMES = [
   'Заметки по проекту',
@@ -169,6 +292,15 @@ export const mockApiInterceptor: HttpInterceptorFn = (req, next) => {
       return fail(404, 'No avatar');
     }
 
+    if (path === '/chats/programmes' && req.method === 'GET') {
+      const page = Number(params.get('page') ?? 0);
+      const itemsPerPage = Number(params.get('items_per_page') ?? 20);
+      const items = PROGRAMMES.slice(page * itemsPerPage, (page + 1) * itemsPerPage).map(
+        (programme) => ({ ...programme })
+      );
+      return ok({ items, total: PROGRAMMES.length, page, items_per_page: itemsPerPage });
+    }
+
     if (path === '/chats') {
       const page = Number(params.get('page') ?? 0);
       const itemsPerPage = Number(params.get('items_per_page') ?? 10);
@@ -190,6 +322,15 @@ export const mockApiInterceptor: HttpInterceptorFn = (req, next) => {
         last_message: { ...chat.last_message }
       }));
       return ok({ items, total: chats.length, page, items_per_page: itemsPerPage });
+    }
+
+    const programMatch = path.match(/^\/chats\/([^/]+)\/program$/);
+    if (programMatch) {
+      const programme = PROGRAMMES.find((candidate) => candidate.session_id === programMatch[1]);
+      if (!programme) {
+        return fail(403, 'Программа не найдена');
+      }
+      return ok(programmeState(programme));
     }
 
     const chatMatch = path.match(/^\/chats\/([^/]+)(\/result)?$/);

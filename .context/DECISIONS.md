@@ -1730,3 +1730,39 @@ two together and gives the client something to poll.
   stages write the document and build their own prompt. Carrying the extension there would
   mean storing it in `ProgramState` from the intake, which is a product decision, not a
   mechanical one.
+
+## The programme catalogue reads the API, and the UI keeps the fields it cannot show yet (2026-10-21)
+
+`GET /chats/programmes` and `GET /chats/{session_id}/program` exist, so the mock catalogue
+in `ProgramsService` was replaced by them. The client maps the API onto the existing view
+model instead of redesigning the page: the card and the detail aside stay, and fields the
+catalogue does not return yet keep their elements.
+
+- **The whole catalogue is fetched, then filtered and paged in the client.** The endpoint
+  paginates but does not filter, and the page has type, month and tag filters. Fetching one
+  page at a time would filter only the page, so `ProgramsService` walks the API in
+  `items_per_page=100` pages and applies the existing filters to the full list. The
+  catalogue is small; a server-side filter contract should replace this when it exists.
+- **The list and the detail return different amounts.** The catalogue has title, status and
+  `updated_at`; type, hours, description, goals, competencies and modules come from the
+  draft only when a programme is opened. The service merges a detail response into the list
+  item, so the card and panel update without a second source of truth.
+- **Fields the backend may add later are optional in the API model.** `type`, `direction`,
+  `hours`, `tags`, `author`, `description`, `goals` and `theme` are accepted when the
+  catalogue returns them and fall back to placeholders otherwise. The elements stay in the
+  template, because removing them would have to be undone when the contract grows.
+- **A guest gets no catalogue.** `/programs` is an auth-gate preview, but
+  `/chats/programmes` is authenticated. The page loads only when `ProfileService.user()` is
+  set and clears when it is not; the overlay remains, the list is empty. Serving mock rows
+  to a guest would be the old mock by another name.
+- **Duplicate, archive, restore and delete are still local.** There are no write endpoints
+  for a programme, so these actions change the loaded list and are lost on reload. They stay
+  because their menu items are part of the page; the service is where they will call the
+  API once it exists.
+- **The page polls `busy`, not `running`.** The detail request repeats every two seconds
+  while `busy` is true, and stops on close, on deletion of the selected row, or when the
+  run stops. This follows the backend contract: `running` is only a stage-lock hint.
+- **The e2e stack seeds programme rows.** `/programs` is now empty without data, so
+  `e2e/scripts/setup.sh` writes eight minimal `chat_sessions.program_state` envelopes for
+  the e2e user. The list endpoint needs only title, status and `updated_at`; the detail
+  endpoint accepts the model's defaults for the rest.

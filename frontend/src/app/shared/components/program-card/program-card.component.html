@@ -25,7 +25,7 @@
     <p class="program-card__meta">
       <span>{{ program().type }}</span>
       <span class="program-card__meta-separator" aria-hidden="true">•</span>
-      <span>{{ program().hours }} ч</span>
+      <span>{{ program().hours > 0 ? program().hours + ' ч' : '—' }}</span>
     </p>
 
     <ul class="program-card__tags" aria-label="Теги программы">

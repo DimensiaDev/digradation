@@ -1,9 +1,7 @@
 import { E2E_PASSWORD, E2E_USER, expect, login, test } from "./helpers";
 
 test.describe("programs catalog", () => {
-  test("a guest previews the catalog and signs in in place", async ({
-    page,
-  }) => {
+  test("a guest sees the preview and signs in in place", async ({ page }) => {
     await page.context().clearCookies();
     await page.goto("/programs");
 
@@ -12,10 +10,7 @@ test.describe("programs catalog", () => {
     await expect(page.locator(".programs-page__header h1")).toHaveText(
       "Мои программы",
     );
-    await expect(page.locator(".program-card")).toHaveCount(6);
-    await expect(page.locator(".program-card__author-name").first()).toHaveText(
-      "Админ Демо",
-    );
+    await expect(page.locator(".program-card")).toHaveCount(0);
     await expect(page.locator(".auth-gate__overlay")).toBeVisible();
 
     await page
@@ -33,6 +28,7 @@ test.describe("programs catalog", () => {
     await expect(
       page.getByRole("heading", { name: "Мои программы" }),
     ).toBeVisible();
+    await expect(page.locator(".program-card")).toHaveCount(6);
   });
 
   test("announces pagination and moves focus to the results", async ({

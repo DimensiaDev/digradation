@@ -90,10 +90,13 @@ export class ProgramDetailPanelComponent {
     const program = this.program();
     return program ? PROGRAM_STATUS_LABELS[program.status] : '';
   });
-  readonly hoursLabel = computed(() => formatProgramHours(this.program()?.hours ?? 0));
+  readonly hoursLabel = computed(() => {
+    const hours = this.program()?.hours ?? 0;
+    return hours > 0 ? formatProgramHours(hours) : '—';
+  });
   readonly modules = computed(() => {
     const program = this.program();
-    return program ? buildProgramModules(program.hours) : [];
+    return program ? buildProgramModules(program.hours, program.modules) : [];
   });
   readonly competencies = computed(() => {
     const program = this.program();

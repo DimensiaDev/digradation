@@ -1,8 +1,29 @@
-import { Injectable, signal } from '@angular/core';
-import { PaginatedResponse, Program } from '../models/models';
+import { Injectable, inject, signal } from '@angular/core';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Subscription, catchError, of, timer } from 'rxjs';
+import { environment } from '../../../environments/environment';
+import {
+  PaginatedResponse,
+  Program,
+  ProgramApiItem,
+  ProgramCurriculumApi,
+  ProgramKind,
+  ProgramModule,
+  ProgramPageApi,
+  ProgramStateApi,
+  ProgramStatus,
+  ProgramTheme
+} from '../models/models';
 import { createId } from '../../shared/utils/create-id';
+import { ProfileService } from './profile.service';
 
 export const PROGRAMS_PAGE_SIZE = 6;
+
+/** The catalogue is fetched in as few requests as the endpoint allows. */
+export const PROGRAMS_FETCH_PAGE_SIZE = 100;
+
+/** How often a programme that is still being generated is refreshed. */
+export const PROGRAM_POLL_INTERVAL_MS = 2_000;
 
 export interface ProgramsQuery {
   page?: number;
@@ -12,167 +33,72 @@ export interface ProgramsQuery {
   tags?: readonly string[];
 }
 
-const MOCK_PROGRAMS: readonly Program[] = [
-  {
-    id: 'it-python',
-    title: 'Python для анализа данных',
-    type: 'Повышение квалификации',
-    direction: 'IT и аналитика',
-    hours: 72,
-    tags: ['IT', 'Python', 'Аналитика'],
-    status: 'published',
-    theme: 'it',
-    author: { name: 'Админ Демо', avatarUrl: null },
-    updatedAt: '2025-10-12T09:00:00Z',
-    description:
-      'Практический курс для специалистов, которые хотят освоить Python и научиться применять его для сбора, очистки и анализа данных.',
-    goals: [
-      'Уверенно работать с синтаксисом Python и стандартной библиотекой.',
-      'Обрабатывать и визуализировать данные с помощью pandas и matplotlib.',
-      'Самостоятельно выполнять аналитические проекты от постановки задачи до выводов.'
-    ]
-  },
-  {
-    id: 'corp-security',
-    title: 'Кибербезопасность для сотрудников',
-    type: 'Корпоративное обучение',
-    direction: 'Информационная безопасность',
-    hours: 40,
-    tags: ['IT', 'Безопасность'],
-    status: 'in_progress',
-    theme: 'security',
-    author: { name: 'Админ Демо', avatarUrl: null },
-    updatedAt: '2025-10-08T09:00:00Z',
-    description:
-      'Базовый курс по информационной безопасности: от распознавания фишинга до безопасной работы с корпоративными данными и устройствами.',
-    goals: [
-      'Распознавать типовые схемы социальной инженерии и фишинга.',
-      'Соблюдать правила работы с паролями и корпоративными данными.',
-      'Действовать по регламенту при подозрении на инцидент.'
-    ]
-  },
-  {
-    id: 'ml-basics',
-    title: 'Основы машинного обучения',
-    type: 'Профессиональная переподготовка',
-    direction: 'Искусственный интеллект',
-    hours: 256,
-    tags: ['ML', 'Python', 'Аналитика'],
-    status: 'review',
-    theme: 'analytics',
-    author: { name: 'Админ Демо', avatarUrl: null },
-    updatedAt: '2025-10-05T09:00:00Z',
-    description:
-      'Программа для тех, кто хочет системно разобраться в машинном обучении: от подготовки данных и выбора модели до оценки качества решения.',
-    goals: [
-      'Понимать основные классы задач машинного обучения.',
-      'Готовить данные и подбирать признаки для моделей.',
-      'Оценивать качество моделей и интерпретировать результаты.'
-    ]
-  },
-  {
-    id: 'agile-teams',
-    title: 'Agile-трансформация команд',
-    type: 'Корпоративное обучение',
-    direction: 'Управление и процессы',
-    hours: 16,
-    tags: ['Agile', 'Soft skills'],
-    status: 'published',
-    theme: 'agile',
-    author: { name: 'Админ Демо', avatarUrl: null },
-    updatedAt: '2025-09-28T09:00:00Z',
-    description:
-      'Практикум для команд, которые переходят на Agile и хотят выстроить прозрачные процессы, роли и ритуалы без потери результативности.',
-    goals: [
-      'Понимать ценности и принципы Agile.',
-      'Настраивать роли, ритуалы и артефакты под задачи команды.',
-      'Выявлять узкие места процесса и улучшать поток работы.'
-    ]
-  },
-  {
-    id: 'project-management',
-    title: 'Управление проектами',
-    type: 'Повышение квалификации',
-    direction: 'Управление и процессы',
-    hours: 36,
-    tags: ['Менеджмент', 'Agile'],
-    status: 'draft',
-    theme: 'management',
-    author: { name: 'Админ Демо', avatarUrl: null },
-    updatedAt: '2025-09-24T09:00:00Z',
-    description:
-      'Курс о планировании и реализации проектов: как определить содержание, построить дорожную карту, управлять рисками и коммуникациями.',
-    goals: [
-      'Формулировать цели проекта и декомпозировать их на задачи.',
-      'Планировать сроки, ресурсы и риски.',
-      'Выстраивать коммуникацию с командой и заказчиком.'
-    ]
-  },
-  {
-    id: 'soft-skills-leaders',
-    title: 'Soft skills для руководителей',
-    type: 'Корпоративное обучение',
-    direction: 'Развитие руководителей',
-    hours: 24,
-    tags: ['Soft skills', 'Коммуникация'],
-    status: 'in_progress',
-    theme: 'soft-skills',
-    author: { name: 'Админ Демо', avatarUrl: null },
-    updatedAt: '2025-09-19T09:00:00Z',
-    description:
-      'Программа развивает коммуникацию, обратную связь и управление конфликтами — навыки, без которых сложно вести команду.',
-    goals: [
-      'Проводить сложные разговоры и давать развивающую обратную связь.',
-      'Управлять конфликтами и сохранять рабочие отношения.',
-      'Поддерживать мотивацию и вовлечённость команды.'
-    ]
-  },
-  {
-    id: 'web-development',
-    title: 'Веб-разработка: полный цикл',
-    type: 'Профессиональная переподготовка',
-    direction: 'IT и аналитика',
-    hours: 256,
-    tags: ['IT', 'JavaScript'],
-    status: 'archived',
-    theme: 'it',
-    author: { name: 'Админ Демо', avatarUrl: null },
-    updatedAt: '2025-08-30T09:00:00Z',
-    description:
-      'Полный цикл веб-разработки: вёрстка, клиентская логика, серверная часть и основы развёртывания приложений.',
-    goals: [
-      'Создавать адаптивные интерфейсы на HTML, CSS и JavaScript.',
-      'Разрабатывать клиентскую логику и подключать API.',
-      'Собирать, тестировать и разворачивать веб-приложение.'
-    ]
-  },
-  {
-    id: 'product-analytics',
-    title: 'Продуктовая аналитика',
-    type: 'Повышение квалификации',
-    direction: 'IT и аналитика',
-    hours: 48,
-    tags: ['Аналитика', 'Data'],
-    status: 'published',
-    theme: 'analytics',
-    author: { name: 'Админ Демо', avatarUrl: null },
-    updatedAt: '2025-08-22T09:00:00Z',
-    description:
-      'Курс для продуктовых команд: как выбирать метрики, строить воронки и принимать решения на основе данных, а не догадок.',
-    goals: [
-      'Выбирать продуктовые метрики и формулировать гипотезы.',
-      'Строить воронки и сегменты для анализа поведения пользователей.',
-      'Превращать данные в решения и понятные выводы для команды.'
-    ]
+const PROGRAM_KIND_LABELS: Record<ProgramKind, string> = {
+  professional_development: 'Повышение квалификации',
+  general_development: 'Общеразвивающая программа'
+};
+
+const PROGRAM_KIND_THEMES: Record<ProgramKind, ProgramTheme> = {
+  professional_development: 'it',
+  general_development: 'soft-skills'
+};
+
+function kindLabel(kind: ProgramKind | null | undefined): string | null {
+  return kind ? PROGRAM_KIND_LABELS[kind] : null;
+}
+
+function themeForKind(kind: ProgramKind | null | undefined): ProgramTheme {
+  return kind ? PROGRAM_KIND_THEMES[kind] : 'it';
+}
+
+function nonEmpty(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function topicHours(topic: {
+  hours: { lecture?: number; practice?: number; lab?: number; self_study?: number };
+}): number {
+  return (
+    (topic.hours.lecture ?? 0) +
+    (topic.hours.practice ?? 0) +
+    (topic.hours.lab ?? 0) +
+    (topic.hours.self_study ?? 0)
+  );
+}
+
+function curriculumHours(curriculum: ProgramCurriculumApi | null): number {
+  if (!curriculum) {
+    return 0;
   }
-];
+  return curriculum.modules.reduce(
+    (total, module) => total + module.topics.reduce((sum, topic) => sum + topicHours(topic), 0),
+    0
+  );
+}
+
+function curriculumModules(curriculum: ProgramCurriculumApi | null): readonly ProgramModule[] {
+  if (!curriculum) {
+    return [];
+  }
+  return curriculum.modules.map((module) => ({
+    id: module.id,
+    title: module.title,
+    summary: module.topics.map((topic) => topic.title).join(' · '),
+    hours: module.topics.reduce((total, topic) => total + topicHours(topic), 0)
+  }));
+}
 
 function cloneProgram(program: Program): Program {
   return {
     ...program,
     tags: [...program.tags],
     goals: [...program.goals],
-    author: { ...program.author }
+    author: { ...program.author },
+    competencyStatements: program.competencyStatements
+      ? [...program.competencyStatements]
+      : undefined,
+    modules: program.modules ? program.modules.map((module) => ({ ...module })) : undefined
   };
 }
 
@@ -180,9 +106,39 @@ function cloneProgram(program: Program): Program {
   providedIn: 'root'
 })
 export class ProgramsService {
-  private readonly state = signal<readonly Program[]>(MOCK_PROGRAMS.map(cloneProgram));
+  private readonly http = inject(HttpClient);
+  private readonly profile = inject(ProfileService);
+  private readonly baseUrl = `${environment.apiUrl}/chats`;
+
+  private readonly state = signal<readonly Program[]>([]);
+  private readonly loadingState = signal(false);
+  private readonly loadedState = signal(false);
+  private readonly errorState = signal<string | null>(null);
 
   readonly programs = this.state.asReadonly();
+  readonly loading = this.loadingState.asReadonly();
+  readonly loaded = this.loadedState.asReadonly();
+  readonly error = this.errorState.asReadonly();
+
+  private loadRequestId = 0;
+  private detailRequestId = 0;
+  private detailPoll: Subscription | null = null;
+
+  load(): void {
+    const requestId = ++this.loadRequestId;
+    this.loadingState.set(true);
+    this.errorState.set(null);
+    this.fetchPage(0, requestId, []);
+  }
+
+  clear(): void {
+    this.loadRequestId++;
+    this.stopDetail();
+    this.state.set([]);
+    this.loadedState.set(false);
+    this.loadingState.set(false);
+    this.errorState.set(null);
+  }
 
   query(query: ProgramsQuery = {}): PaginatedResponse<Program> {
     const page = Math.max(0, query.page ?? 0);
@@ -205,6 +161,18 @@ export class ProgramsService {
       page,
       items_per_page: itemsPerPage
     };
+  }
+
+  loadDetail(id: string): void {
+    this.stopDetail();
+    const requestId = ++this.detailRequestId;
+    this.fetchDetail(id, requestId);
+  }
+
+  stopDetail(): void {
+    this.detailRequestId++;
+    this.detailPoll?.unsubscribe();
+    this.detailPoll = null;
   }
 
   duplicate(id: string): void {
@@ -260,5 +228,121 @@ export class ProgramsService {
 
   remove(id: string): void {
     this.state.update((programs) => programs.filter((program) => program.id !== id));
+  }
+
+  private fetchPage(page: number, requestId: number, collected: ProgramApiItem[]): void {
+    const params = new HttpParams()
+      .set('page', page)
+      .set('items_per_page', PROGRAMS_FETCH_PAGE_SIZE);
+
+    this.http
+      .get<ProgramPageApi>(`${this.baseUrl}/programmes`, { params })
+      .pipe(catchError(() => of(null)))
+      .subscribe((response) => {
+        if (requestId !== this.loadRequestId) {
+          return;
+        }
+        if (!response) {
+          this.loadingState.set(false);
+          this.errorState.set('Не удалось загрузить программы');
+          return;
+        }
+
+        const items = [...collected, ...response.items];
+        if (response.items.length === 0 || items.length >= response.total) {
+          this.state.set(items.map((item) => this.toProgram(item)));
+          this.loadedState.set(true);
+          this.loadingState.set(false);
+          this.errorState.set(null);
+          return;
+        }
+
+        this.fetchPage(page + 1, requestId, items);
+      });
+  }
+
+  private fetchDetail(id: string, requestId: number): void {
+    this.http
+      .get<ProgramStateApi>(`${this.baseUrl}/${id}/program`)
+      .pipe(catchError(() => of(null)))
+      .subscribe((response) => {
+        if (requestId !== this.detailRequestId || response === null) {
+          return;
+        }
+        if (!this.state().some((program) => program.id === id)) {
+          return;
+        }
+
+        this.applyDetail(id, response);
+        if (response.busy) {
+          this.detailPoll = timer(PROGRAM_POLL_INTERVAL_MS).subscribe(() =>
+            this.fetchDetail(id, requestId)
+          );
+        }
+      });
+  }
+
+  private applyDetail(id: string, response: ProgramStateApi): void {
+    const draft = response.draft;
+    const summary = draft.summary;
+    const hours = curriculumHours(draft.curriculum);
+    const modules = curriculumModules(draft.curriculum);
+    const competencies = draft.competencies.map((competence) => competence.statement);
+    const goals = summary?.tasks.length ? summary.tasks : summary?.goal ? [summary.goal] : [];
+
+    this.state.update((programs) =>
+      programs.map((program) => {
+        if (program.id !== id) {
+          return program;
+        }
+
+        return {
+          ...program,
+          title: nonEmpty(draft.title) ?? program.title,
+          status: response.status === 'none' ? program.status : response.status,
+          updatedAt: response.updated_at ?? program.updatedAt,
+          type: kindLabel(draft.kind) ?? program.type,
+          direction: nonEmpty(summary?.focus) ?? program.direction,
+          hours: hours > 0 ? hours : program.hours,
+          description:
+            nonEmpty(summary?.annotation) ??
+            nonEmpty(summary?.relevance) ??
+            nonEmpty(summary?.goal) ??
+            program.description,
+          goals: goals.length > 0 ? [...goals] : program.goals,
+          modules: modules.length > 0 ? modules : program.modules,
+          competencyStatements:
+            competencies.length > 0 ? competencies : program.competencyStatements,
+          busy: response.busy,
+          error: response.error
+        };
+      })
+    );
+  }
+
+  private toProgram(item: ProgramApiItem): Program {
+    return {
+      id: item.session_id,
+      title: item.title,
+      type: item.type ?? kindLabel(item.kind) ?? 'Образовательная программа',
+      direction: item.direction ?? '—',
+      hours: item.hours ?? 0,
+      tags: item.tags ?? [],
+      status: item.status === 'none' ? 'draft' : (item.status as ProgramStatus),
+      theme: item.theme ?? themeForKind(item.kind),
+      author: item.author ?? this.currentAuthor(),
+      updatedAt: item.updated_at ?? '',
+      description: item.description ?? '',
+      goals: item.goals ?? []
+    };
+  }
+
+  private currentAuthor(): { name: string; avatarUrl: string | null } {
+    const user = this.profile.user();
+    if (!user) {
+      return { name: '', avatarUrl: null };
+    }
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username;
+    return { name, avatarUrl: null };
   }
 }

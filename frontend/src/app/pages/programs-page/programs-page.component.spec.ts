@@ -1,13 +1,148 @@
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ProgramApiItem, ProgramStateApi, User } from '../../core/models/models';
+import { ProfileService } from '../../core/services/profile.service';
 import { ProgramsService } from '../../core/services/programs.service';
 import { Select } from '../../shared/components/select/select.component';
 import { ProgramsPage } from './programs-page.component';
 
+const API_ITEMS: ProgramApiItem[] = [
+  {
+    session_id: 'it-python',
+    title: 'Python для анализа данных',
+    status: 'draft',
+    updated_at: '2025-10-12T09:00:00Z',
+    type: 'Повышение квалификации',
+    direction: 'IT и аналитика',
+    hours: 72,
+    tags: ['IT', 'Python', 'Аналитика'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'it',
+    description: 'Практический курс для специалистов, которые хотят освоить Python.',
+    goals: ['Уверенно работать с синтаксисом Python.']
+  },
+  {
+    session_id: 'corp-security',
+    title: 'Кибербезопасность для сотрудников',
+    status: 'generating',
+    updated_at: '2025-10-08T09:00:00Z',
+    type: 'Корпоративное обучение',
+    direction: 'Информационная безопасность',
+    hours: 40,
+    tags: ['IT', 'Безопасность'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'security'
+  },
+  {
+    session_id: 'ml-basics',
+    title: 'Основы машинного обучения',
+    status: 'pending_approval',
+    updated_at: '2025-10-05T09:00:00Z',
+    type: 'Профессиональная переподготовка',
+    direction: 'Искусственный интеллект',
+    hours: 256,
+    tags: ['ML', 'Python', 'Аналитика'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'analytics'
+  },
+  {
+    session_id: 'agile-teams',
+    title: 'Agile-трансформация команд',
+    status: 'approved',
+    updated_at: '2025-09-28T09:00:00Z',
+    type: 'Корпоративное обучение',
+    direction: 'Управление и процессы',
+    hours: 16,
+    tags: ['Agile', 'Soft skills'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'agile'
+  },
+  {
+    session_id: 'project-management',
+    title: 'Управление проектами',
+    status: 'draft',
+    updated_at: '2025-09-24T09:00:00Z',
+    type: 'Повышение квалификации',
+    direction: 'Управление и процессы',
+    hours: 36,
+    tags: ['Менеджмент', 'Agile'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'management'
+  },
+  {
+    session_id: 'soft-skills-leaders',
+    title: 'Soft skills для руководителей',
+    status: 'awaiting_answers',
+    updated_at: '2025-09-19T09:00:00Z',
+    type: 'Корпоративное обучение',
+    direction: 'Развитие руководителей',
+    hours: 24,
+    tags: ['Soft skills', 'Коммуникация'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'soft-skills'
+  },
+  {
+    session_id: 'web-development',
+    title: 'Веб-разработка: полный цикл',
+    status: 'approved',
+    updated_at: '2025-08-30T09:00:00Z',
+    type: 'Профессиональная переподготовка',
+    direction: 'IT и аналитика',
+    hours: 256,
+    tags: ['IT', 'JavaScript'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'it'
+  },
+  {
+    session_id: 'product-analytics',
+    title: 'Продуктовая аналитика',
+    status: 'verified',
+    updated_at: '2025-08-22T09:00:00Z',
+    type: 'Повышение квалификации',
+    direction: 'IT и аналитика',
+    hours: 48,
+    tags: ['Аналитика', 'Data'],
+    author: { name: 'Админ Демо', avatarUrl: null },
+    theme: 'analytics'
+  }
+];
+
+const PROGRAM_STATE: ProgramStateApi = {
+  status: 'draft',
+  current_stage: null,
+  stages: {},
+  running: false,
+  busy: false,
+  error: null,
+  updated_at: '2025-10-12T09:00:00Z',
+  version: 1,
+  questions: [],
+  draft: {
+    kind: null,
+    title: null,
+    competencies: [],
+    curriculum: null,
+    sources: [],
+    summary: null
+  }
+};
+
+const USER = signal<User | null>({
+  id: 1,
+  username: 'admin',
+  first_name: 'Админ',
+  last_name: 'Демо',
+  role: 'superuser'
+});
+
 describe('ProgramsPage', () => {
   let fixture: ComponentFixture<ProgramsPage>;
   let service: ProgramsService;
+  let http: HttpTestingController;
 
   const cards = () => fixture.debugElement.queryAll(By.css('.program-card'));
   const cardTitles = () =>
@@ -64,6 +199,9 @@ describe('ProgramsPage', () => {
     button.nativeElement.focus();
     button.nativeElement.click();
     fixture.detectChanges();
+    http
+      .match((request) => request.url.endsWith('/program'))
+      .forEach((request) => request.flush(PROGRAM_STATE));
     TestBed.tick();
     fixture.detectChanges();
   };
@@ -82,21 +220,39 @@ describe('ProgramsPage', () => {
 
   beforeEach(() => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
+    USER.set({
+      id: 1,
+      username: 'admin',
+      first_name: 'Админ',
+      last_name: 'Демо',
+      role: 'superuser'
+    });
 
     TestBed.configureTestingModule({
-      imports: [ProgramsPage]
+      imports: [ProgramsPage],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: ProfileService, useValue: { user: USER } }
+      ]
     });
 
     fixture = TestBed.createComponent(ProgramsPage);
+    fixture.detectChanges();
+    http = TestBed.inject(HttpTestingController);
+    http
+      .expectOne((request) => request.url === '/api/v1/chats/programmes')
+      .flush({ items: API_ITEMS, total: API_ITEMS.length, page: 0, items_per_page: 100 });
     fixture.detectChanges();
     service = TestBed.inject(ProgramsService);
   });
 
   afterEach(() => {
+    http.verify();
     vi.restoreAllMocks();
   });
 
-  it('renders the section heading and the mock catalog', () => {
+  it('renders the section heading and the catalog', () => {
     const heading = fixture.debugElement.query(By.css('h1'));
 
     expect(heading.nativeElement.textContent.trim()).toBe('Мои программы');
@@ -357,7 +513,7 @@ describe('ProgramsPage', () => {
     choose('Архивировать');
 
     expect(statuses()[0]).toBe('archived');
-    expect(service.programs().filter((program) => program.status === 'archived').length).toBe(2);
+    expect(service.programs().filter((program) => program.status === 'archived').length).toBe(1);
   });
 
   it('restores an archived program', () => {
@@ -367,7 +523,7 @@ describe('ProgramsPage', () => {
     choose('Восстановить');
 
     expect(statuses()[0]).toBe('published');
-    expect(service.programs().filter((program) => program.status === 'archived').length).toBe(1);
+    expect(service.programs().filter((program) => program.status === 'archived').length).toBe(0);
   });
 
   it('returns focus to the card trigger after archiving', () => {

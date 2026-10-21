@@ -4,6 +4,7 @@ import {
   Component,
   ElementRef,
   computed,
+  effect,
   inject,
   Injector,
   signal,
@@ -13,6 +14,7 @@ import { LucideChevronLeft, LucideChevronRight, LucideFolderOpen } from '@lucide
 import { FormsModule } from '@angular/forms';
 import { Program } from '../../core/models/models';
 import { NotificationService } from '../../core/services/notification.service';
+import { ProfileService } from '../../core/services/profile.service';
 import { PROGRAMS_PAGE_SIZE, ProgramsService } from '../../core/services/programs.service';
 import { ProgramDetailPanelComponent } from '../../shared/components/program-detail-panel/program-detail-panel.component';
 import {
@@ -98,8 +100,19 @@ function includeSelectedOptions(
 export class ProgramsPage {
   private readonly programsService = inject(ProgramsService);
   private readonly notifications = inject(NotificationService);
+  private readonly profile = inject(ProfileService);
   private readonly injector = inject(Injector);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+
+  constructor() {
+    effect(() => {
+      if (this.profile.user()) {
+        this.programsService.load();
+      } else {
+        this.programsService.clear();
+      }
+    });
+  }
 
   readonly typeFilter = signal('all');
   readonly dateFilter = signal('all');
@@ -251,12 +264,14 @@ export class ProgramsPage {
   openProgram(program: Program, trigger: HTMLElement | null): void {
     this.lastTrigger = trigger;
     this.selectedProgramId.set(program.id);
+    this.programsService.loadDetail(program.id);
   }
 
   closeProgram(): void {
     const trigger = this.lastTrigger;
     this.lastTrigger = null;
     this.selectedProgramId.set(null);
+    this.programsService.stopDetail();
 
     if (trigger?.isConnected) {
       trigger.focus();
@@ -292,6 +307,7 @@ export class ProgramsPage {
         if (this.selectedProgramId() === program.id) {
           this.selectedProgramId.set(null);
           this.lastTrigger = null;
+          this.programsService.stopDetail();
         }
         this.programsService.remove(program.id);
         this.clampPage();
