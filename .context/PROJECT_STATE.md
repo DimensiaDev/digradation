@@ -99,7 +99,7 @@ switchable via `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`); the real GigaChat 
 reachable through `@pytest.mark.live` tests, which are deselected by default.
 
 `SBER_API_SCOPE` selects the provider: `PERS` / `B2B` / `CORP` use the GigaChat client,
-`openai` the OpenAI-compatible one (any endpoint via `OPENAI_URL`, model via `OPENAI_MODEL`),
+`openai` the OpenAI-compatible one (`OPENAI_URL` is required in this mode, model via `OPENAI_MODEL`),
 `mock` the offline stand-in. Tool calling is implemented for both the OpenAI-compatible and
 the GigaChat v2 clients: tools are defined at provider construction and requested calls come
 back on `GenerationResponse.tool_calls`. Nothing executes a call yet. The OpenAI live tests

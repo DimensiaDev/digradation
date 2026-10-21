@@ -1,9 +1,9 @@
 """OpenAI-compatible provider, used against any chat-completions endpoint.
 
 Selected when ``SBER_API_SCOPE=openai``. The token travels in ``SBER_API_KEY``
-and the endpoint may be overridden with ``OPENAI_URL``; with no override the
-official OpenAI endpoint is used. The model defaults to the GigaChat model the
-school hub exposes and can be overridden with ``OPENAI_MODEL``.
+and the endpoint comes from ``OPENAI_URL``, which is mandatory: there is no
+implicit public endpoint. The model defaults to the GigaChat model the school
+hub exposes and can be overridden with ``OPENAI_MODEL``.
 
 This provider advertises tools on every request, and the calls the model asks
 for come back on ``GenerationResponse.tool_calls``. Nothing executes them yet:
@@ -45,19 +45,13 @@ class OpenAIProvider(AIClient):
 
     def __init__(self, api_key: str, scope: str, tools: list[Tool] | None = None):
         super().__init__(api_key, scope, tools)
-        kwargs: dict = {"api_key": api_key}
-        url = os.getenv("OPENAI_URL")
-        if url:
-            kwargs["base_url"] = url
-        else:
-            # The official endpoint is a legitimate default, but an empty value in
-            # an otherwise configured deployment is more often a missing setting
-            # than a deliberate choice, so say which endpoint is in use.
-            self._log.warning(
-                "openai_url_not_configured",
-                detail="OPENAI_URL is unset or empty; using the official OpenAI endpoint",
-            )
-        self._client = AsyncOpenAI(**kwargs)
+        # The SDK would otherwise silently fall back to its public endpoint. This
+        # deployment must always talk to an explicitly configured hub, so an
+        # unset or blank URL is a configuration error rather than a default.
+        url = os.getenv("OPENAI_URL", "").strip()
+        if not url:
+            raise ValueError("OPENAI_URL must be set when SBER_API_SCOPE=openai")
+        self._client = AsyncOpenAI(api_key=api_key, base_url=url)
 
     def _model(self) -> str:
         return os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)

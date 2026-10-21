@@ -873,3 +873,7 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   commits. After #26 merged and `main` moved, PR #24's checks vanished this way. Re-pushing
   and reopening the pull request do not help — `reopened` is skipped for the same reason —
   the conflict has to be resolved first. Found 2026-10-18 on `feat/gen-cicle`.
+- **`AsyncOpenAI` silently defaults to the public OpenAI endpoint when `base_url` is
+  omitted, and an empty string counts as omitted.** The provider now requires a non-blank
+  `OPENAI_URL` and always passes `base_url`, so a missing setting fails at startup instead
+  of quietly sending traffic to a public host. Found 2026-10-21.

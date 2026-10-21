@@ -8,8 +8,8 @@ tokens. Run them deliberately, with the provider environment exported before
         OPENAI_URL=<url> OPENAI_MODEL=<model> \
         poetry -C backend run pytest -m 'live and openai'
 
-If ``SBER_API_SCOPE`` is not ``openai`` or the key is missing/``mock``, every test
-here skips rather than reaching the network.
+If ``SBER_API_SCOPE`` is not ``openai``, the key is missing/``mock``, or
+``OPENAI_URL`` is unset, every test here skips rather than reaching the network.
 """
 
 from __future__ import annotations
@@ -33,6 +33,8 @@ def _require_openai_env():
         pytest.skip("set SBER_API_KEY to a real token to run live OpenAI tests")
     if scope != "openai":
         pytest.skip("set SBER_API_SCOPE=openai to run live OpenAI tests")
+    if not os.environ.get("OPENAI_URL", "").strip():
+        pytest.skip("set OPENAI_URL to run live OpenAI tests")
     return key
 
 

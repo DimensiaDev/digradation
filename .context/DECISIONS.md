@@ -837,9 +837,9 @@ the service's own state transitions.
   developer's `.env` leaves the scope at `openai`; the ordering is load-bearing, not
   cosmetic. The alternative — a separate `PROVIDER` variable — would have left two knobs
   describing one choice.
-- **`OPENAI_URL` empty means the official OpenAI endpoint.** `AsyncOpenAI` already defaults
-  to api.openai.com, so the provider only passes `base_url` when the variable is set. That
-  keeps "point at the school hub" and "point at OpenAI" the same code path.
+- **`OPENAI_URL` used to default to the official OpenAI endpoint.** `AsyncOpenAI` does that
+  on its own, so the provider only passed `base_url` when the variable was set. Reversed on
+  2026-10-21: see "OpenAI endpoint is mandatory" below.
 - **Tools are construction-time state on `AIClient`, not a per-request argument.** A tool
   set is a property of the assistant, not of one exchange, and defining it once matches how
   the callers think about it. All three providers accept `tools=`; only `OpenAIProvider`
@@ -1121,3 +1121,14 @@ showed a scrollbar with nothing to scroll to.
   is 100% of `main`, header included, so that page still scrolls by the header height. It
   predates this change and needs its internal `calc(100dvh - 40px)` reworked, which is a
   separate piece of work.
+
+## OpenAI endpoint is mandatory (2026-10-21)
+
+- **`OPENAI_URL` must be set and non-blank when `SBER_API_SCOPE=openai`; otherwise
+  `OpenAIProvider` raises `ValueError`.** The deployment is only meant to talk to a custom
+  hub, so the SDK's implicit public endpoint is a failure, not a default. An empty value in
+  an otherwise configured environment is far more often a missing setting than a deliberate
+  choice, and `containers.py` constructs the provider at import time, so the failure is loud
+  and immediate.
+- **`base_url` is always passed explicitly.** No code path remains in which `AsyncOpenAI`
+  can supply its own default endpoint.

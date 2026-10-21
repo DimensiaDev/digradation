@@ -359,7 +359,8 @@ figure is recorded here — read it off the `TOTAL` line.
 
 `SBER_API_KEY=mock` still selects the mock regardless of scope, which is what the test and
 e2e stacks set. The OpenAI-compatible client takes its token from `SBER_API_KEY`, its
-endpoint from `OPENAI_URL` (empty = official OpenAI) and its model from `OPENAI_MODEL`.
+endpoint from `OPENAI_URL` (required when the scope is `openai`; there is no implicit public
+endpoint) and its model from `OPENAI_MODEL`.
 
 Tools are defined once, at provider construction: pass `tools=[Tool(...)]` to any provider.
 `OpenAIProvider` and `SberProvider` implement them; each advertises the set on every request
