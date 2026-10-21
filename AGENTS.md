@@ -471,6 +471,12 @@ polls it does not touch PostgreSQL; the fallback re-mirrors the state. `running`
 from the stage lock, so a client can tell a programme that is being worked on from one that
 stalled. The route docstrings carry the request and response examples.
 
+**The view a client sees is built in `app/agentic/view.py`**, not in the route: the status
+projection (a run that died reads as failed), the blocks that are already saved and the open
+questions are the programme's rules. `store.load_cached(db, session_id)` reads the mirror
+first and falls back to the row through the caller's session, because a route reads inside
+its own transaction.
+
 ### Live API tests
 
 Tests marked `live` hit a real provider API and **are deselected by default** via

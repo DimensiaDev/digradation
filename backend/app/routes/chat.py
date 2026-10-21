@@ -7,15 +7,14 @@ from typing import Annotated, Literal
 
 import structlog.stdlib
 from fastapi import APIRouter, Depends, HTTPException, Query
-from redis.asyncio import Redis
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import aliased, selectinload
 
 from app.agentic import store
 from app.agentic.errors import AnswersDoNotMatch
-from app.agentic.models import StageStatuses
 from app.agentic.render import render_answers
-from app.agentic.state import ClarificationAnswer, ProgramState, apply_answers
+from app.agentic.state import ClarificationAnswer, apply_answers
+from app.agentic.view import programme_questions, programme_state, programme_status
 from app.cache import (
     get_attachment_ownership_key,
     get_attachment_status_key,
@@ -53,10 +52,7 @@ from app.schemas.chat import (
     ChatCreatedSchema,
     ChatDeletedResponse,
     ChatMessageSchema,
-    ClarificationQuestionSchema,
-    ProgramBlocksSchema,
     ProgramStateSchema,
-    ProgramViewStatus,
     ResultSchema,
     ResultSchemaContent,
     SendMessageSchema,
@@ -106,62 +102,6 @@ def _is_bare_filename(filename: str) -> bool:
     download endpoint hands back to the browser as a filename.
     """
     return "/" not in filename and "\\" not in filename and filename.isprintable()
-
-
-def _program_status(state: ProgramState) -> ProgramViewStatus:
-    """Where a run stands, as the client sees it.
-
-    A run that died keeps the status it had when it died, so the failure is
-    folded in here rather than in the envelope.
-    """
-    if state.failed:
-        return ProgramViewStatus.FAILED
-    return ProgramViewStatus(state.status.value)
-
-
-def _program_blocks(state: ProgramState) -> ProgramBlocksSchema:
-    """The document as it stands: the blocks that are already saved."""
-    return ProgramBlocksSchema(
-        kind=state.kind,
-        title=state.title,
-        competencies=state.competencies,
-        curriculum=state.curriculum,
-        sources=state.sources,
-        summary=state.summary,
-    )
-
-
-def _pending_questions(state: ProgramState | None) -> list[ClarificationQuestionSchema]:
-    """The questions the programme is waiting for, in the order they were asked."""
-    if state is None:
-        return []
-    return [
-        ClarificationQuestionSchema.model_validate(question, from_attributes=True)
-        for question in state.pending_questions
-    ]
-
-
-async def _stage_locked(session_id: uuid.UUID, stage, redis_client: Redis) -> bool:
-    """Whether a worker holds the stage's lock right now."""
-    return bool(await redis_client.exists(get_program_stage_lock_key(session_id, stage)))
-
-
-async def _program_state(session_id: uuid.UUID, db: DbSession) -> ProgramState | None:
-    """The programme of a chat, from the Redis mirror or from the row.
-
-    The mirror is written on every save, so it is as fresh as the row it
-    mirrors, and a client that polls the state does not need a database round
-    trip. A miss falls back to the row, and the row is mirrored again on the
-    way out.
-    """
-    state = await store.load_mirror(session_id)
-    if state is not None:
-        return state
-    raw = await db.scalar(select(ChatSession.program_state).where(ChatSession.session_id == session_id))
-    state = store.parse(raw)
-    if state is not None:
-        await store.mirror(state)
-    return state
 
 
 router = APIRouter(
@@ -361,7 +301,7 @@ async def get_programmes(
             UserProgrammeSchema(
                 session_id=row.session_id,
                 title=(state.title if state is not None and state.title else row.name),
-                status=_program_status(state) if state is not None else ProgramViewStatus.NONE,
+                status=programme_status(state),
                 updated_at=state.updated_at if state is not None else None,
             )
         )
@@ -621,27 +561,11 @@ async def get_program(session_id: VerifiedMessageSession, db: DbSession, redis_c
     }
     ```
     """
-    state = await _program_state(session_id, db)
-    if state is None:
-        return ProgramStateSchema(
-            status=ProgramViewStatus.NONE,
-            stages=StageStatuses(),
-            running=False,
-            updated_at=None,
-            version=0,
-            draft=ProgramBlocksSchema(),
-        )
-    return ProgramStateSchema(
-        status=_program_status(state),
-        current_stage=state.current_stage,
-        stages=state.stages,
-        running=await _stage_locked(session_id, state.current_stage, redis_client),
-        error=state.error,
-        updated_at=state.updated_at,
-        version=state.version,
-        questions=_pending_questions(state),
-        draft=_program_blocks(state),
-    )
+    state = await store.load_cached(db, session_id)
+    running = False
+    if state is not None:
+        running = bool(await redis_client.exists(get_program_stage_lock_key(session_id, state.current_stage)))
+    return programme_state(state, running=running)
 
 
 @router.get(
@@ -687,7 +611,7 @@ async def get_result(
     if row is None:
         return ResultSchema(running=running, result=None)
     raw_state, result = row
-    questions = _pending_questions(store.parse(raw_state))
+    questions = programme_questions(store.parse(raw_state))
     if running or result is None:
         return ResultSchema(running=running, result=None, questions=questions)
     return ResultSchema(

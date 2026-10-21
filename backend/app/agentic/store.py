@@ -115,6 +115,26 @@ async def load_mirror(session_id: uuid.UUID) -> ProgramState | None:
         return None
 
 
+async def load_cached(db: AsyncSession, session_id: uuid.UUID) -> ProgramState | None:
+    """The state from the Redis mirror, or from the row when the mirror missed.
+
+    The mirror is written on every save, so a client that polls the state does
+    not need a database round trip. A miss falls back to the row, and the row
+    is mirrored again on the way out.
+
+    The row is read through the caller's session, because a route reads inside
+    its own transaction and a session of its own would not see it.
+    """
+    state = await load_mirror(session_id)
+    if state is not None:
+        return state
+    raw = await db.scalar(select(ChatSession.program_state).where(ChatSession.session_id == session_id))
+    state = parse(raw)
+    if state is not None:
+        await mirror(state)
+    return state
+
+
 async def save(state: ProgramState, *, expected_run_id: uuid.UUID | None = None) -> ProgramState:
     """Write the state, refusing one that is stale against the row."""
     async with locked(state.session_id) as (_, row):

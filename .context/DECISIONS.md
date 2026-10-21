@@ -1535,6 +1535,11 @@ two together and gives the client something to poll.
   it. `running` comes from the stage lock, so a client can tell a programme that is being
   worked on from one that stalled — the status alone cannot, because a run keeps its status
   after the worker dies.
+- **The view a client sees is the programme's, and it lives beside the programme.** The
+  status projection (a run that died reads as failed), the blocks that are already saved and
+  the open questions are rules about a run, not about the transport, so they are built in
+  `app/agentic/view.py` and the route only reports them. A route module that grows helper
+  functions is a route module that has become a utility module.
 - **`GET /chats/programmes` lists what the user has.** A chat counts as a programme once it
   holds a run, whatever the run's state, and the title is the programme's own title with
   the chat's name as the fallback. The list is paginated the way the chat list is, because
