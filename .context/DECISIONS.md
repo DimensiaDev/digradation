@@ -1802,3 +1802,18 @@ check on the block, not a wish in the prompt.
   256-hour internship with 254 hours of self-study add up.
 - **The materials belong to the plan.** A lecture plan or a slide deck that names a topic the
   plan does not have is refused.
+
+## The report the methodist reads (2026-10-22)
+
+The criteria ask for a self-check report on the hours, the coverage, the sources and the
+completeness of the sections. The rules already exist — they are what the stages are held
+to — so the report is the same rules, run once and shown.
+
+- **`ProgramState.report()`** answers with the four checks and the numbers behind them:
+  the hours (asked, total, topics, attestation, contact, self-study), the coverage (how
+  many outcomes, how many are taught, how many are checked twice), the sources (how many,
+  how many confirmed) and the sections that are filled.
+- **The report works on a half-finished run.** A check that cannot be made yet says so
+  instead of raising, so a client can poll it while the programme is still being written.
+- **It is part of `GET /chats/{session_id}/program`**, next to the blocks: the client
+  reads the state and the verdict from one place.

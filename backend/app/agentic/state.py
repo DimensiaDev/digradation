@@ -114,6 +114,26 @@ class ClarificationAnswer(BaseModel):
     text: str = Field(min_length=1, max_length=MAX_ANSWER_LENGTH, description="Текст ответа")
 
 
+class ProgramCheck(BaseModel):
+    """One check of the programme and what it found."""
+
+    name: str = Field(description="Что проверялось")
+    ok: bool = Field(description="Проверка пройдена")
+    problems: list[str] = Field(default_factory=list, description="Что не сошлось")
+    details: dict[str, Any] = Field(default_factory=dict, description="Числа проверки")
+
+
+class ProgramReport(BaseModel):
+    """The checks the programme passed, for the methodist to read.
+
+    The same rules the stages are held to, reported once: the hours, the
+    coverage of the outcomes, the sources and the completeness of the sections.
+    """
+
+    ok: bool = Field(default=True, description="Все проверки пройдены")
+    checks: list[ProgramCheck] = Field(default_factory=list, description="Проверки по порядку")
+
+
 class ProgramState(BaseModel):
     """One programme run: the draft blocks plus where the pipeline stopped."""
 
@@ -330,6 +350,127 @@ class ProgramState(BaseModel):
             for competence in self.competencies
             for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
         ]
+
+    def report(self) -> ProgramReport:
+        """The checks of the programme, for the methodist to read.
+
+        The same rules the stages are held to, reported once and in one place:
+        the hours, the coverage of the outcomes, the sources and the sections
+        that are filled. It works on a half-finished run — the checks that
+        cannot be made yet are simply not reported.
+        """
+        checks = [
+            self._hours_check(),
+            self._coverage_check(),
+            self._sources_check(),
+            self._sections_check(),
+        ]
+        return ProgramReport(ok=all(check.ok for check in checks), checks=checks)
+
+    def _hours_check(self) -> ProgramCheck:
+        """The hours add up to the volume that was asked for."""
+        if self.curriculum is None:
+            return ProgramCheck(name="часы", ok=False, problems=["учебный план ещё не собран"])
+        curriculum = self.curriculum
+        problems = self.curriculum_problems(curriculum)
+        return ProgramCheck(
+            name="часы",
+            ok=not problems,
+            problems=problems,
+            details={
+                "заявлено": self.requested_hours,
+                "всего": curriculum.total_hours,
+                "темы": curriculum.topic_hours,
+                "итоговая аттестация": curriculum.attestation_hours,
+                "аудиторных": curriculum.contact_hours,
+                "самостоятельной работы": curriculum.self_study_hours,
+            },
+        )
+
+    def _coverage_check(self) -> ProgramCheck:
+        """Every outcome is taught by a topic and checked by two means."""
+        problems: list[str] = []
+        outcomes = self.declared_outcomes()
+        covered = 0
+        checked_by_two = 0
+        if self.curriculum is not None:
+            problems += self.uncovered_outcome_problems(self.curriculum, set(outcomes))
+            taught = {
+                outcome_id
+                for module in self.curriculum.modules
+                for topic in module.topics
+                for outcome_id in topic.outcome_ids
+            }
+            covered = sum(1 for outcome in outcomes if outcome in taught)
+        if self.assessment is not None and self.curriculum is not None:
+            problems += [
+                problem
+                for problem in self.assessment_problems(self.assessment, self.curriculum)
+                if "средствами" in problem
+            ]
+            means = self._means_per_outcome()
+            checked_by_two = sum(1 for count in means.values() if count >= 2)
+        return ProgramCheck(
+            name="покрытие",
+            ok=not problems,
+            problems=problems,
+            details={
+                "результатов обучения": len(outcomes),
+                "раскрыто в темах": covered,
+                "проверяется двумя средствами": checked_by_two,
+            },
+        )
+
+    def _means_per_outcome(self) -> dict[str, int]:
+        """How many means of checking each outcome has."""
+        counts: dict[str, int] = dict.fromkeys(self.declared_outcomes(), 0)
+        assessment = self.assessment
+        if assessment is None:
+            return counts
+        for outcome_ids in (
+            [question.outcome_ids for question in assessment.questions]
+            + [task.outcome_ids for task in assessment.seminar_tasks]
+            + [tool.outcome_ids for tool in assessment.tools]
+        ):
+            for outcome_id in outcome_ids:
+                if outcome_id in counts:
+                    counts[outcome_id] += 1
+        return counts
+
+    def _sources_check(self) -> ProgramCheck:
+        """The documents the programme cites exist, and the rest are marked."""
+        cited = {item.standard_source_id for item in self.competencies if item.standard_source_id}
+        if self.summary is not None:
+            cited |= set(self.summary.basis_source_ids)
+        problems = self.citation_problems(cited)
+        return ProgramCheck(
+            name="источники",
+            ok=not problems,
+            problems=problems,
+            details={
+                "всего источников": len(self.sources),
+                "подтверждено": len(self.sources),
+                "не подтверждено": len(problems),
+            },
+        )
+
+    def _sections_check(self) -> ProgramCheck:
+        """Every section of the programme is filled."""
+        sections = {
+            "компетенции": bool(self.competencies),
+            "учебный план": self.curriculum is not None,
+            "паспорт": self.summary is not None,
+            "источники": bool(self.sources),
+            "оценочные средства": self.assessment is not None,
+            "материалы": self.materials is not None,
+        }
+        problems = [f"раздел «{name}» не заполнен" for name, filled in sections.items() if not filled]
+        return ProgramCheck(
+            name="разделы",
+            ok=not problems,
+            problems=problems,
+            details=dict(sections),
+        )
 
     def assessment_problems(self, assessment: AssessmentPlan, curriculum: Curriculum) -> list[str]:
         """The assessment has to check the programme, and only the programme.

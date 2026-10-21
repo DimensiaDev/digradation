@@ -152,6 +152,47 @@ def test_a_stage_outside_the_order_has_no_successor() -> None:
 
 
 # ---------------------------------------------------------------------------
+# the report the methodist reads
+# ---------------------------------------------------------------------------
+
+
+def test_the_report_covers_the_hours_the_coverage_the_sources_and_the_sections(blocks: Blocks) -> None:
+    """One place where the checks of the programme are reported."""
+    state = make_state(blocks)
+
+    report = state.report()
+
+    assert [check.name for check in report.checks] == ["часы", "покрытие", "источники", "разделы"]
+    hours = report.checks[0]
+    assert hours.ok is True
+    assert hours.details["всего"] == 72
+    assert hours.details["темы"] == 66
+    assert hours.details["итоговая аттестация"] == 6
+    assert report.checks[1].details["результатов обучения"] == 8
+    assert report.checks[1].details["раскрыто в темах"] == 8
+
+
+def test_the_report_names_what_is_missing(blocks: Blocks) -> None:
+    blocks["curriculum"]["modules"][0]["hours"] = 99
+
+    report = make_state(blocks).report()
+
+    assert report.ok is False
+    assert "модуль m-1 заявлен на 99 ч" in " ".join(report.checks[0].problems)
+
+
+def test_the_report_says_which_sections_are_empty(blocks: Blocks) -> None:
+    state = make_state(blocks)
+
+    report = state.report()
+
+    sections = report.checks[3]
+    assert sections.details["оценочные средства"] is False
+    assert sections.details["материалы"] is False
+    assert sections.ok is False
+
+
+# ---------------------------------------------------------------------------
 # the questions a run waits for
 # ---------------------------------------------------------------------------
 

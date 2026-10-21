@@ -469,7 +469,7 @@ The endpoints the client uses:
 |---|---|
 | `POST /chats/{session_id}` | sends a message, and optionally the answers to the open questions |
 | `GET /chats/{session_id}/result` | the last turn's reply, and the open questions |
-| `GET /chats/{session_id}/program` | where the programme stands: status, stage, the blocks saved so far |
+| `GET /chats/{session_id}/program` | where the programme stands: status, stage, the blocks saved so far, the self-check report |
 | `GET /chats/programmes` | the user's programmes, paginated with `page` and `items_per_page` |
 
 `GET /program` reads the Redis mirror first and falls back to the row, so a client that

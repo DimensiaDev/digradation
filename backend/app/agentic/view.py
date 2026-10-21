@@ -14,6 +14,7 @@ from app.agentic.state import ProgramState
 from app.schemas.chat import (
     ClarificationQuestionSchema,
     ProgramBlocksSchema,
+    ProgramReportSchema,
     ProgramStateSchema,
     ProgramViewStatus,
 )
@@ -86,4 +87,5 @@ def programme_state(state: ProgramState | None, *, running: bool = False) -> Pro
         version=state.version,
         questions=programme_questions(state),
         draft=programme_blocks(state),
+        report=ProgramReportSchema.model_validate(state.report(), from_attributes=True),
     )
