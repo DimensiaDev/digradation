@@ -64,6 +64,8 @@
     position: absolute;
     inset: 0;
 
+    overflow: hidden;
+
     opacity: 0;
 
     -webkit-mask-image: url('/assets/svgs/logo.svg');

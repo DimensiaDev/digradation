@@ -1069,3 +1069,8 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
 - **`@HostListener('document:keydown.tab')` types `$event` as `Event`, not `KeyboardEvent`.**
   Strict template checking rejects reading `event.key`; listen on `document:keydown` and
   branch on `event.key === 'Tab'` instead. Found 2026-10-21 on `feat/my-programs-page`.
+- **A mask does not clip scrollable overflow; an oversized pseudo-element still counts.**
+  `.brand-logo__sheen::before` is `inset: -100%` and the parent masks it, so it looks clipped,
+  but `.home__body`'s scrollable overflow grew on any layout invalidation — opening the file
+  preview was only the trigger. `overflow: hidden` on `.brand-logo__sheen` clips the box
+  without changing the visible sheen. Found 2026-10-21 on `feat/my-programs-page`.
