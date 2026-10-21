@@ -1,6 +1,16 @@
 import { Injectable, signal } from '@angular/core';
-import { Program } from '../models/models';
+import { PaginatedResponse, Program } from '../models/models';
 import { createId } from '../../shared/utils/create-id';
+
+export const PROGRAMS_PAGE_SIZE = 6;
+
+export interface ProgramsQuery {
+  page?: number;
+  itemsPerPage?: number;
+  type?: string;
+  date?: string;
+  tags?: readonly string[];
+}
 
 const MOCK_PROGRAMS: readonly Program[] = [
   {
@@ -108,6 +118,29 @@ export class ProgramsService {
   private readonly state = signal<readonly Program[]>(MOCK_PROGRAMS.map(cloneProgram));
 
   readonly programs = this.state.asReadonly();
+
+  query(query: ProgramsQuery = {}): PaginatedResponse<Program> {
+    const page = Math.max(0, query.page ?? 0);
+    const itemsPerPage = query.itemsPerPage ?? PROGRAMS_PAGE_SIZE;
+    const type = query.type ?? 'all';
+    const date = query.date ?? 'all';
+    const tags = query.tags ?? [];
+
+    const filtered = this.state().filter(
+      (program) =>
+        (type === 'all' || program.direction === type) &&
+        (date === 'all' || program.updatedAt.startsWith(date)) &&
+        (tags.length === 0 || tags.some((tag) => program.tags.includes(tag)))
+    );
+    const start = page * itemsPerPage;
+
+    return {
+      items: filtered.slice(start, start + itemsPerPage),
+      total: filtered.length,
+      page,
+      items_per_page: itemsPerPage
+    };
+  }
 
   duplicate(id: string): void {
     this.state.update((programs) => {

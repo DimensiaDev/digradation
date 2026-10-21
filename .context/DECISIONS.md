@@ -1254,11 +1254,24 @@ template keep working while the number has a single source.
 - **The page talks to `ProgramsService`, not to fixtures.** The service owns an in-memory
   signal and the duplicate / archive / delete mutations, so the page contains no mock data
   and replacing the service body with HTTP calls later is the only integration point.
-- **`draft` is a status, not a filter.** Drafts appear only under "Все". A draft is a
-  transient authoring state rather than a section users browse, and the filter row stays at
-  five predictable choices.
-- **Editing and the primary CTA lead to `/programs/new`.** The route renders
-  `SectionPlaceholder` inside the full gate until the form exists.
+- **The filter row is type + update month + technology tag, not status.** Status stays a
+  card badge and a draft is not a separate browsing section. Type options come from
+  `direction`, date options are the months present in `updatedAt`, and tag options are the
+  distinct `tags` values, all derived from `ProgramsService` so a duplicated row appears
+  under its new month immediately.
+- **Technology filtering is multi-select and OR-based.** The shared `Select` gains a
+  `multiple` mode that keeps the listbox open while options are toggled and treats the
+  `all` sentinel as a clear action. A program matches when it has *any* of the selected
+  tags, which is what a filter chip row is expected to do; selecting Python and Agile
+  widens the result rather than narrowing it to programs tagged with both.
+- **Pagination is part of the service seam.** `ProgramsService.query` takes the active
+  filters plus `page` / `itemsPerPage` and returns the existing `PaginatedResponse` shape,
+  even though it currently slices an in-memory signal. The page owns the page number,
+  resets it on any filter change, and clamps it after a deletion or archive shrinks the
+  filtered result.
+- **The catalog has no create CTA.** Program creation starts on the home page. Editing a
+  card still leads to `/programs/new`, which renders `SectionPlaceholder` inside the full
+  gate until the form exists.
 - **The card is a separate component partly for the style budget.** `anyComponentStyle`
   warns at 6 kB, so a page-sized stylesheet would cross it. Theme accents and status colours
   are driven by `data-theme` / `data-status` attributes, and status colours live in global

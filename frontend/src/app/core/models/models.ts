@@ -165,9 +165,6 @@ export const VISIBLE_FILES_LIMIT = 5;
 
 export type ProgramStatus = 'draft' | 'in_progress' | 'review' | 'published' | 'archived';
 
-/** `draft` is deliberately absent: drafts are visible only through the "all" filter. */
-export type ProgramFilter = 'all' | Exclude<ProgramStatus, 'draft'>;
-
 export type ProgramTheme = 'it' | 'analytics' | 'soft-skills' | 'agile' | 'management' | 'security';
 
 export interface ProgramAuthor {

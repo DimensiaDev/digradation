@@ -81,48 +81,97 @@
   }
 }
 
-.filter-chip {
-  padding: 9px 16px;
+.programs-page__filter {
+  --select-trigger-padding: 9px 14px;
+  --select-trigger-radius: 999px;
 
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.3;
+  width: 240px;
+  max-width: 100%;
 
-  color: var(--color-gray);
+  font-size: 15px;
 
-  background: var(--color-surface);
-  border: 1px solid var(--color-outline);
-  border-radius: 999px;
-
-  cursor: pointer;
-
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    transform 0.15s ease;
-
-  @include reduced-motion;
-  @include focus-ring;
-
-  &:hover {
-    color: var(--color-main);
-    background: color-mix(in srgb, var(--color-main) 6%, var(--color-surface));
-    border-color: color-mix(in srgb, var(--color-main) 40%, var(--color-outline));
+  &--type {
+    width: 320px;
   }
 
-  &:active {
-    transform: translateY(1px);
+  &--date {
+    width: 220px;
   }
 
-  &--active,
-  &--active:hover {
-    color: var(--color-white);
-    background: var(--color-main);
-    border-color: var(--color-main);
-    box-shadow: 0 6px 16px var(--color-main-shadow);
+  &--tag {
+    width: 220px;
+  }
+}
+
+.pagination {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+
+  margin-top: 24px;
+
+  &__info {
+    font-size: 13px;
+    color: var(--color-gray);
+  }
+
+  &__nav {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  &__button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-width: 36px;
+    height: 36px;
+    padding: 0 10px;
+
+    font: inherit;
+    font-size: 14px;
+    color: var(--color-text);
+
+    background: var(--color-surface);
+    border: 1px solid var(--color-outline);
+    border-radius: 8px;
+    cursor: pointer;
+
+    transition:
+      color 0.15s ease,
+      background-color 0.15s ease,
+      border-color 0.15s ease;
+
+    @include reduced-motion;
+    @include focus-ring;
+
+    &:hover:not(:disabled) {
+      background: var(--color-secondary);
+    }
+
+    &--arrow {
+      padding: 0;
+    }
+
+    &--active,
+    &--active:hover:not(:disabled) {
+      color: var(--color-white);
+      background: var(--color-main);
+      border-color: var(--color-main);
+    }
+
+    &:disabled {
+      color: var(--color-gray);
+      cursor: default;
+    }
+  }
+
+  &__ellipsis {
+    padding: 0 2px;
+    color: var(--color-gray);
   }
 }
 
@@ -136,6 +185,10 @@
 
     &__filters {
       margin-top: 20px;
+    }
+
+    .programs-page__filter {
+      width: 100%;
     }
 
     &__grid {

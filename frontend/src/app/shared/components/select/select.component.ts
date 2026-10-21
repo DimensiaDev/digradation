@@ -28,6 +28,8 @@ export interface SelectOption {
   label: string;
 }
 
+export type SelectValue = string | string[] | null;
+
 @Component({
   selector: 'app-select',
   imports: [LucideChevronDown, LucideCheck],
@@ -39,9 +41,10 @@ export class Select implements ControlValueAccessor, OnInit {
   readonly options = input<SelectOption[]>([]);
   readonly placeholder = input('Выберите тип проекта');
   readonly disabled = input(false, { transform: booleanAttribute });
+  readonly multiple = input(false, { transform: booleanAttribute });
 
   readonly isOpen = signal(false);
-  readonly value = signal<string | null>(null);
+  readonly value = signal<SelectValue>(null);
   readonly highlightedIndex = signal(0);
   readonly dropUp = signal(false);
   private readonly formDisabled = signal(false);
@@ -62,7 +65,7 @@ export class Select implements ControlValueAccessor, OnInit {
   readonly labelId = input<string>();
   readonly inputId = input<string>();
 
-  private onChange: (value: string | null) => void = noop;
+  private onChange: (value: SelectValue) => void = noop;
   private onTouched: () => void = noop;
 
   showError!: Signal<boolean>;
@@ -140,15 +143,27 @@ export class Select implements ControlValueAccessor, OnInit {
     this.processScroll();
   }
 
-  readonly selectedLabel = computed(() => {
-    const selected = this.options().find((o) => o.value === this.value());
-    return selected?.label ?? this.placeholder();
+  readonly selectedLabels = computed(() => {
+    const labels = new Map(this.options().map((option) => [option.value, option.label]));
+    return this.currentValues()
+      .map((value) => labels.get(value))
+      .filter((label): label is string => label !== undefined);
   });
+
+  readonly selectedLabel = computed(() => {
+    const labels = this.selectedLabels();
+    return labels.length > 0 ? labels.join(', ') : this.placeholder();
+  });
+
+  readonly hasValue = computed(() => this.selectedLabels().length > 0);
 
   readonly isDisabled = computed(() => this.disabled() || this.formDisabled());
 
   isSelected(option: SelectOption): boolean {
-    return option.value === this.value();
+    if (this.multiple() && option.value === 'all') {
+      return this.currentValues().length === 0;
+    }
+    return this.currentValues().includes(option.value);
   }
 
   toggle(): void {
@@ -180,6 +195,20 @@ export class Select implements ControlValueAccessor, OnInit {
     if (this.isDisabled()) {
       return;
     }
+
+    if (this.multiple()) {
+      const current = this.currentValues();
+      const next =
+        option.value === 'all'
+          ? []
+          : current.includes(option.value)
+            ? current.filter((value) => value !== option.value)
+            : [...current, option.value];
+      this.value.set(next);
+      this.onChange(next);
+      return;
+    }
+
     this.value.set(option.value);
     this.onChange(option.value);
     this.close();
@@ -275,12 +304,12 @@ export class Select implements ControlValueAccessor, OnInit {
     return spaceAbove > spaceBelow;
   }
 
-  writeValue(value: string | null): void {
+  writeValue(value: SelectValue): void {
     this.value.set(value);
     this.highlightedIndex.set(this.currentValueIndex());
   }
 
-  registerOnChange(fn: (value: string | null) => void): void {
+  registerOnChange(fn: (value: SelectValue) => void): void {
     this.onChange = fn;
   }
 
@@ -292,8 +321,17 @@ export class Select implements ControlValueAccessor, OnInit {
     this.formDisabled.set(isDisabled);
   }
 
+  private currentValues(): string[] {
+    const value = this.value();
+    if (Array.isArray(value)) {
+      return value;
+    }
+    return value === null ? [] : [value];
+  }
+
   private currentValueIndex(): number {
-    const index = this.options().findIndex((o) => o.value === this.value());
+    const values = this.currentValues();
+    const index = this.options().findIndex((option) => values.includes(option.value));
     return index >= 0 ? index : 0;
   }
 

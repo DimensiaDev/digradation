@@ -6,18 +6,34 @@
     </div>
   </header>
 
-  <div class="programs-page__filters" role="group" aria-label="Фильтр по статусу">
-    @for (option of filters; track option.value) {
-      <button
-        type="button"
-        class="filter-chip"
-        [class.filter-chip--active]="filter() === option.value"
-        [attr.aria-pressed]="filter() === option.value"
-        (click)="selectFilter(option.value)"
-      >
-        {{ option.label }}
-      </button>
-    }
+  <div class="programs-page__filters" role="group" aria-label="Фильтры каталога">
+    <app-select
+      class="programs-page__filter programs-page__filter--type"
+      [options]="typeOptions()"
+      [ngModel]="typeFilter()"
+      (ngModelChange)="selectType($event)"
+      label="Тип программы"
+      placeholder="Все типы"
+    />
+
+    <app-select
+      class="programs-page__filter programs-page__filter--date"
+      [options]="dateOptions()"
+      [ngModel]="dateFilter()"
+      (ngModelChange)="selectDate($event)"
+      label="Дата обновления"
+      placeholder="Все даты"
+    />
+
+    <app-select
+      class="programs-page__filter programs-page__filter--tag"
+      [options]="tagOptions()"
+      [multiple]="true"
+      [ngModel]="tagFilter()"
+      (ngModelChange)="selectTags($event)"
+      label="Технология"
+      placeholder="Все технологии"
+    />
   </div>
 
   @if (programs().length > 0) {
@@ -26,6 +42,52 @@
         <app-program-card [program]="program" (action)="onAction(program, $event)" />
       }
     </div>
+
+    <div class="pagination">
+      @if (totalPages() > 1) {
+        <nav class="pagination__nav" aria-label="Постраничная навигация по программам">
+          <button
+            type="button"
+            class="pagination__button pagination__button--arrow"
+            [disabled]="!canGoBack()"
+            aria-label="Назад"
+            (click)="previousPage()"
+          >
+            <svg size="16" lucideChevronLeft aria-hidden="true"></svg>
+          </button>
+
+          @for (item of visiblePages(); track $index) {
+            @if (item === 'ellipsis') {
+              <span class="pagination__ellipsis" aria-hidden="true">…</span>
+            } @else {
+              <button
+                type="button"
+                class="pagination__button"
+                [class.pagination__button--active]="item === page() + 1"
+                [attr.aria-current]="item === page() + 1 ? 'page' : null"
+                (click)="goToPage(item)"
+              >
+                {{ item }}
+              </button>
+            }
+          }
+
+          <button
+            type="button"
+            class="pagination__button pagination__button--arrow"
+            [disabled]="!canGoForward()"
+            aria-label="Вперёд"
+            (click)="nextPage()"
+          >
+            <svg size="16" lucideChevronRight aria-hidden="true"></svg>
+          </button>
+        </nav>
+      }
+
+      <span class="pagination__info">
+        Показано {{ rangeStart() }}–{{ rangeEnd() }} из {{ total() }} программ
+      </span>
+    </div>
   } @else {
     <div class="programs-page__empty">
       <span class="programs-page__empty-icon" aria-hidden="true">
@@ -33,23 +95,23 @@
       </span>
 
       <p class="h3">
-        {{ filter() === 'all' ? 'Пока нет программ' : 'В этом статусе пока нет программ' }}
+        {{ hasActiveFilters() ? 'По фильтрам ничего не найдено' : 'Пока нет программ' }}
       </p>
       <p class="h5 programs-page__empty-hint">
         {{
-          filter() === 'all'
-            ? 'Создайте первую программу, чтобы она появилась здесь.'
-            : 'Попробуйте выбрать другой статус.'
+          hasActiveFilters()
+            ? 'Попробуйте изменить тип программы или дату.'
+            : 'Здесь появятся ваши программы.'
         }}
       </p>
 
-      @if (filter() !== 'all') {
+      @if (hasActiveFilters()) {
         <button
           type="button"
           class="button button--outline programs-page__empty-action"
-          (click)="selectFilter('all')"
+          (click)="resetFilters()"
         >
-          Показать все
+          Сбросить фильтры
         </button>
       }
     </div>

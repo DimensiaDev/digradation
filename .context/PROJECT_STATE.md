@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-21** (mock programs catalog added)
+Last updated: **2026-10-21** (programs catalog filters)
 
 ---
 
@@ -56,10 +56,11 @@ separate preview button); the file name and remove action appear on hover and ke
 focus, and stay visible on touch devices. `/help` is still an
 intentional `SectionPlaceholder` host, `library` renders the same placeholder behind the
 auth gate, and `/programs/new` uses it until the form exists. `/programs` is now a
-mock-backed catalog: status filters, a responsive card grid, and local duplicate / archive /
-delete actions. Guests see the catalogue behind a blurred, inert overlay with the
-"Требуется вход" prompt; signing in unlocks it in place. Its data lives in `ProgramsService`;
-no API call is made yet.
+mock-backed catalog: type, update-month and technology filters, a responsive card grid,
+and local duplicate / archive / delete actions, with pagination. Program creation lives on the home page, so the
+catalog has no create button. Guests see the catalogue behind a blurred, inert overlay
+with the "Требуется вход" prompt; signing in unlocks it in place. Its data lives in
+`ProgramsService`; no API call is made yet.
 
 **In flight: tool calling.** The provider layer advertises tools at construction, and both
 the OpenAI-compatible client and the GigaChat v2 client surface the calls the model requests
