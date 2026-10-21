@@ -837,9 +837,9 @@ the service's own state transitions.
   developer's `.env` leaves the scope at `openai`; the ordering is load-bearing, not
   cosmetic. The alternative — a separate `PROVIDER` variable — would have left two knobs
   describing one choice.
-- **`OPENAI_URL` empty means the official OpenAI endpoint.** `AsyncOpenAI` already defaults
-  to api.openai.com, so the provider only passes `base_url` when the variable is set. That
-  keeps "point at the school hub" and "point at OpenAI" the same code path.
+- **`OPENAI_URL` used to default to the official OpenAI endpoint.** `AsyncOpenAI` does that
+  on its own, so the provider only passed `base_url` when the variable was set. Reversed on
+  2026-10-21: see "OpenAI endpoint is mandatory" below.
 - **Tools are construction-time state on `AIClient`, not a per-request argument.** A tool
   set is a property of the assistant, not of one exchange, and defining it once matches how
   the callers think about it. All three providers accept `tools=`; only `OpenAIProvider`
@@ -1122,6 +1122,34 @@ showed a scrollbar with nothing to scroll to.
   predates this change and needs its internal `calc(100dvh - 40px)` reworked, which is a
   separate piece of work.
 
+## OpenAI endpoint is mandatory (2026-10-21)
+
+- **`OPENAI_URL` must be set and non-blank when `SBER_API_SCOPE=openai`; otherwise
+  `OpenAIProvider` raises `ValueError`.** The deployment is only meant to talk to a custom
+  hub, so the SDK's implicit public endpoint is a failure, not a default. An empty value in
+  an otherwise configured environment is far more often a missing setting than a deliberate
+  choice, and `containers.py` constructs the provider at import time, so the failure is loud
+  and immediate.
+- **`base_url` is always passed explicitly.** No code path remains in which `AsyncOpenAI`
+  can supply its own default endpoint.
+
+## E2E waits are explicitly bounded (2026-10-21)
+
+- **The global test timeout is 240s, and every potentially blocking wait also carries its
+  own bound.** The autouse fixture may spend 45s waiting for an in-flight generation plus
+  15s clearing rate limits, and `chat-flow` makes two sequential 45s generation assertions,
+  so a 120s ceiling could expire before the second one. `waitForRequest`, `waitForResponse`
+  and `waitForEvent` calls pass an explicit 15s.
+- **Docker subprocesses get a timeout because Playwright cannot interrupt a synchronous
+  `execFileSync`.** A stuck `docker compose exec` would otherwise outlive the test timeout
+  and hang the worker: the pagination seed is bounded at 60s, each rate-limit attempt at 5s
+  within a 15s retry budget, and each idle-generation poll at 10s within a 45s retry budget.
+  A failure to clear the counters or confirm the lock fails the fixture instead of letting
+  the next test report a misleading 429 or 409. Retry waits use `setTimeout`, not
+  `Atomics.wait`, so the event loop stays free for Playwright's timeout.
+- **`setup.sh` shares one 120s readiness deadline between the frontend and backend probes.**
+  Each `curl` attempt is capped at 5s, so a hung connection cannot stretch the deadline; the
+  script exits when the deadline passes instead of seeding an unready stack.
 ## Embedding provider lives in backend/app/providers
 
 The embedding client is a backend concern, not an edu_rag one. edu_rag

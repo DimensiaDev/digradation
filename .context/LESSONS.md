@@ -873,6 +873,20 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   commits. After #26 merged and `main` moved, PR #24's checks vanished this way. Re-pushing
   and reopening the pull request do not help — `reopened` is skipped for the same reason —
   the conflict has to be resolved first. Found 2026-10-18 on `feat/gen-cicle`.
+- **`AsyncOpenAI` silently defaults to the public OpenAI endpoint when `base_url` is
+  omitted, and an empty string counts as omitted.** The provider now requires a non-blank
+  `OPENAI_URL` and always passes `base_url`, so a missing setting fails at startup instead
+  of quietly sending traffic to a public host. Found 2026-10-21.
+- **A Playwright test timeout cannot interrupt a synchronous `execFileSync`.** The e2e
+  helpers run it inside an autouse fixture, so a hung Docker call would outlive the test's
+  deadline and hang the worker. Bound the subprocess with `execFileSync(..., { timeout })`
+  and use `setTimeout` rather than `Atomics.wait` for the retry backoff, so the event loop
+  stays free. The global test timeout is not a backstop for `execFileSync`. Found 2026-10-21.
+- **A fixture that swallows a Redis or Docker timeout leaves stale state for the test.** A
+  failed rate-limit clear or an unconfirmed generation lock used to be ignored, so the next
+  test failed later with a misleading 429 or 409. Retry within a deadline, then throw with
+  the underlying reason; "the suite is already broken" is not a reason to let the next
+  assertion misdiagnose it. Found 2026-10-21.
 
   - **Poetry writes absolute `file://` URLs for `poetry add ../path` on some
   installs.** When committing a path dependency, verify the URL in

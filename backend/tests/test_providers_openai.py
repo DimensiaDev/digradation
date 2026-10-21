@@ -39,6 +39,15 @@ from app.providers.openai import DEFAULT_OPENAI_MODEL, OpenAIProvider
 
 FUTURE_S = 1_700_000_000
 
+#: Endpoint every provider in this module is built against. The tests that cover a
+#: missing value delete or blank it first.
+OPENAI_URL = "https://hub.example.test/api/v1/llm/v1"
+
+
+@pytest.fixture(autouse=True)
+def _openai_url(monkeypatch):
+    monkeypatch.setenv("OPENAI_URL", OPENAI_URL)
+
 
 def make_completion(
     *,
@@ -121,26 +130,26 @@ def test_implements_the_abstract_interface():
     assert AIClient.__abstractmethods__ == frozenset({"auth", "upload", "generate"})
 
 
-def test_init_defaults_to_the_official_endpoint(monkeypatch):
+def test_init_requires_openai_url(monkeypatch):
     monkeypatch.delenv("OPENAI_URL", raising=False)
-    provider = OpenAIProvider(api_key="key", scope="openai")
 
-    assert str(provider._client.base_url).startswith("https://api.openai.com")
+    with pytest.raises(ValueError, match="OPENAI_URL must be set"):
+        OpenAIProvider(api_key="key", scope="openai")
 
 
-def test_init_treats_an_empty_openai_url_as_the_official_endpoint(monkeypatch):
-    monkeypatch.setenv("OPENAI_URL", "")
-    provider = OpenAIProvider(api_key="key", scope="openai")
+@pytest.mark.parametrize("value", ["", "   "])
+def test_init_rejects_a_blank_openai_url(monkeypatch, value):
+    monkeypatch.setenv("OPENAI_URL", value)
 
-    assert str(provider._client.base_url).startswith("https://api.openai.com")
+    with pytest.raises(ValueError, match="OPENAI_URL must be set"):
+        OpenAIProvider(api_key="key", scope="openai")
 
 
 @pytest.mark.asyncio
-async def test_init_respects_openai_url(monkeypatch):
-    monkeypatch.setenv("OPENAI_URL", "https://hub.example.test/api/v1/llm/v1")
+async def test_init_respects_openai_url():
     provider = OpenAIProvider(api_key="key", scope="openai")
 
-    assert str(provider._client.base_url).startswith("https://hub.example.test/api/v1/llm/v1")
+    assert str(provider._client.base_url).startswith(OPENAI_URL)
 
     await provider.close()
 

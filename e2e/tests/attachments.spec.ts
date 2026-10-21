@@ -31,7 +31,7 @@ async function uploadFile(
   name: string,
 ): Promise<void> {
   const [chooser] = await Promise.all([
-    page.waitForEvent("filechooser"),
+    page.waitForEvent("filechooser", { timeout: 15_000 }),
     page.getByRole("button", { name: "Прикрепить файл" }).click(),
   ]);
   await chooser.setFiles({

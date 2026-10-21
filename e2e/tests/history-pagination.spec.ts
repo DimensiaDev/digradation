@@ -86,7 +86,7 @@ function seedChats(username: string, count: number): void {
       "-c",
       sql,
     ],
-    { cwd: REPO_ROOT, stdio: "ignore" },
+    { cwd: REPO_ROOT, stdio: "ignore", timeout: 60_000 },
   );
 }
 
@@ -102,6 +102,7 @@ test.describe("history pagination", () => {
           r.url().includes("/api/v1/chats/") &&
           r.url().includes("page=0") &&
           r.url().includes(`items_per_page=${PAGE_SIZE}`),
+        { timeout: 15_000 },
       ),
       page.goto("/chats"),
     ]);
@@ -133,6 +134,7 @@ test.describe("history pagination", () => {
           r.url().includes("/api/v1/chats/") &&
           r.url().includes("sort=") &&
           r.url().includes(`items_per_page=${PAGE_SIZE}`),
+        { timeout: 15_000 },
       ),
       page.getByRole("button", { name: /Дата/i }).first().click(),
     ]);
@@ -182,7 +184,9 @@ test.describe("history pagination", () => {
     const firstRow = await page.locator("tbody tr").first().innerText();
 
     const [forwardRequest] = await Promise.all([
-      page.waitForRequest((r) => r.url().includes("page=1")),
+      page.waitForRequest((r) => r.url().includes("page=1"), {
+        timeout: 15_000,
+      }),
       pager.getByRole("button", { name: "Вперёд" }).click(),
     ]);
     expect(new URL(forwardRequest.url()).searchParams.get("page")).toBe("1");
@@ -194,7 +198,9 @@ test.describe("history pagination", () => {
     await expect(page.locator("tbody tr").first()).not.toHaveText(firstRow);
 
     const [backRequest] = await Promise.all([
-      page.waitForRequest((r) => r.url().includes("page=0")),
+      page.waitForRequest((r) => r.url().includes("page=0"), {
+        timeout: 15_000,
+      }),
       pager.getByRole("button", { name: "Назад" }).click(),
     ]);
     expect(new URL(backRequest.url()).searchParams.get("page")).toBe("0");

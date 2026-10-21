@@ -22,7 +22,7 @@ Everything described below is working and running via Docker Compose.
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, providers, the programme cycle (#3)                             |
 | `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings |
-| `e2e/`      | Complete: specs against the real Compose stack with the offline provider                                                           |
+| `e2e/`      | Complete: specs with bounded timeouts against the real Compose stack with the offline provider                                     |
 | Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup                                                     |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
@@ -129,7 +129,7 @@ mode scripts `begin_program` when that tool is offered and the stage's own
 `save_program_draft` block afterwards, so the stages are exercised end to end with no model.
 
 `SBER_API_SCOPE` selects the provider: `PERS` / `B2B` / `CORP` use the GigaChat client,
-`openai` the OpenAI-compatible one (any endpoint via `OPENAI_URL`, model via `OPENAI_MODEL`),
+`openai` the OpenAI-compatible one (`OPENAI_URL` is required in this mode, model via `OPENAI_MODEL`),
 `mock` the offline stand-in. Tool calling is implemented for both the OpenAI-compatible and
 the GigaChat v2 clients, and each turn names the tools it offers — the provider's own default
 list is empty on purpose, so a stage cannot offer the intake tools and vice versa. The OpenAI
