@@ -16,9 +16,15 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from app.agentic.errors import IncompleteDraft
+from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
 from app.agentic.models import ProgramStatus, Stage, StageStatus
-from app.agentic.state import STAGE_ORDER, ProgramState, new_state
+from app.agentic.state import (
+    STAGE_ORDER,
+    ClarificationAnswer,
+    ProgramState,
+    apply_answers,
+    new_state,
+)
 
 EXAMPLE_PATH = Path(__file__).resolve().parents[1] / "examples" / "document_state_example.json"
 
@@ -116,6 +122,71 @@ def test_a_stage_outside_the_order_has_no_successor() -> None:
     state = new_state(SESSION_ID, requested_hours=None, requirements=None)
 
     assert state._successor(Stage.ASSESSMENT) is None
+
+
+# ---------------------------------------------------------------------------
+# the questions a run waits for
+# ---------------------------------------------------------------------------
+
+
+def test_a_run_with_questions_waits_for_them() -> None:
+    """A run that asked questions does not generate yet."""
+    state = new_state(SESSION_ID, requested_hours=None, requirements="Программа", questions=["Сколько часов?"])
+
+    assert state.status is ProgramStatus.AWAITING_ANSWERS
+    assert state.awaiting_answers
+    assert state.attempts == {}
+    assert [question.text for question in state.pending_questions] == ["Сколько часов?"]
+    assert state.questions[0].id
+
+
+def test_a_run_without_questions_starts_generating() -> None:
+    state = new_state(SESSION_ID, requested_hours=None, requirements="Программа")
+
+    assert state.status is ProgramStatus.GENERATING
+    assert not state.awaiting_answers
+    assert state.pending_questions == []
+    assert state.attempts == {Stage.COMPETENCES: 1}
+
+
+def test_the_answers_start_the_programme() -> None:
+    state = new_state(SESSION_ID, requested_hours=None, requirements="Программа", questions=["Сколько часов?"])
+    question = state.questions[0]
+
+    answered = apply_answers(state, [ClarificationAnswer(question_id=question.id, text="72 часа")])
+
+    assert answered.status is ProgramStatus.GENERATING
+    assert answered.pending_questions == []
+    assert [answer.text for answer in answered.answers] == ["72 часа"]
+    assert answered.attempts == {Stage.COMPETENCES: 1}
+
+
+def test_answers_to_questions_nobody_asked_are_refused() -> None:
+    state = new_state(SESSION_ID, requested_hours=None, requirements="Программа", questions=["Сколько часов?"])
+
+    with pytest.raises(AnswersDoNotMatch):
+        apply_answers(state, [ClarificationAnswer(question_id="q-9", text="72 часа")])
+
+
+def test_a_duplicated_answer_is_refused() -> None:
+    state = new_state(SESSION_ID, requested_hours=None, requirements="Программа", questions=["Сколько часов?"])
+    question = state.questions[0]
+
+    with pytest.raises(AnswersDoNotMatch):
+        apply_answers(
+            state,
+            [
+                ClarificationAnswer(question_id=question.id, text="72 часа"),
+                ClarificationAnswer(question_id=question.id, text="36 часов"),
+            ],
+        )
+
+
+def test_answers_to_a_run_that_is_not_waiting_are_refused() -> None:
+    state = new_state(SESSION_ID, requested_hours=None, requirements="Программа")
+
+    with pytest.raises(AnswersDoNotMatch):
+        apply_answers(state, [ClarificationAnswer(question_id="q-1", text="72 часа")])
 
 
 def test_a_failure_below_the_budget_keeps_the_run_alive() -> None:

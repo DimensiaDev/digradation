@@ -10,8 +10,8 @@ test.describe("history", () => {
     await page.getByRole("button", { name: /Создать чат/ }).click();
     await expect(page).toHaveURL(/\/chats\/.+/);
 
-    // The mock provider renames every chat to the same title, so identify the
-    // session by its id rather than by a name.
+    // The chat is named after the first thing the methodist said, so identify
+    // the session by its id rather than by a name.
     const sessionId = new URL(page.url()).pathname.split("/").pop();
 
     await page.goto("/chats");

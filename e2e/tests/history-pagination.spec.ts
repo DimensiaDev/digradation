@@ -76,17 +76,16 @@ function seedChats(username: string, count: number): void {
       "exec",
       "-T",
       "db",
-      "psql",
-      "-U",
-      "digradation",
-      "-d",
-      "digradation",
-      "-v",
-      "ON_ERROR_STOP=1",
+      // The role and the database come from the container's own environment, so
+      // the seed follows the developer's .env instead of a name hardcoded here.
+      "sh",
       "-c",
-      sql,
+      'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"',
     ],
-    { cwd: REPO_ROOT, stdio: "ignore", timeout: 60_000 },
+    // The script goes in on stdin: a `DO $$ ... $$` block cannot survive the
+    // shell quoting of `-c`. stderr is inherited, because a failing seed used to
+    // be reported as a bare "command failed".
+    { cwd: REPO_ROOT, stdio: ["pipe", "ignore", "inherit"], input: sql, timeout: 60_000 },
   );
 }
 

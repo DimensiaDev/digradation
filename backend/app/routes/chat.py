@@ -10,12 +10,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import aliased, selectinload
 
+from app.agentic import store
+from app.agentic.errors import AnswersDoNotMatch
+from app.agentic.render import render_answers
+from app.agentic.state import ClarificationAnswer, apply_answers
+from app.agentic.view import programme_questions, programme_state, programme_status
 from app.cache import (
     get_attachment_ownership_key,
     get_attachment_status_key,
     get_attachment_url_key,
     get_deletion_key,
     get_generation_key,
+    get_program_stage_lock_key,
 )
 from app.deps import (
     CurrentUser,
@@ -46,11 +52,14 @@ from app.schemas.chat import (
     ChatCreatedSchema,
     ChatDeletedResponse,
     ChatMessageSchema,
+    ProgramStateSchema,
     ResultSchema,
     ResultSchemaContent,
     SendMessageSchema,
     UserChatPageSchema,
     UserChatSchema,
+    UserProgrammePageSchema,
+    UserProgrammeSchema,
 )
 from app.schemas.files import (
     AttachmentDeletedResponse,
@@ -62,7 +71,7 @@ from app.schemas.files import (
     S3UploadParams,
 )
 from app.storage import get_s3_attachment_key
-from app.tasks.api import generate_chat_message
+from app.tasks.api import run_chat_turn
 from app.tasks.files import _s3_try_delete, process_attachment
 
 log = structlog.stdlib.get_logger(__name__)
@@ -240,6 +249,71 @@ async def create_chat(user: CurrentUser, db: DbSession):
 
 
 @router.get(
+    "/programmes",
+    summary="Get a page of the programmes the user has",
+    response_model=UserProgrammePageSchema,
+    responses={
+        401: {"description": "Not authenticated, or session expired/invalid"},
+        429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
+    },
+)
+async def get_programmes(
+    db: DbSession,
+    user: CurrentUser,
+    items_per_page: Annotated[int, Query(ge=1, le=100)] = 20,
+    page: Annotated[int, Query(ge=0, description="Current page, starting from zero")] = 0,
+):
+    """Return one page of the programmes the user is building.
+
+    A chat counts as a programme once it holds a run, whatever the run's state:
+    a programme that is still generating is a programme too. The title is the
+    programme's own title, and the chat's name until the programme has one.
+
+    The list is ordered by the last change of the programme, newest first, and
+    `total` is the number of programmes across all pages, so a page number past
+    the end returns no items but still reports the real total.
+
+    Example response:
+
+    ```json
+    {"items": [{"session_id": "3f7c1d2e-5b6a-4c8d-9e0f-1a2b3c4d5e6f",
+                "title": "Анализ данных на Python", "status": "generating",
+                "updated_at": "2026-10-21T12:00:00+00:00"}],
+     "total": 1, "page": 0, "items_per_page": 20}
+    ```
+    """
+    programmes = ChatSession.program_state.is_not(None)
+    total = await db.scalar(
+        select(func.count()).select_from(ChatSession).where(ChatSession.user_id == user.id, programmes)
+    )
+    changed = ChatSession.program_state["updated_at"].astext
+    rows = await db.scalars(
+        select(ChatSession)
+        .where(ChatSession.user_id == user.id, programmes)
+        .order_by(changed.desc(), ChatSession.session_id.desc())
+        .limit(items_per_page)
+        .offset(page * items_per_page)
+    )
+    items = []
+    for row in rows:
+        state = store.parse(row.program_state)
+        items.append(
+            UserProgrammeSchema(
+                session_id=row.session_id,
+                title=(state.title if state is not None and state.title else row.name),
+                status=programme_status(state),
+                updated_at=state.updated_at if state is not None else None,
+            )
+        )
+    return UserProgrammePageSchema(
+        items=items,
+        total=total,
+        page=page,
+        items_per_page=items_per_page,
+    )
+
+
+@router.get(
     "/{session_id}",
     summary="Get messages in chat",
     response_model=list[ChatMessageSchema],
@@ -286,7 +360,12 @@ async def get_chat(session_id: VerifiedMessageSession, db: DbSession):
     status_code=202,
     response_model=MessageResponse,
     responses={
-        400: {"description": "Not all uploaded attachments have finished processing yet"},
+        400: {
+            "description": (
+                "Not all uploaded attachments have finished processing yet, or the answers do not "
+                "match the questions the programme asked"
+            )
+        },
         401: {"description": "Not authenticated, or session expired/invalid"},
         403: {"description": "Chat session not found or does not belong to the user"},
         409: {"description": "A generation job is already running for this user"},
@@ -298,19 +377,51 @@ async def get_chat(session_id: VerifiedMessageSession, db: DbSession):
     },
 )
 async def send_message(session_id: VerifiedMessageSession, db: DbSession, data: SendMessageSchema):
-    """Send a user message and trigger assistant generation.
+    """Send a user message and trigger the assistant's turn.
 
     Any attachments uploaded to this session since the last message (via the
     `/uploads` flow) are attached to this message; all of them must have
     finished processing (poll `/uploads/{attachment_id}/status`) before calling this.
 
+    `answers` carries the methodist's answers to the questions a programme asked.
+    Every open question needs exactly one answer, and an answer to a question the
+    programme never asked is refused with 400: the answers move the run, so a
+    client cannot talk it into a state it was not in. The answers are repeated in
+    the message, next to the question each one answers, so the transcript reads
+    as a conversation.
+
     Returns 202 immediately; poll `GET /chats/{session_id}/result` for the
-    assistant's reply.
+    assistant's reply and `GET /chats/{session_id}/program` for the state of the
+    programme.
+
+    Example request, answering the questions the programme asked:
+
+    ```json
+    {
+      "content": "",
+      "answers": [{"question_id": "9f1c2b7a4d3e4f5a8b6c1d2e3f4a5b6c", "text": "Для руководителей отделов"}]
+    }
+    ```
+
+    `content` may be empty when the message carries nothing but the answers.
     """
     if await db.scalar(
         select(select(Attachment).where(Attachment.session_id == session_id, Attachment.ready.is_(False)).exists())
     ):
         raise HTTPException(status_code=400, detail="Not all attachments are ready")
+    answers = [ClarificationAnswer.model_validate(answer.model_dump()) for answer in data.answers]
+    content = data.content
+    if answers:
+        raw_state = await db.scalar(select(ChatSession.program_state).where(ChatSession.session_id == session_id))
+        state = store.parse(raw_state)
+        if state is None:
+            raise HTTPException(status_code=400, detail="This chat has no programme to answer for")
+        try:
+            apply_answers(state, answers)
+        except AnswersDoNotMatch as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        rendered = render_answers(state, answers)
+        content = f"{content}\n\n{rendered}" if content else rendered
     attachment_ids = select(Attachment.id).where(
         Attachment.session_id == session_id, Attachment.chat_message_id.is_(None)
     )
@@ -326,7 +437,7 @@ async def send_message(session_id: VerifiedMessageSession, db: DbSession, data: 
     new_message = ChatMessage(
         chat_session_id=session_id,
         role=UserRole.USER,
-        content=data.content,
+        content=content,
         files_str=files_str,
     )
     # The provider file ids have been copied onto the message, so the rows that
@@ -343,7 +454,7 @@ async def send_message(session_id: VerifiedMessageSession, db: DbSession, data: 
         .values(chat_message_id=new_message.id)
     )
     await db.commit()
-    await generate_chat_message.kiq(session_id)
+    await run_chat_turn.kiq(session_id, [answer.model_dump() for answer in answers] or None)
     return MessageResponse(message="Message sent")
 
 
@@ -375,7 +486,7 @@ async def retry_send(session_id: VerifiedMessageSession, db: DbSession):
     last_result = await db.scalar(select(GenerationResult).where(GenerationResult.chat_session_id == session_id))
     if last_result is None or last_result.type != GenerationResultType.ERROR:
         raise HTTPException(status_code=400, detail="There's nothing to retry")
-    await generate_chat_message.kiq(session_id)
+    await run_chat_turn.kiq(session_id)
     return MessageResponse(message="Retrying")
 
 
@@ -406,6 +517,58 @@ async def delete_chat(session_id: VerifiedMessageSession, redis_client: RedisSes
 
 
 @router.get(
+    "/{session_id}/program",
+    summary="Get the state of the programme in this chat",
+    response_model=ProgramStateSchema,
+    responses={
+        401: {"description": "Not authenticated, or session expired/invalid"},
+        403: {"description": "Chat session not found or does not belong to the user"},
+        429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
+    },
+)
+async def get_program(session_id: VerifiedMessageSession, db: DbSession, redis_client: RedisSession):
+    """Return where the programme of this chat stands.
+
+    A chat that holds no programme answers with `status: "none"` and empty
+    blocks, so a client can poll this endpoint from the start and read the same
+    shape throughout.
+
+    `status` is the run's own state, with a failure folded in: a run that died
+    reads `failed` even though it kept the status it had when it died.
+    `running` is live — it is true while a worker holds the current stage's
+    lock — so a client can tell a programme that is being worked on from one
+    that stalled. `draft` holds the blocks that are already saved, which is
+    most of the document only once the last stage has run.
+
+    `questions` holds the questions the programme is waiting an answer to.
+    Send the answers back with `POST /chats/{session_id}`.
+
+    Example response, while the programme waits for the methodist:
+
+    ```json
+    {
+      "status": "awaiting_answers",
+      "current_stage": "competences",
+      "stages": {"competences": "pending", "hours": "pending", "assessment": "pending",
+                 "materials": "pending", "sources": "pending", "summary": "pending"},
+      "running": false,
+      "error": null,
+      "updated_at": "2026-10-21T12:00:00+00:00",
+      "version": 2,
+      "questions": [{"id": "9f1c2b7a4d3e4f5a8b6c1d2e3f4a5b6c", "text": "Для кого программа?", "hint": null}],
+      "draft": {"kind": null, "title": null, "competencies": [], "curriculum": null,
+                "sources": [], "summary": null}
+    }
+    ```
+    """
+    state = await store.load_cached(db, session_id)
+    running = False
+    if state is not None:
+        running = bool(await redis_client.exists(get_program_stage_lock_key(session_id, state.current_stage)))
+    return programme_state(state, running=running)
+
+
+@router.get(
     "/{session_id}/result",
     summary="Get last result if any user message was sent",
     response_model=ResultSchema,
@@ -425,15 +588,36 @@ async def get_result(
 
     Meant to be polled repeatedly until `running` is false. While `running` is
     true, `result` (if present) refers to a previous turn and should be ignored.
+
+    `questions` holds the questions the programme is waiting an answer to, and
+    does not depend on `running`: the questions belong to a chat, not to a turn.
+    Send the answers back with `POST /chats/{session_id}`.
+
+    Example response, while the programme waits for the methodist:
+
+    ```json
+    {"running": false, "result": null,
+     "questions": [{"id": "9f1c2b7a4d3e4f5a8b6c1d2e3f4a5b6c", "text": "Для кого программа?", "hint": null}]}
+    ```
     """
-    if await redis_client.exists(get_generation_key(user.uuid)):
-        return ResultSchema(running=True, result=None)
-    result = await db.scalar(select(GenerationResult).where(GenerationResult.chat_session_id == session_id))
-    if result is None:
-        return ResultSchema(running=False, result=None)
+    running = await redis_client.exists(get_generation_key(user.uuid))
+    row = (
+        await db.execute(
+            select(ChatSession.program_state, GenerationResult)
+            .outerjoin(GenerationResult, GenerationResult.chat_session_id == ChatSession.session_id)
+            .where(ChatSession.session_id == session_id)
+        )
+    ).first()
+    if row is None:
+        return ResultSchema(running=running, result=None)
+    raw_state, result = row
+    questions = programme_questions(store.parse(raw_state))
+    if running or result is None:
+        return ResultSchema(running=running, result=None, questions=questions)
     return ResultSchema(
         running=False,
         result=ResultSchemaContent.model_validate(result, from_attributes=True),
+        questions=questions,
     )
 
 

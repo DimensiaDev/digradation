@@ -2,7 +2,14 @@
 
 PostgreSQL is canonical: ``chat_sessions.program_state`` holds the whole envelope,
 so a worker that dies leaves every committed block behind. Redis holds a copy
-with a TTL for inspection; nothing reads it as a source of truth.
+with a TTL, and the copy is what the state endpoint reads: it is written on
+every save, so it is as fresh as the row it mirrors, and a client that polls
+the programme's state does not touch PostgreSQL at all.
+
+The one gap is a mirror write that fails while Redis is still up: the endpoint
+then serves the last state that was mirrored, until the next successful write
+or the TTL runs out. The response carries the state's ``updated_at`` and
+``version``, so a client can see that it is looking at an older state.
 
 Concurrency is guarded twice: the row lock serialises two writers, and the
 version on the envelope refuses one derived from an older copy. The per-stage
@@ -87,6 +94,48 @@ async def load(session_id: uuid.UUID) -> ProgramState | None:
     """Read the state from PostgreSQL, refreshing the Redis copy on the way."""
     async with db_session() as db:
         raw = await db.scalar(select(ChatSession.program_state).where(ChatSession.session_id == session_id))
+    state = parse(raw)
+    if state is not None:
+        await mirror(state)
+    return state
+
+
+async def load_mirror(session_id: uuid.UUID) -> ProgramState | None:
+    """Read the state from the Redis mirror, or ``None`` when it is not there.
+
+    The mirror is written on every save, so it is as fresh as the row it
+    mirrors; a read that only has to tell a client where the programme stands
+    does not need a database round trip.
+    """
+    try:
+        async with get_redis_client() as redis:
+            raw = await redis.get(get_program_state_key(session_id))
+    except Exception as error:
+        log.warning("program_state_mirror_unreadable", session_id=str(session_id), error=str(error))
+        return None
+    if raw is None:
+        return None
+    try:
+        return parse(json.loads(raw))
+    except ValueError as error:
+        log.error("program_state_mirror_unreadable", session_id=str(session_id), error=str(error))
+        return None
+
+
+async def load_cached(db: AsyncSession, session_id: uuid.UUID) -> ProgramState | None:
+    """The state from the Redis mirror, or from the row when the mirror missed.
+
+    The mirror is written on every save, so a client that polls the state does
+    not need a database round trip. A miss falls back to the row, and the row
+    is mirrored again on the way out.
+
+    The row is read through the caller's session, because a route reads inside
+    its own transaction and a session of its own would not see it.
+    """
+    state = await load_mirror(session_id)
+    if state is not None:
+        return state
+    raw = await db.scalar(select(ChatSession.program_state).where(ChatSession.session_id == session_id))
     state = parse(raw)
     if state is not None:
         await mirror(state)

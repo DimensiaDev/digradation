@@ -432,18 +432,63 @@ completeness gate that a partial state cannot pass.
 - **`finalize_program_draft`** assembles the draft, renders it with `render.py`, renames a
   default-named chat, and writes the state, the result and the assistant message in one
   transaction. A state whose blocks cannot produce a valid draft is failed, not retried.
-- **The pipeline does not own the chat worker.** `app/tasks/api.py` is untouched by this
-  work: the intake turn and the answers a chat with a live run gets are its owner's to write
-  (#3's remaining half). Confirmation is the `approve_program_draft` tool call, not a phrase,
-  so there is no `is_approval_message` to wire. What this branch provides is the seam —
-  `INTAKE_TOOLS` (`begin_program`, `approve_program_draft`), `ToolContext`, `call_executor`
-  and `program_stage.kiq(session_id, stage, run_id)` — so the worker only has to offer the
-  tools, commit the state a `begin_program` call started, and enqueue the stage it names.
 - **A stage sends exactly one system message.** GigaChat rejects a second one, so the stage
   prompt is the tool contract and the conversation is `STAGE_SYSTEM_PROMPT` plus the brief.
   The admin `prompt_extension` from `harness.build_system_prompt` does not reach programme
   stages; carrying it there would mean storing it in `ProgramState` from the chat worker's
   intake turn. That is a deliberate decision, recorded in `.context/DECISIONS.md`.
+
+### The chat turn and the programme API
+
+`app/tasks/api.py` runs one turn of a chat. The turn is a **tool loop**, not a single
+completion: the model is offered `INTAKE_TOOLS` and may call `begin_program` (which starts a
+run), `approve_program_draft` (which confirms a rendered draft), or simply answer in prose.
+`run_chat_turn` is the task; `process_response` publishes the answer.
+
+- **The model no longer names the chat.** `HARNESS_STRUCTURED_SCHEMA` and
+  `HarnessStructuredOutput` are gone: the reply is prose, and the name comes from
+  `app/naming.py`, which holds the one rule — *a programme's title wins, otherwise the first
+  thing the methodist said* — used by the intake, the finalise and the failure path alike.
+- **A run may wait for answers.** `begin_program` takes an optional `questions` list; a run
+  with questions is created in `AWAITING_ANSWERS` and does not generate until the methodist
+  answers. The questions live on the envelope, so the client can show them one at a time.
+- **The answers travel with the message.** `POST /chats/{session_id}` takes an `answers`
+  array next to `content`; every open question needs exactly one answer, and an answer to a
+  question nobody asked is refused with 400. The answers are repeated in the message next to
+  the question each one answers, so the transcript reads as a conversation.
+
+The endpoints the client uses:
+
+| Endpoint | What it answers |
+|---|---|
+| `POST /chats/{session_id}` | sends a message, and optionally the answers to the open questions |
+| `GET /chats/{session_id}/result` | the last turn's reply, and the open questions |
+| `GET /chats/{session_id}/program` | where the programme stands: status, stage, the blocks saved so far |
+| `GET /chats/programmes` | the user's programmes, paginated with `page` and `items_per_page` |
+
+`GET /program` reads the Redis mirror first and falls back to the row, so a client that
+polls it does not touch PostgreSQL; the fallback re-mirrors the state. The response carries
+the state's `updated_at` and `version`, so a client can see that it is looking at an older
+state — a mirror write that fails while Redis is up leaves the endpoint behind until the
+next successful write.
+
+**A client polls on `busy`, not on `running`.** `busy` is true for as long as the programme
+is being worked on, the finalisation included, and false once the run is waiting for the
+methodist or has stopped. `running` is only a live hint — it is true while a worker holds
+the current stage's lock, so it is false while a stage waits in the queue and false during
+the finalisation, which has no lock at all. `GET /result.running` is a different thing
+entirely: it is the chat turn's key, and it is released while the stages still run.
+
+**The view a client sees is built in `app/agentic/view.py`**, not in the route: the status
+projection (a run that died reads as failed), the blocks that are already saved and the open
+questions are the programme's rules. `store.load_cached(db, session_id)` reads the mirror
+first and falls back to the row through the caller's session, because a route reads inside
+its own transaction.
+
+**A chat is named once, and the name is the programme's title when it has one.** Until the
+title exists the chat takes the name of the first thing the methodist said, so a running
+programme is not "Новый чат" in the chat list; when the draft is rendered the title replaces
+it. `app/naming.py` holds the rule and the three callers use it.
 
 ### Live API tests
 
@@ -789,13 +834,12 @@ follow.
    surprised by a deterministic-looking response in tests or e2e, that is the mock provider,
    not a real model. Use `MOCK_PROVIDER_MODE` to change its behaviour.
 2. **The app must run with CWD == `backend/`.** See the CWD-sensitive paths in section 5.
-3. **The LLM prompt and the output schema are two halves of one contract.**
-   `harness.py` holds `SYSTEM_PROMPT`, `PROMPT_EXTENSION_PREAMBLE` and
-   `HARNESS_STRUCTURED_SCHEMA`; `providers/models.py` holds the Pydantic model the reply
-   is validated against. Change one and you must change the other, or every reply
-   becomes a validation error. The schema is currently `{chat_name, message}`.
-   Admins append their own text to the prompt through `PATCH /admin/settings`, and
-   `build_system_prompt` composes it once per session at creation time.
+3. **The LLM contract is the prompt plus the tools.** `harness.py` holds `SYSTEM_PROMPT` and
+   `PROMPT_EXTENSION_PREAMBLE`; the chat turn runs a tool loop, so what the model must
+   produce is the tool specification in `app/agentic/tools.py`, not a fixed output schema.
+   There is no output schema any more. Admins append their own text to the prompt through
+   `PATCH /admin/settings`, and `build_system_prompt` composes it once per session at
+   creation time.
 4. **`TEST_INSTANCE_MODE` blocks admin mutations with HTTP 450**, except `PATCH
    /admin/settings`, which is allowed on purpose. This non-standard code will look like a
    typo in any frontend `switch`. It is intentional.

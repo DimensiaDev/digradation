@@ -83,7 +83,7 @@ Append new entries at the bottom, one `##` section per topic, chronological.
   | Queue     | Nature                  | Tasks                                                                                                                                                                                    |
   | --------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
   | `default` | local / CPU-bound       | `process_attachment`, `process_document`, `process_avatar`, `process_response`, `cleanup_old_results`, `cleanup_orphan_attachments`, `cleanup_stale_results`, `cleanup_expired_sessions` |
-  | `network` | outbound GigaChat calls | `generate_chat_message`                                                                                                                                                                  |
+  | `network` | outbound GigaChat calls | `run_chat_turn`                                                                                                                                                                          |
 
   **Why:** the `network` queue is bounded by external API latency. Isolating it means a slow
   or rate-limited GigaChat cannot starve attachment preparation or the cleanup crons.
@@ -101,15 +101,11 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 
 ## The GigaChat harness
 
-- **`app/harness.py` owns the LLM contract**, and it has two halves that must agree:
-  `SYSTEM_PROMPT` (what the model is told) and `HARNESS_STRUCTURED_SCHEMA` (what it is
-  asked to return). The reply is validated against `HarnessStructuredOutput` in
-  `app/providers/models.py`, so changing the schema without changing the model makes every
-  reply a validation error, and the failure surfaces as a generic internal error.
-- **The schema is `{chat_name, message}`.** `chat_name` exists so a session can be titled
-  from the model's own words rather than staying "Новый чат" forever; `message` is the whole
-  reply. `chat_name` is optional in the Pydantic model, so a model that omits it still
-  yields a usable answer and the session just keeps its default title.
+- **`app/harness.py` owns the prompt**: `SYSTEM_PROMPT` (what the model is told) and
+  `PROMPT_EXTENSION_PREAMBLE` (the heading the admin's text is appended under). The reply
+  used to be a structured answer validated against a Pydantic model; the chat turn is a
+  tool loop now, so there is no output schema any more — the tools' specifications in
+  `app/agentic/tools.py` are the contract the model answers against.
 - **The prompt is deliberately short and domain-free.** It states the agent's job in two
   sentences and nothing about any particular subject. That is a starting point, not a
   design: the project is a chat application awaiting its purpose, and a longer prompt would
@@ -1563,6 +1559,8 @@ that lives in the chat worker's turn.
 - **`generate_chat_message` stays exactly as `main` has it.** The intake half of #3 — offering
   `INTAKE_TOOLS`, committing the state a `begin_program` call started and answering a chat that
   already holds a run — is not in this change, and neither is its test block.
+  *Superseded on 2026-10-21, when the chat turn became a tool loop — see "The chat turn became
+  a tool loop, and the programme got an API".*
 - **The seam is what this branch owes that worker.** `INTAKE_TOOLS`, `ToolContext`,
   `execute_tool`/`call_executor`, `store.save` and `program_stage.kiq(session_id, stage, run_id)`
   are usable from `api.py` as written; the worker needs no new module, only the wiring.
@@ -1666,3 +1664,69 @@ contain function result or files entries only`. Both are stripped in
   `function_result` part; `test_live_gigachat_completes_a_tool_round` and its OpenAI twin run
   model -> tool -> model through `run_tool_loop`, so the exact shape that blocked the merge is
   exercised by the real API. They stay deselected by default and need a real key.
+
+## The chat turn became a tool loop, and the programme got an API (2026-10-21)
+
+The programme cycle was merged with a seam and no caller: the tools existed, the stages
+existed, and the chat turn was still a single structured completion. This change wires the
+two together and gives the client something to poll.
+
+- **The chat turn is a tool loop.** `generate_chat_message` is now `run_chat_turn`: it offers
+  `INTAKE_TOOLS` to the model and runs `run_tool_loop`, so the model itself decides whether
+  to start a programme, to confirm a rendered draft, or to answer in prose. A structured
+  completion could not express any of that — the model had no way to say "start a programme".
+  The reply is prose now, and `HARNESS_STRUCTURED_SCHEMA` and `HarnessStructuredOutput` are
+  gone with it; the tools' specifications are the contract the model answers against.
+- **The model no longer names the chat.** Naming a chat from a model's own words was a
+  structured-output side effect, and structured output is gone. `app/naming.py` holds the
+  rule instead — *a programme's title wins, otherwise the first thing the methodist said* —
+  and the intake, the finalise and the failure path all go through it, so a chat is named
+  once and the frontend sees one name. The title may replace the name the first message
+  gave, because a programme's own title is the better name.
+- **A run may wait for answers.** `begin_program` takes an optional `questions` list. A run
+  with questions is created in `AWAITING_ANSWERS` and does not generate: the questions live
+  on the envelope, so the client can show them one at a time and send the answers back. The
+  alternative — a second endpoint for the answers — would have split one user action across
+  two contracts, and the chat turn would have had to answer a question it was not asked.
+- **The answers travel with the message.** `POST /chats/{session_id}` takes an `answers`
+  array next to `content`, and the answers are checked against the questions the run is
+  actually waiting for: every open question needs exactly one answer, and an answer to a
+  question nobody asked is refused. The answers are repeated in the message next to the
+  question each one answers, so the transcript reads as a conversation and the model sees
+  what the methodist said.
+- **`GET /chats/{session_id}/program` is the polled endpoint, and it reads Redis first.** The
+  state is already mirrored under `program:state:{session_id}`, so a client that polls the
+  programme's state does not touch PostgreSQL; a miss falls back to the row and re-mirrors
+  it. `running` comes from the stage lock, so a client can tell a programme that is being
+  worked on from one that stalled — the status alone cannot, because a run keeps its status
+  after the worker dies.
+- **The view a client sees is the programme's, and it lives beside the programme.** The
+  status projection (a run that died reads as failed), the blocks that are already saved and
+  the open questions are rules about a run, not about the transport, so they are built in
+  `app/agentic/view.py` and the route only reports them. A route module that grows helper
+  functions is a route module that has become a utility module.
+- **A tool's effect is committed when it happens, not when the turn ends.** The stage loop
+  checkpoints after every call; the intake turn does the same, so a model that starts a
+  programme and then answers nothing still starts the programme. Without the checkpoint the
+  run existed only in memory and the turn reported an error over it.
+- **One writer for the result row.** `generation_results.chat_session_id` is the primary
+  key, and two writers can reach it: a turn publishing its reply and the programme
+  finalising a draft. The writer is `app.models.chat.write_result`, which updates the row
+  when it is already there, so the second writer cannot fail on the key.
+- **A chat is named once, and the title wins when it exists.** Until a programme has a
+  title the chat takes the name of the first thing the methodist said — a running
+  programme must not be "Новый чат" in the chat list — and the title replaces that name
+  when the draft is rendered. One rule, one place (`app/naming.py`), three callers.
+- **A client polls on `busy`.** `running` is a live hint: it is true only while a worker
+  holds the current stage's lock, so it is false while a stage waits in the queue and false
+  during the finalisation, which has no lock. `busy` is true for as long as the programme is
+  being worked on, the finalisation included, and it is the field a client polls on.
+- **`GET /chats/programmes` lists what the user has.** A chat counts as a programme once it
+  holds a run, whatever the run's state, and the title is the programme's own title with
+  the chat's name as the fallback. The list is paginated the way the chat list is, because
+  it will grow the same way.
+- **The admin's prompt extension still does not reach the stages.** The intake is a chat
+  turn, so the extension reaches the model that decides to start a programme, but the
+  stages write the document and build their own prompt. Carrying the extension there would
+  mean storing it in `ProgramState` from the intake, which is a product decision, not a
+  mechanical one.

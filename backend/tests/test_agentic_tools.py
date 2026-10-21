@@ -17,7 +17,7 @@ import pytest
 
 from app.agentic import tools
 from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
-from app.agentic.state import ProgramState, new_state
+from app.agentic.state import ClarificationQuestion, ProgramState, new_state
 from app.agentic.tools import (
     ApproveProgramDraftResult,
     BeginProgramArguments,
@@ -228,6 +228,36 @@ async def test_begin_program_needs_a_task(context: ToolContext) -> None:
 
     assert result.ok is False
     assert "Некорректные аргументы" in (result.error or "")
+
+
+async def test_begin_program_with_questions_waits_for_them(context: ToolContext) -> None:
+    """A run that asked questions does not generate until they are answered."""
+    fresh = ToolContext(session_id=context.session_id)
+
+    result = await execute_tool(fresh, call("begin_program", {"requirements": "Курс", "questions": ["Сколько часов?"]}))
+
+    assert isinstance(result, BeginProgramResult)
+    assert result.ok is True
+    assert fresh.state is not None
+    assert fresh.state.status is ProgramStatus.AWAITING_ANSWERS
+    assert [question.text for question in fresh.state.pending_questions] == ["Сколько часов?"]
+    assert "Сколько часов?" in (result.note or "")
+
+
+async def test_begin_program_refuses_to_replace_a_run_that_waits_for_answers(context: ToolContext) -> None:
+    """The model is told what the run is waiting for, so it can relay it."""
+    context.state = context.state.model_copy(
+        update={
+            "status": ProgramStatus.AWAITING_ANSWERS,
+            "questions": [ClarificationQuestion(id="q-1", text="Сколько часов?")],
+        }
+    )
+
+    result = await execute_tool(context, call("begin_program", {"requirements": "Другая программа"}))
+
+    assert result.ok is False
+    assert "уже есть программа" in (result.error or "")
+    assert "Сколько часов?" in (result.note or "")
 
 
 # --------------------------------------------------------------------------------------

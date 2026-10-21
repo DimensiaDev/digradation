@@ -6,13 +6,15 @@ the model by id; bookkeeping — attempts, versions, the run id — stays out.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from app.agentic.models import Hours, ProgramDraft, ProgramKind, Schedule, SourceKind
+from app.agentic.state import ClarificationAnswer, ProgramState
 
 PROGRAM_KIND_NAMES = {
     ProgramKind.PROFESSIONAL_DEVELOPMENT: "повышение квалификации",
     ProgramKind.GENERAL_DEVELOPMENT: "общеразвивающая программа",
 }
-
 SOURCE_KIND_NAMES = {
     SourceKind.NORMATIVE_ACT: "нормативный акт",
     SourceKind.PROFESSIONAL_STANDARD: "профессиональный стандарт",
@@ -21,12 +23,27 @@ SOURCE_KIND_NAMES = {
     SourceKind.REFERENCE: "справочное издание",
 }
 
-#: What the methodist is asked to answer. Kept next to the renderer because the
-#: approval phrase is matched literally by the chat worker.
+#: What the methodist is asked to answer. The confirmation itself is the
+#: ``approve_program_draft`` tool call, not a phrase the backend matches.
 CONFIRMATION_PROMPT = (
     "Черновик готов. Проверьте его и ответьте «подтверждаю», если всё верно. "
     "Замечания к программе можно обсудить в этом же чате после утверждения."
 )
+
+
+def render_answers(state: ProgramState, answers: Iterable[ClarificationAnswer]) -> str:
+    """The methodist's answers as the chat shows them, next to the questions.
+
+    The answers are structured data on their way in, but the chat is prose, so
+    the transcript repeats them next to the question each one answers.
+    """
+    by_id = {answer.question_id: answer for answer in answers}
+    lines = ["Ответы на уточняющие вопросы по программе:"]
+    for question in state.questions:
+        answer = by_id.get(question.id)
+        if answer is not None:
+            lines.append(f"— {question.text}: {answer.text}")
+    return "\n".join(lines)
 
 
 def _hours(value: float) -> str:

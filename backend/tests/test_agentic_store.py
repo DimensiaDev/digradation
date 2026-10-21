@@ -173,6 +173,36 @@ async def test_a_redis_outage_does_not_lose_the_save(
     assert await store.load(state.session_id) == state
 
 
+async def test_the_mirror_survives_a_redis_outage(
+    state: ProgramState, task_db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A mirror that cannot be read is a miss, not a failure."""
+
+    def unavailable():
+        raise ConnectionError("redis is down")
+
+    monkeypatch.setattr("app.agentic.store.get_redis_client", unavailable)
+
+    assert await store.load_mirror(state.session_id) is None
+
+
+async def test_a_corrupt_mirror_is_a_miss(state: ProgramState, task_db: None, redis_client: Redis) -> None:
+    """A mirror that holds nonsense must not take the endpoint down."""
+    await redis_client.set(get_program_state_key(state.session_id), "не json")
+
+    assert await store.load_mirror(state.session_id) is None
+
+
+async def test_the_mirror_holds_the_state(state: ProgramState, task_db: None, redis_client: Redis) -> None:
+    await store.save(state)
+
+    mirrored = await store.load_mirror(state.session_id)
+
+    assert mirrored is not None
+    assert mirrored.run_id == state.run_id
+    assert mirrored.status == state.status
+
+
 async def test_the_row_holds_the_document_not_a_python_repr(
     state: ProgramState, engine: AsyncEngine, task_db: None, redis_client: Redis
 ) -> None:

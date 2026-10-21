@@ -50,6 +50,7 @@ class ProgramStatus(StrEnum):
 
     DRAFT = "draft"
     GENERATING = "generating"
+    AWAITING_ANSWERS = "awaiting_answers"
     PENDING_APPROVAL = "pending_approval"
     APPROVED = "approved"
     VERIFIED = "verified"
