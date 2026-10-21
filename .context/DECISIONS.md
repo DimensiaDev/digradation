@@ -1384,9 +1384,10 @@ The catalog now opens a right-side detail view from a card, without leaving `/pr
   offset.** The layout keeps a fixed 340px sidebar, so a 640px floating panel would cover
   the navigation on a narrow window. At 980px and below the panel becomes full-screen and
   the overlay uses `inset: 0`; wide viewports keep the floating card.
-- **The catalogue is labelled `Программы`, and its tag filter is `Теги`.** The route is a
-  catalogue that shows several authors and is previewed to guests, so `Мои программы` was
-  misleading. `Технология` was also too narrow for tags such as soft skills and management.
+- **The section is labelled `Мои программы`, and its tag filter is `Теги`.** The page is
+  the signed-in user's own workspace: every mock program is authored by `Админ Демо`, so the
+  nav label and heading match the list. Guests still see the page behind the preview gate.
+  `Технология` was too narrow for tags such as soft skills and management.
 - **`Select` no longer hardcodes the `'all'` sentinel.** A multiple select treats a value as
   the clear action only when the caller supplies `allValue`; `/programs` passes `allValue="all"`.
   This keeps a page-specific convention out of the shared control.

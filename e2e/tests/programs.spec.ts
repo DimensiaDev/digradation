@@ -1,14 +1,21 @@
 import { E2E_PASSWORD, E2E_USER, expect, login, test } from "./helpers";
 
 test.describe("programs catalog", () => {
-  test("a guest previews the catalog and signs in in place", async ({ page }) => {
+  test("a guest previews the catalog and signs in in place", async ({
+    page,
+  }) => {
     await page.context().clearCookies();
     await page.goto("/programs");
 
     const preview = page.locator(".auth-gate__preview");
     await expect(preview).toHaveAttribute("aria-hidden", "true");
-    await expect(page.locator(".programs-page__header h1")).toHaveText("Программы");
+    await expect(page.locator(".programs-page__header h1")).toHaveText(
+      "Мои программы",
+    );
     await expect(page.locator(".program-card")).toHaveCount(6);
+    await expect(page.locator(".program-card__author-name").first()).toHaveText(
+      "Админ Демо",
+    );
     await expect(page.locator(".auth-gate__overlay")).toBeVisible();
 
     await page
@@ -24,7 +31,7 @@ test.describe("programs catalog", () => {
     await expect(page.locator(".auth-gate__overlay")).toHaveCount(0);
     await expect(preview).not.toHaveAttribute("aria-hidden", "true");
     await expect(
-      page.getByRole("heading", { name: "Программы" }),
+      page.getByRole("heading", { name: "Мои программы" }),
     ).toBeVisible();
   });
 
@@ -45,16 +52,14 @@ test.describe("programs catalog", () => {
     await expect(summary).toContainText("Показано 7–8 из 8 программ");
   });
 
-  test("navigates the card action menu with the keyboard", async ({
-    page,
-  }) => {
+  test("navigates the card action menu with the keyboard", async ({ page }) => {
     await login(page);
     await page.goto("/programs");
 
     const trigger = page.locator(".program-card__menu-button").first();
     await trigger.click();
 
-    const items = page.locator(".program-card__dropdown [role=\"menuitem\"]");
+    const items = page.locator('.program-card__dropdown [role="menuitem"]');
     await expect(items.first()).toBeFocused();
 
     await page.keyboard.press("ArrowDown");

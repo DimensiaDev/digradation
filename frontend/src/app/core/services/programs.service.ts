@@ -22,7 +22,7 @@ const MOCK_PROGRAMS: readonly Program[] = [
     tags: ['IT', 'Python', 'Аналитика'],
     status: 'published',
     theme: 'it',
-    author: { name: 'Иванова А. В.', avatarUrl: null },
+    author: { name: 'Админ Демо', avatarUrl: null },
     updatedAt: '2025-10-12T09:00:00Z',
     description:
       'Практический курс для специалистов, которые хотят освоить Python и научиться применять его для сбора, очистки и анализа данных.',
@@ -41,7 +41,7 @@ const MOCK_PROGRAMS: readonly Program[] = [
     tags: ['IT', 'Безопасность'],
     status: 'in_progress',
     theme: 'security',
-    author: { name: 'Петров Д. С.', avatarUrl: null },
+    author: { name: 'Админ Демо', avatarUrl: null },
     updatedAt: '2025-10-08T09:00:00Z',
     description:
       'Базовый курс по информационной безопасности: от распознавания фишинга до безопасной работы с корпоративными данными и устройствами.',
@@ -60,7 +60,7 @@ const MOCK_PROGRAMS: readonly Program[] = [
     tags: ['ML', 'Python', 'Аналитика'],
     status: 'review',
     theme: 'analytics',
-    author: { name: 'Смирнова Е. К.', avatarUrl: null },
+    author: { name: 'Админ Демо', avatarUrl: null },
     updatedAt: '2025-10-05T09:00:00Z',
     description:
       'Программа для тех, кто хочет системно разобраться в машинном обучении: от подготовки данных и выбора модели до оценки качества решения.',
@@ -79,7 +79,7 @@ const MOCK_PROGRAMS: readonly Program[] = [
     tags: ['Agile', 'Soft skills'],
     status: 'published',
     theme: 'agile',
-    author: { name: 'Иванова А. В.', avatarUrl: null },
+    author: { name: 'Админ Демо', avatarUrl: null },
     updatedAt: '2025-09-28T09:00:00Z',
     description:
       'Практикум для команд, которые переходят на Agile и хотят выстроить прозрачные процессы, роли и ритуалы без потери результативности.',
@@ -98,7 +98,7 @@ const MOCK_PROGRAMS: readonly Program[] = [
     tags: ['Менеджмент', 'Agile'],
     status: 'draft',
     theme: 'management',
-    author: { name: 'Кузнецов М. А.', avatarUrl: null },
+    author: { name: 'Админ Демо', avatarUrl: null },
     updatedAt: '2025-09-24T09:00:00Z',
     description:
       'Курс о планировании и реализации проектов: как определить содержание, построить дорожную карту, управлять рисками и коммуникациями.',
@@ -117,7 +117,7 @@ const MOCK_PROGRAMS: readonly Program[] = [
     tags: ['Soft skills', 'Коммуникация'],
     status: 'in_progress',
     theme: 'soft-skills',
-    author: { name: 'Соколова Н. В.', avatarUrl: null },
+    author: { name: 'Админ Демо', avatarUrl: null },
     updatedAt: '2025-09-19T09:00:00Z',
     description:
       'Программа развивает коммуникацию, обратную связь и управление конфликтами — навыки, без которых сложно вести команду.',
@@ -136,7 +136,7 @@ const MOCK_PROGRAMS: readonly Program[] = [
     tags: ['IT', 'JavaScript'],
     status: 'archived',
     theme: 'it',
-    author: { name: 'Петров Д. С.', avatarUrl: null },
+    author: { name: 'Админ Демо', avatarUrl: null },
     updatedAt: '2025-08-30T09:00:00Z',
     description:
       'Полный цикл веб-разработки: вёрстка, клиентская логика, серверная часть и основы развёртывания приложений.',
@@ -155,7 +155,7 @@ const MOCK_PROGRAMS: readonly Program[] = [
     tags: ['Аналитика', 'Data'],
     status: 'published',
     theme: 'analytics',
-    author: { name: 'Смирнова Е. К.', avatarUrl: null },
+    author: { name: 'Админ Демо', avatarUrl: null },
     updatedAt: '2025-08-22T09:00:00Z',
     description:
       'Курс для продуктовых команд: как выбирать метрики, строить воронки и принимать решения на основе данных, а не догадок.',

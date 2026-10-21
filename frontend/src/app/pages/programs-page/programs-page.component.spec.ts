@@ -99,7 +99,7 @@ describe('ProgramsPage', () => {
   it('renders the section heading and the mock catalog', () => {
     const heading = fixture.debugElement.query(By.css('h1'));
 
-    expect(heading.nativeElement.textContent.trim()).toBe('Программы');
+    expect(heading.nativeElement.textContent.trim()).toBe('Мои программы');
     expect(cardTitles().length).toBe(6);
     expect(cardTitles()[0]).toBe('Python для анализа данных');
     expect(pagination()).not.toBeNull();

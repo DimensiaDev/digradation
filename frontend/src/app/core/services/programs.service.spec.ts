@@ -18,6 +18,10 @@ describe('ProgramsService', () => {
     expect(service.programs()[0].goals.length).toBeGreaterThan(0);
   });
 
+  it('seeds every program for the signed-in demo user', () => {
+    expect(service.programs().every((program) => program.author.name === 'Админ Демо')).toBe(true);
+  });
+
   it('paginates the catalog with a server-shaped response', () => {
     const first = service.query();
     const second = service.query({ page: 1 });

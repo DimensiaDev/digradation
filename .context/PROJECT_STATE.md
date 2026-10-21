@@ -59,8 +59,9 @@ types the same tile with a file icon. Clicking the tile opens the preview (there
 separate preview button); the file name and remove action appear on hover and keyboard
 focus, and stay visible on touch devices. `/help` is still an
 intentional `SectionPlaceholder` host, `library` renders the same placeholder behind the
-auth gate, and `/programs/new` uses it until the form exists. `/programs` is now a
-mock-backed, lazy-loaded catalog: type, update-month and tag filters, a responsive card
+auth gate, and `/programs/new` uses it until the form exists. `/programs` is now
+`Мои программы`, a mock-backed, lazy-loaded workspace: every program belongs to the demo
+user `Админ Демо`. It has type, update-month and tag filters, a responsive card
 grid, local duplicate / archive / delete actions, pagination, and a non-modal right-side
 detail aside opened from a card. Filter and page changes update a polite live summary;
 pagination and reset return focus to a labelled results region at the top of the grid. A
