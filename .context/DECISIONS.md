@@ -1138,7 +1138,7 @@ morphed, and it is shared with the sidebar.
 - **The static `logo.svg` is untouched.** The sidebar keeps the raster mark unanimated; only
   the landing mounts the animated component, which is why it is a new component rather than
   an override of the existing asset.
-- **Only `transform` / `opacity` / `background-position` are animated.** `prefers-reduced-motion`
+- **Only `transform` / `opacity` are animated.** `prefers-reduced-motion`
   disables every keyframe, and the active state (field focus / typing) only shortens the
   durations and scales the mark up.
 - **The composer is presentational.** `/home` is public and this was a markup task, so the

@@ -58,18 +58,11 @@
 
   // A soft light wave travels across the mark. It is clipped to the logo's own
   // silhouette, so the brand asset stays untouched and keeps its real gradient.
+  // The band lives on an oversized pseudo-element: a gradient the size of the
+  // box would tile, and its edge cut the wave off mid-mark.
   &__sheen {
     position: absolute;
     inset: 0;
-
-    background: linear-gradient(
-      115deg,
-      transparent 38%,
-      rgb(255 255 255 / 85%) 50%,
-      transparent 62%
-    );
-    background-position: 130% 130%;
-    background-size: 260% 260%;
 
     opacity: 0;
 
@@ -85,7 +78,23 @@
 
     mix-blend-mode: screen;
 
-    animation: brand-logo-sheen var(--brand-logo-sheen) ease-in-out infinite;
+    animation: brand-logo-sheen-fade var(--brand-logo-sheen) ease-in-out infinite;
+
+    &::before {
+      content: '';
+
+      position: absolute;
+      inset: -100%;
+
+      background: linear-gradient(
+        115deg,
+        transparent 40%,
+        rgb(255 255 255 / 85%) 50%,
+        transparent 60%
+      );
+
+      animation: brand-logo-sheen-sweep var(--brand-logo-sheen) ease-in-out infinite;
+    }
   }
 }
 
@@ -100,9 +109,8 @@
   }
 }
 
-@keyframes brand-logo-sheen {
+@keyframes brand-logo-sheen-fade {
   0% {
-    background-position: 130% 130%;
     opacity: 0;
   }
 
@@ -111,14 +119,24 @@
   }
 
   55% {
-    background-position: -30% -30%;
     opacity: 0.8;
   }
 
   72%,
   100% {
-    background-position: -30% -30%;
     opacity: 0;
+  }
+}
+
+@keyframes brand-logo-sheen-sweep {
+  0%,
+  18% {
+    transform: translate(-30%, -30%);
+  }
+
+  55%,
+  100% {
+    transform: translate(30%, 30%);
   }
 }
 
@@ -142,7 +160,8 @@
 
   .brand-logo,
   .brand-logo__aura,
-  .brand-logo__sheen {
+  .brand-logo__sheen,
+  .brand-logo__sheen::before {
     animation: none;
   }
 }
