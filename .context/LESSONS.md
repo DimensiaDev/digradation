@@ -873,6 +873,14 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   commits. After #26 merged and `main` moved, PR #24's checks vanished this way. Re-pushing
   and reopening the pull request do not help — `reopened` is skipped for the same reason —
   the conflict has to be resolved first. Found 2026-10-18 on `feat/gen-cicle`.
+
+  - **Poetry writes absolute `file://` URLs for `poetry add ../path` on some
+  installs.** When committing a path dependency, verify the URL in
+  `[project.dependencies]` is `file:../<pkg>`, not `file:///home/<user>/...`.
+  An absolute path works locally and fails on CI with "path not found".
+- **`dimension=0` is falsy.** `dimension or default` silently replaces 0
+  with the default. Use `dimension if dimension is not None else default`
+  when 0 must be rejected explicitly.
 - **`public/assets/svgs/logo.svg` is not a vector mark.** It is a 1.6 MB SVG whose only
   child is one `<image>` holding a base64 PNG, so there are no paths to recolour or morph and
   editing it to animate is not possible. It stays the sidebar mark unchanged; the landing

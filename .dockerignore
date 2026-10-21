@@ -1,0 +1,54 @@
+# Repository-level exclusions. The backend image only needs backend/ and rag/.
+.git
+.github
+.agents
+.context
+.editorconfig
+.gitignore
+.dockerignore
+.env
+.env.example
+
+# Top-level files not needed by the backend image.
+AGENTS.md
+README.md
+commitlint.config.js
+createsuperuser.ps1
+createsuperuser.sh
+docker-compose.yaml
+docker-compose.override.yml.dev
+docker-compose.override.yml.e2e
+docker-compose.override.yml.memlim
+docker-compose.build-cache.yml
+package.json
+package-lock.json
+
+# Packages and folders not needed by the backend image.
+frontend/
+e2e/
+edu_materials/
+parser/
+conf/
+scripts/
+
+# Python build artifacts at any depth.
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/*.pyd
+**/.venv/
+**/venv/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/.coverage
+**/.coverage.*
+**/coverage.json
+**/htmlcov/
+**/dist/
+**/build/
+**/*.egg-info/
+
+# Test code and fixtures are not required at runtime.
+backend/tests/
+rag/tests/
