@@ -3,7 +3,8 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-21** (programs catalog actions)
+Last updated: **2026-10-21** (the programme cycle reviewed against the GigaChat contract;
+the home page now has voice input and the guest-draft handoff)
 
 ---
 
@@ -17,18 +18,21 @@ chat application" in `DECISIONS.md` for why each piece went.
 
 Everything described below is working and running via Docker Compose.
 
-| Component   | State                                                                                                                              |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness                                               |
+| Component   | State                                                                                                                                                     |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness                                                                      |
 | `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings, mock programs catalog |
-| `e2e/`      | Complete: specs against the real Compose stack with the offline provider                                                           |
-| Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup                                                     |
+| `e2e/`      | Complete: specs against the real Compose stack with the offline provider                                                                                  |
+| `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, providers, the programme cycle (#3)                                                   |
+| `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings                        |
+| `e2e/`      | Complete: specs with bounded timeouts against the real Compose stack with the offline provider                                                            |
+| Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup                                                                            |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
 sessions with async generation, attachment upload / list / delete, presigned S3 results.
-Alembic is a **single squashed `initial` revision** (`d7e256a71a55`) generated from the new
-models. Nine TaskIQ tasks across the `default` and `network` queues, with hourly and
-10-minute cleanup crons.
+Alembic has the squashed `initial` revision (`d7e256a71a55`) and the programme-state column
+(`f3a9c1d7b2e4`). Twelve TaskIQ tasks across the `default` and `network` queues, with hourly,
+ten-minute and five-minute recovery crons.
 
 **Frontend.** Angular 21.2 standalone with signals. The panel is browsable as a guest: the
 session is resolved by a `provideAppInitializer`, `/home` and `/help` are public, every other
@@ -74,13 +78,21 @@ has no entry point yet, so the catalog has no create button. Guests see the cata
 a blurred, inert overlay with the "Требуется вход" prompt; signing in unlocks it in place.
 Its data lives in `ProgramsService`; no API call is made yet.
 
-**In flight: tool calling.** The provider layer advertises tools at construction, and both
-the OpenAI-compatible client and the GigaChat v2 client surface the calls the model requests
-on `GenerationResponse.tool_calls`. `backend/app/agentic/` is the beginning of the registry:
-the АЦР programme schema, the agent's tools and their handlers. Nothing executes a call yet —
-the loop that answers or runs one is the next step, and the source catalog behind
-`sources.py` waits for the RAG index. The handlers keep no storage of their own: the validated
-draft travels on `ToolContext` until the zone that owns the database has a table for it.
+**The programme cycle (#3).** A chat can build one educational programme. A run is one
+`ProgramState` in `chat_sessions.program_state` (JSONB), mirrored to Redis for an hour, and it
+starts when a chat turn calls `begin_program` — that turn lives in `app/tasks/api.py`, which is
+owned elsewhere and stays as `main` has it, so this branch delivers the stages and the seam
+they need rather than the chat interaction. One
+TaskIQ task owns one stage — competences, hours, sources, summary — and each commits its block
+before enqueueing the next, so a worker that dies leaves every finished block behind and
+`recover_stalled_programs` restarts the stage that stopped. `finalize_program_draft` renders
+the assembled draft into the chat, renames a default-named chat and waits for the methodist's
+confirmation, which the model turns into an `approve_program_draft` call (the chat worker only
+has to offer the tool). `assessment`
+and `materials` stay pending for #5; the source catalog behind `sources.py` is still empty
+until the RAG index (#11), so a draft cites no documents today. There is no endpoint and no
+programme UI: the cycle is driven by ordinary chat messages and the frontend needs nothing new
+to see the result, though its five-minute poll can time out before a slow run finishes.
 
 **Two dead placeholder directories** are still tracked: `frontend/src/app/shared/components/
 chat-widget/` and `.../param-table/`, each holding only a `.gitkeep`. They are leftovers from
@@ -92,10 +104,13 @@ the quotation UI and nothing imports them.
 
 ## Database
 
-One revision, eight tables (`users`, `sessions`, `chat_sessions`, `chat_messages`,
+Two revisions. Eight tables (`users`, `sessions`, `chat_sessions`, `chat_messages`,
 `attachments`, `generation_results`, `processing_result_uploadables`, `settings`) and two
-enums (`userrole`, `generationresulttype`). The TaskIQ dashboard keeps its own separate
-`taskiq_dashboard` database on the same PostgreSQL instance, created by
+enums (`userrole`, `generationresulttype`). `chat_sessions.program_state` is nullable JSONB:
+`None` for an ordinary chat, the run envelope for a chat that is building a programme — there
+is no separate table, because the run is a property of the chat and the row lock of the chat
+is what serialises its writers. The TaskIQ dashboard keeps its own separate `taskiq_dashboard`
+database on the same PostgreSQL instance, created by
 `conf/postgres-init/01-taskiq-dashboard.sql`.
 
 `processing_result_uploadables` is the artifact store a processed upload can write into. The
@@ -126,14 +141,19 @@ silently. See the rule in `AGENTS.md`.
 
 PostgreSQL, Redis and Garage are real testcontainers in the backend suite. The LLM is faked by
 `app/providers/mock.py`, selected with `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) and
-switchable via `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`); the real GigaChat is only
-reachable through `@pytest.mark.live` tests, which are deselected by default.
+switchable via `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`, `stage`); the real provider is
+only reachable through `@pytest.mark.live` tests, which are deselected by default. Both live
+provider suites carry a full model -> tool -> model round, because that is the one shape the
+offline suite cannot prove the real API accepts. The `stage`
+mode scripts `begin_program` when that tool is offered and the stage's own
+`save_program_draft` block afterwards, so the stages are exercised end to end with no model.
 
 `SBER_API_SCOPE` selects the provider: `PERS` / `B2B` / `CORP` use the GigaChat client,
-`openai` the OpenAI-compatible one (any endpoint via `OPENAI_URL`, model via `OPENAI_MODEL`),
+`openai` the OpenAI-compatible one (`OPENAI_URL` is required in this mode, model via `OPENAI_MODEL`),
 `mock` the offline stand-in. Tool calling is implemented for both the OpenAI-compatible and
-the GigaChat v2 clients: tools are defined at provider construction and requested calls come
-back on `GenerationResponse.tool_calls`. Nothing executes a call yet. The OpenAI live tests
+the GigaChat v2 clients, and each turn names the tools it offers — the provider's own default
+list is empty on purpose, so a stage cannot offer the intake tools and vice versa. The OpenAI
+live tests
 carry an extra `openai` marker and are selected with `-m 'live and openai'`; the GigaChat
 tool test shares `-m live` with the rest of `test_live_gigachat.py`.
 

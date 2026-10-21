@@ -31,6 +31,9 @@ def test_provider_selection(monkeypatch):
     from app.providers.openai import OpenAIProvider
     from app.providers.sber import SberProvider
 
+    # Selecting `openai` requires an explicit endpoint; there is no public default.
+    monkeypatch.setenv("OPENAI_URL", "https://hub.example.test/api/v1/llm/v1")
+
     def build(key: str, scope: str = "PERS"):
         import importlib
 

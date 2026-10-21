@@ -33,20 +33,26 @@ services:
       SBER_API_KEY: "mock"
       SBER_API_SCOPE: "PERS"
 
+  # The mode has to reach the workers, not just the API: the programme stages are
+  # generated in the worker processes, so `E2E_MOCK_MODE=stage` on `backend` alone
+  # would leave every stage answering like the ordinary chat.
   scheduler:
     environment:
       SBER_API_KEY: "mock"
       SBER_API_SCOPE: "PERS"
+      MOCK_PROVIDER_MODE: "${E2E_MOCK_MODE:-ok}"
 
   worker_default:
     environment:
       SBER_API_KEY: "mock"
       SBER_API_SCOPE: "PERS"
+      MOCK_PROVIDER_MODE: "${E2E_MOCK_MODE:-ok}"
 
   worker_network:
     environment:
       SBER_API_KEY: "mock"
       SBER_API_SCOPE: "PERS"
+      MOCK_PROVIDER_MODE: "${E2E_MOCK_MODE:-ok}"
 
   taskiq_dashboard:
     ports: !reset []

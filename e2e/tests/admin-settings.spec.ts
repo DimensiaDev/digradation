@@ -33,6 +33,7 @@ test.describe("admin instance settings", () => {
       (resp) =>
         resp.url().includes("/api/v1/admin/settings") &&
         resp.request().method() === "PATCH",
+      { timeout: 15_000 },
     );
   }
 

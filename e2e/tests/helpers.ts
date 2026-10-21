@@ -36,6 +36,12 @@ function composeBase(): string[] {
   ];
 }
 
+const REDIS_RETRY_INTERVAL_MS = 500;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Reset the backend's per-user rate-limit counters.
  *
@@ -44,26 +50,40 @@ function composeBase(): string[] {
  * so without this a run trips its own limiter: a chat is created, the message is
  * rejected with 429, and the create page never navigates. The counters live in
  * Redis, which the e2e stack owns, so clearing them between tests is legitimate
- * rather than a workaround.
+ * rather than a workaround. Retry a transient Docker failure, then fail the
+ * fixture: proceeding with counters still in place turns the next test into a
+ * misleading 429.
  */
-function clearRateLimits(): void {
-  try {
-    execFileSync(
-      "docker",
-      [
-        ...composeBase(),
-        "exec",
-        "-T",
-        "redis",
-        "sh",
-        "-c",
-        'redis-cli --scan --pattern "ratelimit:*" | xargs -r redis-cli DEL',
-      ],
-      { cwd: REPO_ROOT, stdio: "ignore" },
+async function clearRateLimits(): Promise<void> {
+  const deadline = Date.now() + 15_000;
+  let lastError: unknown;
+  for (;;) {
+    try {
+      execFileSync(
+        "docker",
+        [
+          ...composeBase(),
+          "exec",
+          "-T",
+          "redis",
+          "sh",
+          "-c",
+          'redis-cli --scan --pattern "ratelimit:*" | xargs -r redis-cli DEL',
+        ],
+        { cwd: REPO_ROOT, stdio: "ignore", timeout: 5_000 },
+      );
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Could not clear the e2e rate-limit counters in Redis within 15s: ${errorMessage(lastError)}`,
+      );
+    }
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, REDIS_RETRY_INTERVAL_MS),
     );
-  } catch {
-    // If Docker is not reachable from here the suite is already broken; failing
-    // here would hide the real error from the test that follows.
   }
 }
 
@@ -76,13 +96,16 @@ function clearRateLimits(): void {
  * generation is still running, so the next `createChat` is refused and fails
  * on navigation with no mention of a lock. Polling here serialises the suite
  * against the backend's own lock; on a fast machine the key is already gone
- * and this is a single Redis round trip. Bounded: on timeout the test runs
- * anyway and surfaces the 409 itself.
+ * and this is a single Redis round trip. Bounded twice: each Redis call has its
+ * own timeout, and the total wait matches the 45s generation assertion. On
+ * timeout the fixture fails with the reason instead of letting the next test
+ * turn a still-running generation into a misleading 409.
  */
-function waitForIdleGeneration(): void {
-  const deadline = Date.now() + 120_000;
+async function waitForIdleGeneration(): Promise<void> {
+  const deadline = Date.now() + 45_000;
+  let lastError: unknown;
+  let outstanding = "";
   for (;;) {
-    let outstanding = "";
     try {
       outstanding = execFileSync(
         "docker",
@@ -100,19 +123,26 @@ function waitForIdleGeneration(): void {
           cwd: REPO_ROOT,
           encoding: "utf-8",
           stdio: ["ignore", "pipe", "ignore"],
+          timeout: 10_000,
         },
       ).trim();
-    } catch {
-      // Same reasoning as above: a Docker failure here must not mask the test.
-      return;
+      lastError = undefined;
+      if (!outstanding) {
+        return;
+      }
+    } catch (error) {
+      lastError = error;
+      outstanding = "";
     }
-    if (!outstanding) {
-      return;
+    if (Date.now() >= deadline) {
+      const detail = lastError
+        ? `Redis did not answer: ${errorMessage(lastError)}`
+        : `chat:generation:* still contains ${outstanding}`;
+      throw new Error(
+        `Could not confirm an idle e2e generation after 45s (${detail}).`,
+      );
     }
-    if (Date.now() > deadline) {
-      return;
-    }
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+    await new Promise<void>((resolve) => setTimeout(resolve, 2000));
   }
 }
 
@@ -120,8 +150,8 @@ export const test = base.extend({
   // The app shell's brand mark. It is a `div`, not a heading.
   appReady: [
     async ({ page }, use) => {
-      waitForIdleGeneration();
-      clearRateLimits();
+      await waitForIdleGeneration();
+      await clearRateLimits();
       await use(page);
     },
     { auto: true },

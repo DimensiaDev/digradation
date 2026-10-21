@@ -28,14 +28,25 @@ from openai.types.completion_usage import CompletionUsage, PromptTokensDetails
 from app.providers.client import AIClient, AuthorizationError
 from app.providers.models import (
     Content,
+    FunctionCall,
     FunctionDefinition,
     Message,
     ResponseFormat,
     Tool,
+    ToolCall,
 )
 from app.providers.openai import DEFAULT_OPENAI_MODEL, OpenAIProvider
 
 FUTURE_S = 1_700_000_000
+
+#: Endpoint every provider in this module is built against. The tests that cover a
+#: missing value delete or blank it first.
+OPENAI_URL = "https://hub.example.test/api/v1/llm/v1"
+
+
+@pytest.fixture(autouse=True)
+def _openai_url(monkeypatch):
+    monkeypatch.setenv("OPENAI_URL", OPENAI_URL)
 
 
 def make_completion(
@@ -119,26 +130,26 @@ def test_implements_the_abstract_interface():
     assert AIClient.__abstractmethods__ == frozenset({"auth", "upload", "generate"})
 
 
-def test_init_defaults_to_the_official_endpoint(monkeypatch):
+def test_init_requires_openai_url(monkeypatch):
     monkeypatch.delenv("OPENAI_URL", raising=False)
-    provider = OpenAIProvider(api_key="key", scope="openai")
 
-    assert str(provider._client.base_url).startswith("https://api.openai.com")
+    with pytest.raises(ValueError, match="OPENAI_URL must be set"):
+        OpenAIProvider(api_key="key", scope="openai")
 
 
-def test_init_treats_an_empty_openai_url_as_the_official_endpoint(monkeypatch):
-    monkeypatch.setenv("OPENAI_URL", "")
-    provider = OpenAIProvider(api_key="key", scope="openai")
+@pytest.mark.parametrize("value", ["", "   "])
+def test_init_rejects_a_blank_openai_url(monkeypatch, value):
+    monkeypatch.setenv("OPENAI_URL", value)
 
-    assert str(provider._client.base_url).startswith("https://api.openai.com")
+    with pytest.raises(ValueError, match="OPENAI_URL must be set"):
+        OpenAIProvider(api_key="key", scope="openai")
 
 
 @pytest.mark.asyncio
-async def test_init_respects_openai_url(monkeypatch):
-    monkeypatch.setenv("OPENAI_URL", "https://hub.example.test/api/v1/llm/v1")
+async def test_init_respects_openai_url():
     provider = OpenAIProvider(api_key="key", scope="openai")
 
-    assert str(provider._client.base_url).startswith("https://hub.example.test/api/v1/llm/v1")
+    assert str(provider._client.base_url).startswith(OPENAI_URL)
 
     await provider.close()
 
@@ -265,6 +276,96 @@ async def test_generate_omits_tool_arguments_without_tools(make_provider):
     kwargs = client.chat.completions.create.call_args.kwargs
     assert "tools" not in kwargs
     assert "tool_choice" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_generate_takes_a_narrower_tool_set_for_one_call(make_provider):
+    provider, client = make_provider(make_completion(), tools=[function_tool("configured")])
+
+    await provider.generate(
+        history(),
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+        tools=[function_tool("lookup")],
+    )
+
+    kwargs = client.chat.completions.create.call_args.kwargs
+    assert [tool["function"]["name"] for tool in kwargs["tools"]] == ["lookup"]
+
+
+@pytest.mark.asyncio
+async def test_an_empty_narrowed_tool_set_offers_nothing(make_provider):
+    provider, client = make_provider(make_completion(), tools=[function_tool("configured")])
+
+    await provider.generate(
+        history(),
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+        tools=[],
+    )
+
+    kwargs = client.chat.completions.create.call_args.kwargs
+    assert "tools" not in kwargs
+    assert "tool_choice" not in kwargs
+
+
+def test_message_to_openai_renders_an_assistant_tool_call():
+    message = Message(
+        role="assistant",
+        content=[Content(text="Сейчас посмотрю")],
+        tool_calls=[ToolCall(id="call-1", function=FunctionCall(name="lookup", arguments='{"item": "steel"}'))],
+    )
+
+    payload = OpenAIProvider._message_to_openai(message)
+
+    assert payload == {
+        "role": "assistant",
+        "content": "Сейчас посмотрю",
+        "tool_calls": [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "lookup", "arguments": '{"item": "steel"}'},
+            }
+        ],
+    }
+
+
+def test_message_to_openai_sends_null_content_when_only_calling():
+    message = Message(
+        role="assistant",
+        tool_calls=[ToolCall(id="call-1", function=FunctionCall(name="lookup", arguments="{}"))],
+    )
+
+    payload = OpenAIProvider._message_to_openai(message)
+
+    assert payload["content"] is None
+
+
+@pytest.mark.asyncio
+async def test_generate_sends_the_tool_round_back_to_the_model(make_provider):
+    provider, client = make_provider(make_completion())
+    messages = [
+        *history(),
+        Message(
+            role="assistant",
+            tool_calls=[ToolCall(id="call-1", function=FunctionCall(name="lookup", arguments="{}"))],
+        ),
+        Message(role="tool", content=[Content(text="result")], tool_call_id="call-1"),
+    ]
+
+    await provider.generate(
+        messages,
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    sent = client.chat.completions.create.call_args.kwargs["messages"]
+    assert sent[1]["tool_calls"][0]["id"] == "call-1"
+    assert sent[2] == {"role": "tool", "content": "result", "tool_call_id": "call-1"}
 
 
 @pytest.mark.asyncio

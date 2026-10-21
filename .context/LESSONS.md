@@ -873,6 +873,28 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   commits. After #26 merged and `main` moved, PR #24's checks vanished this way. Re-pushing
   and reopening the pull request do not help — `reopened` is skipped for the same reason —
   the conflict has to be resolved first. Found 2026-10-18 on `feat/gen-cicle`.
+- **`AsyncOpenAI` silently defaults to the public OpenAI endpoint when `base_url` is
+  omitted, and an empty string counts as omitted.** The provider now requires a non-blank
+  `OPENAI_URL` and always passes `base_url`, so a missing setting fails at startup instead
+  of quietly sending traffic to a public host. Found 2026-10-21.
+- **A Playwright test timeout cannot interrupt a synchronous `execFileSync`.** The e2e
+  helpers run it inside an autouse fixture, so a hung Docker call would outlive the test's
+  deadline and hang the worker. Bound the subprocess with `execFileSync(..., { timeout })`
+  and use `setTimeout` rather than `Atomics.wait` for the retry backoff, so the event loop
+  stays free. The global test timeout is not a backstop for `execFileSync`. Found 2026-10-21.
+- **A fixture that swallows a Redis or Docker timeout leaves stale state for the test.** A
+  failed rate-limit clear or an unconfirmed generation lock used to be ignored, so the next
+  test failed later with a misleading 429 or 409. Retry within a deadline, then throw with
+  the underlying reason; "the suite is already broken" is not a reason to let the next
+  assertion misdiagnose it. Found 2026-10-21.
+  - **Poetry writes absolute `file://` URLs for `poetry add ../path` on some
+    installs.** When committing a path dependency, verify the URL in
+    `[project.dependencies]` is `file:../<pkg>`, not `file:///home/<user>/...`.
+    An absolute path works locally and fails on CI with "path not found".
+
+- **`dimension=0` is falsy.** `dimension or default` silently replaces 0
+  with the default. Use `dimension if dimension is not None else default`
+  when 0 must be rejected explicitly.
 - **`public/assets/svgs/logo.svg` is not a vector mark.** It is a 1.6 MB SVG whose only
   child is one `<image>` holding a base64 PNG, so there are no paths to recolour or morph and
   editing it to animate is not possible. It stays the sidebar mark unchanged; the landing
@@ -946,6 +968,90 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   the transcript `effect()` runs on a later tick than the awaited continuation.
 - **A 1px border on a rounded corner is a dotted arc at DPR 1, and `outline` draws the same dots.** The border's antialiasing leaves partially covered pixels that blend with the page background; dark theme makes that worse because the background is darker than the surface, so the arc reads as fading out. Raising `--color-outline` (`#263349` to `#33445f`) keeps the arc visible without thickening it. Verified against the running dev server at 1x and 2x, 2026-10-21.
 - **A masked gradient sheen must not tile.** The logo wave animated `background-position` on a `260%` gradient, so the image repeated and its edge crossed the mark, cutting the highlight off with a straight line mid-sweep. Move the band to an oversized (`inset: -100%`) pseudo-element and animate `transform` instead; the tile seam then stays outside the mask. Found 2026-10-21 on `feat/main-page`.
+
+- **`redis-py`'s `lock()` owns its token, so it cannot be released from another connection.**
+  The context manager's token is private, and `delete()` on the key would remove whatever lock
+  is there now. A task that must release a lock it took in another `async with` block needs its
+  own `uuid4().hex` token plus a Lua compare-and-delete. Found 2026-10-20 on
+  `feat/program-cycle`.
+- **`generation_results.chat_session_id` is the primary key, so a second result for the same
+  chat is an `IntegrityError`, not a second row.** Any worker that wants to post a message into
+  a chat mid-run must update the existing result instead of adding one — the frontend reads one
+  result per poll and `generate_chat_message` deletes it at the start of the next turn. Found
+  2026-10-20 on `feat/program-cycle`.
+- **TaskIQ picks a new task module up through `-tp 'app/tasks/*.py'`, not through
+  `app/tasks/__init__.py`.** There is no `__init__.py` and `import app.tasks` imports nothing,
+  so a worker does not need a registration step — but a _test_ that imports the task body does,
+  and the `task_db` fixture has to patch `tsq_db` in the new module by name or the task quietly
+  writes to the environment's PostgreSQL. Found 2026-10-20 on `feat/program-cycle`.
+- **The block models are frozen, so a test cannot mutate a nested field.** `topic.hours = ...`
+  raises `frozen_instance`, and `model_copy(deep=True)` does not help because the copy is frozen
+  too. Build the variant from the JSON payload (`model_copy(update=...)` on each level, or edit
+  the loaded example) instead of assigning. Found 2026-10-20 on `feat/program-cycle`.
+- **`store.save` refuses an older version even when nothing else changed.** A test that wants an
+  aged state has to age one produced by a transition (`started`, `enqueued`), because
+  `model_copy(update={"updated_at": ...})` on a saved state keeps its version and is rejected as
+  stale by the row it just wrote. Found 2026-10-20 on `feat/program-cycle`.
+- **The `stage` mock has to read the volume back out of its own prompt.** The curriculum block
+  must total `requested_hours` or `to_draft` refuses the whole draft, and the hours stage only
+  knows the volume because the brief states it — so the mock parses "Заявленный объём программы"
+  from the same text the real model reads. Found 2026-10-20 on `feat/program-cycle`.
+- **The two TaskIQ worker services both consume both queues.** `AioPikaBroker.with_queue()`
+  _appends_ to `_task_queues` and `listen()` consumes every declared queue, so
+  `worker_default` and `worker_network` are the same worker with different replica counts:
+  a `default`-queue task can run in `worker_network`. Messages are not duplicated (each queue
+  binds with routing key = its own name), so state guards still see one execution; but the
+  `queue_name` split buys no latency isolation until `with_queues()` replaces the list
+  instead. Found 2026-10-20 on `feat/program-cycle`, watching `finalize_program_draft` run in
+  a network worker.
+- **A `generation_results` row already exists during a run, so a mid-run message must upsert
+  it.** The intake's turn writes one, the finalize task writes the draft, and both key on
+  `chat_session_id`: the second insert fails on the primary key, the draft is never stored,
+  and the run sits in `pending_approval` until the recovery cron retries the same failing
+  write. Caught only by the Docker run, because every unit test started from a chat with no
+  result row. Found 2026-10-20 on `feat/program-cycle`.
+- **A replayed stage must not re-enqueue its successor.** The "worker died between the commit
+  and the enqueue" replay calls `_advance` again, and a second `kiq` spends one of the
+  successor's three attempts on a message the queue never lost; with the budget at three, one
+  such replay turns a healthy stage into a failed run. The state can tell the two cases apart
+  — a crash leaves `attempts[next] == 0`, a successful enqueue leaves `>= 1`. Found 2026-10-20
+  in review of `feat/program-cycle`.
+- **`execute_tool` is not the dispatcher; `call_executor` is.** The handlers are in a registry
+  keyed by name, so calling `execute_tool` runs any tool that exists, advertised or not. Every
+  new caller has to wrap the context in `call_executor(ctx, offered)` or the "only what this
+  turn offered" rule silently stops holding for that path. Found 2026-10-20 in review of
+  `feat/program-cycle`.
+- **`git rm --cached` plus a rebase deletes the untracked files.** Once the deletion commit is
+  part of the rebase range, checking that commit out removes the files from the working tree
+  as well, because git has no reason to keep what the tree no longer has — the ignore rule
+  only stops them being re-added. Recover with `git show <last-commit-with-them>:.context/X.md`;
+  recover _before_ letting a rebase run over the deletion commit. Found 2026-10-20 on
+  `feat/program-cycle`.
+- **Do not rewrite comments in files the change only passes through.** A provider docstring
+  that gains a sentence about the pipeline makes the diff look as if every provider changed,
+  and the reviewer has to diff prose before code. Rationale belongs in `.context`. Review of
+  #32, 2026-10-21.
+- **GigaChat v2 spells the field `tool_state_id`, and `function_result.result` is a string.**
+  The schema is in the gitignored `docs/gigachat.yml`, so a plausible internal spelling
+  (`tools_state_id`) silently goes out as an unknown key: the id is never sent, never parsed
+  back, and the second round cannot be tied to the first. Match the contract spelling verbatim,
+  keep the excerpt in `DECISIONS.md`, and let the live round test prove the shape. Review of
+  #32, 2026-10-21.
+- **A session context manager that captured the session maker at import cannot be
+  monkeypatched.** `tsq_db` used to call the `get_session_maker` imported into
+  `app.tasks.conf.broker`, so patching `app.database.get_session_maker` was invisible and the
+  fixture had to replace every module's binding. Defining `db_session()` in `app.database` and
+  resolving the maker at call time leaves one patch point. Review of #32, 2026-10-21.
+- **A lock TTL shorter than a stage's worst case loses the lock while the worker is alive.**
+  Two workers then run the same stage; the version check prevents the double write, but both
+  pay for provider calls. Renew the lock before every turn rather than assuming a stage fits in
+  the TTL, and treat the lost compare-and-expire as "superseded", not as a stage failure.
+  Review of #32, 2026-10-21.
+- **A host-side live PERS test needs the Redis test container.** `SberProvider._pers_api_lock`
+  serialises requests through `get_redis_client`, which is hardcoded to `redis://redis:6379`;
+  that hostname does not resolve from the host, so the test dies before it reaches GigaChat.
+  Depend on the `redis_client` fixture even though the test never touches Redis itself: it
+  patches the pool onto the container. Found 2026-10-21.
 - **Angular `animate.leave` does not run in jsdom.** `areAnimationSupported` checks for
   `document.documentElement.getAnimations`, which jsdom does not provide, so `@if` content is
   removed immediately and a test cannot wait for `animationend`. Assert removal after

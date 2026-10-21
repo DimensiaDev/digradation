@@ -21,13 +21,18 @@ import pytest_asyncio
 
 from app.providers.client import AIClient, AuthorizationError
 from app.providers.models import (
+    Content,
+    ContentFunctionCall,
+    FunctionCall,
     FunctionDefinition,
+    FunctionResult,
     GenerationResponse,
     Message,
     ResponseFormat,
     Tool,
+    ToolCall,
 )
-from app.providers.sber import SberProvider
+from app.providers.sber import SberProvider, _to_gigachat_message
 
 #: The client is built with a ``/v2`` base path, and httpx merges that prefix
 #: into every *relative* request URL. So the code's ``_post("/chat/completions")``
@@ -439,6 +444,199 @@ async def test_generate_returns_no_tool_calls_for_a_text_response(provider):
     assert result.tool_calls == []
 
 
+@pytest.mark.asyncio
+async def test_generate_takes_a_narrower_tool_set_for_one_call(provider_factory):
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+
+    await provider.generate(
+        message_history=[Message(role="user", content=[Content(text="hi")])],
+        response_format=ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+        tools=[function_tool("lookup")],
+    )
+
+    body = json.loads(captured[-1].read().decode())
+    assert [item["name"] for item in body["tools"][0]["functions"]["specifications"]] == ["lookup"]
+
+
+@pytest.mark.asyncio
+async def test_generate_strips_the_openai_half_of_the_history(provider_factory):
+    """v2 has no ``tool_calls`` or ``tool_call_id`` keys and rejects unknown ones."""
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+    history = [
+        Message(
+            role="assistant",
+            content=[Content(text="Сейчас посмотрю")],
+            tool_calls=[ToolCall(id="call-1", function=FunctionCall(name="lookup", arguments='{"city": "Москва"}'))],
+        ),
+        Message(role="tool", content=[Content(text="result")], tool_call_id="call-1"),
+    ]
+
+    await provider.generate(
+        history,
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    messages = json.loads(captured[-1].read().decode())["messages"]
+    assert all("tool_calls" not in message for message in messages)
+    assert all("tool_call_id" not in message for message in messages)
+
+
+@pytest.mark.asyncio
+async def test_generate_restores_object_arguments_for_gigachat(provider_factory):
+    """The shared history holds JSON strings for OpenAI; v2 takes the object."""
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+    history = [
+        Message(
+            role="assistant",
+            content=[
+                Content(function_call=ContentFunctionCall(id="call-1", name="lookup", arguments='{"city": "Москва"}'))
+            ],
+        )
+    ]
+
+    await provider.generate(
+        history,
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    part = json.loads(captured[-1].read().decode())["messages"][0]["content"][0]
+    assert part["function_call"]["arguments"] == {"city": "Москва"}
+
+
+@pytest.mark.asyncio
+async def test_generate_refuses_to_send_unparseable_arguments(provider_factory):
+    """A broken call is a provider failure, not a body GigaChat has to reject."""
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+    history = [
+        Message(
+            role="assistant",
+            content=[Content(function_call=ContentFunctionCall(id="call-1", name="lookup", arguments="{not json"))],
+        )
+    ]
+
+    result = await provider.generate(
+        history,
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    assert result is None
+    assert captured == []
+
+
+@pytest.mark.asyncio
+async def test_generate_refuses_arguments_that_are_not_a_json_object(provider_factory):
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+    history = [
+        Message(
+            role="assistant",
+            content=[Content(function_call=ContentFunctionCall(id="call-1", name="lookup", arguments="[1, 2]"))],
+        )
+    ]
+
+    result = await provider.generate(
+        history,
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    assert result is None
+    assert captured == []
+
+
+def test_object_arguments_are_left_as_objects() -> None:
+    """The wire shape may already carry an object; converting it again is wrong."""
+    message = {
+        "role": "assistant",
+        "function_call": {"name": "lookup", "arguments": {"city": "Москва"}},
+        "content": [{"function_call": {"name": "lookup", "arguments": {"city": "Москва"}}}],
+    }
+
+    _to_gigachat_message(message)
+
+    assert message["function_call"]["arguments"] == {"city": "Москва"}
+    assert message["content"][0]["function_call"]["arguments"] == {"city": "Москва"}
+
+
+@pytest.mark.asyncio
+async def test_generate_reads_a_message_level_function_call(provider_factory):
+    body = generation_body()
+    body["messages"] = [
+        {
+            "role": "assistant",
+            "function_call": {"id": "call-7", "name": "lookup", "arguments": {"city": "Москва"}},
+            "tool_state_id": "state-1",
+        }
+    ]
+    body["finish_reason"] = "function_call"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == AUTH_PATH:
+            return httpx.Response(200, json=auth_body())
+        return httpx.Response(200, json=body)
+
+    provider = provider_factory(httpx.MockTransport(handler))
+
+    result = await _generate(provider)
+
+    assert [call.id for call in result.tool_calls] == ["call-7"]
+    assert result.tool_calls[0].function.arguments == '{"city": "Москва"}'
+    assert result.tool_state_id == "state-1"
+
+
+@pytest.mark.asyncio
+async def test_generate_keeps_a_tool_state_id_from_the_envelope(provider_factory):
+    """An envelope-level id wins over hunting for one on the messages."""
+    body = tool_call_body()
+    body["tool_state_id"] = "state-envelope"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == AUTH_PATH:
+            return httpx.Response(200, json=auth_body())
+        return httpx.Response(200, json=body)
+
+    provider = provider_factory(httpx.MockTransport(handler))
+
+    result = await _generate(provider)
+
+    assert result is not None
+    assert result.tool_state_id == "state-envelope"
+
+
+@pytest.mark.asyncio
+async def test_generate_does_not_count_a_message_level_call_twice(provider_factory):
+    body = generation_body()
+    call = {"id": "call-7", "name": "lookup", "arguments": {"city": "Москва"}}
+    body["messages"] = [
+        {"role": "assistant", "function_call": call, "content": [{"function_call": call}]},
+    ]
+    body["finish_reason"] = "function_call"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == AUTH_PATH:
+            return httpx.Response(200, json=auth_body())
+        return httpx.Response(200, json=body)
+
+    provider = provider_factory(httpx.MockTransport(handler))
+
+    result = await _generate(provider)
+
+    assert len(result.tool_calls) == 1
+
+
 # ---------------------------------------------------------------------------
 # upload
 # ---------------------------------------------------------------------------
@@ -672,3 +870,47 @@ async def test_pers_api_lock_releases_when_the_body_raises(provider_factory, red
 
     async with get_redis_client() as redis:
         assert await redis.exists("api:global:lock") == 0
+
+
+@pytest.mark.asyncio
+async def test_generate_sends_a_tool_result_as_a_gigachat_content_part(provider_factory):
+    """The round trip the pipeline depends on: what a ``tool`` turn looks like on the wire.
+
+    The offline mock answers without a model, so this shape is the one thing the
+    rest of the suite cannot check. v2 carries a result as a bare
+    ``function_result`` content part: ``tool_state_id`` belongs to the assistant
+    message, and a text sibling is rejected, so the provider strips both.
+    """
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+    history = [
+        Message(role="assistant", content=[Content(text="Сейчас сохраню")], tool_state_id="state-1"),
+        Message(
+            role="tool",
+            content=[
+                Content(
+                    text='{"ok": true}',
+                    function_result=FunctionResult(name="save_program_draft", result='{"ok": true}'),
+                )
+            ],
+            tool_call_id="call-1",
+            tool_state_id="state-1",
+        ),
+    ]
+
+    await provider.generate(
+        history,
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    messages = json.loads(captured[-1].read().decode())["messages"]
+    assert messages[0]["tool_state_id"] == "state-1"
+    tool_message = messages[1]
+    assert tool_message["role"] == "tool"
+    assert "tool_state_id" not in tool_message
+    assert "tool_call_id" not in tool_message
+    assert tool_message["content"][0] == {
+        "function_result": {"name": "save_program_draft", "result": '{"ok": true}'},
+    }
