@@ -1,7 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { Router, provideRouter } from '@angular/router';
-import { vi } from 'vitest';
 import { ProgramsService } from '../../core/services/programs.service';
 import { Select } from '../../shared/components/select/select.component';
 import { ProgramsPage } from './programs-page.component';
@@ -9,7 +7,6 @@ import { ProgramsPage } from './programs-page.component';
 describe('ProgramsPage', () => {
   let fixture: ComponentFixture<ProgramsPage>;
   let service: ProgramsService;
-  let router: Router;
 
   const cards = () => fixture.debugElement.queryAll(By.css('.program-card'));
   const cardTitles = () =>
@@ -72,14 +69,12 @@ describe('ProgramsPage', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      imports: [ProgramsPage],
-      providers: [provideRouter([])]
+      imports: [ProgramsPage]
     });
 
     fixture = TestBed.createComponent(ProgramsPage);
     fixture.detectChanges();
     service = TestBed.inject(ProgramsService);
-    router = TestBed.inject(Router);
   });
 
   it('renders the section heading and the mock catalog', () => {
@@ -243,14 +238,6 @@ describe('ProgramsPage', () => {
 
     expect(cardTitles().length).toBe(6);
     expect(service.programs().length).toBe(7);
-  });
-
-  it('navigates to the edit placeholder', () => {
-    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
-
-    choose('Редактировать');
-
-    expect(navigate).toHaveBeenCalledWith(['/programs/new']);
   });
 
   it('offers a reset when the selected filters are empty', async () => {

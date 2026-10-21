@@ -19,7 +19,6 @@ import {
   LucideCopy,
   LucideDynamicIcon,
   LucideEllipsisVertical,
-  LucidePencil,
   LucideRefreshCw,
   LucideShieldCheck,
   LucideTrash2,
@@ -28,7 +27,7 @@ import {
 } from '@lucide/angular';
 import { PROGRAM_STATUS_LABELS, Program } from '../../../core/models/models';
 
-export type ProgramAction = 'edit' | 'duplicate' | 'archive' | 'delete';
+export type ProgramAction = 'duplicate' | 'archive' | 'delete';
 
 const PROGRAM_THEME_ICONS: Record<Program['theme'], LucideIcon> = {
   it: LucideCode2,
@@ -62,7 +61,6 @@ function initialsFor(name: string): string {
     LucideCopy,
     LucideDynamicIcon,
     LucideEllipsisVertical,
-    LucidePencil,
     LucideTrash2
   ],
   templateUrl: './program-card.component.html',

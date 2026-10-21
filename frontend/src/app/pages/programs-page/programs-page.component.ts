@@ -1,5 +1,4 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
 import { LucideChevronLeft, LucideChevronRight, LucideFolderOpen } from '@lucide/angular';
 import { FormsModule } from '@angular/forms';
 import { Program } from '../../core/models/models';
@@ -76,7 +75,6 @@ function buildDateOptions(programs: readonly Program[]): SelectOption[] {
 export class ProgramsPage {
   private readonly programsService = inject(ProgramsService);
   private readonly notifications = inject(NotificationService);
-  private readonly router = inject(Router);
 
   readonly typeOptions = computed(() => buildTypeOptions(this.programsService.programs()));
   readonly dateOptions = computed(() => buildDateOptions(this.programsService.programs()));
@@ -185,9 +183,6 @@ export class ProgramsPage {
 
   onAction(program: Program, action: ProgramAction): void {
     switch (action) {
-      case 'edit':
-        this.router.navigate(['/programs/new']);
-        return;
       case 'duplicate':
         this.programsService.duplicate(program.id);
         this.resetFilters();

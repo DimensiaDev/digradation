@@ -131,13 +131,6 @@ describe('ProgramCardComponent', () => {
     expect(document.activeElement).toBe(menuButton().nativeElement);
   });
 
-  it('emits edit and closes the menu', () => {
-    choose('Редактировать');
-
-    expect(actions).toEqual(['edit']);
-    expect(menu()).toBeNull();
-  });
-
   it('emits duplicate and closes the menu', () => {
     choose('Дублировать');
 
@@ -165,6 +158,6 @@ describe('ProgramCardComponent', () => {
     openMenu();
 
     expect(menuItem('Архивировать')).toBeUndefined();
-    expect(menuItems().length).toBe(3);
+    expect(menuItems().length).toBe(2);
   });
 });
