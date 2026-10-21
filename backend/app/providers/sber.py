@@ -1,7 +1,9 @@
+import json
 import os
 import ssl
 import uuid
 from pathlib import Path
+from typing import Any
 
 from httpx import AsyncClient, Timeout
 
@@ -16,6 +18,7 @@ from app.providers.models import (
     Message,
     ModelOptions,
     ResponseFormat,
+    Role,
     Tool,
     ToolCall,
     ToolConfig,
@@ -23,12 +26,42 @@ from app.providers.models import (
 )
 
 
+def _to_gigachat_message(message: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite one shared-history message into the GigaChat v2 wire shape."""
+    message.pop("tool_calls", None)
+    message.pop("tool_call_id", None)
+    for function_call in (
+        message.get("function_call"),
+        *(part.get("function_call") for part in message.get("content") or [] if part.get("function_call") is not None),
+    ):
+        if function_call is None:
+            continue
+        arguments = function_call.get("arguments")
+        if isinstance(arguments, str):
+            parsed = json.loads(arguments)
+            if not isinstance(parsed, dict):
+                raise ValueError("function arguments must be a JSON object")
+            function_call["arguments"] = parsed
+    if message.get("role") == Role.TOOL:
+        # v2 accepts a tool result only as a bare function_result part. The round
+        # id belongs to the assistant message; repeating it here makes the API
+        # answer "every assistant function call must have a result in history".
+        message.pop("tool_state_id", None)
+        for part in message.get("content") or []:
+            if part.get("function_result") is not None:
+                # A text sibling is rejected with "function result or files
+                # entries only", so drop it at the boundary rather than teaching
+                # the shared model about this wire quirk.
+                part.pop("text", None)
+    return message
+
+
 class SberProvider(AIClient):
     def __init__(self, api_key: str, scope: str, tools: list[Tool] | None = None):
         if scope not in ("PERS", "B2B", "CORP"):
             raise ValueError("Scope must be PERS, B2B or CORP")
         super().__init__(api_key, scope, tools)
-        self._reject_strict_tools()
+        self._reject_strict_tools(self.tools)
 
         self._client = AsyncClient(
             base_url="https://api.giga.chat/v2",
@@ -70,6 +103,8 @@ class SberProvider(AIClient):
         response_format: ResponseFormat,
         x_client_id: uuid.UUID,
         x_session_id: uuid.UUID,
+        *,
+        tools: list[Tool] | None = None,
     ) -> GenerationResponse | None:
         x_request_id = str(uuid.uuid4())
         log = self._log.bind(
@@ -82,20 +117,27 @@ class SberProvider(AIClient):
             "X-Session-Id": str(x_session_id),
             "X-Request-Id": x_request_id,
         }
-        tools = self._tools_payload()
+        active_tools = self.tools if tools is None else tools
+        tool_payload = self._tools_payload(active_tools)
         data = GenerationRequest(
             model=os.getenv("GIGACHAT_MODEL", "GigaChat-3-Ultra"),
             messages=message_history,
             model_options=ModelOptions(response_format=response_format),
-            tools=tools,
+            tools=tool_payload,
             # ``auto`` lets the model decide; GigaChat defaults to it, but being
             # explicit keeps a tool-less request from inheriting the mode.
-            tool_config=ToolConfig(mode="auto") if tools else None,
+            tool_config=ToolConfig(mode="auto") if tool_payload else None,
         )
+        request_body = data.model_dump(exclude_unset=True, exclude_none=True, by_alias=True)
+        try:
+            request_body["messages"] = [_to_gigachat_message(message) for message in request_body["messages"]]
+        except ValueError as error:
+            log.error("request_message_invalid", error=str(error))
+            return None
 
         r = await self._post(
             "/chat/completions",
-            json=data.model_dump(exclude_unset=True, exclude_none=True, by_alias=True),
+            json=request_body,
             headers=headers,
         )
         if r.status_code != 200:
@@ -110,32 +152,47 @@ class SberProvider(AIClient):
         json_data = r.json()
         log.debug("completion_response", data=json_data)
         response = GenerationResponse.model_validate(json_data)
-        # v2 nests the requested calls inside the content parts; the shared
-        # response model surfaces them at the top level, as the OpenAI client does.
-        response.tool_calls = [
-            ToolCall(
-                id=part.function_call.id,
-                function=FunctionCall(
-                    name=part.function_call.name,
-                    arguments=part.function_call.arguments,
-                ),
+        # v2 nests a requested call in a content part or on the message itself;
+        # surface both at the top level, as the OpenAI client does, and count a
+        # response carrying both only once.
+        calls: list[ToolCall] = []
+        for message in response.messages:
+            function_call = message.function_call
+            if function_call is not None:
+                calls.append(
+                    ToolCall(
+                        id=function_call.id,
+                        function=FunctionCall(name=function_call.name, arguments=function_call.arguments),
+                    )
+                )
+                continue
+            calls.extend(
+                ToolCall(
+                    id=part.function_call.id,
+                    function=FunctionCall(name=part.function_call.name, arguments=part.function_call.arguments),
+                )
+                for part in message.content
+                if part.function_call is not None
             )
-            for message in response.messages
-            for part in message.content
-            if part.function_call is not None
-        ]
+        response.tool_calls = calls
+        # The state id may arrive on the assistant message rather than the envelope.
+        if response.tool_state_id is None:
+            response.tool_state_id = next(
+                (message.tool_state_id for message in response.messages if message.tool_state_id is not None),
+                None,
+            )
         return response
 
-    def _reject_strict_tools(self) -> None:
+    def _reject_strict_tools(self, tools: list[Tool]) -> None:
         """GigaChat has no strict-schema mode for tools, so refuse rather than drop it."""
-        strict = [tool.function.name for tool in self.tools if tool.function.strict]
+        strict = [tool.function.name for tool in tools if tool.function.strict]
         if strict:
             raise ValueError(f"GigaChat does not support strict tools: {', '.join(strict)}")
 
-    def _tools_payload(self) -> list[ToolsFunctions] | None:
+    def _tools_payload(self, tools: list[Tool]) -> list[ToolsFunctions] | None:
         """Translate the provider's tools into the GigaChat v2 ``tools`` shape."""
-        self._reject_strict_tools()
-        if not self.tools:
+        self._reject_strict_tools(tools)
+        if not tools:
             return None
         specifications = [
             FunctionSpecification(
@@ -143,7 +200,7 @@ class SberProvider(AIClient):
                 description=tool.function.description,
                 parameters=tool.function.parameters or {},
             )
-            for tool in self.tools
+            for tool in tools
         ]
         return [ToolsFunctions(functions=FunctionsSpecifications(specifications=specifications))]
 

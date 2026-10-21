@@ -1136,3 +1136,340 @@ rule.
 in code. A deployment that reaches the embedding path with either unset
 gets a hard KeyError at container construction instead of a silent wrong-
 endpoint fallback.
+## The landing logo is a separate animated component (2026-10-19)
+
+`/home` became the program-creation landing: a big brand mark, a greeting, prompt-example
+cards and a markup-only composer (local signals, no API). The design brief asked for an
+animated brand mark, but the shipped mark is `public/assets/svgs/logo.svg`, which is an SVG
+wrapper around a base64 PNG. It carries no vector paths, so it can be neither recoloured nor
+morphed, and it is shared with the sidebar.
+
+- **`app-brand-logo-animated` keeps the real asset and animates around it.** The `<img>` is
+  the untouched `logo.svg`; a breathing transform, a blurred aura and a light wave clipped to
+  the mark's silhouette with `mask-image: url(logo.svg)` provide the motion. A first attempt
+  re-drew the mark as generic vector blobs and read as "just a blob", so brand fidelity won
+  over a fully vector mark.
+- **The static `logo.svg` is untouched.** The sidebar keeps the raster mark unanimated; only
+  the landing mounts the animated component, which is why it is a new component rather than
+  an override of the existing asset.
+- **Only `transform` / `opacity` are animated.** `prefers-reduced-motion`
+  disables every keyframe, and the active state (field focus / typing) only shortens the
+  durations and scales the mark up.
+- **The composer is presentational.** `/home` is public and this was a markup task, so the
+  attach button fills local file chips and the send button only toggles on non-empty text —
+  nothing is uploaded or submitted. The real flow stays on `/create`.
+- **The landing opts out of the routed-page pin.** It sets `:host { flex: 1 1 auto }` to fill
+  `main` and centre its content; `:host` has higher specificity than the `main router-outlet
+  + *` rule documented above.
+
+## A guest's home-page send survives the sign-in dialog (2026-10-20)
+
+`/home` is public and the composer is the first thing a visitor meets, so sending as a guest
+must not lose what was typed. The draft is kept in `PendingChatDraftService` (the trimmed
+text and the original `File`s) and consumed once `ProfileService.user()` becomes non-null.
+
+- **Why not `InitialChatStateService`:** it is keyed by a session id that does not exist yet.
+  The draft is what the session is created for; the initial-chat state still hands the sent
+  message to the chat page after creation.
+- **One starter for both entry points.** `ChatStarterService` owns create → upload files →
+  send, so `/create` and `/home` cannot drift apart. Home also uses it for an authenticated
+  user, which is what makes the send button meaningful without a sign-in detour.
+- **The sign-in dialog keeps returning to `/home`.** The resume effect lives in `HomePage`,
+  and a same-URL navigation keeps that component alive. A different return target would
+  destroy the only consumer of the draft.
+- **The draft is consumed before the request starts,** so retrying after a failure cannot
+  create two chats. The composer still holds the text and files for a manual retry.
+
+## Voice input is the Web Speech API, wrapped in a service (2026-10-20)
+
+The home composer gained a microphone button beside send. Dictation uses the browser's
+native `SpeechRecognition` (`webkitSpeechRecognition` fallback) rather than an upload flow.
+
+- **Native, not `getUserMedia` + a speech backend.** This is a text-entry convenience, not
+  transcription as a product feature; a backend would add a service, credentials and latency
+  for the same text. Chromium and Safari ship an engine, and Firefox users get a disabled
+  button instead of a button that fails after the click.
+- **Continuous Russian with interim results.** `lang = 'ru-RU'`, `continuous = true`,
+  `interimResults = true`; each result recomposes `base + final + interim`, so the field
+  fills while the user speaks and the final text replaces the interim.
+- **The service owns recognition, the component owns the text policy.** The service normalizes
+  chunks into `{final, interim}` and reports errors; HomePage decides that dictation appends
+  to the existing text and that the transcript survives stopping.
+- **Errors become Russian notifications.** Microphone denial, a missing device, no network and
+  an unsupported language are errors; `no-speech` is information, because silence is not a
+  failure of the app.
+- **The engine is cloud-hosted and may be unreachable.** Chrome sends audio to Google and
+  fails with `network` where that service is blocked; Safari's Apple-backed engine recognised
+  the same speech on the same machine. The app keeps the native API and explains the failure
+  instead of shipping server-side STT. A Chrome-first audience would need a backend
+  recogniser (SaluteSpeech or a local Whisper), which is a separate decision with credentials
+  or a model to host.
+
+## Attachment tiles own their thumbnail and preview action (2026-10-20)
+
+The home composer renders each pending file as an `app-file-tile` above the textarea.
+
+- **The tile owns the object URL.** It creates a thumbnail with `URL.createObjectURL` for
+  image extensions in an effect and revokes it when the file changes or the tile is
+  destroyed. The parent only keeps the `File`, so removing an attachment cannot leak a blob
+  URL.
+- **Preview reuses `FilePreviewComponent`.** The composer passes the pending `File` to the
+  existing dialog, so PDFs and images preview before upload, and the heavy docx/xlsx
+  renderers stay lazy.
+- **The image area is the preview trigger.** There is no separate eye button: the media is a
+  button that opens the preview, and it is disabled when `previewKindFor` returns null. A
+  file with an unknown extension still gets the same tile, name and remove action, just no
+  preview.
+- **The tile lives in `shared/components/file-tile` partly for the style budget.** The home
+  stylesheet was at the 10 kB `anyComponentStyle` error line; a tile's worth of CSS belonged
+  in its own component rather than pushing the page over.
+
+## Failed chat starts clean up after themselves
+
+`ChatStarterService.start` deletes a session it created as soon as uploading or sending
+fails, together with every attachment the backend has already registered. Without this a
+failed attempt left an empty or half-filled chat in the user's history while the UI claimed
+nothing was created. Cleanup is best effort: deletions run with a short timeout, their own
+errors are swallowed, and the original failure is rethrown so the user still sees the real
+reason. Attachment ids are collected through `onAttachmentId`, which fires before the
+storage POST, so a file whose bytes never arrived is still deleted.
+
+## A guest draft belongs to one login attempt
+
+Dismissing the auth dialog clears `PendingChatDraftService`; a successful login does not.
+The draft is created only when a guest submits the home composer, and it is meant for the
+login flow that dialog was opened for. Keeping it after dismissal let a later sign-in in the
+same application instance send the previous guest's text and files under another account
+without confirmation. Cleanup therefore lives in `AuthModalService.close()`, which every
+cancellation path reaches, rather than in the dialog component, where an external
+`modal.close()` could bypass it. The success path calls the separate `complete()`, which
+closes the dialog and keeps the draft for the authenticated start.
+
+## Chat starts upload through the same three-slot queue
+
+`ChatStarterService` uploads with `mergeMap(..., MAX_CONCURRENT_UPLOADS)` rather than a
+`forkJoin` over every file. Attaching ten files used to open ten storage uploads at once,
+bypassing the limit the drag-and-drop queue already enforced and inviting rate limits and
+network failures. The shared constant keeps both paths in sync; the per-file upload deadline
+still starts only when its slot is taken, so queued files are not timed out while waiting.
+
+## One message-length limit for both creation forms
+
+`MAX_MESSAGE_LENGTH = 5000` lives in `core/models/models.ts` and is used by both the
+`/create` form and the home composer. The home composer previously had no `maxlength` and no
+submit check, so it could hand the API text the other client-side path already rejected.
+`ChatCreateComponent.MAX_SYMBOLS` now aliases the shared constant so its existing tests and
+template keep working while the number has a single source.
+
+## The programme cycle: one row, one task per stage, three layers of safety (2026-10-20, #3)
+
+The cycle was re-done from `main` after the earlier attempt's infrastructure was rejected.
+These are the choices that the code cannot explain on its own.
+
+- **The run lives in `chat_sessions.program_state`, not in its own table.** A programme is a
+  property of exactly one chat, and the chat row is already the thing every writer has to
+  take before touching it: `SELECT ... FOR UPDATE` on that row is the cheapest mutex there is,
+  and a separate table would have needed its own lock and its own cascade. JSONB also lets the
+  envelope grow with the schema without a migration per block; the alternative, a column per
+  block, would have made "is this stage done" a set of null checks spread over nine columns.
+- **PostgreSQL is canonical and Redis is a mirror with a one-hour TTL.** A stage reads the row,
+  never the mirror, so a Redis flush cannot lose a run; the mirror exists so an operator can
+  watch a stage work without querying the database, and it is refreshed on every load and save
+  rather than written on transitions only.
+- **One task per stage, and the next task is enqueued after the commit.** This is what makes a
+  worker death survivable: the run stops on a boundary that is already durable, and the blocks
+  the dead worker saved are still there. A `while not ready` loop inside one task would have
+  kept the whole transcript in one process's memory, which is exactly the state that vanishes.
+- **The attempt is spent when the stage is enqueued, not when it starts.** A worker that dies
+  before its first line has still consumed a delivery, and counting at the start would let a
+  stage that reliably kills its worker be re-delivered forever. `MAX_STAGE_ATTEMPTS` = 3 is the
+  budget for the whole lifetime of one stage, re-deliveries included.
+- **Three different guards, and each catches a different failure.** The PostgreSQL row lock
+  orders two writers that save at the same instant; the version on the envelope refuses a
+  writer that loaded the row ten minutes ago; the Redis stage lock keeps a slow stage from
+  overlapping the recovery run. The version check alone would still let two workers *execute*
+  a stage — the lock is what stops the duplicate work, the version is what stops the duplicate
+  write when the lock has expired.
+- **The lock is released with a Lua compare-and-delete.** `redis-py`'s `lock()` generates its
+  own token, so a task that wants to release a lock from another connection has to own the
+  token itself. A plain `DEL` would remove a lock that expired and was taken by someone else.
+- **A stage that saves nothing is a failed stage.** The model answering "готово" without a
+  `save_program_draft` call is a provider that misunderstood the turn, not a finished stage, so
+  `ToolContext.saved` gates the completion and the stage is retried with the reason attached.
+- **Recovery skips a stage whose lock is alive and spends an attempt when it re-enqueues.** The
+  cron would otherwise double every stage slower than its threshold; and without spending an
+  attempt, a stage that kills its worker would cycle through the queue indefinitely. `exists`
+  failing on a Redis outage counts as "held", because a recovery stampede is worse than a
+  delayed retry.
+- **One tool name for four blocks.** `save_program_draft` is offered by every stage with the
+  argument schema of that stage's block (`STAGE_BLOCK`), rather than four tools with four
+  names. The model already knows which block its stage is for from the prompt; four names would
+  have made "call the wrong one" possible and would have needed four handlers.
+- **A citation must have been seen.** `search_sources` records the ids it returned on the
+  context, and a save resolves every cited id against that set: an invented id and a plausible
+  but unseen id are refused the same way. The catalog is empty until the RAG index (#11), so
+  the prompts and the refusal hints say to leave citations empty rather than invent ids, and
+  the sources stage stores an empty list — which the draft accepts, because a programme
+  without citations is a weaker document, not an invalid one.
+- **The schedule check is one-sided.** `days x hours_per_day >= total` is a ceiling rather than
+  an equality, because the final attestation sits outside the curriculum: the canonical example
+  schedules 72 hours for 66 hours of topics. The equality against `requested_hours` is checked
+  separately and only when the methodist named a volume.
+- **Finalisation renames the chat, and only once.** The programme title is a better chat name
+  than "Новый чат", and the rename happens in the same transaction as the rendered message so a
+  failed save cannot leave a renamed chat without the draft it was named for.
+- **Confirmation is the `approve_program_draft` tool call, not an endpoint and not a phrase.**
+  #3 allows no new route, and a phrase matcher would be dead code until the chat worker is
+  wired anyway. The model sees the rendered draft and the tool, and calls it when the
+  methodist confirms; the tool is only accepted once `finalized` is true, which keeps a
+  confirmation from overtaking the transaction that renders the draft. An approved programme
+  then continues as an ordinary chat: the next stage (#5) discusses the document.
+- **The mock has a `stage` mode.** Every other cycle test scripts the provider, and the wire
+  format of a tool call is exactly the part that a scripted provider would not catch. The mode
+  scripts one valid call per stage, so the Docker and e2e stacks can run the whole cycle with
+  no model, and a single test proves the fabricated blocks pass the cross-block checks.
+
+## Refusals the model can act on, and the flags a run ends with (2026-10-20, review of #3)
+
+The review of the cycle found five places where the pipeline was correct but the person or the
+model on the other end was not served. These are the rules that came out of it.
+
+- **A block is validated when it is saved, not only when the draft is assembled.** The hours
+  stage already holds the requested volume and the declared outcomes, and the schedule is in
+  its own block, so `_save_hours` runs the same checks `to_draft` would and refuses the block
+  in the reply that produced it. `to_draft` stays the final gate — a summary can still cite a
+  source that a later change removed — but a fully built four-stage programme is no longer
+  discarded over one number the model could have fixed in the same turn.
+- **The intake dispatches through `call_executor`, not `execute_tool`.** `execute_tool` runs
+  whatever the registry knows; only `call_executor` refuses a tool the turn did not advertise.
+  Without it, a model that remembered `save_program_draft` could rewrite the blocks of an
+  approved programme, because an approved run is deliberately handed back to the model as an
+  ordinary chat.
+- **The rendered draft does not invite an edit it cannot accept.** The only way out of
+  `PENDING_APPROVAL` is the `approve_program_draft` call (`begin_program` refuses a live run),
+  so the closing line asks for confirmation and says the remarks can be discussed after
+  approval.
+- **`failed` is the only terminal flag; `status` is left as it was.** There is no
+  `ProgramStatus.FAILED`, and inventing one would have made every `status` reader a two-value
+  switch. The envelope therefore reads `generating` with `failed: true` and the reason in
+  `error` — worth knowing before reading the Redis mirror an operator inspects.
+- **Finalisation renames only a default-named chat.** The intake may already have named the
+  chat from the model's reply, and that name is the user's; the programme title replaces only
+  `DEFAULT_CHAT_NAME`, exactly as `process_response` does.
+- **Recovery ages the row before re-enqueueing a finalize, and skips a stale row.** Finalising
+  writes no state of its own, so without a touch it would be re-enqueued every five minutes
+  forever; and a row that moved between the scan and the save must not abort the sweep for
+  every other chat. The stage lock, not `STALLED_AFTER`, is what sets the recovery latency —
+  the cron refuses to touch a locked stage, so a killed worker's run resumes when the lock
+  expires, and both constants say so.
+
+## The pipeline stops at the chat worker (2026-10-20)
+
+`app/tasks/api.py` belongs to someone else, so this branch carries the pipeline and nothing
+that lives in the chat worker's turn.
+
+- **`generate_chat_message` stays exactly as `main` has it.** The intake half of #3 — offering
+  `INTAKE_TOOLS`, committing the state a `begin_program` call started and answering a chat that
+  already holds a run — is not in this change, and neither is its test block.
+- **The seam is what this branch owes that worker.** `INTAKE_TOOLS`, `ToolContext`,
+  `execute_tool`/`call_executor`, `store.save` and `program_stage.kiq(session_id, stage, run_id)`
+  are usable from `api.py` as written; the worker needs no new module, only the wiring.
+- **The `stage` mock mode's intake branch is therefore unexercised.** It still scripts
+  `begin_program` when that tool is offered, and each stage's block when `save_program_draft`
+  is offered, which is what the Docker run exercised: a run seeded directly into
+  `program_state`.
+- **#3 stays open.** A merge delivers stages, finalisation and recovery, not "the agent asks
+  for a course and gets a draft", which is the issue's acceptance criterion.
+
+## One error base, and names instead of literals (2026-10-21, review of #32)
+
+The review of the cycle asked for a single hierarchy, fewer comments and enums instead of
+hard-coded strings.
+
+- **Every pipeline failure derives from `app.agentic.errors.ProgramError`.** `reason` on each
+  subclass is the sentence the methodist is told, so `tasks/program.py` catches one class and
+  writes `str(error)`; the `match` that mapped exception types to Russian text is gone.
+- **Wire values the pipeline compares are enums.** `Role` and `FinishReason` live in
+  `app.providers.models`; a stage's attempts are keyed by `Stage`, not by its value, so
+  `state.attempts[Stage.HOURS]` reads the same before and after the JSON round trip.
+- **Comments describe behaviour, not the history of the feature.** The rationale and the
+  review notes go here; files the change only passes through keep the comments `main` had.
+
+## The GigaChat contract, one system prompt, and a lock that stays alive (2026-10-21, review of #32)
+
+The second review of #32 found two contract blockers (the tool round could not work against the
+real API), a missing live round test, and several places where a comment or a safety net was
+weaker than it looked. These are the rules that came out of it.
+
+- **`tool_state_id`, not `tools_state_id`.** The GigaChat v2 schema names the field
+  `tool_state_id` on a message and on the messages in a response. The old spelling went out as
+  an unknown key, so the round id was never sent, and was never read back, so the next round
+  could not be tied to the previous one. The internal `Message` and `GenerationResponse` use the
+  contract spelling verbatim; there is no alias to keep in sync. `docs/gigachat.yml` is
+  gitignored, so the excerpt this branch relies on lives here:
+
+  ```yaml
+  Message:
+    properties:
+      tool_state_id:
+        type: string
+        nullable: true
+  Content:
+    properties:
+      function_result:
+        type: object
+        properties:
+          name:
+            type: string
+          result:
+            type: string
+  ```
+
+  `function_result` has no `id`, and `result` is a JSON-encoded **string**, not an object.
+- **`FunctionResult.result` is typed `str`.** The loop serialises the payload once with
+  `json.dumps(..., ensure_ascii=False)` and the OpenAI `tool` message sends the same string as
+  its text. A dict can no longer reach the wire by accident.
+- **The wire conversion is one pure function.** `_to_gigachat_message()` drops the OpenAI-only
+  message keys and parses `arguments` from a string into an object. Invalid JSON is logged as
+  `request_message_invalid` and returns `None` — the provider's failure convention — instead of
+  sending a body GigaChat would reject.
+- **The tool-result round has two rules the published schema omits.** Live probing of GigaChat
+  v2 shows the only accepted result shape is a bare
+  `content: [{"function_result": {"name": ..., "result": "<json-string>"}}]`:
+  `tool_state_id` belongs to the assistant message and must not be repeated on the `tool`
+  message, or the API answers `every assistant function call must have a result in history`;
+  and a `text` sibling next to `function_result` is rejected with `function content must
+  contain function result or files entries only`. Both are stripped in
+  `_to_gigachat_message()`, which leaves the shared model and the OpenAI client carrying the
+  text and the state id they need. The schema excerpt above describes the first half of the
+  contract only; these two rules are the other half.
+- **One system message per request.** GigaChat rejects a second system message, so a stage's
+  conversation is exactly `STAGE_SYSTEM_PROMPT` plus the brief; the chat worker must not append
+  the session system prompt to a stage history. The admin `prompt_extension` from
+  `harness.build_system_prompt` therefore does not reach programme stages. Applying it would
+  mean carrying the extension in `ProgramState` from `begin_program`, which is the chat
+  worker's turn (`app/tasks/api.py`); the stage prompt is the tool contract, not the session
+  persona. This is deliberate, not an oversight.
+- **The worker session lives next to the engine.** `app.database.db_session()` is the one
+  session context manager for task bodies and reusable modules; `tsq_db` in
+  `app/tasks/conf/broker.py` is now an alias so existing task imports stay untouched.
+  `app.agentic.store` imports the neutral name instead of reaching into `app.tasks`, and the
+  test fixture patches only the session maker.
+- **`FOR UPDATE` stays, and the transaction is explicit.** `store.locked()` is
+  `async with db_session() as db, db.begin():` and commits on a clean exit. The row lock orders
+  two writers; the version on the envelope refuses one that loaded the row long ago.
+- **The stage lock is renewed before every provider turn.** The Lua compare-and-expire only
+  extends a lock still owned by this worker; losing it raises `StageSuperseded`, the stage
+  returns quietly, and recovery re-enqueues it later. No duplicate provider call is made and
+  the run is not marked failed. `PROGRAM_STAGE_LOCK_TTL` (900 s) is therefore safe for a stage
+  that runs longer than it, and recovery is not delayed by a dead worker. A Redis outage during
+  the refresh counts as "still held", matching the recovery policy.
+- **`StaleState` is handled at both saves.** Marking the stage started and completing it are
+  inside the protected block, as are the failure saves, so a worker that lost the version
+  between reading the row and starting stops silently instead of failing the task.
+- **`Role` and `UserRole` stay separate.** The provider vocabulary is wider (`tool`) and a chat
+  row can never be one; a test pins the overlap so a rename on either side fails loudly.
+- **Live tests cover the whole round.** The offline suite cannot prove that GigaChat accepts a
+  `function_result` part; `test_live_gigachat_completes_a_tool_round` and its OpenAI twin run
+  model -> tool -> model through `run_tool_loop`, so the exact shape that blocked the merge is
+  exercised by the real API. They stay deselected by default and need a real key.

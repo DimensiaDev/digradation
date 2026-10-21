@@ -15,6 +15,7 @@ from app.providers.mock import (
     DEFAULT_MODE,
     MODES,
     MockProvider,
+    _requested_hours,
     _seed,
     get_mock_mode,
 )
@@ -133,6 +134,67 @@ async def test_mock_output_is_deterministic():
 def test_seed_is_stable_and_varies():
     assert _seed("a", "b") == _seed("a", "b")
     assert _seed("a", "b") != _seed("b", "a")
+
+
+def test_requested_hours_reads_the_methodists_own_wording():
+    assert _requested_hours("Сделайте программу на 20 часов") == 20.0
+    assert _requested_hours("Программа без объёма") is None
+
+
+@pytest.mark.parametrize(("text", "hours"), [("Программа на 40 часов", 40.0), ("Программа без объёма", None)])
+async def test_mock_stage_starts_a_run_from_the_methodists_message(monkeypatch, text, hours):
+    from app.providers.models import FunctionDefinition, ResponseFormat, Tool
+
+    monkeypatch.setenv("MOCK_PROVIDER_MODE", "stage")
+    provider = MockProvider("mock", "PERS")
+    begin = Tool(function=FunctionDefinition(name="begin_program"))
+
+    response = await provider.generate(
+        _messages(text),
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+        tools=[begin],
+    )
+
+    assert response is not None
+    assert [call.function.name for call in response.tool_calls] == ["begin_program"]
+    arguments = json.loads(response.tool_calls[0].function.arguments)
+    assert arguments["requirements"] == text
+    if hours is None:
+        assert "requested_hours" not in arguments
+    else:
+        assert arguments["requested_hours"] == hours
+
+
+async def test_mock_stage_without_a_recognised_tool_falls_back_to_the_chat_contract(monkeypatch):
+    from app.providers.models import ResponseFormat
+
+    monkeypatch.setenv("MOCK_PROVIDER_MODE", "stage")
+    provider = MockProvider("mock", "PERS")
+
+    response = await provider.generate(
+        _messages("привет"),
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+        tools=[],
+    )
+
+    assert response is not None
+    assert set(_payload(response)) == {"chat_name", "message"}
+
+
+def test_mock_stage_answer_is_json_when_a_schema_is_requested():
+    from app.providers.models import ResponseFormat
+
+    provider = MockProvider("mock", "PERS")
+
+    answer = provider._stage_answer(ResponseFormat(type="json_schema", schema={"type": "object"}, strict=False))
+
+    payload = json.loads(answer)
+    assert payload["chat_name"] is None
+    assert payload["message"]
 
 
 async def test_mock_close_is_safe():
