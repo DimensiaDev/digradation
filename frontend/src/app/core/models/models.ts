@@ -162,3 +162,35 @@ export const MAX_FILE_SIZE = 30 * 1024 * 1024;
 export const MAX_MESSAGE_LENGTH = 5000;
 
 export const VISIBLE_FILES_LIMIT = 5;
+
+export type ProgramStatus = 'draft' | 'in_progress' | 'review' | 'published' | 'archived';
+
+/** `draft` is deliberately absent: drafts are visible only through the "all" filter. */
+export type ProgramFilter = 'all' | Exclude<ProgramStatus, 'draft'>;
+
+export type ProgramTheme = 'it' | 'analytics' | 'soft-skills' | 'agile' | 'management' | 'security';
+
+export interface ProgramAuthor {
+  name: string;
+  avatarUrl: string | null;
+}
+
+export interface Program {
+  id: string;
+  title: string;
+  direction: string;
+  hours: number;
+  tags: readonly string[];
+  status: ProgramStatus;
+  theme: ProgramTheme;
+  author: ProgramAuthor;
+  updatedAt: string;
+}
+
+export const PROGRAM_STATUS_LABELS: Record<ProgramStatus, string> = {
+  draft: 'Черновик',
+  in_progress: 'В работе',
+  review: 'На проверке',
+  published: 'Опубликовано',
+  archived: 'Архив'
+};

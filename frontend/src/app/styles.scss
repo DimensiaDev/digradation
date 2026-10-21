@@ -47,6 +47,9 @@ body {
   --color-warning: #f59e0b;
   --color-danger: #ef4444;
 
+  --color-status-progress: #2563eb;
+  --color-status-archived: #64748b;
+
   --sidebar-bg: var(--color-surface-dark);
   --sidebar-text: #e2e8f0;
   --sidebar-muted: #94a3b8;
@@ -73,6 +76,9 @@ html[data-theme='dark'] {
   --sheet-tab-indicator-bg: var(--color-outline);
 
   --color-text: #e2e8f0;
+
+  --color-status-progress: #60a5fa;
+  --color-status-archived: #94a3b8;
 
   --color-code-bg: #1e293b;
 

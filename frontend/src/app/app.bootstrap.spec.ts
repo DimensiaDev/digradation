@@ -3,6 +3,7 @@ import { By } from '@angular/platform-browser';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 
 import { App } from './app.component';
 import { appConfig } from './app.config';
@@ -30,5 +31,22 @@ describe('App bootstrap pieces', () => {
     }).createComponent(App);
     fixture.detectChanges();
     expect(fixture.componentInstance).toBeInstanceOf(App);
+  });
+
+  it('previews /programs for guests and keeps /programs/new behind the full gate', async () => {
+    TestBed.configureTestingModule({
+      providers: [provideRouter(routes), provideHttpClient(), provideHttpClientTesting()]
+    });
+
+    const harness = await RouterTestingHarness.create('/programs');
+
+    expect(harness.routeNativeElement?.querySelector('.programs-page')).not.toBeNull();
+    expect(harness.routeNativeElement?.querySelector('.auth-gate__overlay')).not.toBeNull();
+
+    await harness.navigateByUrl('/programs/new');
+
+    expect(harness.routeNativeElement?.querySelector('.programs-page')).toBeNull();
+    expect(harness.routeNativeElement?.querySelector('.auth-gate__overlay')).toBeNull();
+    expect(harness.routeNativeElement?.querySelector('.auth-gate__prompt')).not.toBeNull();
   });
 });

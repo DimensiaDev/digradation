@@ -1246,3 +1246,38 @@ still starts only when its slot is taken, so queued files are not timed out whil
 submit check, so it could hand the API text the other client-side path already rejected.
 `ChatCreateComponent.MAX_SYMBOLS` now aliases the shared constant so its existing tests and
 template keep working while the number has a single source.
+
+## The programs catalog is mock-first behind a service (2026-10-21)
+
+`/programs` ships as a working catalogue before there is a programs API.
+
+- **The page talks to `ProgramsService`, not to fixtures.** The service owns an in-memory
+  signal and the duplicate / archive / delete mutations, so the page contains no mock data
+  and replacing the service body with HTTP calls later is the only integration point.
+- **`draft` is a status, not a filter.** Drafts appear only under "Все". A draft is a
+  transient authoring state rather than a section users browse, and the filter row stays at
+  five predictable choices.
+- **Editing and the primary CTA lead to `/programs/new`.** The route renders
+  `SectionPlaceholder` inside the full gate until the form exists.
+- **The card is a separate component partly for the style budget.** `anyComponentStyle`
+  warns at 6 kB, so a page-sized stylesheet would cross it. Theme accents and status colours
+  are driven by `data-theme` / `data-status` attributes, and status colours live in global
+  tokens so the card does not hardcode them.
+
+## `/programs` previews behind a guest gate instead of hiding the page (2026-10-21)
+
+The programs catalogue is the first route that is useful to see before signing in.
+
+- **The route stays inside `AuthGate` and opts into a preview mode.** Its parent route
+  carries `data: { authGateMode: 'preview' }`; `AuthGate` reads that flag and renders the
+  outlet plus an overlay for a guest. Other protected routes still render only the inline
+  prompt, so the gate remains the single place that decides what a guest may see.
+- **The preview is inert, blurred and hidden from assistive technology.** The outlet sits in
+  a wrapper with `filter: blur(6px)`, `pointer-events: none`, `inert` and `aria-hidden`;
+  only the `LoginPrompt` in the overlay is interactive.
+- **The overlay is fixed to the main column, below the sticky header.** Its
+  `left: var(--sidebar-width)` keeps the navigation sharp, and `z-index: 10` sits under the
+  header's `z-index: 20`. That blurs the catalogue rather than the whole application shell.
+- **The outlet is not recreated on login.** The preview wrapper stays mounted and only loses
+  its locked class; a guest who signs in keeps the same page instance instead of resetting
+  filters and local mock state.

@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-20** (voice input added to the home composer)
+Last updated: **2026-10-21** (mock programs catalog added)
 
 ---
 
@@ -20,7 +20,7 @@ Everything described below is working and running via Docker Compose.
 | Component   | State                                                                                                                              |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness                                               |
-| `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings |
+| `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings, mock programs catalog |
 | `e2e/`      | Complete: specs against the real Compose stack with the offline provider                                                           |
 | Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup                                                     |
 
@@ -54,8 +54,12 @@ tiles inside the composer field, above the textarea: images show a small preview
 types the same tile with a file icon. Clicking the tile opens the preview (there is no
 separate preview button); the file name and remove action appear on hover and keyboard
 focus, and stay visible on touch devices. `/help` is still an
-intentional `SectionPlaceholder` host, and `programs` / `library` render the same placeholder
-behind the auth gate.
+intentional `SectionPlaceholder` host, `library` renders the same placeholder behind the
+auth gate, and `/programs/new` uses it until the form exists. `/programs` is now a
+mock-backed catalog: status filters, a responsive card grid, and local duplicate / archive /
+delete actions. Guests see the catalogue behind a blurred, inert overlay with the
+"Требуется вход" prompt; signing in unlocks it in place. Its data lives in `ProgramsService`;
+no API call is made yet.
 
 **In flight: tool calling.** The provider layer advertises tools at construction, and both
 the OpenAI-compatible client and the GigaChat v2 client surface the calls the model requests
@@ -158,24 +162,26 @@ Ordered by value, not by commitment:
 0. **Decide what the application is for.** Everything else is downstream. The base system
    prompt is one paragraph and the schema carries only `{chat_name, message}`, which is
    deliberate headroom rather than an oversight.
-1. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
+1. **Turn the programs catalog into a real feature.** `ProgramsService` is an in-memory mock;
+   replace it with API calls, persistence, and the create/edit form behind `/programs/new`.
+2. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
    where per-content-type preparation belongs. The first content type that needs work is the
    first thing that goes in it, offloaded with `asyncio.to_thread`.
-2. **Extend the e2e suite.** It covers authentication (including the guest path and the
+3. **Extend the e2e suite.** It covers authentication (including the guest path and the
    sign-in dialog), the chat journey, a follow-up message, attachments, the paginated history
    list, admin roles and the admin prompt editor.
-   Not yet covered: the docx/xlsx preview, avatar upload, the theme toggle, and the error
-   paths (a generation that fails, a session deleted mid-flight).
-3. **Fill the placeholder sections:** profile, user settings, the admin action log
+   Not yet covered: the docx/xlsx preview, avatar upload, the theme toggle, the programs
+   catalog, and the error paths (a generation that fails, a session deleted mid-flight).
+4. **Fill the placeholder sections:** profile, user settings, the admin action log
    (`Журнал действий`) and system info.
-4. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
-5. **Mirror the Garage image into a registry we control** and pin it by digest. MinIO's
+5. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
+6. **Mirror the Garage image into a registry we control** and pin it by digest. MinIO's
    deletion cost a CI outage and this migration; the same event could happen to
    `dxflrs/garage`.
-6. **Add a LICENSE file**, currently absent.
-7. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
+7. **Add a LICENSE file**, currently absent.
+8. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
    and in the code, but not in the example env file.
-8. **Add a per-test e2e user.** The suite shares one seeded user and works around the
+9. **Add a per-test e2e user.** The suite shares one seeded user and works around the
    5-per-minute rate limit by clearing Redis between tests.
 
 ---

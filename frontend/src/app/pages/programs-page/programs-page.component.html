@@ -1,0 +1,67 @@
+<section class="section programs-page">
+  <header class="programs-page__header">
+    <div class="programs-page__heading">
+      <h1 class="h2">Мои программы</h1>
+      <p class="h4">Создавайте, редактируйте и публикуйте образовательные программы</p>
+    </div>
+
+    <a class="button button--main programs-page__create" routerLink="/programs/new">
+      <svg size="18" lucidePlus aria-hidden="true"></svg>
+      <span>Создать программу</span>
+    </a>
+  </header>
+
+  <div class="programs-page__filters" role="group" aria-label="Фильтр по статусу">
+    @for (option of filters; track option.value) {
+      <button
+        type="button"
+        class="filter-chip"
+        [class.filter-chip--active]="filter() === option.value"
+        [attr.aria-pressed]="filter() === option.value"
+        (click)="selectFilter(option.value)"
+      >
+        {{ option.label }}
+      </button>
+    }
+  </div>
+
+  @if (programs().length > 0) {
+    <div class="programs-page__grid">
+      @for (program of programs(); track program.id) {
+        <app-program-card [program]="program" (action)="onAction(program, $event)" />
+      }
+    </div>
+  } @else {
+    <div class="programs-page__empty">
+      <span class="programs-page__empty-icon" aria-hidden="true">
+        <svg size="32" lucideFolderOpen></svg>
+      </span>
+
+      <p class="h3">
+        {{ filter() === 'all' ? 'Пока нет программ' : 'В этом статусе пока нет программ' }}
+      </p>
+      <p class="h5 programs-page__empty-hint">
+        {{
+          filter() === 'all'
+            ? 'Создайте первую программу, чтобы она появилась здесь.'
+            : 'Попробуйте выбрать другой статус.'
+        }}
+      </p>
+
+      @if (filter() === 'all') {
+        <a class="button button--main programs-page__empty-action" routerLink="/programs/new">
+          <svg size="18" lucidePlus aria-hidden="true"></svg>
+          <span>Создать программу</span>
+        </a>
+      } @else {
+        <button
+          type="button"
+          class="button button--outline programs-page__empty-action"
+          (click)="selectFilter('all')"
+        >
+          Показать все
+        </button>
+      }
+    </div>
+  }
+</section>

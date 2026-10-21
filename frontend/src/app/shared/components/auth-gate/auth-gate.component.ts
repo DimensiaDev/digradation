@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { ActivatedRoute, RouterOutlet } from '@angular/router';
 import { ProfileService } from '../../../core/services/profile.service';
 import { LoginPrompt } from '../login-prompt/login-prompt.component';
 
@@ -12,6 +12,8 @@ import { LoginPrompt } from '../login-prompt/login-prompt.component';
 })
 export class AuthGate {
   private readonly profile = inject(ProfileService);
+  private readonly route = inject(ActivatedRoute);
 
   readonly user = this.profile.user;
+  readonly guestPreview = this.route.snapshot.data['authGateMode'] === 'preview';
 }
