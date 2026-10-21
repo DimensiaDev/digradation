@@ -25,8 +25,10 @@ from app.agentic.sources import SourceFragment, get_source, search
 from app.agentic.state import (
     MAX_QUESTION_LENGTH,
     STAGE_ORDER,
+    AssessmentBlock,
     CompetencesBlock,
     HoursBlock,
+    MaterialsBlock,
     ProgramState,
     SourcesBlock,
     SummaryBlock,
@@ -46,6 +48,8 @@ STAGE_BLOCK: dict[Stage, type[BaseModel]] = {
     Stage.HOURS: HoursBlock,
     Stage.SOURCES: SourcesBlock,
     Stage.SUMMARY: SummaryBlock,
+    Stage.ASSESSMENT: AssessmentBlock,
+    Stage.MATERIALS: MaterialsBlock,
 }
 
 #: Stages that may look documents up before saving their block.
@@ -194,6 +198,11 @@ _SAVE_DESCRIPTIONS: dict[Stage, str] = {
         "которые вернул search_sources."
     ),
     Stage.SUMMARY: "Сохранить паспорт программы: цель, задачи, аудиторию, форму обучения и документ по итогам.",
+    Stage.ASSESSMENT: (
+        "Сохранить оценочные средства: тестовые вопросы с ключами, задания для семинаров с критериями "
+        "оценки, формы текущего контроля и итоговую аттестацию."
+    ),
+    Stage.MATERIALS: "Сохранить планы лекций и слайды к темам учебного плана.",
 }
 
 #: The save specification of each stage, built from that stage's block model, so
@@ -312,6 +321,28 @@ def _hours_problems(state: ProgramState, block: HoursBlock) -> list[str]:
     )
 
 
+def _assessment_problems(state: ProgramState, block: AssessmentBlock) -> list[str]:
+    """The assessment has to check the programme that is already committed."""
+    if state.curriculum is None:
+        return ["учебный план ещё не собран"]
+    return state.assessment_problems(block.assessment, state.curriculum)
+
+
+def _materials_problems(state: ProgramState, block: MaterialsBlock) -> list[str]:
+    """Every plan and every deck has to belong to a topic of the plan."""
+    if state.curriculum is None:
+        return ["учебный план ещё не собран"]
+    topics = {topic.id for module in state.curriculum.modules for topic in module.topics}
+    problems = []
+    for plan in block.materials.lecture_plans:
+        if plan.topic_id not in topics:
+            problems.append(f"план лекции {plan.id} ссылается на несуществующую тему {plan.topic_id}")
+    for deck in block.materials.slide_decks:
+        if deck.topic_id not in topics:
+            problems.append(f"слайды {deck.id} ссылаются на несуществующую тему {deck.topic_id}")
+    return problems
+
+
 @dataclass(frozen=True)
 class _Save:
     """How one stage's block becomes state."""
@@ -348,6 +379,21 @@ _SAVERS: dict[type[BaseModel], _Save] = {
         apply=lambda state, block, sources: state.with_summary(block, sources),
         cited=_basis_ids,
         note="Паспорт программы сохранён. Черновик собирается, подтверждение попросит методист.",
+    ),
+    AssessmentBlock: _Save(
+        apply=lambda state, block, _sources: state.with_assessment(block),
+        problems=_assessment_problems,
+        rejected="Оценочные средства не приняты",
+        retry="Исправь привязки к темам и результатам обучения и добавь второе средство проверки "
+        "для каждого результата.",
+        note="Оценочные средства сохранены. Кратко подтверди, что блок готов, и остановись.",
+    ),
+    MaterialsBlock: _Save(
+        apply=lambda state, block, _sources: state.with_materials(block),
+        problems=_materials_problems,
+        rejected="Материалы не приняты",
+        retry="Укажи темы из учебного плана и сохрани блок снова.",
+        note="Материалы сохранены. Кратко подтверди, что блок готов, и остановись.",
     ),
 }
 

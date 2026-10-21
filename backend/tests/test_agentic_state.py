@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.state import (
+    SKELETON_ORDER,
     STAGE_ORDER,
     ClarificationAnswer,
     ProgramState,
@@ -106,22 +107,48 @@ def test_completed_moves_the_run_to_the_next_stage() -> None:
     assert completed.stage_status(Stage.COMPETENCES) is StageStatus.COMPLETED
 
 
-def test_the_last_stage_leaves_the_run_awaiting_approval() -> None:
+def test_the_skeleton_leaves_the_run_awaiting_approval() -> None:
+    """The skeleton is what the methodist approves, so the run waits there."""
+    state = new_state(SESSION_ID, requested_hours=None, requirements=None)
+
+    for stage in SKELETON_ORDER:
+        state = state.started(stage).completed(stage)
+
+    assert state.status is ProgramStatus.PENDING_APPROVAL
+    assert state.current_stage is Stage.ASSESSMENT
+    assert all(state.stage_status(stage) is StageStatus.COMPLETED for stage in SKELETON_ORDER)
+
+
+def test_the_content_leaves_the_run_approved() -> None:
+    """Once the content is written the programme is complete."""
     state = new_state(SESSION_ID, requested_hours=None, requirements=None)
 
     for stage in STAGE_ORDER:
         state = state.started(stage).completed(stage)
 
-    assert state.status is ProgramStatus.PENDING_APPROVAL
-    assert state.current_stage is Stage.SUMMARY
+    assert state.status is ProgramStatus.APPROVED
+    assert state.terminal
     assert all(state.stage_status(stage) is StageStatus.COMPLETED for stage in STAGE_ORDER)
 
 
-def test_a_stage_outside_the_order_has_no_successor() -> None:
-    """Assessment and materials wait for #5, so they are not in the pipeline yet."""
+def test_the_stages_run_in_order() -> None:
+    """Every stage hands over to the next one, the skeleton first."""
     state = new_state(SESSION_ID, requested_hours=None, requirements=None)
 
-    assert state._successor(Stage.ASSESSMENT) is None
+    for stage in STAGE_ORDER:
+        state = state.started(stage)
+        assert state.current_stage is stage
+        state = state.completed(stage)
+
+    assert state.current_stage is Stage.MATERIALS
+
+
+def test_a_stage_outside_the_order_has_no_successor() -> None:
+    """A stage the pipeline does not run has no successor."""
+    state = new_state(SESSION_ID, requested_hours=None, requirements=None)
+
+    assert state._successor(Stage.ASSESSMENT) is Stage.MATERIALS
+    assert state._successor(Stage.MATERIALS) is None
 
 
 # ---------------------------------------------------------------------------

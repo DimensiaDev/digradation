@@ -27,9 +27,13 @@ from app.agentic import store
 from app.agentic.errors import MissingChat, StaleState
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.state import (
+    CONTENT_ORDER,
+    SKELETON_ORDER,
     STAGE_ORDER,
+    AssessmentBlock,
     CompetencesBlock,
     HoursBlock,
+    MaterialsBlock,
     ProgramState,
     SourcesBlock,
     SummaryBlock,
@@ -139,11 +143,20 @@ class FakeProvider:
         return self.answers.pop(0) if self.answers else None
 
 
-def complete_state(session_id: uuid.UUID) -> ProgramState:
-    """A run that committed every block of the example document."""
-    raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
+def example() -> dict:
+    """The documented example programme, as raw blocks."""
+    return json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
+
+
+def skeleton_state(session_id: uuid.UUID) -> ProgramState:
+    """A run that committed the skeleton and waits for the methodist.
+
+    The skeleton is what the methodist approves: the goal, the competences
+    and the hours. The content is written only after that.
+    """
+    raw = example()
     state = new_state(session_id, requested_hours=72, requirements="Курс по анализу данных")
-    for stage in STAGE_ORDER:
+    for stage in SKELETON_ORDER:
         state = state.started(stage)
         if stage is Stage.COMPETENCES:
             block = CompetencesBlock(
@@ -158,6 +171,20 @@ def complete_state(session_id: uuid.UUID) -> ProgramState:
             state = state.with_sources(SourcesBlock(sources=raw["sources"]))
         else:
             state = state.with_summary(SummaryBlock(summary=raw["summary"]), [])
+        state = state.completed(stage)
+    return state
+
+
+def complete_state(session_id: uuid.UUID) -> ProgramState:
+    """A run that committed every block of the example document."""
+    raw = example()
+    state = skeleton_state(session_id)
+    for stage in CONTENT_ORDER:
+        state = state.started(stage)
+        if stage is Stage.ASSESSMENT:
+            state = state.with_assessment(AssessmentBlock(assessment=raw["assessment"]))
+        else:
+            state = state.with_materials(MaterialsBlock(materials=raw["materials"]))
         state = state.completed(stage)
     return state
 
@@ -361,7 +388,7 @@ async def test_a_completed_stage_is_not_generated_again(
 async def test_finalising_renders_the_draft_and_asks_for_confirmation(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, enqueued
 ) -> None:
-    state = await store.save(complete_state(chat))
+    state = await store.save(skeleton_state(chat))
 
     await run_task(program.finalize_program_draft, chat, state.run_id)
 
@@ -382,7 +409,7 @@ async def test_finalising_renders_the_draft_and_asks_for_confirmation(
 async def test_finalising_twice_renders_one_message(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, enqueued
 ) -> None:
-    state = await store.save(complete_state(chat))
+    state = await store.save(skeleton_state(chat))
 
     await run_task(program.finalize_program_draft, chat, state.run_id)
     await run_task(program.finalize_program_draft, chat, state.run_id)
@@ -398,7 +425,7 @@ async def test_finalising_stops_when_another_writer_finalized_first(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The row can move between the load and the lock; the lock's copy wins."""
-    state = await store.save(complete_state(chat))
+    state = await store.save(skeleton_state(chat))
     real_parse = store.parse
     calls = 0
 
@@ -451,7 +478,7 @@ async def test_an_incomplete_draft_ends_the_run(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, enqueued
 ) -> None:
     state = new_state(chat, requested_hours=None, requirements=None)
-    for stage in STAGE_ORDER:
+    for stage in SKELETON_ORDER:
         state = state.completed(stage)
     await store.save(state)
 
@@ -541,7 +568,7 @@ async def test_recovery_gives_up_when_the_attempts_are_spent(
 async def test_recovery_renders_a_draft_that_was_never_rendered(
     chat: uuid.UUID, task_db: None, redis_client: Redis, enqueued
 ) -> None:
-    state = await store.save(aged(complete_state(chat)))
+    state = await store.save(aged(skeleton_state(chat)))
 
     await run_task(program.recover_stalled_programs)
 
@@ -953,7 +980,7 @@ async def test_a_failure_replaces_the_result_the_intake_left(
 async def test_a_replay_of_the_last_stage_enqueues_the_finalize(
     chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:
-    state = await store.save(complete_state(chat))
+    state = await store.save(skeleton_state(chat))
 
     await run_task(program.program_stage, chat, Stage.SUMMARY.value, state.run_id)
 
@@ -1013,7 +1040,7 @@ async def test_finalising_replaces_the_result_the_intake_left(
     The draft has to replace that row: inserting a second one fails on the primary
     key, and the message the methodist is waiting for is never written.
     """
-    state = await store.save(complete_state(chat))
+    state = await store.save(skeleton_state(chat))
     async with async_sessionmaker(bind=engine, expire_on_commit=False)() as db:
         db.add(
             GenerationResult(
@@ -1110,7 +1137,7 @@ async def test_recovery_keeps_going_when_one_row_moved_under_it(
 async def test_finalising_keeps_a_chat_name_the_intake_already_set(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, enqueued
 ) -> None:
-    state = await store.save(complete_state(chat))
+    state = await store.save(skeleton_state(chat))
     maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with maker() as db:
         row = await db.get(ChatSession, chat)

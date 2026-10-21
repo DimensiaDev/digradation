@@ -1766,3 +1766,39 @@ catalogue does not return yet keep their elements.
   `e2e/scripts/setup.sh` writes eight minimal `chat_sessions.program_state` envelopes for
   the e2e user. The list endpoint needs only title, status and `updated_at`; the detail
   endpoint accepts the model's defaults for the rest.
+
+## The programme is written in two halves (2026-10-22)
+
+The criteria ask the methodist to approve the goal, the competences and the hours *before* the
+agent writes any content. The pipeline therefore has two groups of stages, not one.
+
+- **`SKELETON_ORDER` is what the methodist approves.** Competences, hours, sources and the
+  passport: the goal, the competences and the hours. When the last of them is done the run
+  waits in `pending_approval` and `finalize_program_draft` renders it into the chat.
+- **`CONTENT_ORDER` is what is written from the approved skeleton.** The assessment and the
+  materials. They are not enqueued by the stage that finished the skeleton: the approval is
+  what puts the first of them on the queue, so nothing is generated from a skeleton the
+  methodist has not seen.
+- **The approval is the intake's business.** `approve_program_draft` moves the run to
+  `approved`, and the intake task — which is the only place that can enqueue — starts the
+  content. The pipeline itself never enqueues a content stage: `_advance` stops there.
+- **A finished programme is `approved`.** The content's last stage completes the run; the
+  skeleton waiting for the methodist is `pending_approval`. The status vocabulary the
+  frontend knows is unchanged.
+
+## The assessment is checked, not trusted (2026-10-22)
+
+The criteria ask for every learning outcome to be checked by at least two means. That is a
+check on the block, not a wish in the prompt.
+
+- **Every means names what exists.** A question, a seminar task and a form of control have to
+  name outcomes the competences declare and topics and forms of control the programme
+  actually has. The final attestation has to name declared outcomes too, but it is the
+  programme's conclusion and not one of the means, so it does not count towards the two.
+- **Every outcome is checked at least twice**, and the count is over the questions, the
+  seminar tasks and the forms of control.
+- **The attestation's hours are the plan's hours.** The plan sets them aside
+  (`Curriculum.attestation_hours`) and the assessment has to match, which is what makes a
+  256-hour internship with 254 hours of self-study add up.
+- **The materials belong to the plan.** A lecture plan or a slide deck that names a topic the
+  plan does not have is refused.

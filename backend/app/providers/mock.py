@@ -122,6 +122,77 @@ def _curriculum(total: float) -> dict:
     }
 
 
+def _assessment() -> dict:
+    """Assessment means that check every outcome of the mock programme twice."""
+    outcomes = ["ro-k-01", "ro-s-01", "ro-e-01"]
+    return {
+        "tools": [
+            {
+                "id": "at-01",
+                "kind": "test",
+                "title": "Тест по итогам модуля",
+                "topic_ids": ["t-01.1"],
+                "outcome_ids": outcomes,
+                "criteria": ["Верно отвечает не менее чем на 70% вопросов"],
+                "materials": ["Банк вопросов с ключами"],
+            }
+        ],
+        "final": {
+            "form": "защита проекта",
+            "hours": 0,
+            "outcome_ids": outcomes,
+            "criteria": ["Проект решает поставленную задачу и защищён перед комиссией"],
+            "materials": ["Требования к проекту"],
+        },
+        "questions": [
+            {
+                "id": "q-01-01",
+                "topic_ids": ["t-01.1"],
+                "outcome_ids": ["ro-k-01"],
+                "text": "Что такое основное понятие программы?",
+                "options": ["Определение", "Пример", "Процедура"],
+                "answers": ["Определение"],
+            }
+        ],
+        "seminar_tasks": [
+            {
+                "id": "st-01",
+                "topic_id": "t-01.1",
+                "outcome_ids": ["ro-s-01"],
+                "title": "Разбор типовой задачи",
+                "statement": "Решите задачу по образцу и объясните ход решения.",
+                "outcome_criteria": ["Задача решена верно, ход решения объяснён"],
+            }
+        ],
+    }
+
+
+def _materials() -> dict:
+    """A lecture plan and a slide deck for the only topic of the mock programme."""
+    return {
+        "lecture_plans": [
+            {
+                "id": "lp-01",
+                "topic_id": "t-01.1",
+                "title": "Основное содержание программы",
+                "plan": ["Понятие и область применения", "Типовые задачи", "Разбор примера"],
+                "summary": "Лекция о том, что составляет основу программы.",
+            }
+        ],
+        "slide_decks": [
+            {
+                "id": "sd-01",
+                "topic_id": "t-01.1",
+                "title": "Основное содержание программы",
+                "slides": [
+                    {"title": "О чём лекция", "bullets": ["Область применения", "Ключевые понятия"]},
+                    {"title": "Пример", "bullets": ["Разбор типовой задачи"]},
+                ],
+            }
+        ],
+    }
+
+
 class MockProvider(AIClient):
     """Offline stand-in for :class:`~app.providers.sber.SberProvider`.
 
@@ -251,6 +322,10 @@ class MockProvider(AIClient):
         if "sources" in properties:
             # The catalog is empty until the RAG index (#11), so nothing may be cited.
             return {"sources": []}
+        if "assessment" in properties:
+            return {"assessment": _assessment()}
+        if "materials" in properties:
+            return {"materials": _materials()}
         return {
             "summary": {
                 "goal": "Сформировать у слушателей практические знания и умения по теме программы.",

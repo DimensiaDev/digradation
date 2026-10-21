@@ -187,13 +187,20 @@ async def _start_with_answers(
 
 
 async def _commit_tool_state(ctx: ToolContext, previous: ProgramState | None, session: uuid.UUID) -> None:
-    """Save what the tools changed, and start the programme if one was started."""
+    """Save what the tools changed, and put the next stage on the queue.
+
+    Two things start work: a programme the model has just begun, and the
+    approval of a skeleton — the second one is what releases the content.
+    """
     if not ctx.dirty or ctx.state is None:
         return
     started = previous is None or ctx.state.run_id != previous.run_id
     saved = await store.save(ctx.state) if started else await store.save(ctx.state, expected_run_id=ctx.state.run_id)
     log.info("program_state_committed", session=str(session), run_id=str(saved.run_id), status=saved.status.value)
     if started and saved.status is ProgramStatus.GENERATING:
+        await program_stage.kiq(session, saved.current_stage.value, saved.run_id)
+    elif not started and saved.status is ProgramStatus.APPROVED:
+        # The methodist approved the skeleton: the content may be written now.
         await program_stage.kiq(session, saved.current_stage.value, saved.run_id)
 
 

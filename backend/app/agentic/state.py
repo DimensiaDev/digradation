@@ -18,8 +18,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
 from app.agentic.models import (
+    AssessmentPlan,
     Competence,
     Curriculum,
+    Materials,
     ProgramDraft,
     ProgramKind,
     ProgramStatus,
@@ -30,9 +32,19 @@ from app.agentic.models import (
     StageStatuses,
 )
 
-#: Stages that produce a block of the draft, in the order they run. ``assessment``
-#: and ``materials`` belong to the full document (#5) and stay pending.
-STAGE_ORDER: tuple[Stage, ...] = (Stage.COMPETENCES, Stage.HOURS, Stage.SOURCES, Stage.SUMMARY)
+#: The stages the methodist approves before the content is written: the goal, the
+#: competences and the hours are the skeleton of the programme, and nothing is
+#: generated from it until the methodist has said yes.
+SKELETON_ORDER: tuple[Stage, ...] = (Stage.COMPETENCES, Stage.HOURS, Stage.SOURCES, Stage.SUMMARY)
+
+#: The stages that fill the programme in once the skeleton is approved.
+CONTENT_ORDER: tuple[Stage, ...] = (Stage.ASSESSMENT, Stage.MATERIALS)
+
+#: The stage whose completion means the skeleton is ready for the methodist.
+SKELETON_LAST = SKELETON_ORDER[-1]
+
+#: Stages that produce a block of the document, in the order they run.
+STAGE_ORDER: tuple[Stage, ...] = SKELETON_ORDER + CONTENT_ORDER
 
 #: Enqueues a stage may spend before the run is given up on. The counter moves
 #: when a stage is put on the queue, not when a worker picks it up.
@@ -69,6 +81,18 @@ class SummaryBlock(BaseModel):
     """What the summary stage saves: the programme passport."""
 
     summary: ProgramSummary = Field(description="Паспорт программы: цель, аудитория, форма обучения")
+
+
+class AssessmentBlock(BaseModel):
+    """What the assessment stage saves: the means of checking the outcomes."""
+
+    assessment: AssessmentPlan = Field(description="Оценочные средства: тесты, задания, текущий контроль, аттестация")
+
+
+class MaterialsBlock(BaseModel):
+    """What the materials stage saves: the lecture plans and the slides."""
+
+    materials: Materials = Field(description="Планы лекций и слайды")
 
 
 class ClarificationQuestion(BaseModel):
@@ -110,6 +134,11 @@ class ProgramState(BaseModel):
     curriculum: Curriculum | None = None
     sources: list[Source] = Field(default_factory=list)
     summary: ProgramSummary | None = None
+    #: The content of the programme: the means of checking the outcomes and the
+    #: lecture material. They are written after the methodist has approved the
+    #: skeleton, and they are not part of the draft they approve.
+    assessment: AssessmentPlan | None = None
+    materials: Materials | None = None
 
     #: True once the draft has been rendered into the chat and may be approved.
     finalized: bool = False
@@ -160,10 +189,21 @@ class ProgramState(BaseModel):
         return self._replace(status=ProgramStatus.GENERATING, current_stage=stage, stages=stages)
 
     def completed(self, stage: Stage) -> Self:
-        """Mark the stage done and point the state at its successor."""
+        """Mark the stage done and point the state at its successor.
+
+        The skeleton ends with a programme that waits for the methodist, and
+        the content ends with a programme that is complete.
+        """
         stages = self.stages.model_copy(update={stage.value: StageStatus.COMPLETED})
         successor = self._successor(stage)
-        status = ProgramStatus.GENERATING if successor is not None else ProgramStatus.PENDING_APPROVAL
+        if stage == SKELETON_LAST:
+            # The skeleton is ready. The content is written from it only after
+            # the methodist has approved it, so the run waits here.
+            status = ProgramStatus.PENDING_APPROVAL
+        elif successor is not None:
+            status = ProgramStatus.GENERATING
+        else:
+            status = ProgramStatus.APPROVED
         return self._replace(stages=stages, current_stage=successor or stage, status=status)
 
     def failed_stage(self, stage: Stage, error: str) -> Self:
@@ -223,6 +263,14 @@ class ProgramState(BaseModel):
         """Save the passport and the documents it is based on."""
         return self._replace(summary=block.summary, sources=self._merged_sources(sources))
 
+    def with_assessment(self, block: AssessmentBlock) -> Self:
+        """Save the means of checking the outcomes."""
+        return self._replace(assessment=block.assessment)
+
+    def with_materials(self, block: MaterialsBlock) -> Self:
+        """Save the lecture plans and the slides."""
+        return self._replace(materials=block.materials)
+
     def _merged_sources(self, sources: list[Source]) -> list[Source]:
         """Union of the cited sources: first position, latest record."""
         merged = {source.id: source for source in self.sources}
@@ -260,11 +308,7 @@ class ProgramState(BaseModel):
 
     def _consistency_problems(self, draft: ProgramDraft) -> list[str]:
         """The checks that need the assembled document rather than one block."""
-        outcomes = [
-            outcome.id
-            for competence in draft.competencies
-            for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
-        ]
+        outcomes = self.declared_outcomes()
         standards = [item.standard_source_id for item in draft.competencies if item.standard_source_id]
         problems = [
             f"компетенция {item} объявлена дважды"
@@ -275,6 +319,72 @@ class ProgramState(BaseModel):
         problems += self.uncovered_outcome_problems(draft.curriculum, set(outcomes))
         problems += self.curriculum_problems(draft.curriculum)
         problems += self.citation_problems([*draft.summary.basis_source_ids, *standards])
+        if self.assessment is not None:
+            problems += self.assessment_problems(self.assessment, draft.curriculum)
+        return problems
+
+    def declared_outcomes(self) -> list[str]:
+        """Every learning outcome the competences declare."""
+        return [
+            outcome.id
+            for competence in self.competencies
+            for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
+        ]
+
+    def assessment_problems(self, assessment: AssessmentPlan, curriculum: Curriculum) -> list[str]:
+        """The assessment has to check the programme, and only the programme.
+
+        Every means of checking names outcomes that exist and a form of control
+        that exists, every outcome of the programme is checked by at least two
+        means, and the final attestation takes the hours the plan set aside
+        for it.
+        """
+        problems: list[str] = []
+        declared = set(self.declared_outcomes())
+        topics = {topic.id for module in curriculum.modules for topic in module.topics}
+        tools = {tool.id for tool in assessment.tools}
+        checked: dict[str, int] = dict.fromkeys(declared, 0)
+
+        def note(outcome_ids: list[str], what: str) -> None:
+            unknown = [item for item in outcome_ids if item not in declared]
+            if unknown:
+                problems.append(f"{what} ссылается на необъявленные результаты обучения: {', '.join(unknown)}")
+            for outcome_id in outcome_ids:
+                if outcome_id in checked:
+                    checked[outcome_id] += 1
+
+        for question in assessment.questions:
+            if question.tool_id not in tools:
+                problems.append(f"вопрос {question.id} ссылается на несуществующую форму контроля {question.tool_id}")
+            note(question.outcome_ids, f"вопрос {question.id}")
+        for task in assessment.seminar_tasks:
+            if task.tool_id not in tools:
+                problems.append(f"задание {task.id} ссылается на несуществующую форму контроля {task.tool_id}")
+            if task.topic_id not in topics:
+                problems.append(f"задание {task.id} ссылается на несуществующую тему {task.topic_id}")
+            note(task.outcome_ids, f"задание {task.id}")
+        for tool in assessment.tools:
+            missing = [item for item in tool.topic_ids if item not in topics]
+            if missing:
+                problems.append(f"форма контроля {tool.id} ссылается на несуществующие темы: {', '.join(missing)}")
+            note(tool.outcome_ids, f"форма контроля {tool.id}")
+        # The final attestation is the programme's conclusion, not one of the
+        # means: its outcomes have to exist, but they do not count towards the
+        # two means every outcome has to be checked by.
+        unknown = [item for item in assessment.final.outcome_ids if item not in declared]
+        if unknown:
+            problems.append(f"итоговая аттестация ссылается на необъявленные результаты обучения: {', '.join(unknown)}")
+
+        problems += [
+            f"результат обучения {outcome_id} проверяется только {count} средствами — нужно хотя бы два"
+            for outcome_id, count in sorted(checked.items())
+            if count < 2
+        ]
+        if not math.isclose(assessment.final.hours, curriculum.attestation_hours, abs_tol=1e-6):
+            problems.append(
+                f"итоговая аттестация занимает {assessment.final.hours:g} ч, "
+                f"а в учебном плане на неё отведено {curriculum.attestation_hours:g} ч"
+            )
         return problems
 
     def topic_problems(self, curriculum: Curriculum, declared: set[str]) -> list[str]:

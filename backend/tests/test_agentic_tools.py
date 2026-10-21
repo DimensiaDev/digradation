@@ -78,7 +78,14 @@ def hours_block(**overrides: Any) -> dict:
                     "id": "m-01",
                     "title": "Модуль",
                     "hours": 2,
-                    "topics": [{"id": "t-01.1", "title": "Тема", "hours": {"lecture": 2}}],
+                    "topics": [
+                        {
+                            "id": "t-01.1",
+                            "title": "Тема",
+                            "hours": {"lecture": 2},
+                            "outcome_ids": ["ro-k-01"],
+                        }
+                    ],
                 }
             ],
             "schedule": {"days": 1, "hours_per_day": 2},
@@ -90,6 +97,81 @@ def hours_block(**overrides: Any) -> dict:
 
 def sources_block(*ids: str) -> dict:
     return {"sources": [{"id": source_id, "kind": "professional_standard", "title": "Источник"} for source_id in ids]}
+
+
+def assessment_block(**overrides: Any) -> dict:
+    """An assessment that checks the outcome of the mock programme twice."""
+    outcomes = ["ro-k-01"]
+    block: dict[str, Any] = {
+        "assessment": {
+            "tools": [
+                {
+                    "id": "at-01",
+                    "kind": "test",
+                    "title": "Тест",
+                    "topic_ids": ["t-01.1"],
+                    "outcome_ids": outcomes,
+                    "criteria": ["Не менее 70% верных ответов"],
+                }
+            ],
+            "final": {
+                "form": "защита проекта",
+                "hours": 0,
+                "outcome_ids": outcomes,
+                "criteria": ["Проект защищён"],
+            },
+            "questions": [
+                {
+                    "id": "q-01-01",
+                    "tool_id": "at-01",
+                    "outcome_ids": ["ro-k-01"],
+                    "text": "Что такое понятие?",
+                    "options": ["Определение", "Пример"],
+                    "answers": ["Определение"],
+                }
+            ],
+            "seminar_tasks": [
+                {
+                    "id": "st-01",
+                    "tool_id": "at-01",
+                    "topic_id": "t-01.1",
+                    "outcome_ids": ["ro-k-01"],
+                    "title": "Разбор задачи",
+                    "statement": "Решите задачу.",
+                    "outcome_criteria": ["Задача решена"],
+                }
+            ],
+        }
+    }
+    block.update(overrides)
+    return block
+
+
+def materials_block(**overrides: Any) -> dict:
+    """A lecture plan and a slide deck for the only topic of the mock programme."""
+    block: dict[str, Any] = {
+        "materials": {
+            "lecture_plans": [
+                {
+                    "id": "lp-01",
+                    "topic_id": "t-01.1",
+                    "title": "Основное содержание программы",
+                    "plan": ["Понятие и область применения", "Разбор примера"],
+                    "summary": "Лекция о том, что составляет основу программы.",
+                }
+            ],
+            "slide_decks": [
+                {
+                    "id": "sd-01",
+                    "topic_id": "t-01.1",
+                    "title": "Основное содержание программы",
+                    "slides": [{"title": "О чём лекция", "bullets": ["Область применения"]}],
+                }
+            ],
+        }
+    }
+    block.update(overrides)
+    return block
 
 
 def summary_block(*basis: str) -> dict:
@@ -324,6 +406,7 @@ async def test_a_zero_length_schedule_breaks_the_schema(context: ToolContext) ->
 
 
 async def test_a_schedule_with_weeks_only_is_accepted(context: ToolContext) -> None:
+    await execute_tool(context, save(competences_block()))
     context.state = at_stage(context.state, Stage.HOURS)
     block = hours_block()
     block["curriculum"]["schedule"] = {"weeks": 4}
@@ -335,8 +418,8 @@ async def test_a_schedule_with_weeks_only_is_accepted(context: ToolContext) -> N
 
 async def test_the_arguments_follow_the_stage_the_run_is_on(context: ToolContext) -> None:
     """The same tool takes the curriculum once the run reached the hours stage."""
+    await execute_tool(context, save(competences_block()))
     context.state = at_stage(context.state, Stage.HOURS)
-
     wrong = await execute_tool(context, save(competences_block()))
     right = await execute_tool(context, save(hours_block()))
 
@@ -373,10 +456,14 @@ async def test_the_save_handler_refuses_a_block_it_does_not_own(context: ToolCon
     assert "Неизвестный блок" in (result.error or "")
 
 
-async def test_saving_on_a_stage_without_a_block_is_refused(context: ToolContext) -> None:
+async def test_saving_on_a_stage_without_a_block_is_refused(
+    context: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stage with no block of its own cannot be saved into."""
     state = context.state
     assert state is not None
     context.state = state.model_copy(update={"current_stage": Stage.ASSESSMENT})
+    monkeypatch.setitem(tools.STAGE_BLOCK, Stage.ASSESSMENT, None)
 
     result = await execute_tool(context, save(competences_block()))
 
@@ -402,6 +489,91 @@ async def test_a_handler_that_raises_becomes_a_failed_result(
 
     assert result.ok is False
     assert "Внутренняя ошибка" in (result.error or "")
+
+
+# --------------------------------------------------------------------------------------
+# the assessment stage
+# --------------------------------------------------------------------------------------
+
+
+async def with_a_plan(context: ToolContext) -> ToolContext:
+    """A run that committed its competences and its curriculum."""
+    await execute_tool(context, save(competences_block()))
+    context.state = at_stage(context.state, Stage.HOURS)
+    await execute_tool(context, save(hours_block()))
+    context.state = at_stage(context.state, Stage.ASSESSMENT)
+    return context
+
+
+async def test_the_assessment_stage_saves_the_means_of_checking(context: ToolContext) -> None:
+    await with_a_plan(context)
+
+    result = await execute_tool(context, save(assessment_block()))
+
+    assert result.ok is True
+    assert context.state is not None
+    assert context.state.assessment is not None
+    assert context.state.assessment.final.form == "защита проекта"
+
+
+async def test_an_outcome_checked_once_is_refused(context: ToolContext) -> None:
+    """Every outcome of the programme is checked by at least two means."""
+    await with_a_plan(context)
+    block = assessment_block()
+    block["assessment"]["questions"] = []
+    block["assessment"]["seminar_tasks"] = []
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert "нужно хотя бы два" in " ".join(result.details or [])
+
+
+async def test_an_attestation_that_does_not_match_the_plan_is_refused(context: ToolContext) -> None:
+    """The plan sets the hours aside for the attestation; they have to agree."""
+    await with_a_plan(context)
+    block = assessment_block()
+    block["assessment"]["final"]["hours"] = 4
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert "итоговая аттестация занимает 4 ч" in " ".join(result.details or [])
+
+
+async def test_a_question_pointing_at_an_unknown_form_is_refused(context: ToolContext) -> None:
+    await with_a_plan(context)
+    block = assessment_block()
+    block["assessment"]["questions"][0]["tool_id"] = "at-99"
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert "at-99" in " ".join(result.details or [])
+
+
+async def test_the_materials_stage_saves_the_lecture_plans(context: ToolContext) -> None:
+    await with_a_plan(context)
+    context.state = at_stage(context.state, Stage.MATERIALS)
+
+    result = await execute_tool(context, save(materials_block()))
+
+    assert result.ok is True
+    assert context.state is not None
+    assert context.state.materials is not None
+    assert context.state.materials.lecture_plans[0].topic_id == "t-01.1"
+
+
+async def test_a_plan_pointing_at_an_unknown_topic_is_refused(context: ToolContext) -> None:
+    await with_a_plan(context)
+    context.state = at_stage(context.state, Stage.MATERIALS)
+    block = materials_block()
+    block["materials"]["lecture_plans"][0]["topic_id"] = "t-99.9"
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert "t-99.9" in " ".join(result.details or [])
 
 
 # --------------------------------------------------------------------------------------

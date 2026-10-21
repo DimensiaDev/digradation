@@ -409,9 +409,15 @@ attempts and `run_id`; `app/agentic/store.py` is its only writer, and `to_draft(
 completeness gate that a partial state cannot pass.
 
 - **One TaskIQ task owns one stage**, in the order of `STAGE_ORDER` (competences, hours,
-  sources, summary; `assessment` and `materials` wait for #5). A stage commits its block and
-  only then enqueues the next task or `finalize_program_draft`. There is no loop over stages
-  inside a task, and that is what makes a worker death stop at a durable boundary.
+  sources, summary, assessment, materials). A stage commits its block and only then enqueues
+  the next task or `finalize_program_draft`. There is no loop over stages inside a task, and
+  that is what makes a worker death stop at a durable boundary.
+- **The programme is written in two halves.** `SKELETON_ORDER` (competences, hours, sources,
+  summary) is the skeleton: the goal, the competences and the hours the methodist approves.
+  When the skeleton is complete the run waits in `pending_approval` and `finalize_program_draft`
+  renders it; the content (`CONTENT_ORDER`: assessment, materials) is written only after the
+  methodist has approved it, and the approval is what puts the first content stage on the
+  queue. Nothing is generated from an unapproved skeleton.
 - **The state is `chat_sessions.program_state` (JSONB)**, mirrored to
   `program:state:{session_id}` in Redis for `PROGRAM_STATE_TTL`. PostgreSQL is canonical and
   a mirror that cannot be written never fails a task.

@@ -32,7 +32,7 @@ from app.agentic.loop import run_tool_loop
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.prompts import stage_messages
 from app.agentic.render import render_draft
-from app.agentic.state import MAX_STAGE_ATTEMPTS, ProgramState
+from app.agentic.state import CONTENT_ORDER, MAX_STAGE_ATTEMPTS, ProgramState
 from app.agentic.tools import ToolContext, call_executor, stage_tools
 from app.cache import PROGRAM_STAGE_LOCK_TTL, get_program_stage_lock_key, get_redis_client
 from app.database import db_session
@@ -336,6 +336,12 @@ async def _advance(state: ProgramState) -> None:
         await finalize_program_draft.kiq(state.session_id, state.run_id)
         return
     next_stage = state.current_stage
+    if next_stage in CONTENT_ORDER:
+        # The content waits: the methodist has to approve the skeleton — the
+        # goal, the competences and the hours — before anything is written
+        # from it. The approval is what puts the first content stage on the
+        # queue.
+        return
     if state.stage_status(next_stage) in (StageStatus.IN_PROGRESS, StageStatus.COMPLETED):
         return
     if state.attempts.get(next_stage):
