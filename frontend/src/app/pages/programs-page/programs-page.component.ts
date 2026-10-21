@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
-import { LucideFolderOpen, LucidePlus } from '@lucide/angular';
+import { Router } from '@angular/router';
+import { LucideFolderOpen } from '@lucide/angular';
 import { Program, ProgramFilter } from '../../core/models/models';
 import { NotificationService } from '../../core/services/notification.service';
 import { ProgramsService } from '../../core/services/programs.service';
@@ -16,7 +16,7 @@ interface ProgramFilterOption {
 
 @Component({
   selector: 'app-programs-page',
-  imports: [ProgramCardComponent, RouterLink, LucideFolderOpen, LucidePlus],
+  imports: [ProgramCardComponent, LucideFolderOpen],
   templateUrl: './programs-page.component.html',
   styleUrl: './programs-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush

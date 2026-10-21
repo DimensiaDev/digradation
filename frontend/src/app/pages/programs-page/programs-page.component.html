@@ -4,11 +4,6 @@
       <h1 class="h2">Мои программы</h1>
       <p class="h4">Создавайте, редактируйте и публикуйте образовательные программы</p>
     </div>
-
-    <a class="button button--main programs-page__create" routerLink="/programs/new">
-      <svg size="18" lucidePlus aria-hidden="true"></svg>
-      <span>Создать программу</span>
-    </a>
   </header>
 
   <div class="programs-page__filters" role="group" aria-label="Фильтр по статусу">
@@ -48,12 +43,7 @@
         }}
       </p>
 
-      @if (filter() === 'all') {
-        <a class="button button--main programs-page__empty-action" routerLink="/programs/new">
-          <svg size="18" lucidePlus aria-hidden="true"></svg>
-          <span>Создать программу</span>
-        </a>
-      } @else {
+      @if (filter() !== 'all') {
         <button
           type="button"
           class="button button--outline programs-page__empty-action"

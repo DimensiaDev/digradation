@@ -19,21 +19,9 @@
 
   &__heading {
     display: grid;
-    gap: 8px;
+    gap: 12px;
 
     min-width: 0;
-  }
-
-  &__create {
-    flex-shrink: 0;
-
-    padding: 13px 18px;
-
-    font-size: 16px;
-    font-weight: 600;
-    line-height: 1.2;
-
-    border-radius: 10px;
   }
 
   &__filters {
@@ -144,12 +132,6 @@
 
     &__header {
       align-items: stretch;
-    }
-
-    &__create {
-      justify-content: center;
-
-      width: 100%;
     }
 
     &__filters {

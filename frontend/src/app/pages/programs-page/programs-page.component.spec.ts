@@ -110,11 +110,9 @@ describe('ProgramsPage', () => {
     expect(statuses()).not.toContain('draft');
   });
 
-  it('links the primary action to the new-program route', () => {
-    const link = fixture.debugElement.query(By.css('.programs-page__create'));
-
-    expect(link.nativeElement.getAttribute('href')).toBe('/programs/new');
-    expect(link.nativeElement.textContent).toContain('Создать программу');
+  it('does not render a create-program action', () => {
+    expect(fixture.debugElement.query(By.css('.programs-page__create'))).toBeNull();
+    expect(fixture.debugElement.query(By.css('a[href="/programs/new"]'))).toBeNull();
   });
 
   it('duplicates a program as a draft and reveals it through "Все"', () => {
@@ -174,7 +172,6 @@ describe('ProgramsPage', () => {
     expect(cardTitles().length).toBe(0);
     expect(emptyState().nativeElement.textContent).toContain('Пока нет программ');
 
-    const createLink = fixture.debugElement.query(By.css('.programs-page__empty-action'));
-    expect(createLink.nativeElement.getAttribute('href')).toBe('/programs/new');
+    expect(fixture.debugElement.query(By.css('.programs-page__empty-action'))).toBeNull();
   });
 });
