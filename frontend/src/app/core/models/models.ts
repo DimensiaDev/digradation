@@ -159,4 +159,6 @@ export const MAX_CONCURRENT_UPLOADS = 3;
 
 export const MAX_FILE_SIZE = 30 * 1024 * 1024;
 
+export const MAX_MESSAGE_LENGTH = 5000;
+
 export const VISIBLE_FILES_LIMIT = 5;

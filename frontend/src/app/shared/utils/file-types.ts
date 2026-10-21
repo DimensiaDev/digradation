@@ -38,6 +38,11 @@ const FILE_TYPE_IMAGE = mdiNode(
   'M8.5 13.498l2.5 3.006l3.5-4.506l4.5 6H5m16 1v-14a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z'
 );
 
+const FILE_TYPE_GENERIC = mdiNode(
+  'file-outline',
+  'M13 9h5.5L13 3.5V9M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4c0-1.11.89-2 2-2m0 2v16h12V9h-7V4H6z'
+);
+
 // Single source of truth for every known extension. Edit here and the preview
 // kind, MIME type, icon/colour and the accepted-upload list all follow.
 export const FILE_TYPES: Record<string, FileTypeMeta> = {
@@ -87,7 +92,7 @@ export const FILE_TYPES: Record<string, FileTypeMeta> = {
 export const ACCEPTED_EXTENSIONS: readonly string[] = ['.pdf', '.png', '.jpeg', '.jpg'];
 
 const UNKNOWN_FILE_TYPE_STYLE: FileTypeStyle = {
-  icon: FILE_TYPE_IMAGE,
+  icon: FILE_TYPE_GENERIC,
   color: 'var(--color-gray)'
 };
 

@@ -41,6 +41,10 @@ class FakeUploader {
     }
     return of(item.size);
   }
+
+  remove(): Observable<{ deleted: boolean }> {
+    return of({ deleted: true });
+  }
 }
 
 function makeFile(name: string, size: number): File {
@@ -286,11 +290,13 @@ describe('ChatCreateComponent', () => {
     submitForm();
 
     createChat('sess-4');
+    const cleanup = http.expectOne(`${CHATS_URL}sess-4`);
+    expect(cleanup.request.method).toBe('DELETE');
+    cleanup.flush({ deleted: true });
     await fixture.whenStable();
     refresh();
 
     expect(notificationText()).toBe('Не удалось создать чат: Не удалось обработать файл');
     expect(router.url).not.toContain('/chats/');
-    http.expectNone(`${CHATS_URL}sess-4`);
   });
 });
