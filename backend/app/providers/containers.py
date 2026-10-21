@@ -31,18 +31,18 @@ def get_embedding_provider() -> EmbeddingProvider:
     """Build (once) the embedding provider for the current scope.
 
     Lazy rather than eager: PERS/B2B/CORP deployments use the chat provider
-    and never touch embeddings, so importing `app.providers.containers` must
-    not require ``OPENAI_*`` variables to be set. When the embedding path is
-    reached under a non-openai scope, the error is immediate and clear.
+    and never touch embeddings, so importing ``app.providers.containers``
+    must not require ``OPENAI_*`` variables to be set. When the embedding
+    path is reached under a non-openai scope, the error is immediate and
+    clear.
 
     Mock is selected first: ``SBER_API_KEY=mock`` must override a leftover
-    scope, matching the chat-provider rule above.
+    scope, matching the chat-provider rule above. The mock's dimension is
+    fixed at 1024 and has no environment variable — mock is only used by
+    tests and e2e, both of which set the same constant expectation.
     """
     if api_key == MOCK_API_KEY or scope == "mock":
-        return MockEmbeddingProvider(
-            model="mock-embeddings",
-            dimension=1024,
-        )
+        return MockEmbeddingProvider(model="mock-embeddings", dimension=1024)
 
     if scope != "openai":
         raise RuntimeError(f"embeddings require SBER_API_SCOPE=openai or mock, got {scope!r}")
