@@ -33,13 +33,15 @@ x-backend-env: &backend-env
   # Reached only when `SBER_API_SCOPE=openai`.
   OPENAI_URL: ${OPENAI_URL:-}
   OPENAI_MODEL: ${OPENAI_MODEL:-GigaChat/GigaChat-3-Pro}
+  OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-}
+  OPENAI_EMBEDDING_DIMENSION: ${OPENAI_EMBEDDING_DIMENSION:-}
   SBER_API_KEY: ${SBER_API_KEY:?}
   SBER_API_SCOPE: ${SBER_API_SCOPE:?}
 
 x-backend-service: &backend-service
   build:
-    context: ./backend
-    dockerfile: Dockerfile
+    context: .
+    dockerfile: backend/Dockerfile
   restart: unless-stopped
   environment:
     <<: *backend-env
@@ -80,8 +82,8 @@ services:
 
   migrate:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       <<: *backend-env
     command: "poetry run alembic upgrade head"
@@ -245,8 +247,8 @@ services:
   # already exists rather than adding a Python dependency to the bootstrap image.
   garage-config:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     depends_on:
       garage-bootstrap:
         condition: service_completed_successfully
