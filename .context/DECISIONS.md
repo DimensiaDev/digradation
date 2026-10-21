@@ -1382,3 +1382,16 @@ The catalog now opens a right-side detail view from a card, without leaving `/pr
   explainable and leaves the user in control of resetting it.
 - **The same rule covers type, month and tags.** The helper appends every missing selected
   value, with the month label formatter reused for dates.
+
+## Card actions return focus to the grid (2026-10-21)
+
+- **Closing a card menu removes the focused menu item, so the browser drops focus to the
+  body.** The card now emits its trigger explicitly with the open and action events instead
+  of the page reading `document.activeElement`; the page can restore focus after the DOM has
+  settled.
+- **A surviving card gets its menu trigger back; a deleted card hands focus to the next card
+  at the same position, or to the results region when the grid becomes empty.** Duplicate and
+  archive keep the same card, while delete has no trigger left to focus.
+- **Restoration runs in `afterNextRender`, not in the click handler.** The deleted card is
+  still in the DOM while the action is handled, so focusing synchronously would lose focus
+  again when Angular removes it.

@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { Program, ProgramAction } from '../../../core/models/models';
-import { ProgramCardComponent } from './program-card.component';
+import { Program } from '../../../core/models/models';
+import { ProgramActionEvent, ProgramCardComponent } from './program-card.component';
 
 const PROGRAM: Program = {
   id: 'it-python',
@@ -21,8 +21,9 @@ const PROGRAM: Program = {
 describe('ProgramCardComponent', () => {
   let fixture: ComponentFixture<ProgramCardComponent>;
   let component: ProgramCardComponent;
-  let actions: ProgramAction[];
+  let actions: ProgramActionEvent[];
   let opens: number;
+  let openTriggers: (HTMLElement | null)[];
 
   const menuButton = () => fixture.debugElement.query(By.css('.program-card__menu-button'));
   const menu = () => fixture.debugElement.query(By.css('.program-card__dropdown'));
@@ -57,8 +58,12 @@ describe('ProgramCardComponent', () => {
     fixture.componentRef.setInput('program', PROGRAM);
     actions = [];
     opens = 0;
-    component.action.subscribe((action) => actions.push(action));
-    component.open.subscribe(() => opens++);
+    openTriggers = [];
+    component.action.subscribe((event) => actions.push(event));
+    component.open.subscribe((trigger) => {
+      opens++;
+      openTriggers.push(trigger);
+    });
     detect();
   });
 
@@ -85,6 +90,7 @@ describe('ProgramCardComponent', () => {
     detect();
 
     expect(opens).toBe(1);
+    expect(openTriggers[0]).toBe(open.nativeElement);
   });
 
   it('renders the date as a machine-readable time element', () => {
@@ -187,21 +193,24 @@ describe('ProgramCardComponent', () => {
   it('emits duplicate and closes the menu', () => {
     choose('Дублировать');
 
-    expect(actions).toEqual(['duplicate']);
+    expect(actions.map((event) => event.action)).toEqual(['duplicate']);
+    expect(actions[0].trigger).toBe(menuButton().nativeElement);
     expect(menu()).toBeNull();
   });
 
   it('emits archive and closes the menu', () => {
     choose('Архивировать');
 
-    expect(actions).toEqual(['archive']);
+    expect(actions.map((event) => event.action)).toEqual(['archive']);
+    expect(actions[0].trigger).toBe(menuButton().nativeElement);
     expect(menu()).toBeNull();
   });
 
   it('emits delete and closes the menu', () => {
     choose('Удалить');
 
-    expect(actions).toEqual(['delete']);
+    expect(actions.map((event) => event.action)).toEqual(['delete']);
+    expect(actions[0].trigger).toBe(menuButton().nativeElement);
     expect(menu()).toBeNull();
   });
 

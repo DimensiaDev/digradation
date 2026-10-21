@@ -336,6 +336,17 @@ describe('ProgramsPage', () => {
     expect(statuses()[0]).toBe('draft');
   });
 
+  it('returns focus to the card trigger after duplicating', () => {
+    const trigger = fixture.debugElement.queryAll(By.css('.program-card__menu-button'))[0]
+      .nativeElement as HTMLButtonElement;
+
+    choose('Дублировать');
+    TestBed.tick();
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('archives a program', () => {
     choose('Архивировать');
 
@@ -343,11 +354,33 @@ describe('ProgramsPage', () => {
     expect(service.programs().filter((program) => program.status === 'archived').length).toBe(2);
   });
 
+  it('returns focus to the card trigger after archiving', () => {
+    const trigger = fixture.debugElement.queryAll(By.css('.program-card__menu-button'))[0]
+      .nativeElement as HTMLButtonElement;
+
+    choose('Архивировать');
+    TestBed.tick();
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('deletes a program', () => {
     choose('Удалить');
 
     expect(cardTitles().length).toBe(6);
     expect(service.programs().length).toBe(7);
+  });
+
+  it('moves focus to the next card after deleting one', () => {
+    const triggers = fixture.debugElement.queryAll(By.css('.program-card__menu-button'));
+    const nextTrigger = triggers[1].nativeElement as HTMLButtonElement;
+
+    choose('Удалить');
+    TestBed.tick();
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(nextTrigger);
   });
 
   it('offers a reset when the selected filters are empty', async () => {
@@ -379,6 +412,10 @@ describe('ProgramsPage', () => {
     expect(emptyState().nativeElement.textContent).toContain('Пока нет программ');
 
     expect(fixture.debugElement.query(By.css('.programs-page__empty-action'))).toBeNull();
+
+    TestBed.tick();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(resultsRegion().nativeElement);
   });
 
   it('opens the detail panel from a program card', () => {

@@ -32,6 +32,11 @@ function formatDate(timestamp: string): string {
   });
 }
 
+export interface ProgramActionEvent {
+  readonly action: ProgramAction;
+  readonly trigger: HTMLElement | null;
+}
+
 function initialsFor(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
   const first = parts[0]?.[0] ?? '';
@@ -55,8 +60,8 @@ function initialsFor(name: string): string {
 })
 export class ProgramCardComponent {
   readonly program = input.required<Program>();
-  readonly open = output<void>();
-  readonly action = output<ProgramAction>();
+  readonly open = output<HTMLElement | null>();
+  readonly action = output<ProgramActionEvent>();
 
   readonly icon = computed(() => PROGRAM_THEME_ICONS[this.program().theme]);
   readonly statusLabel = computed(() => PROGRAM_STATUS_LABELS[this.program().status]);
@@ -87,9 +92,9 @@ export class ProgramCardComponent {
     });
   }
 
-  openProgram(): void {
+  openProgram(event: Event): void {
     this.closeMenu();
-    this.open.emit();
+    this.open.emit(event.currentTarget instanceof HTMLElement ? event.currentTarget : null);
   }
 
   toggleMenu(): void {
@@ -128,8 +133,9 @@ export class ProgramCardComponent {
   }
 
   run(action: ProgramAction): void {
-    this.closeMenu();
-    this.action.emit(action);
+    const trigger = this.menuButton()?.nativeElement ?? null;
+    this.closeMenu(true);
+    this.action.emit({ action, trigger });
   }
 
   @HostListener('document:click', ['$event'])

@@ -1,19 +1,24 @@
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   ElementRef,
   computed,
   inject,
+  Injector,
   signal,
   viewChild
 } from '@angular/core';
 import { LucideChevronLeft, LucideChevronRight, LucideFolderOpen } from '@lucide/angular';
 import { FormsModule } from '@angular/forms';
-import { Program, ProgramAction } from '../../core/models/models';
+import { Program } from '../../core/models/models';
 import { NotificationService } from '../../core/services/notification.service';
 import { PROGRAMS_PAGE_SIZE, ProgramsService } from '../../core/services/programs.service';
 import { ProgramDetailPanelComponent } from '../../shared/components/program-detail-panel/program-detail-panel.component';
-import { ProgramCardComponent } from '../../shared/components/program-card/program-card.component';
+import {
+  ProgramActionEvent,
+  ProgramCardComponent
+} from '../../shared/components/program-card/program-card.component';
 import { Select, SelectOption } from '../../shared/components/select/select.component';
 
 const MONTH_LABELS = [
@@ -93,6 +98,8 @@ function includeSelectedOptions(
 export class ProgramsPage {
   private readonly programsService = inject(ProgramsService);
   private readonly notifications = inject(NotificationService);
+  private readonly injector = inject(Injector);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   readonly typeFilter = signal('all');
   readonly dateFilter = signal('all');
@@ -189,12 +196,14 @@ export class ProgramsPage {
     this.page.set(0);
   }
 
-  resetFilters(): void {
+  resetFilters(focusResults = true): void {
     this.typeFilter.set('all');
     this.dateFilter.set('all');
     this.tagFilter.set([]);
     this.page.set(0);
-    this.focusResults();
+    if (focusResults) {
+      this.focusResults();
+    }
   }
 
   previousPage(): void {
@@ -239,9 +248,8 @@ export class ProgramsPage {
     }
   }
 
-  openProgram(program: Program): void {
-    this.lastTrigger =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  openProgram(program: Program, trigger: HTMLElement | null): void {
+    this.lastTrigger = trigger;
     this.selectedProgramId.set(program.id);
   }
 
@@ -255,20 +263,23 @@ export class ProgramsPage {
     }
   }
 
-  onAction(program: Program, action: ProgramAction): void {
-    switch (action) {
+  onAction(program: Program, event: ProgramActionEvent): void {
+    const index = this.programs().findIndex((item) => item.id === program.id);
+    let removed = false;
+
+    switch (event.action) {
       case 'duplicate':
         this.programsService.duplicate(program.id);
-        this.resetFilters();
+        this.resetFilters(false);
         this.notifications.success('Программа продублирована', {
           description: 'Копия сохранена как черновик.'
         });
-        return;
+        break;
       case 'archive':
         this.programsService.archive(program.id);
         this.clampPage();
         this.notifications.info('Программа архивирована');
-        return;
+        break;
       case 'delete':
         if (this.selectedProgramId() === program.id) {
           this.selectedProgramId.set(null);
@@ -276,8 +287,34 @@ export class ProgramsPage {
         }
         this.programsService.remove(program.id);
         this.clampPage();
+        removed = true;
         this.notifications.info('Программа удалена');
-        return;
+        break;
     }
+
+    this.restoreActionFocus(event.trigger, index, removed);
+  }
+
+  private restoreActionFocus(trigger: HTMLElement | null, index: number, removed: boolean): void {
+    afterNextRender(
+      () => {
+        if (!removed && trigger?.isConnected) {
+          trigger.focus();
+          return;
+        }
+
+        const buttons = this.host.nativeElement.querySelectorAll<HTMLElement>(
+          '.program-card__menu-button'
+        );
+        const target = buttons[Math.max(0, Math.min(index, buttons.length - 1))];
+        if (target) {
+          target.focus();
+          return;
+        }
+
+        this.focusResults();
+      },
+      { injector: this.injector }
+    );
   }
 }

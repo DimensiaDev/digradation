@@ -62,7 +62,9 @@ detail aside opened from a card. Filter and page changes update a polite live su
 pagination and reset return focus to a labelled results region at the top of the grid. A
 selected type, month or tag stays visible as a selected option even after its last matching
 program is deleted, so an active filter never collapses into a placeholder. The
-card and panel action menus use the menu-button keyboard pattern with roving tab focus. The
+card and panel action menus use the menu-button keyboard pattern with roving tab focus.
+Duplicate and archive return focus to the card trigger, delete moves it to the next card or
+the empty results region, and the detail panel uses the explicit opening trigger. The
 aside floats above the page and is set off its edges as a rounded card at wide viewports;
 below 980px it fills the viewport. It shows the programme metadata, description and goals,
 plus derived demo tabs for structure, competencies and materials; its header menu and footer

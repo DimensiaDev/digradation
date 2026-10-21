@@ -7,7 +7,7 @@
     type="button"
     class="program-card__open"
     [attr.aria-label]="'Открыть программу «' + program().title + '»'"
-    (click)="openProgram()"
+    (click)="openProgram($event)"
   ></button>
 
   <svg class="program-card__watermark" [lucideIcon]="icon()" aria-hidden="true"></svg>
