@@ -1145,7 +1145,8 @@ showed a scrollbar with nothing to scroll to.
   and hang the worker: the pagination seed is bounded at 60s, each rate-limit attempt at 5s
   within a 15s retry budget, and each idle-generation poll at 10s within a 45s retry budget.
   A failure to clear the counters or confirm the lock fails the fixture instead of letting
-  the next test report a misleading 429 or 409.
+  the next test report a misleading 429 or 409. Retry waits use `setTimeout`, not
+  `Atomics.wait`, so the event loop stays free for Playwright's timeout.
 - **`setup.sh` shares one 120s readiness deadline between the frontend and backend probes.**
   Each `curl` attempt is capped at 5s, so a hung connection cannot stretch the deadline; the
   script exits when the deadline passes instead of seeding an unready stack.

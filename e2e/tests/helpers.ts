@@ -54,7 +54,7 @@ function errorMessage(error: unknown): string {
  * fixture: proceeding with counters still in place turns the next test into a
  * misleading 429.
  */
-function clearRateLimits(): void {
+async function clearRateLimits(): Promise<void> {
   const deadline = Date.now() + 15_000;
   let lastError: unknown;
   for (;;) {
@@ -81,11 +81,8 @@ function clearRateLimits(): void {
         `Could not clear the e2e rate-limit counters in Redis within 15s: ${errorMessage(lastError)}`,
       );
     }
-    Atomics.wait(
-      new Int32Array(new SharedArrayBuffer(4)),
-      0,
-      0,
-      REDIS_RETRY_INTERVAL_MS,
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, REDIS_RETRY_INTERVAL_MS),
     );
   }
 }
@@ -104,7 +101,7 @@ function clearRateLimits(): void {
  * timeout the fixture fails with the reason instead of letting the next test
  * turn a still-running generation into a misleading 409.
  */
-function waitForIdleGeneration(): void {
+async function waitForIdleGeneration(): Promise<void> {
   const deadline = Date.now() + 45_000;
   let lastError: unknown;
   let outstanding = "";
@@ -145,7 +142,7 @@ function waitForIdleGeneration(): void {
         `Could not confirm an idle e2e generation after 45s (${detail}).`,
       );
     }
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+    await new Promise<void>((resolve) => setTimeout(resolve, 2000));
   }
 }
 
@@ -153,8 +150,8 @@ export const test = base.extend({
   // The app shell's brand mark. It is a `div`, not a heading.
   appReady: [
     async ({ page }, use) => {
-      waitForIdleGeneration();
-      clearRateLimits();
+      await waitForIdleGeneration();
+      await clearRateLimits();
       await use(page);
     },
     { auto: true },

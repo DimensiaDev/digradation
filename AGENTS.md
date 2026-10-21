@@ -456,7 +456,8 @@ Three constraints worth knowing before adding a spec:
   the helpers use `execFileSync` with a `timeout`, because Playwright cannot interrupt a
   synchronous subprocess: without one, a stuck `docker compose exec` can outlive the test
   timeout. The rate-limit clear retries within 15s and the idle-generation scan within 45s,
-  then throws rather than letting the next test report a misleading 429 or 409.
+  then throws rather than letting the next test report a misleading 429 or 409; retry waits
+  use `setTimeout` so the event loop stays free.
 
 ### Frontend
 
