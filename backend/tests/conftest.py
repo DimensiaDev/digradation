@@ -14,15 +14,23 @@ _S3_SECRET_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
 _GARAGE_RPC_SECRET = _S3_SECRET_KEY
 _GARAGE_ADMIN_TOKEN = _S3_SECRET_KEY
 
-os.environ.setdefault("SBER_API_KEY", "mock")
-os.environ.setdefault("SBER_API_SCOPE", "PERS")
+#: Provider variables as the process received them, captured before the mock
+#: values are forced below. Live tests restore these through
+#: :func:`real_provider_env` and reload ``app.providers.containers``.
+REAL_ENV = {name: os.environ.get(name) for name in ("SBER_API_KEY", "SBER_API_SCOPE", "OPENAI_URL", "OPENAI_MODEL")}
+
+# Force the mock. ``setdefault`` is not enough: with credentials exported (as
+# when the app is run from the same shell) ``app.providers.containers`` would
+# build a real provider at collection time, and every worker test would hit
+# the network. Overwritten unconditionally; live tests opt back in.
+os.environ["SBER_API_KEY"] = "mock"
+os.environ["SBER_API_SCOPE"] = "PERS"
+
 os.environ.setdefault("RABBITMQ_USER", "jut")
 os.environ.setdefault("RABBITMQ_PASS", "jut")
 os.environ.setdefault("TASKIQ_API_TOKEN", "jut")
 os.environ.setdefault("S3_ACCESS_KEY", _S3_ACCESS_KEY)
 os.environ.setdefault("S3_SECRET_KEY", _S3_SECRET_KEY)
-# `app.main` reads these at import time to configure CORS, and raises when they
-# are missing outside debug mode. Individual tests may still override them.
 os.environ.setdefault("DEBUG", "1")
 os.environ.setdefault("FRONTEND_URL", "http://frontend.test")
 os.environ.setdefault("BACKEND_URL", "http://backend.test")
