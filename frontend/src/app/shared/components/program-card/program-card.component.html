@@ -90,7 +90,19 @@
             <span>Дублировать</span>
           </button>
 
-          @if (!isArchived()) {
+          @if (isArchived()) {
+            <button
+              #menuItem
+              type="button"
+              class="program-card__menu-item popover-menu__item"
+              role="menuitem"
+              [attr.tabindex]="activeMenuItem() === 1 ? 0 : -1"
+              (click)="run('unarchive')"
+            >
+              <svg size="16" lucideArchiveRestore aria-hidden="true"></svg>
+              <span>Восстановить</span>
+            </button>
+          } @else {
             <button
               #menuItem
               type="button"
@@ -109,7 +121,7 @@
             type="button"
             class="program-card__menu-item program-card__menu-item--danger popover-menu__item popover-menu__item--danger"
             role="menuitem"
-            [attr.tabindex]="activeMenuItem() === deleteMenuIndex() ? 0 : -1"
+            [attr.tabindex]="activeMenuItem() === 2 ? 0 : -1"
             (click)="run('delete')"
           >
             <svg size="16" lucideTrash2 aria-hidden="true"></svg>

@@ -280,7 +280,15 @@ export class ProgramsPage {
         this.clampPage();
         this.notifications.info('Программа архивирована');
         break;
+      case 'unarchive':
+        this.programsService.unarchive(program.id);
+        this.clampPage();
+        this.notifications.info('Программа восстановлена');
+        break;
       case 'delete':
+        if (!window.confirm(`Удалить программу «${program.title}»?`)) {
+          return;
+        }
         if (this.selectedProgramId() === program.id) {
           this.selectedProgramId.set(null);
           this.lastTrigger = null;

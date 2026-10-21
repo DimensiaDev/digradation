@@ -214,12 +214,24 @@ describe('ProgramCardComponent', () => {
     expect(menu()).toBeNull();
   });
 
-  it('does not offer archiving for an archived program', () => {
+  it('offers restore instead of archive for an archived program', () => {
     fixture.componentRef.setInput('program', { ...PROGRAM, status: 'archived' });
     detect();
     openMenu();
 
     expect(menuItem('Архивировать')).toBeUndefined();
-    expect(menuItems().length).toBe(2);
+    expect(menuItem('Восстановить')).toBeTruthy();
+    expect(menuItems().length).toBe(3);
+  });
+
+  it('emits unarchive and closes the menu', () => {
+    fixture.componentRef.setInput('program', { ...PROGRAM, status: 'archived' });
+    detect();
+
+    choose('Восстановить');
+
+    expect(actions.map((event) => event.action)).toEqual(['unarchive']);
+    expect(actions[0].trigger).toBe(menuButton().nativeElement);
+    expect(menu()).toBeNull();
   });
 });

@@ -90,6 +90,19 @@ describe('ProgramsService', () => {
     expect(service.programs().find((program) => program.id === other.id)).toEqual(other);
   });
 
+  it('republishes an archived program and refreshes its date', () => {
+    const source = service.programs().find((program) => program.status === 'archived');
+    if (!source) {
+      throw new Error('Expected an archived seed program');
+    }
+
+    service.unarchive(source.id);
+
+    const restored = service.programs().find((program) => program.id === source.id);
+    expect(restored?.status).toBe('published');
+    expect(restored?.updatedAt).not.toBe(source.updatedAt);
+  });
+
   it('removes a program', () => {
     const source = service.programs()[0];
 

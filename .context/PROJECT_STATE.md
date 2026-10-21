@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-21** (programs catalog filters)
+Last updated: **2026-10-21** (programs catalog actions)
 
 ---
 
@@ -64,7 +64,8 @@ selected type, month or tag stays visible as a selected option even after its la
 program is deleted, so an active filter never collapses into a placeholder. The
 card and panel action menus use the menu-button keyboard pattern with roving tab focus.
 Duplicate and archive return focus to the card trigger, delete moves it to the next card or
-the empty results region, and the detail panel uses the explicit opening trigger. The
+the empty results region, and the detail panel uses the explicit opening trigger. Delete asks
+for confirmation, and archived cards can be restored from the card menu. The
 aside floats above the page and is set off its edges as a rounded card at wide viewports;
 below 980px it fills the viewport. It shows the programme metadata, description and goals,
 plus derived demo tabs for structure, competencies and materials; its header menu and footer

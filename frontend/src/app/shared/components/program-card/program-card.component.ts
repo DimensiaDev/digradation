@@ -14,6 +14,7 @@ import {
 } from '@angular/core';
 import {
   LucideArchive,
+  LucideArchiveRestore,
   LucideCalendar,
   LucideCopy,
   LucideDynamicIcon,
@@ -48,6 +49,7 @@ function initialsFor(name: string): string {
   selector: 'app-program-card',
   imports: [
     LucideArchive,
+    LucideArchiveRestore,
     LucideCalendar,
     LucideCopy,
     LucideDynamicIcon,
@@ -69,7 +71,6 @@ export class ProgramCardComponent {
   readonly initials = computed(() => initialsFor(this.program().author.name));
   readonly isArchived = computed(() => this.program().status === 'archived');
   readonly menuId = computed(() => `program-menu-${this.program().id}`);
-  readonly deleteMenuIndex = computed(() => (this.isArchived() ? 1 : 2));
 
   readonly menuOpen = signal(false);
   readonly activeMenuItem = signal(0);

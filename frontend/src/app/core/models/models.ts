@@ -187,7 +187,7 @@ export interface Program {
   goals: readonly string[];
 }
 
-export type ProgramAction = 'duplicate' | 'archive' | 'delete';
+export type ProgramAction = 'duplicate' | 'archive' | 'unarchive' | 'delete';
 
 export const PROGRAM_STATUS_LABELS: Record<ProgramStatus, string> = {
   draft: 'Черновик',

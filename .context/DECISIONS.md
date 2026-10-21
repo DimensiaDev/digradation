@@ -1395,3 +1395,15 @@ The catalog now opens a right-side detail view from a card, without leaving `/pr
 - **Restoration runs in `afterNextRender`, not in the click handler.** The deleted card is
   still in the DOM while the action is handled, so focusing synchronously would lose focus
   again when Angular removes it.
+
+## Deleting a program is confirmed, and archiving is reversible (2026-10-21)
+
+- **Delete asks for confirmation through `window.confirm`.** The admin user list already
+  uses the same native confirmation for a destructive action; a bespoke modal would add a
+  component and focus trap before the catalogue needs one. Cancelling keeps the program and
+  leaves focus on the card trigger.
+- **Archived cards offer `Восстановить` instead of `Архивировать`.** The action republishes
+  the program, because the mock service keeps no pre-archive status. A real API should return
+  the previous status rather than assume `published`.
+- **The card menu stays the functional action surface.** The detail-panel menu is still
+  visual-only, so it does not advertise an unarchive action it cannot run.

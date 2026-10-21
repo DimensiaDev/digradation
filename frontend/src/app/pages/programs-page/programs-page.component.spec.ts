@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
 import { ProgramsService } from '../../core/services/programs.service';
 import { Select } from '../../shared/components/select/select.component';
 import { ProgramsPage } from './programs-page.component';
@@ -81,6 +81,8 @@ describe('ProgramsPage', () => {
   };
 
   beforeEach(() => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
     TestBed.configureTestingModule({
       imports: [ProgramsPage]
     });
@@ -88,6 +90,10 @@ describe('ProgramsPage', () => {
     fixture = TestBed.createComponent(ProgramsPage);
     fixture.detectChanges();
     service = TestBed.inject(ProgramsService);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('renders the section heading and the mock catalog', () => {
@@ -354,6 +360,16 @@ describe('ProgramsPage', () => {
     expect(service.programs().filter((program) => program.status === 'archived').length).toBe(2);
   });
 
+  it('restores an archived program', () => {
+    choose('Архивировать');
+    expect(statuses()[0]).toBe('archived');
+
+    choose('Восстановить');
+
+    expect(statuses()[0]).toBe('published');
+    expect(service.programs().filter((program) => program.status === 'archived').length).toBe(1);
+  });
+
   it('returns focus to the card trigger after archiving', () => {
     const trigger = fixture.debugElement.queryAll(By.css('.program-card__menu-button'))[0]
       .nativeElement as HTMLButtonElement;
@@ -370,6 +386,19 @@ describe('ProgramsPage', () => {
 
     expect(cardTitles().length).toBe(6);
     expect(service.programs().length).toBe(7);
+  });
+
+  it('keeps the program when deletion is not confirmed', () => {
+    const trigger = fixture.debugElement.queryAll(By.css('.program-card__menu-button'))[0]
+      .nativeElement as HTMLButtonElement;
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    choose('Удалить');
+
+    expect(confirm).toHaveBeenCalledWith('Удалить программу «Python для анализа данных»?');
+    expect(service.programs().length).toBe(8);
+    expect(cardTitles()[0]).toBe('Python для анализа данных');
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('moves focus to the next card after deleting one', () => {

@@ -242,6 +242,22 @@ export class ProgramsService {
     );
   }
 
+  unarchive(id: string): void {
+    this.state.update((programs) =>
+      programs.map((program) => {
+        if (program.id !== id) {
+          return program;
+        }
+
+        return {
+          ...cloneProgram(program),
+          status: 'published',
+          updatedAt: new Date().toISOString()
+        };
+      })
+    );
+  }
+
   remove(id: string): void {
     this.state.update((programs) => programs.filter((program) => program.id !== id));
   }
