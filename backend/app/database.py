@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -24,4 +25,11 @@ class Base(DeclarativeBase):
 async def get_db() -> AsyncGenerator[AsyncSession]:
     session_maker = get_session_maker()
     async with session_maker() as session:
+        yield session
+
+
+@asynccontextmanager
+async def db_session() -> AsyncGenerator[AsyncSession]:
+    """One session for a task body or a reusable module; commits stay with the caller."""
+    async with get_session_maker()() as session:
         yield session

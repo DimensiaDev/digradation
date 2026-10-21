@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { Observable, Subscription } from 'rxjs';
+import { Observable, Subscription, throwError, timeout } from 'rxjs';
 import { mimeTypeFor } from '../../shared/utils/file-types';
 import { UploadItem } from '../models/models';
 import { ChatService } from './chat.service';
@@ -16,6 +16,15 @@ export interface AttachmentUploadOptions {
 
 const STATUS_POLL_INTERVAL_MS = 2000;
 const STATUS_POLL_LIMIT = 150;
+
+/** Backend calls around an upload must answer within this window. */
+export const UPLOAD_REQUEST_TIMEOUT_MS = 30_000;
+
+/** A hung storage connection must not keep the upload observable alive forever. */
+export const STORAGE_UPLOAD_TIMEOUT_MS = 2 * 60_000;
+
+/** A status poll is a cheap call; a silent one is treated as a failure quickly. */
+export const STATUS_REQUEST_TIMEOUT_MS = 10_000;
 
 @Injectable({ providedIn: 'root' })
 export class AttachmentUploadService {
@@ -55,28 +64,44 @@ export class AttachmentUploadService {
           observer.error(new Error('Превышено время ожидания обработки файла'));
           return;
         }
-        subscribeInner(this.chatService.attachmentStatus(sessionId, attachmentId), ({ status }) => {
-          if (disposed) {
-            return;
+        subscribeInner(
+          this.chatService.attachmentStatus(sessionId, attachmentId).pipe(
+            timeout({
+              each: STATUS_REQUEST_TIMEOUT_MS,
+              with: () =>
+                throwError(() => new Error('Превышено время ожидания проверки обработки файла'))
+            })
+          ),
+          ({ status }) => {
+            if (disposed) {
+              return;
+            }
+            if (status === 'completed') {
+              observer.complete();
+              return;
+            }
+            if (status === 'error') {
+              observer.error(new Error('Не удалось обработать файл'));
+              return;
+            }
+            pollTimer = setTimeout(() => pollStatus(attachmentId), STATUS_POLL_INTERVAL_MS);
           }
-          if (status === 'completed') {
-            observer.complete();
-            return;
-          }
-          if (status === 'error') {
-            observer.error(new Error('Не удалось обработать файл'));
-            return;
-          }
-          pollTimer = setTimeout(() => pollStatus(attachmentId), STATUS_POLL_INTERVAL_MS);
-        });
+        );
       };
 
       subscribeInner(
-        this.chatService.requestUpload(sessionId, {
-          content_type: mimeTypeFor(item.extension),
-          file_size: item.size,
-          filename: item.name
-        }),
+        this.chatService
+          .requestUpload(sessionId, {
+            content_type: mimeTypeFor(item.extension),
+            file_size: item.size,
+            filename: item.name
+          })
+          .pipe(
+            timeout({
+              each: UPLOAD_REQUEST_TIMEOUT_MS,
+              with: () => throwError(() => new Error('Превышено время ожидания регистрации файла'))
+            })
+          ),
         ({ attachment_id, params }) => {
           if (disposed) {
             return;
@@ -89,6 +114,7 @@ export class AttachmentUploadService {
           form.append('file', item.file);
 
           request.open('POST', params.url);
+          request.timeout = STORAGE_UPLOAD_TIMEOUT_MS;
           request.upload.onprogress = (event) => {
             if (disposed || !event.lengthComputable) {
               return;
@@ -109,12 +135,26 @@ export class AttachmentUploadService {
             }
             observer.next(item.size);
             options.onProgress?.(item.size);
-            subscribeInner(this.chatService.confirmUploaded(sessionId, attachment_id), () => {
-              if (disposed) {
-                return;
+            subscribeInner(
+              this.chatService.confirmUploaded(sessionId, attachment_id).pipe(
+                timeout({
+                  each: UPLOAD_REQUEST_TIMEOUT_MS,
+                  with: () =>
+                    throwError(() => new Error('Превышено время ожидания подтверждения загрузки'))
+                })
+              ),
+              () => {
+                if (disposed) {
+                  return;
+                }
+                pollTimer = setTimeout(() => pollStatus(attachment_id), STATUS_POLL_INTERVAL_MS);
               }
-              pollTimer = setTimeout(() => pollStatus(attachment_id), STATUS_POLL_INTERVAL_MS);
-            });
+            );
+          };
+          request.ontimeout = () => {
+            if (!disposed) {
+              observer.error(new Error('Превышено время ожидания загрузки файла в хранилище'));
+            }
           };
           request.onerror = () => {
             if (!disposed) {

@@ -73,7 +73,9 @@ test.describe("authentication", () => {
     await page.context().clearCookies();
 
     await page.goto("/home");
-    await expect(page.getByRole("heading", { name: "Главная" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Готовы к созданию новой программы?" }),
+    ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Требуется вход" }),
     ).toHaveCount(0);

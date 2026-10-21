@@ -1,0 +1,467 @@
+@use '../../mixins' as *;
+@use '../../scrollbars' as *;
+
+// `main` is a column flex container and pins routed pages with
+// `main router-outlet + * { flex: 0 0 auto }`. The landing has to fill the
+// remaining height and centre its content, so it opts back into flex growth.
+:host {
+  display: flex;
+  flex: 1 1 auto;
+
+  width: 100%;
+  min-height: 0;
+}
+
+.home {
+  flex: 1 1 auto;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+
+  gap: clamp(24px, 4vh, 44px);
+
+  width: 100%;
+  max-width: 900px;
+  min-height: 0;
+  margin: 0 auto;
+
+  padding: clamp(24px, 5vh, 64px) clamp(20px, 4vw, 48px) 28px;
+
+  transition: gap 0.35s ease;
+
+  &--composing {
+    gap: clamp(48px, 8vh, 80px);
+  }
+
+  &__body {
+    flex: 1 1 auto;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: safe center;
+
+    width: 100%;
+    min-height: 0;
+
+    overflow-y: auto;
+
+    transition: flex-grow 0.35s ease;
+
+    @include app-scrollbar;
+  }
+
+  &--composing &__body {
+    flex-grow: 0;
+  }
+
+  &__hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+
+    gap: 28px;
+
+    text-align: center;
+  }
+
+  &__logo {
+    margin-block: -12px;
+  }
+
+  &__greeting {
+    max-width: 24ch;
+
+    line-height: 1.25;
+    text-wrap: balance;
+  }
+
+  &__examples {
+    display: grid;
+    grid-template-rows: 1fr;
+
+    width: 100%;
+    margin-top: clamp(24px, 4vh, 44px);
+
+    transition:
+      grid-template-rows 0.35s ease,
+      opacity 0.3s ease,
+      margin-top 0.35s ease;
+
+    &--hidden {
+      grid-template-rows: 0fr;
+
+      margin-top: 0;
+
+      opacity: 0;
+
+      pointer-events: none;
+    }
+  }
+
+  &__examples-inner {
+    display: grid;
+    gap: 16px;
+
+    min-height: 0;
+
+    overflow: hidden;
+  }
+
+  &__examples-label {
+    color: var(--color-gray);
+  }
+
+  &__examples-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 14px;
+  }
+}
+
+.example-card {
+  width: 100%;
+  height: 100%;
+
+  padding: 16px 18px;
+
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  text-wrap: pretty;
+
+  color: var(--color-text);
+
+  background: var(--color-surface);
+
+  border: 1px solid var(--color-outline);
+  border-radius: 16px;
+
+  cursor: pointer;
+
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+
+  @include reduced-motion;
+  @include focus-ring;
+
+  &:hover {
+    border-color: var(--color-main);
+    background: color-mix(in srgb, var(--color-main) 6%, var(--color-surface));
+    box-shadow: 0 10px 24px var(--color-main-shadow);
+    transform: translateY(-2px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+
+  gap: 12px;
+
+  width: 100%;
+}
+
+.composer__files {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  margin-bottom: 10px;
+
+  overflow-x: auto;
+
+  @include app-scrollbar;
+
+  > li {
+    flex: 0 0 auto;
+  }
+}
+
+.composer__field {
+  position: relative;
+
+  display: flex;
+  flex-direction: column;
+
+  width: 100%;
+
+  padding: 18px 16px;
+
+  background: var(--color-surface);
+
+  border: 1px solid var(--color-outline);
+  border-radius: 20px;
+
+  cursor: text;
+
+  overflow: hidden;
+
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    padding 0.35s ease;
+
+  &:focus-within {
+    border-color: var(--color-main);
+    box-shadow: 0 0 0 2px var(--color-main);
+  }
+
+  &--expanded {
+    padding: 18px 16px 60px;
+  }
+
+  &--dragging,
+  &--dragging:focus-within {
+    border-color: transparent;
+    background-color: color-mix(in srgb, var(--color-main) 7%, var(--color-surface));
+    box-shadow: none;
+  }
+}
+
+.composer__dropzone {
+  position: absolute;
+  inset: 0;
+
+  z-index: 1;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-main);
+
+  background: color-mix(in srgb, var(--color-surface) 45%, transparent);
+
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+
+  pointer-events: none;
+}
+
+.composer__outline {
+  position: absolute;
+  inset: 0;
+
+  width: 100%;
+  height: 100%;
+
+  pointer-events: none;
+}
+
+.composer__outline-dash {
+  width: calc(100% - 2px);
+  height: calc(100% - 2px);
+
+  fill: none;
+  stroke: var(--color-main);
+  stroke-width: 1;
+  stroke-dasharray: 16 10;
+
+  vector-effect: non-scaling-stroke;
+}
+
+.composer__textarea {
+  width: 100%;
+  min-height: 24px;
+  max-height: 240px;
+
+  resize: none;
+
+  padding: 0 48px 0 0;
+
+  font: inherit;
+  line-height: 1.5;
+  color: var(--color-text);
+
+  background: transparent;
+
+  border: none;
+  outline: none;
+
+  overflow-y: auto;
+
+  transition:
+    min-height 0.35s ease,
+    padding 0.35s ease;
+
+  @include app-scrollbar;
+
+  .composer__field--expanded & {
+    min-height: 100px;
+
+    padding-right: 0;
+  }
+
+  &::placeholder {
+    color: var(--color-gray);
+    opacity: 0.6;
+  }
+
+  &:focus-visible {
+    outline: none;
+  }
+}
+
+.composer__actions {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 12px;
+
+  pointer-events: none;
+}
+
+.composer__attach {
+  @include icon-button;
+
+  gap: 8px;
+
+  padding: 8px 12px;
+
+  border-radius: 10px;
+
+  font: inherit;
+  font-size: 14px;
+  color: var(--color-gray);
+
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    visibility 0s linear 0.2s;
+
+  .composer__field--expanded & {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    pointer-events: auto;
+    transition-delay: 0s;
+  }
+
+  & > span {
+    line-height: 1;
+  }
+
+  &:hover {
+    color: var(--color-main);
+  }
+}
+
+.composer__submit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer__mic {
+  @include icon-button;
+
+  width: 40px;
+  height: 40px;
+  padding: 0;
+
+  pointer-events: auto;
+
+  border-radius: 999px;
+
+  color: var(--color-gray);
+
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+
+  &:hover {
+    color: var(--color-main);
+  }
+
+  &--recording,
+  &--recording:hover {
+    color: var(--color-white);
+    background: var(--color-danger);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-danger) 18%, transparent);
+  }
+
+  &:disabled {
+    pointer-events: auto;
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+}
+
+.composer__send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  width: 40px;
+  height: 40px;
+
+  padding: 0;
+
+  pointer-events: auto;
+
+  border-radius: 999px;
+
+  transition:
+    opacity 0.22s ease,
+    background-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.22s ease;
+
+  & > svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    transform: scale(0.92);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home,
+  .home__body,
+  .home__examples,
+  .composer__send,
+  .composer__mic,
+  .composer__field,
+  .composer__textarea,
+  .composer__attach {
+    transition: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .home__examples-list {
+    grid-template-columns: 1fr;
+  }
+}

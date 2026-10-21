@@ -81,6 +81,7 @@ export class AuthDialogComponent {
   close(): void {
     // The instance outlives each open/close cycle, so clear the form here: a
     // dismissed wrong password must not sit in memory and reappear on reopen.
+    // `modal.close()` also drops the guest draft of this abandoned attempt.
     this.resetForm();
     this.modal.close();
   }
@@ -155,7 +156,8 @@ export class AuthDialogComponent {
 
   private finishLogin(): void {
     const target = this.modal.returnUrl();
-    this.close();
+    this.resetForm();
+    this.modal.complete();
     this.notifications.success('Вы вошли в систему', {
       description: 'Сейчас откроется рабочая область.'
     });

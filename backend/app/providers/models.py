@@ -1,10 +1,36 @@
 import json
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import ClassVar, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.chat import ChatMessage
+
+
+class Role(StrEnum):
+    """Who wrote a message."""
+
+    USER = "user"
+    SYSTEM = "system"
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+
+
+class FinishReason(StrEnum):
+    """Why the provider stopped generating."""
+
+    STOP = "stop"
+    LENGTH = "length"
+    FUNCTION_CALL = "function_call"
+    FUNCTION_CALL_ERROR = "function_call_error"
+    TOOL_CALLS = "tool_calls"
+    CONTENT_FILTER = "content_filter"
+    BLACKLIST = "blacklist"
+    REQUEST_BLACKLIST = "request_blacklist"
+    REQUEST_WHITELIST = "request_whitelist"
+    REQUEST_FILTER = "request_filter"
+    RESPONSE_BLACKLIST = "response_blacklist"
 
 
 class AuthResponse(BaseModel):
@@ -46,12 +72,26 @@ class ContentFunctionCall(BaseModel):
         return v
 
 
+class FunctionResult(BaseModel):
+    """The value of a function call, sent back in a GigaChat v2 content part.
+
+    GigaChat wants ``result`` as a string holding a JSON object, so the loop
+    serialises the payload once; the OpenAI ``tool`` message sends the same
+    string as its text.
+    """
+
+    name: str
+    result: str
+
+
 class Content(BaseModel):
     text: str = ""
     inline_data: dict[str, str] | None = None
     files: list[FileSchema] = Field(default_factory=list)
     #: Present on a GigaChat v2 content part that asks for a tool call.
     function_call: ContentFunctionCall | None = None
+    #: Present on a GigaChat v2 ``tool`` content part carrying a call's result.
+    function_result: FunctionResult | None = None
 
     @field_validator("files", mode="before")
     @classmethod
@@ -100,17 +140,26 @@ class ToolCall(BaseModel):
 
 
 class Message(BaseModel):
-    role: Literal["user", "system", "assistant", "tool"]
-    content: list[Content]
+    role: Role
+    content: list[Content] = Field(default_factory=list)
     #: Set on a ``tool`` message to tie it back to the assistant's ``ToolCall``.
     tool_call_id: str | None = None
+    #: The calls an assistant message requested. GigaChat v2 already carries them
+    #: inside its content parts; this field is what the OpenAI wire format and the
+    #: loop read, and both are filled for the same turn.
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    #: GigaChat v2 may put the requested call at message level instead of inside
+    #: a content part; the SDK accepts both, so the history preserves it.
+    function_call: ContentFunctionCall | None = None
+    #: GigaChat v2 ties the results of one round together with this id.
+    tool_state_id: str | None = None
 
     @classmethod
     def from_chat_message(cls, obj: ChatMessage) -> Self:
         files = None
         if obj.files_str:
             files = [FileSchema(id=f.strip()) for f in obj.files_str.split(",")]
-        return cls(content=[Content(text=obj.content, files=files)], role=obj.role)  # type: ignore
+        return cls(content=[Content(text=obj.content, files=files)], role=Role(obj.role))
 
 
 class HarnessStructuredOutput(BaseModel):
@@ -197,23 +246,13 @@ class GenerationResponse(BaseModel):
     model: str
     thread_id: str | None = None
     created_at: datetime
-    finish_reason: Literal[
-        "stop",
-        "length",
-        "function_call",
-        "function_call_error",
-        "tool_calls",
-        "content_filter",
-        "blacklist",
-        "request_blacklist",
-        "request_whitelist",
-        "request_filter",
-        "response_blacklist",
-    ]
+    finish_reason: FinishReason
     usage: Usage
     #: Tools the model wants called before it can answer. A response may carry
     #: both text and tool calls, or tool calls with no text at all.
     tool_calls: list[ToolCall] = Field(default_factory=list)
+    #: GigaChat v2 answer to a tool round; echoed back on the next request.
+    tool_state_id: str | None = None
 
     @field_validator("created_at", mode="before")
     @classmethod

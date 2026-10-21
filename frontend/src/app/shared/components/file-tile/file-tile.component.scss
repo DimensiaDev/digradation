@@ -1,0 +1,152 @@
+@use '../../../mixins' as *;
+
+:host {
+  display: block;
+}
+
+.file-tile {
+  position: relative;
+
+  display: block;
+
+  width: 128px;
+  height: 80px;
+
+  overflow: hidden;
+
+  background: var(--color-secondary);
+
+  border: 1px solid var(--color-outline);
+  border-radius: 10px;
+
+  &__media {
+    display: block;
+
+    width: 100%;
+    height: 100%;
+    padding: 0;
+
+    background: none;
+    border: 0;
+
+    cursor: pointer;
+
+    &:disabled {
+      cursor: default;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-main);
+      outline-offset: -2px;
+    }
+  }
+
+  &__image {
+    display: block;
+
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  &__icon {
+    position: absolute;
+    inset: 20px 0 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  &__name {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    z-index: 1;
+
+    max-width: calc(100% - 10px);
+
+    overflow: hidden;
+
+    padding: 2px 5px;
+
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.3;
+    color: var(--color-text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    background: color-mix(in srgb, var(--color-surface) 85%, transparent);
+    border-radius: 5px;
+
+    opacity: 0;
+    pointer-events: none;
+
+    transition: opacity 0.15s ease;
+  }
+
+  &__actions {
+    position: absolute;
+    right: 5px;
+    bottom: 5px;
+    z-index: 2;
+
+    display: flex;
+    gap: 4px;
+
+    opacity: 0;
+    pointer-events: none;
+
+    transition: opacity 0.15s ease;
+  }
+
+  &:hover &__name,
+  &:focus-within &__name {
+    background: var(--color-surface);
+
+    opacity: 1;
+  }
+
+  &:hover &__actions,
+  &:focus-within &__actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  &__action {
+    @include icon-button;
+
+    width: 22px;
+    height: 22px;
+
+    color: var(--color-text);
+
+    background: var(--color-surface);
+
+    border: 1px solid var(--color-outline);
+    border-radius: 6px;
+
+    &--danger:hover {
+      color: var(--color-danger);
+    }
+  }
+}
+
+@media (hover: none) {
+  .file-tile__name,
+  .file-tile__actions {
+    opacity: 1;
+  }
+
+  .file-tile__actions {
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-tile__name,
+  .file-tile__actions {
+    transition: none;
+  }
+}

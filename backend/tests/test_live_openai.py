@@ -93,3 +93,46 @@ async def test_live_openai_tool_call(live_provider):
     assert response.tool_calls, "the model did not request the tool"
     assert response.tool_calls[0].function.name == "get_weather"
     assert "Москва" in response.tool_calls[0].function.arguments
+
+
+async def test_live_openai_completes_a_tool_round(live_provider):
+    """The whole round the pipeline depends on: model -> tool -> model."""
+    from app.agentic.loop import run_tool_loop
+    from app.agentic.tools import ToolResult
+
+    tool = Tool(
+        function=FunctionDefinition(
+            name="get_weather",
+            description="Return the current weather for a city.",
+            parameters={
+                "type": "object",
+                "properties": {"city": {"type": "string", "description": "City name"}},
+                "required": ["city"],
+            },
+        )
+    )
+    rounds = 0
+    client_id, session_id = uuid.uuid4(), uuid.uuid4()
+
+    async def generate(messages):
+        return await live_provider.generate(
+            messages,
+            ResponseFormat(type="text"),
+            x_client_id=client_id,
+            x_session_id=session_id,
+            tools=[tool],
+        )
+
+    async def call_tool(call):
+        nonlocal rounds
+        rounds += 1
+        return ToolResult(ok=True, note="Москва: +5 °C, ясно.")
+
+    reply = await run_tool_loop(
+        user_message("Вызови get_weather для Москвы и ответь одной фразой."),
+        generate=generate,
+        call_tool=call_tool,
+    )
+
+    assert rounds == 1, f"the model did not complete a tool round: {reply!r}"
+    assert reply

@@ -6,7 +6,9 @@ money and needs a real key. Run them explicitly:
     SBER_API_KEY=<real-key> SBER_API_SCOPE=PERS poetry run pytest -m live
 
 The GigaChat certificate is read from ``res/gigachat-ca.cer`` by a *relative*
-path, so these must run with CWD == ``backend/``.
+path, so these must run with CWD == ``backend/``. The PERS client also serialises
+requests through a Redis lock, so the fixtures start a Redis test container to
+stand in for the Compose ``redis`` host, which a host-side run cannot resolve.
 
 None of this is needed for the normal suite: `SBER_API_KEY=mock` swaps in
 `MockProvider`, which is what every other test uses.
@@ -41,8 +43,13 @@ def live_provider():
 
 
 @pytest_asyncio.fixture
-async def sber_provider(real_provider_env):
-    """A real :class:`SberProvider` built from the variables the process started with."""
+async def sber_provider(real_provider_env, redis_client):
+    """A real :class:`SberProvider` built from the variables the process started with.
+
+    ``redis_client`` is not used directly: it patches the pool behind the global
+    PERS API lock onto the test container, which is the only Redis a host-side
+    run can reach. Without it the first request dies on the ``redis`` hostname.
+    """
     from app.providers.mock import MOCK_API_KEY
     from app.providers.sber import SberProvider
 
@@ -132,3 +139,57 @@ async def test_live_upload_and_reflect(live_provider):
         content_type="image/png",
     )
     assert sber_id
+
+
+async def test_live_gigachat_completes_a_tool_round(sber_provider):
+    """The whole round the pipeline depends on: model -> tool -> model.
+
+    The first completion must ask for the tool, the assistant turn must carry
+    ``tool_state_id``, the result must go back as a bare GigaChat
+    ``function_result`` part, and the second completion must answer in text. The
+    offline suite checks the shape; only the live API can confirm it accepts it.
+    """
+    from app.agentic.loop import run_tool_loop
+    from app.agentic.tools import ToolResult
+    from app.providers.models import Content, FunctionDefinition, Message, ResponseFormat, Tool
+
+    tool = Tool(
+        function=FunctionDefinition(
+            name="get_weather",
+            description="Прогноз погоды в городе",
+            parameters={
+                "type": "object",
+                "properties": {"city": {"type": "string", "description": "Название города"}},
+                "required": ["city"],
+            },
+        )
+    )
+    rounds = 0
+    client_id, session_id = uuid.uuid4(), uuid.uuid4()
+
+    async def generate(messages):
+        return await sber_provider.generate(
+            messages,
+            ResponseFormat(type=ResponseFormat.TYPE_TEXT),
+            x_client_id=client_id,
+            x_session_id=session_id,
+            tools=[tool],
+        )
+
+    async def call_tool(call):
+        nonlocal rounds
+        rounds += 1
+        return ToolResult(ok=True, note="В Москве +5 °C, ясно.")
+
+    reply = await run_tool_loop(
+        [
+            Message(
+                role="user", content=[Content(text="Узнай погоду в Москве через get_weather и ответь одной фразой.")]
+            )
+        ],
+        generate=generate,
+        call_tool=call_tool,
+    )
+
+    assert rounds == 1, f"the model did not complete a tool round: {reply!r}"
+    assert reply

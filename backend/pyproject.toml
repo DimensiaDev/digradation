@@ -24,6 +24,8 @@ dependencies = [
     "types-aiobotocore[s3] (>=3.9.1,<4.0.0)",
     "pillow (>=12.3.0,<13.0.0)",
     "openai (>=3.35.1,<4.0.0)",
+    "numpy (>=2.5.4,<3.0.0)",
+    "edu-rag @ ../rag",
 ]
 
 [build-system]

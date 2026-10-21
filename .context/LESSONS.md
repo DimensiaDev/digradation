@@ -887,3 +887,168 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   test failed later with a misleading 429 or 409. Retry within a deadline, then throw with
   the underlying reason; "the suite is already broken" is not a reason to let the next
   assertion misdiagnose it. Found 2026-10-21.
+
+  - **Poetry writes absolute `file://` URLs for `poetry add ../path` on some
+  installs.** When committing a path dependency, verify the URL in
+  `[project.dependencies]` is `file:../<pkg>`, not `file:///home/<user>/...`.
+  An absolute path works locally and fails on CI with "path not found".
+- **`dimension=0` is falsy.** `dimension or default` silently replaces 0
+  with the default. Use `dimension if dimension is not None else default`
+  when 0 must be rejected explicitly.
+- **`public/assets/svgs/logo.svg` is not a vector mark.** It is a 1.6 MB SVG whose only
+  child is one `<image>` holding a base64 PNG, so there are no paths to recolour or morph and
+  editing it to animate is not possible. It stays the sidebar mark unchanged; the landing
+  animates around the rendered `<img>` (aura, breathing, masked sheen) rather than editing the
+  file. Read an SVG's contents before promising to animate it. Found 2026-10-19 on
+  `feat/main-page`.
+- **A `--modifier` class loses to `&:focus-within`.** A pseudo-class counts like a class,
+  so `.field:focus-within` (0,2,0) outranks `.field--dragging` (0,1,0) no matter the source
+  order; the focus ring kept painting under the drag blur until the state was repeated as
+  `&--dragging:focus-within`. Found 2026-10-20 on `feat/main-page`.
+- **Changing `animation-duration` on a running animation jumps its progress.** The elapsed
+  time is kept, so the new duration maps it to a different keyframe and the element snaps;
+  the landing logo sped up 7s to 3.8s on focus and occasionally popped in size. Keep the
+  duration fixed and animate a separate property for the active state. Found 2026-10-20 on
+  `feat/main-page`.
+- **A click handler that only moves focus still trips two a11y lint rules.**
+  `click-events-have-key-events` and `interactive-supports-focus` treat the composer wrapper
+  as an interactive control even though its click only focuses the textarea. Adding
+  `tabindex` would create a redundant tab stop; `role="presentation"` is the accurate signal
+  that the wrapper is not an action, and both rules accept it. Found 2026-10-20 on
+  `feat/main-page`.
+- **A local `ng build` keeps the `__BACKEND_URL__` placeholder.** Only
+  `docker/rewrite-env.mjs` replaces it at image build time, so serving `dist/frontend/browser`
+  statically sends API calls to `/__BACKEND_URL__/api/v1/...`. Match that suffix in test
+  interception, or rewrite the output first; the app is not broken. Found 2026-10-20 on
+  `feat/main-page`.
+- **TypeScript has no `SpeechRecognition` interface.** `lib.dom.d.ts` ships
+  `SpeechRecognitionResult`, `SpeechRecognitionResultList` and
+  `SpeechRecognitionAlternative`, but not the controller or either event, so a wrapper needs
+  minimal local interfaces for `start` / `stop` and the two events. Do not reach for `any`.
+  Found 2026-10-20 on `feat/main-page`.
+- **In continuous recognition, every result event carries all results seen so far.**
+  `event.resultIndex` is the first changed one; accumulating from `0` duplicates earlier
+  finals, while starting at `resultIndex` without having processed the earlier events drops
+  them. A real browser delivers from `0`, but a test that jumps straight to `resultIndex: 1`
+  produces a transcript missing the first phrase. Found 2026-10-20 on `feat/main-page`.
+- **A Web Speech `network` error in Chrome is the browser's cloud recogniser, not our
+  backend.** Chrome sends audio to Google; where that is blocked, or in Chromium builds
+  without the API keys, every start fails with `network`. Safari uses Apple and worked on the
+  same machine, which is the quick way to tell the two apart. Found 2026-10-20 on
+  `feat/main-page`.
+- **The home-page component stylesheet is close to the `anyComponentStyle` error budget.**
+  `angular.json` warns at 6 kB and fails the production build at 10 kB; the home composer
+  alone was around 9.9 kB, and a tile's worth of CSS crossed the error line. Trim
+  declarations rather than raising the budget, or move a self-contained block into its own
+  component as the attachment tile did, and run `npm run build` after styling this page.
+  Found 2026-10-20 on `feat/main-page`.
+
+- **A conditionally rendered dialog host is still a flex item.** Rendering `<app-file-preview>` at the end of the home's flex column inserted a zero-size host into the flow, and the column's `gap` shifted the composer up by one gap the moment a tile was clicked. `display: contents` on the host removes its box while the native `<dialog>` stays in the top layer. Found 2026-10-20 on `feat/main-page`.
+
+- **Commitlint needs three things that are all per clone.** The root `npm install` provides `@commitlint/*`, `pre-commit install --hook-type commit-msg` wires the hook, and the hook entry must let pre-commit pass the message path; with `pass_filenames: false`, `commitlint --edit` silently linted the stale `.git/COMMIT_EDITMSG` instead of the message being committed. Found 2026-10-20 on `feat/main-page`.
+
+- **A transcript-rendering effect that reads the input signal retriggers on every keystroke.** Read the composer value with `untracked()` and replace the previously applied transcript in place; rebuilding from a value captured at recording start discards anything the user typed mid-dictation. Found 2026-10-20 on `feat/main-page`.
+
+- **A request that never closes its socket is not the same as a failed one.** RxJS `timeout()` on each upload phase plus `XMLHttpRequest.timeout` on the storage POST is what actually ends the starter stream; without them `forkJoin` waits forever, `finalize` never runs and the send button stays disabled. Polling limits alone do not help while the status request itself is hung. Found 2026-10-20 on `feat/main-page`.
+
+- **A fire-and-forget start subscription outlives the page that owns it.** Without `takeUntilDestroyed` the success handler still navigates after the user left `/home`; with it, leaving cancels the request and keeps the user's chosen destination. Lock the composer while `isStarting()` too, otherwise edits made during the request silently vanish on navigation. Found 2026-10-20 on `feat/main-page`.
+
+- **An effect tracks every signal its call chain reads, not just the ones in its own body.** Leaving a failed guest draft in place while the effect called `startChat` made the effect depend on `isStarting()`, which toggled on each retry, so the effect rescheduled itself forever. Wrap the whole consume-and-start block in `untracked()`; keeping the draft until the start succeeds is then a safe way to "restore" it. A synchronous run that never finishes is a hint that effects are looping, not that a request is hung. Found 2026-10-20 on `feat/main-page`.
+
+- **Name and size do not identify a `File`.** Two different files can share both, and the composer deduplicated on that pair, silently dropping the second attachment. Compare the `File` reference instead; the same instance presented twice is the only safe "already attached" signal. Found 2026-10-20 on `feat/main-page`.
+- The home composer must validate an attachment's extension and size in `addFiles`, before it
+  registers a `PendingFile`. The accepted list and the size cap already existed, but only the
+  drag-and-drop component on the chat page enforced them; the home flow discovered a bad file
+  after `ChatStarterService` had already created the session, so the user saw an upload error
+  instead of an immediate one. Both paths now gate on `ACCEPTED_EXTENSIONS` and `MAX_FILE_SIZE`.
+- `speech.stop()` is not the end of the utterance: the engine delivers its final result and
+  only then fires `onend`. Reading the message right after `stop()` drops the last words.
+  `SpeechRecognitionService.stopAndWait()` resolves on `onend`/`onerror`; the home page holds
+  the composer while awaiting it and folds the settled transcript in synchronously, because
+  the transcript `effect()` runs on a later tick than the awaited continuation.
+- **A 1px border on a rounded corner is a dotted arc at DPR 1, and `outline` draws the same dots.** The border's antialiasing leaves partially covered pixels that blend with the page background; dark theme makes that worse because the background is darker than the surface, so the arc reads as fading out. Raising `--color-outline` (`#263349` to `#33445f`) keeps the arc visible without thickening it. Verified against the running dev server at 1x and 2x, 2026-10-21.
+- **A masked gradient sheen must not tile.** The logo wave animated `background-position` on a `260%` gradient, so the image repeated and its edge crossed the mark, cutting the highlight off with a straight line mid-sweep. Move the band to an oversized (`inset: -100%`) pseudo-element and animate `transform` instead; the tile seam then stays outside the mask. Found 2026-10-21 on `feat/main-page`.
+
+- **`redis-py`'s `lock()` owns its token, so it cannot be released from another connection.**
+  The context manager's token is private, and `delete()` on the key would remove whatever lock
+  is there now. A task that must release a lock it took in another `async with` block needs its
+  own `uuid4().hex` token plus a Lua compare-and-delete. Found 2026-10-20 on
+  `feat/program-cycle`.
+- **`generation_results.chat_session_id` is the primary key, so a second result for the same
+  chat is an `IntegrityError`, not a second row.** Any worker that wants to post a message into
+  a chat mid-run must update the existing result instead of adding one — the frontend reads one
+  result per poll and `generate_chat_message` deletes it at the start of the next turn. Found
+  2026-10-20 on `feat/program-cycle`.
+- **TaskIQ picks a new task module up through `-tp 'app/tasks/*.py'`, not through
+  `app/tasks/__init__.py`.** There is no `__init__.py` and `import app.tasks` imports nothing,
+  so a worker does not need a registration step — but a *test* that imports the task body does,
+  and the `task_db` fixture has to patch `tsq_db` in the new module by name or the task quietly
+  writes to the environment's PostgreSQL. Found 2026-10-20 on `feat/program-cycle`.
+- **The block models are frozen, so a test cannot mutate a nested field.** `topic.hours = ...`
+  raises `frozen_instance`, and `model_copy(deep=True)` does not help because the copy is frozen
+  too. Build the variant from the JSON payload (`model_copy(update=...)` on each level, or edit
+  the loaded example) instead of assigning. Found 2026-10-20 on `feat/program-cycle`.
+- **`store.save` refuses an older version even when nothing else changed.** A test that wants an
+  aged state has to age one produced by a transition (`started`, `enqueued`), because
+  `model_copy(update={"updated_at": ...})` on a saved state keeps its version and is rejected as
+  stale by the row it just wrote. Found 2026-10-20 on `feat/program-cycle`.
+- **The `stage` mock has to read the volume back out of its own prompt.** The curriculum block
+  must total `requested_hours` or `to_draft` refuses the whole draft, and the hours stage only
+  knows the volume because the brief states it — so the mock parses "Заявленный объём программы"
+  from the same text the real model reads. Found 2026-10-20 on `feat/program-cycle`.
+- **The two TaskIQ worker services both consume both queues.** `AioPikaBroker.with_queue()`
+  *appends* to `_task_queues` and `listen()` consumes every declared queue, so
+  `worker_default` and `worker_network` are the same worker with different replica counts:
+  a `default`-queue task can run in `worker_network`. Messages are not duplicated (each queue
+  binds with routing key = its own name), so state guards still see one execution; but the
+  `queue_name` split buys no latency isolation until `with_queues()` replaces the list
+  instead. Found 2026-10-20 on `feat/program-cycle`, watching `finalize_program_draft` run in
+  a network worker.
+- **A `generation_results` row already exists during a run, so a mid-run message must upsert
+  it.** The intake's turn writes one, the finalize task writes the draft, and both key on
+  `chat_session_id`: the second insert fails on the primary key, the draft is never stored,
+  and the run sits in `pending_approval` until the recovery cron retries the same failing
+  write. Caught only by the Docker run, because every unit test started from a chat with no
+  result row. Found 2026-10-20 on `feat/program-cycle`.
+- **A replayed stage must not re-enqueue its successor.** The "worker died between the commit
+  and the enqueue" replay calls `_advance` again, and a second `kiq` spends one of the
+  successor's three attempts on a message the queue never lost; with the budget at three, one
+  such replay turns a healthy stage into a failed run. The state can tell the two cases apart
+  — a crash leaves `attempts[next] == 0`, a successful enqueue leaves `>= 1`. Found 2026-10-20
+  in review of `feat/program-cycle`.
+- **`execute_tool` is not the dispatcher; `call_executor` is.** The handlers are in a registry
+  keyed by name, so calling `execute_tool` runs any tool that exists, advertised or not. Every
+  new caller has to wrap the context in `call_executor(ctx, offered)` or the "only what this
+  turn offered" rule silently stops holding for that path. Found 2026-10-20 in review of
+  `feat/program-cycle`.
+- **`git rm --cached` plus a rebase deletes the untracked files.** Once the deletion commit is
+  part of the rebase range, checking that commit out removes the files from the working tree
+  as well, because git has no reason to keep what the tree no longer has — the ignore rule
+  only stops them being re-added. Recover with `git show <last-commit-with-them>:.context/X.md`;
+  recover *before* letting a rebase run over the deletion commit. Found 2026-10-20 on
+  `feat/program-cycle`.
+- **Do not rewrite comments in files the change only passes through.** A provider docstring
+  that gains a sentence about the pipeline makes the diff look as if every provider changed,
+  and the reviewer has to diff prose before code. Rationale belongs in `.context`. Review of
+  #32, 2026-10-21.
+- **GigaChat v2 spells the field `tool_state_id`, and `function_result.result` is a string.**
+  The schema is in the gitignored `docs/gigachat.yml`, so a plausible internal spelling
+  (`tools_state_id`) silently goes out as an unknown key: the id is never sent, never parsed
+  back, and the second round cannot be tied to the first. Match the contract spelling verbatim,
+  keep the excerpt in `DECISIONS.md`, and let the live round test prove the shape. Review of
+  #32, 2026-10-21.
+- **A session context manager that captured the session maker at import cannot be
+  monkeypatched.** `tsq_db` used to call the `get_session_maker` imported into
+  `app.tasks.conf.broker`, so patching `app.database.get_session_maker` was invisible and the
+  fixture had to replace every module's binding. Defining `db_session()` in `app.database` and
+  resolving the maker at call time leaves one patch point. Review of #32, 2026-10-21.
+- **A lock TTL shorter than a stage's worst case loses the lock while the worker is alive.**
+  Two workers then run the same stage; the version check prevents the double write, but both
+  pay for provider calls. Renew the lock before every turn rather than assuming a stage fits in
+  the TTL, and treat the lost compare-and-expire as "superseded", not as a stage failure.
+  Review of #32, 2026-10-21.
+- **A host-side live PERS test needs the Redis test container.** `SberProvider._pers_api_lock`
+  serialises requests through `get_redis_client`, which is hardcoded to `redis://redis:6379`;
+  that hostname does not resolve from the host, so the test dies before it reaches GigaChat.
+  Depend on the `redis_client` fixture even though the test never touches Redis itself: it
+  patches the pool onto the container. Found 2026-10-21.

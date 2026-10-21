@@ -404,6 +404,8 @@ You should generally only touch variables marked as **Required**.
 | `GIGACHAT_MODEL`              | GigaChat model used. See [Sber models docs](https://developers.sber.ru/docs/ru/gigachat/models/main).                                       | ❌           | `GigaChat-3-Ultra`      |
 | `OPENAI_URL`                  | Endpoint of the custom OpenAI-compatible hub. Required when `SBER_API_SCOPE=openai`; the public OpenAI endpoint and its models are not supported. | ✅ when `openai` |                     |
 | `OPENAI_MODEL`                | Model on the custom hub used by the OpenAI-compatible client.                                                                               | ❌           | `GigaChat/GigaChat-3-Pro` |
+| `OPENAI_EMBEDDING_MODEL`      | Embedding model served by the OpenAI-compatible router. Only used when `SBER_API_SCOPE=openai`.                                             | ❌           | `ai-sage/Giga-Embeddings-instruct-3B` |
+| `OPENAI_EMBEDDING_DIMENSION`  | Dimension of `OPENAI_EMBEDDING_MODEL` vectors. Must match the model — a mismatch is reported at indexing time.                              | ❌           | `2048`                  |
 | **Object storage (Garage)**   |                                                                                                                                             |              |                         |
 | `S3_SECRET_KEY`               | Secret for the application's S3 key. ⚠️ Garage is exposed in production — a weak secret here can cause severe security issues. Generate with `openssl rand -hex 48`. | ✅           |                         |
 | `S3_ACCESS_KEY`               | Key id imported by `garage-bootstrap`. Must be `GK` + 26 hex chars. ⚠️ Cannot be reused with a different secret, so rotating the secret needs a new id. | ❌           | `GKd1a1b2c3d4e5f60718293a4b5c6d` |
@@ -424,6 +426,28 @@ You should generally only touch variables marked as **Required**.
 > 🔐 **Redis, RabbitMQ, Garage and TaskIQ dashboard hostnames are hardcoded** in the
 > backend (`redis://redis:6379`, `amqp://…@rabbitmq:5672/taskiq`, `http://garage:3900`,
 > `http://taskiq_dashboard:8000`). That is another reason the app only runs in Compose.
+
+### 🧬 RAG embeddings
+
+Embedding generation for RAG indexing goes through the school-hub router (an
+OpenAI-compatible endpoint), not through the direct GigaChat client. `PERS`,
+`B2B` and `CORP` scopes have no `/embeddings` endpoint, so indexing is only
+available under `SBER_API_SCOPE=openai` (or `mock` for offline runs).
+
+| Variable | Required when | Notes |
+|---|---|---|
+| `OPENAI_URL` | `SBER_API_SCOPE=openai` | Base URL of the router, e.g. `https://hub.gigaschool.ru/api/v1/llm/v1` |
+| `OPENAI_EMBEDDING_MODEL` | `SBER_API_SCOPE=openai` | Model name, e.g. `ai-sage/Giga-Embeddings-instruct-3B` |
+| `OPENAI_EMBEDDING_DIMENSION` | `SBER_API_SCOPE=openai` | Must match the model (`2048` for the example above); a mismatch is reported as `EmbeddingError` at indexing time |
+
+Under `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) the three variables are
+ignored: a deterministic in-process mock returns vectors of dimension `1024` and
+never opens a socket. That is what keeps `pytest` and e2e offline.
+
+The backend exposes `GET /api/v1/rag/health` to confirm which model is wired
+without triggering an API call. Full indexing (`POST /rag/index`,
+`GET /rag/search`) lands in the next iteration, together with the pgvector
+table and its migration.
 
 ### 🧠 Redis database designation
 
@@ -460,6 +484,7 @@ You should generally only touch variables marked as **Required**.
 |---|---|
 | `/backend/`, `/scripts/`, `/.github/`, `docker-compose.yaml`, `.env.example` | @yel-gar |
 | `/frontend/` | @krchvl |
+| `/rag/`, `/parser/` | @AX-Ray |
 
 See [`.github/CODEOWNERS`](.github/CODEOWNERS).
 
