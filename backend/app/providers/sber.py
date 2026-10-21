@@ -18,6 +18,7 @@ from app.providers.models import (
     Message,
     ModelOptions,
     ResponseFormat,
+    Role,
     Tool,
     ToolCall,
     ToolConfig,
@@ -41,6 +42,17 @@ def _to_gigachat_message(message: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(parsed, dict):
                 raise ValueError("function arguments must be a JSON object")
             function_call["arguments"] = parsed
+    if message.get("role") == Role.TOOL:
+        # v2 accepts a tool result only as a bare function_result part. The round
+        # id belongs to the assistant message; repeating it here makes the API
+        # answer "every assistant function call must have a result in history".
+        message.pop("tool_state_id", None)
+        for part in message.get("content") or []:
+            if part.get("function_result") is not None:
+                # A text sibling is rejected with "function result or files
+                # entries only", so drop it at the boundary rather than teaching
+                # the shared model about this wire quirk.
+                part.pop("text", None)
     return message
 
 

@@ -23,7 +23,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.agentic import store
-from app.agentic.errors import StaleState
+from app.agentic.errors import MissingChat, StaleState
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.state import (
     STAGE_ORDER,
@@ -605,6 +605,48 @@ async def test_a_state_that_moved_before_the_stage_started_is_left_alone(
     stages.assert_not_awaited()
 
 
+@pytest.mark.parametrize("raced", [StaleState("moved"), MissingChat("gone")])
+async def test_a_failure_that_loses_the_row_stops_quietly(
+    chat: uuid.UUID,
+    task_db: None,
+    redis_client: Redis,
+    provider: FakeProvider,
+    enqueued,
+    monkeypatch: pytest.MonkeyPatch,
+    raced: Exception,
+) -> None:
+    """The failure save is protected like the completion save.
+
+    A worker can lose the row between the provider call and recording the
+    failure. That must stop the task without a retry and without an unhandled
+    exception, exactly as a lost completion does.
+    """
+    state = await store.save(new_state(chat, requested_hours=None, requirements=None))
+    provider.answers.append(None)
+    saves = 0
+    original = store.save
+
+    async def save(current: ProgramState, *, expected_run_id: uuid.UUID | None = None) -> ProgramState:
+        nonlocal saves
+        saves += 1
+        if saves == 2:
+            raise raced
+        return await original(current, expected_run_id=expected_run_id)
+
+    monkeypatch.setattr(program.store, "save", save)
+
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
+
+    saved = await store.load(chat)
+    assert saves == 2, "the race must hit the failure save"
+    assert saved is not None
+    assert saved.stage_status(Stage.COMPETENCES) is StageStatus.IN_PROGRESS
+    assert not saved.failed
+    assert saved.attempts[Stage.COMPETENCES.value] == 1
+    stages, _ = enqueued
+    stages.assert_not_awaited()
+
+
 async def test_a_stage_that_lost_its_lock_stops_before_the_next_turn(
     chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:
@@ -638,6 +680,25 @@ async def test_refreshing_a_stage_lock_extends_only_the_owner(
     assert await redis_client.ttl(key) > 60
 
     assert not await program._refresh_lock(chat, Stage.COMPETENCES, "worker-2")
+
+
+async def test_a_lock_refresh_survives_a_redis_outage(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The worker keeps the stage; recovery treats the same outage as "held".
+
+    The two policies are deliberately opposite: a stage that may still own its
+    lock must not abort, while recovery must not start a second worker on a lock
+    it cannot read. Pinning them together keeps a future cleanup from making both
+    sides agree in the wrong direction.
+    """
+    session_id = uuid.uuid4()
+
+    def unavailable() -> None:
+        raise ConnectionError("redis is down")
+
+    monkeypatch.setattr(program, "get_redis_client", unavailable)
+
+    assert await program._refresh_lock(session_id, Stage.COMPETENCES, "worker-1")
+    assert await program._locked(session_id, Stage.COMPETENCES)
 
 
 async def test_a_stage_stops_when_the_chat_is_deleted_under_it(

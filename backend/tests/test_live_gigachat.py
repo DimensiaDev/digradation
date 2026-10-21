@@ -144,10 +144,10 @@ async def test_live_upload_and_reflect(live_provider):
 async def test_live_gigachat_completes_a_tool_round(sber_provider):
     """The whole round the pipeline depends on: model -> tool -> model.
 
-    The first completion must ask for the tool, the result must go back as a
-    GigaChat ``function_result`` part tied by ``tool_state_id``, and the second
-    completion must answer in text. The offline suite checks the shape; only the
-    live API can confirm it accepts that shape.
+    The first completion must ask for the tool, the assistant turn must carry
+    ``tool_state_id``, the result must go back as a bare GigaChat
+    ``function_result`` part, and the second completion must answer in text. The
+    offline suite checks the shape; only the live API can confirm it accepts it.
     """
     from app.agentic.loop import run_tool_loop
     from app.agentic.tools import ToolResult

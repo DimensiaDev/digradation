@@ -1294,6 +1294,16 @@ weaker than it looked. These are the rules that came out of it.
   message keys and parses `arguments` from a string into an object. Invalid JSON is logged as
   `request_message_invalid` and returns `None` — the provider's failure convention — instead of
   sending a body GigaChat would reject.
+- **The tool-result round has two rules the published schema omits.** Live probing of GigaChat
+  v2 shows the only accepted result shape is a bare
+  `content: [{"function_result": {"name": ..., "result": "<json-string>"}}]`:
+  `tool_state_id` belongs to the assistant message and must not be repeated on the `tool`
+  message, or the API answers `every assistant function call must have a result in history`;
+  and a `text` sibling next to `function_result` is rejected with `function content must
+  contain function result or files entries only`. Both are stripped in
+  `_to_gigachat_message()`, which leaves the shared model and the OpenAI client carrying the
+  text and the state id they need. The schema excerpt above describes the first half of the
+  contract only; these two rules are the other half.
 - **One system message per request.** GigaChat rejects a second system message, so a stage's
   conversation is exactly `STAGE_SYSTEM_PROMPT` plus the brief; the chat worker must not append
   the session system prompt to a stage history. The admin `prompt_extension` from

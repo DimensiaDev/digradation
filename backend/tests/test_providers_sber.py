@@ -822,9 +822,9 @@ async def test_generate_sends_a_tool_result_as_a_gigachat_content_part(provider_
     """The round trip the pipeline depends on: what a ``tool`` turn looks like on the wire.
 
     The offline mock answers without a model, so this shape is the one thing the
-    rest of the suite cannot check. v2 carries a result as a ``content[]`` part with
-    ``function_result``, tied to the round by ``tool_state_id`` on the message —
-    not as an OpenAI ``tool_call_id``.
+    rest of the suite cannot check. v2 carries a result as a bare
+    ``function_result`` content part: ``tool_state_id`` belongs to the assistant
+    message, and a text sibling is rejected, so the provider strips both.
     """
     captured: list[httpx.Request] = []
     provider = provider_factory(ok_handler(captured))
@@ -851,11 +851,11 @@ async def test_generate_sends_a_tool_result_as_a_gigachat_content_part(provider_
     )
 
     messages = json.loads(captured[-1].read().decode())["messages"]
+    assert messages[0]["tool_state_id"] == "state-1"
     tool_message = messages[1]
     assert tool_message["role"] == "tool"
-    assert tool_message["tool_state_id"] == "state-1"
+    assert "tool_state_id" not in tool_message
     assert "tool_call_id" not in tool_message
     assert tool_message["content"][0] == {
-        "text": '{"ok": true}',
         "function_result": {"name": "save_program_draft", "result": '{"ok": true}'},
     }
