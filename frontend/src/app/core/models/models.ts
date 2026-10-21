@@ -72,17 +72,9 @@ export interface ChatResultContent {
   update_name: string | null;
 }
 
-export interface ClarificationQuestion {
-  id: string;
-  text: string;
-  hint: string | null;
-}
-
 export interface ChatResult {
   running: boolean;
   result: ChatResultContent | null;
-  /** The questions the programme is waiting an answer to, empty when there are none. */
-  questions: ClarificationQuestion[];
 }
 
 export const USER_ROLES = ['user', 'admin', 'superuser'] as const;
