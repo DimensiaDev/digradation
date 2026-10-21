@@ -55,7 +55,7 @@ def make_state(blocks: Blocks, **overrides: Any) -> ProgramState:
         "run_id": RUN_ID,
         "status": ProgramStatus.PENDING_APPROVAL,
         "current_stage": Stage.SUMMARY,
-        "requested_hours": 66,
+        "requested_hours": 72,
         "finalized": True,
         **blocks,
         **overrides,
@@ -228,7 +228,8 @@ def test_a_complete_run_produces_the_draft(blocks: Blocks) -> None:
 
     assert draft.title == blocks["title"]
     assert len(draft.competencies) == 2
-    assert draft.curriculum.total_hours == 66
+    assert draft.curriculum.topic_hours == 66
+    assert draft.curriculum.total_hours == 72
     assert len(draft.sources) == 6
 
 
@@ -276,9 +277,45 @@ def test_a_topic_may_not_cover_an_undeclared_outcome(blocks: Blocks) -> None:
 
 def test_the_curriculum_must_match_the_requested_volume(blocks: Blocks) -> None:
     with pytest.raises(IncompleteDraft) as caught:
-        make_state(blocks, requested_hours=72).to_draft()
+        make_state(blocks, requested_hours=80).to_draft()
 
-    assert "не совпадает с заявленным объёмом программы" in str(caught.value)
+    assert "не совпадает с заявленным объёмом" in str(caught.value)
+
+
+def test_a_module_must_add_up_to_its_topics(blocks: Blocks) -> None:
+    blocks["curriculum"]["modules"][0]["hours"] = 99
+
+    with pytest.raises(IncompleteDraft) as caught:
+        make_state(blocks).to_draft()
+
+    assert "модуль m-1 заявлен на 99 ч" in str(caught.value)
+
+
+def test_the_final_attestation_is_part_of_the_volume(blocks: Blocks) -> None:
+    blocks["curriculum"]["attestation_hours"] = 0
+
+    with pytest.raises(IncompleteDraft) as caught:
+        make_state(blocks).to_draft()
+
+    assert "не совпадает с заявленным объёмом" in str(caught.value)
+
+
+def test_a_daily_load_over_the_stated_limit_is_refused(blocks: Blocks) -> None:
+    blocks["curriculum"]["schedule"] = {"days": 18, "hours_per_day": 6, "max_hours_per_day": 4}
+
+    with pytest.raises(IncompleteDraft) as caught:
+        make_state(blocks).to_draft()
+
+    assert "превышает заявленный предел 4 ч в день" in str(caught.value)
+
+
+def test_more_remote_hours_than_the_volume_is_refused(blocks: Blocks) -> None:
+    blocks["curriculum"]["distance_hours"] = 100
+
+    with pytest.raises(IncompleteDraft) as caught:
+        make_state(blocks).to_draft()
+
+    assert "дистанционных часов 100 больше" in str(caught.value)
 
 
 def test_a_schedule_too_short_for_the_volume_is_refused(blocks: Blocks) -> None:

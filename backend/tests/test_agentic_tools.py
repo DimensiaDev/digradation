@@ -77,6 +77,7 @@ def hours_block(**overrides: Any) -> dict:
                 {
                     "id": "m-01",
                     "title": "Модуль",
+                    "hours": 2,
                     "topics": [{"id": "t-01.1", "title": "Тема", "hours": {"lecture": 2}}],
                 }
             ],

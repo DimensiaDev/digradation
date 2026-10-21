@@ -298,8 +298,27 @@ class ProgramState(BaseModel):
         total = curriculum.total_hours
         if self.requested_hours is not None and not math.isclose(total, self.requested_hours, abs_tol=1e-6):
             problems.append(
-                f"сумма часов тем {total:g} не совпадает с заявленным объёмом программы {self.requested_hours:g}"
+                f"объём программы {total:g} ч (темы {curriculum.topic_hours:g} ч "
+                f"+ итоговая аттестация {curriculum.attestation_hours:g} ч) "
+                f"не совпадает с заявленным объёмом {self.requested_hours:g} ч"
             )
+        problems += self.module_hours_problems(curriculum)
+        problems += self.schedule_problems(curriculum)
+        problems += self.delivery_problems(curriculum)
+        return problems
+
+    def module_hours_problems(self, curriculum: Curriculum) -> list[str]:
+        """A module states its own volume, and it has to add up."""
+        return [
+            f"модуль {module.id} заявлен на {module.hours:g} ч, а его темы дают {module.topic_hours:g} ч"
+            for module in curriculum.modules
+            if not math.isclose(module.hours, module.topic_hours, abs_tol=1e-6)
+        ]
+
+    def schedule_problems(self, curriculum: Curriculum) -> list[str]:
+        """The schedule has to hold the volume it is given."""
+        problems: list[str] = []
+        total = curriculum.total_hours
         schedule = curriculum.schedule
         if schedule.days is not None and schedule.hours_per_day is not None:
             capacity = schedule.days * schedule.hours_per_day
@@ -308,7 +327,25 @@ class ProgramState(BaseModel):
                     f"расписание {schedule.days}×{schedule.hours_per_day:g} = {capacity:g} ч "
                     f"меньше объёма программы {total:g} ч"
                 )
+        if (
+            schedule.max_hours_per_day is not None
+            and schedule.hours_per_day is not None
+            and schedule.hours_per_day > schedule.max_hours_per_day + 1e-6
+        ):
+            problems.append(
+                f"дневная нагрузка {schedule.hours_per_day:g} ч превышает "
+                f"заявленный предел {schedule.max_hours_per_day:g} ч в день"
+            )
         return problems
+
+    def delivery_problems(self, curriculum: Curriculum) -> list[str]:
+        """The remote share of the hours has to be a share of the volume."""
+        if curriculum.distance_hours is None:
+            return []
+        total = curriculum.total_hours
+        if curriculum.distance_hours > total + 1e-6:
+            return [f"дистанционных часов {curriculum.distance_hours:g} больше, " f"чем объём программы {total:g} ч"]
+        return []
 
     def citation_problems(self, source_ids: Iterable[str]) -> list[str]:
         """Ids the run cites that are not among the sources it committed."""

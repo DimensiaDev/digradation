@@ -142,7 +142,7 @@ class FakeProvider:
 def complete_state(session_id: uuid.UUID) -> ProgramState:
     """A run that committed every block of the example document."""
     raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
-    state = new_state(session_id, requested_hours=66, requirements="Курс по анализу данных")
+    state = new_state(session_id, requested_hours=72, requirements="Курс по анализу данных")
     for stage in STAGE_ORDER:
         state = state.started(stage)
         if stage is Stage.COMPETENCES:

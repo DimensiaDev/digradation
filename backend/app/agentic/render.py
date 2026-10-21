@@ -131,15 +131,19 @@ def render_draft(draft: ProgramDraft) -> str:
 
     lines.extend(["", "## Учебный план"])
     for module in draft.curriculum.modules:
-        lines.extend(["", f"### {module.title}", "", f"*{module.id}*"])
+        lines.extend(["", f"### {module.title}", "", f"*{module.id} — {_hours(module.hours)} ч*"])
         for topic in module.topics:
             lines.append(f"- {topic.title} ({topic.id}) — {_topic(topic.hours, topic.control_form)}")
     curriculum = draft.curriculum
+    if curriculum.attestation_hours:
+        lines.extend(["", "### Итоговая аттестация", "", f"*{_hours(curriculum.attestation_hours)} ч*"])
     lines.extend(
         [
             "",
             (
-                f"**Итого:** {_hours(curriculum.total_hours)} ч, в том числе аудиторных "
+                f"**Итого:** {_hours(curriculum.total_hours)} ч "
+                f"(темы {_hours(curriculum.topic_hours)} ч, итоговая аттестация "
+                f"{_hours(curriculum.attestation_hours)} ч), в том числе аудиторных "
                 f"{_hours(curriculum.contact_hours)} ч и самостоятельной работы "
                 f"{_hours(curriculum.self_study_hours)} ч."
             ),

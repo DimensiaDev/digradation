@@ -106,6 +106,7 @@ def _curriculum(total: float) -> dict:
             {
                 "id": "m-01",
                 "title": "Содержание программы",
+                "hours": total,
                 "topics": [
                     {
                         "id": "t-01.1",
@@ -117,6 +118,7 @@ def _curriculum(total: float) -> dict:
             }
         ],
         "schedule": {"days": days, "hours_per_day": float(DAILY_HOURS)},
+        "attestation_hours": 0.0,
     }
 
 

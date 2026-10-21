@@ -123,6 +123,18 @@ class Module(SchemaModel):
     id: ModuleId
     title: str = Field(min_length=1, max_length=500)
     topics: list[Topic] = Field(min_length=1)
+    #: The module states its own volume, and the plan checks it against the
+    #: topics. A module that leaves it empty is refused by that check rather
+    #: than by the schema, so the model is told what to fix.
+    hours: float = Field(default=0, ge=0, description="Часы модуля — сумма часов его тем")
+
+    @property
+    def topic_hours(self) -> float:
+        """What the topics of this module add up to."""
+        return sum(
+            topic.hours.lecture + topic.hours.practice + topic.hours.lab + topic.hours.self_study
+            for topic in self.topics
+        )
 
 
 class Schedule(SchemaModel):
@@ -131,6 +143,9 @@ class Schedule(SchemaModel):
     weeks: int | None = Field(default=None, gt=0, description="Duration in weeks")
     days: int | None = Field(default=None, gt=0, description="Duration in days")
     hours_per_day: float | None = Field(default=None, gt=0, description="Daily load in hours")
+    max_hours_per_day: float | None = Field(
+        default=None, gt=0, description="Предел дневной нагрузки, если он назван в задании"
+    )
     note: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
@@ -146,15 +161,29 @@ class Curriculum(SchemaModel):
 
     modules: list[Module] = Field(min_length=1)
     schedule: Schedule
+    #: Hours of the final attestation. They are part of the programme's volume
+    #: and stand as the last row of the plan, so they are counted with the
+    #: topics: a 256-hour internship is 254 hours of self-study plus 2 hours
+    #: of the attestation, not 256 hours of topics.
+    attestation_hours: float = Field(default=0, ge=0, description="Часы итоговой аттестации")
+    #: Hours delivered remotely. A mixed programme says how many; a fully
+    #: in-person one leaves them empty.
+    distance_hours: float | None = Field(default=None, ge=0, description="Часы дистанционной работы")
+
+    @property
+    def topic_hours(self) -> float:
+        """What the topics of every module add up to."""
+        return sum(module.topic_hours for module in self.modules)
+
+    @property
+    def in_person_hours(self) -> float:
+        """The hours that are not delivered remotely."""
+        return self.total_hours - (self.distance_hours or 0)
 
     @property
     def total_hours(self) -> float:
-        """Total hours of all modules; the final attestation is not included."""
-        return sum(
-            topic.hours.lecture + topic.hours.practice + topic.hours.lab + topic.hours.self_study
-            for module in self.modules
-            for topic in module.topics
-        )
+        """Total hours of the programme: the topics and the final attestation."""
+        return self.topic_hours + self.attestation_hours
 
     @property
     def contact_hours(self) -> float:

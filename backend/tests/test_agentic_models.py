@@ -35,7 +35,9 @@ def test_example_document_state_validates(raw: Program) -> None:
     assert program.meta.status is ProgramStatus.DRAFT
     assert program.current_stage is Stage.SUMMARY
     assert all(getattr(program.stages, stage) is StageStatus.COMPLETED for stage in Stage)
-    assert program.curriculum.total_hours == 66
+    assert program.curriculum.topic_hours == 66
+    assert program.curriculum.attestation_hours == 6
+    assert program.curriculum.total_hours == 72
     assert program.curriculum.contact_hours == 38
     assert program.curriculum.self_study_hours == 28
 
