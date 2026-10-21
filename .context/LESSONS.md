@@ -944,3 +944,4 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   `SpeechRecognitionService.stopAndWait()` resolves on `onend`/`onerror`; the home page holds
   the composer while awaiting it and folds the settled transcript in synchronously, because
   the transcript `effect()` runs on a later tick than the awaited continuation.
+- **A 1px border on a rounded corner is a dotted arc at DPR 1, and `outline` draws the same dots.** The border's antialiasing leaves partially covered pixels that blend with the page background; dark theme makes that worse because the background is darker than the surface, so the arc reads as fading out. Raising `--color-outline` (`#263349` to `#33445f`) keeps the arc visible without thickening it. Verified against the running dev server at 1x and 2x, 2026-10-21.
