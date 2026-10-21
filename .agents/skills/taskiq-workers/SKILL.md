@@ -16,8 +16,18 @@ database `/1`, dashboard at `http://taskiq_dashboard:8000`.
 | `network` | outbound GigaChat calls | `generate_chat_message` |
 
 This matters because the `network` queue is bounded by external API latency. Keeping it
-separate means a slow or rate-limited GigaChat cannot starve attachment preparation or the cleanup
-crons. Pool sizes are independent (`worker_default` x2, `worker_network` x2).
+separate *should* mean a slow or rate-limited GigaChat cannot starve attachment preparation or
+the cleanup crons. Pool sizes are independent (`worker_default` x2, `worker_network` x2).
+
+> **The split is nominal today, and here is why.** `AioPikaBroker.with_queue()` *appends* to the
+> broker's task queues, and `listen()` consumes **every** declared queue — so `worker_default`
+> and `worker_network` both consume both queues and the two service names differ only in
+> replica count. A message still goes to exactly one queue (each binds with routing key = its
+> name), so nothing runs twice; but a task on `network` can be picked up by a `worker_default`
+> process. Making the split real is a one-line change in `app/tasks/conf/workers.py`:
+> `broker.with_queues(default_queue)` instead of `with_queue(...)`, which replaces the list
+> rather than extending it. Do not assume isolation when reasoning about latency until that
+> is done.
 
 ## Defining a task
 

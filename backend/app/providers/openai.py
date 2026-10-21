@@ -29,6 +29,7 @@ from app.providers.models import (
     InputTokenDetails,
     Message,
     ResponseFormat,
+    Role,
     Tool,
     ToolCall,
     Usage,
@@ -125,11 +126,24 @@ class OpenAIProvider(AIClient):
 
     @classmethod
     def _message_to_openai(cls, message: Message) -> dict:
-        if message.role == "tool":
+        if message.role == Role.TOOL:
             return {
                 "role": "tool",
                 "content": cls._text(message.content),
                 "tool_call_id": message.tool_call_id or "",
+            }
+        if message.role == Role.ASSISTANT and message.tool_calls:
+            return {
+                "role": "assistant",
+                "content": cls._text(message.content) or None,
+                "tool_calls": [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {"name": call.function.name, "arguments": call.function.arguments},
+                    }
+                    for call in message.tool_calls
+                ],
             }
         parts = cls._content_parts(message.content)
         return {"role": message.role, "content": parts if parts is not None else cls._text(message.content)}
@@ -202,6 +216,8 @@ class OpenAIProvider(AIClient):
         response_format: ResponseFormat,
         x_client_id: uuid.UUID,
         x_session_id: uuid.UUID,
+        *,
+        tools: list[Tool] | None = None,
     ) -> GenerationResponse | None:
         x_request_id = str(uuid.uuid4())
         log = self._log.bind(
@@ -216,8 +232,9 @@ class OpenAIProvider(AIClient):
         fmt = self._response_format(response_format)
         if fmt is not None:
             kwargs["response_format"] = fmt
-        if self.tools:
-            kwargs["tools"] = self._tools_payload(self.tools)
+        active_tools = self.tools if tools is None else tools
+        if active_tools:
+            kwargs["tools"] = self._tools_payload(active_tools)
             kwargs["tool_choice"] = "auto"
 
         try:

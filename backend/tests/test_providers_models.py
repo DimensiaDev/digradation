@@ -28,6 +28,7 @@ from app.providers.models import (
     Message,
     ModelOptions,
     ResponseFormat,
+    Role,
     Tool,
     ToolCall,
     ToolConfig,
@@ -514,3 +515,18 @@ def test_harness_structured_output_takes_both_fields():
 def test_harness_structured_output_rejects_a_missing_message():
     with pytest.raises(ValidationError):
         HarnessStructuredOutput.model_validate({"chat_name": "Заметки"})
+
+
+# ---------------------------------------------------------------------------
+# Role
+# ---------------------------------------------------------------------------
+
+
+def test_every_chat_role_is_a_provider_role():
+    """The chat history and the provider wire agree on role names.
+
+    ``UserRole`` and ``Role`` are deliberately separate: the provider vocabulary is
+    wider (``tool``) and a chat message can never be one. This pins the overlap, so
+    a rename on either side fails here.
+    """
+    assert {role.value for role in UserRole} <= {role.value for role in Role}

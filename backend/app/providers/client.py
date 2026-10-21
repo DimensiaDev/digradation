@@ -61,6 +61,8 @@ class AIClient(ABC):
         response_format: ResponseFormat,
         x_client_id: uuid.UUID,
         x_session_id: uuid.UUID,
+        *,
+        tools: list[Tool] | None = None,
     ) -> GenerationResponse | None: ...
 
     async def close(self):
