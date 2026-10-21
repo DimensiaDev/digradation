@@ -85,3 +85,12 @@ def test_an_empty_run_says_that_nothing_is_saved() -> None:
 
     assert "пока ничего" in brief
     assert "не задано" in brief
+
+
+def test_an_empty_catalog_tells_the_model_to_leave_citations_empty() -> None:
+    """The catalog is empty until #11, so an invented citation would dead-end the stage."""
+    system = stage_messages(run_at(Stage.COMPETENCES))[0].content[0].text
+    assert "оставляй ссылки пустыми" in system
+
+    assert "оставь standard_source_id пустым" in stage_brief(run_at(Stage.COMPETENCES))
+    assert "оставь список пустым" in stage_brief(run_at(Stage.SUMMARY))

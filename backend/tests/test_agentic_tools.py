@@ -380,6 +380,7 @@ async def test_an_unknown_source_is_refused(context: ToolContext, monkeypatch: p
 
     assert result.ok is False
     assert "Неизвестные источники: src-99" in (result.error or "")
+    assert "оставь ссылки пустыми" in " ".join(result.details or [])
 
 
 async def test_the_sources_stage_adds_to_what_earlier_stages_cited(
