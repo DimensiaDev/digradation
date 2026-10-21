@@ -42,12 +42,12 @@ select = [
 ]
 ignore = [
     "PIE796", "B028", "RUF018", "N818", "B905",
-    "RUF012", "B008", "RUF001", "RUF200",
+    "RUF012", "B008", "RUF001", "RUF002", "RUF200",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["ARG001"]
-"edu_rag/cli.py" = ["T201"]
+"edu_rag/cli.py" = ["T201", "ASYNC240"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -69,6 +69,7 @@ exclude_also = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
     "@abstractmethod",
+    "if __name__ == .__main__.:",
 ]
 
 [tool.coverage.json]

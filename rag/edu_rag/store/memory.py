@@ -24,6 +24,11 @@ class _Entry:
     fingerprint: str
 
 
+def _matches(metadata: dict, filter: dict) -> bool:
+    """True if every (k, v) in ``filter`` is present in ``metadata``."""
+    return all(metadata.get(key) == expected for key, expected in filter.items())
+
+
 def _cosine(a: list[float] | np.ndarray, b: list[float] | np.ndarray) -> float:
     """Cosine similarity between two equal-length vectors.
 
@@ -129,11 +134,13 @@ class InMemoryVectorStore:
         self,
         query_vec: list[float],
         top_k: int = 10,
+        filter: dict | None = None,
     ) -> list[SearchHit]:
         if top_k <= 0:
             return []
-        if not self._docs or not query_vec or self._dimension is None:
+        if not self._docs or not query_vec:
             return []
+        assert self._dimension is not None
         if len(query_vec) != self._dimension:
             raise StoreError(f"query vector dimension {len(query_vec)} " f"!= store dimension {self._dimension}")
 
@@ -144,7 +151,13 @@ class InMemoryVectorStore:
 
         entries: list[_Entry] = []
         for bucket in self._docs.values():
-            entries.extend(bucket.values())
+            for entry in bucket.values():
+                if filter and not _matches(entry.chunk.metadata, filter):
+                    continue
+                entries.append(entry)
+
+        if not entries:
+            return []
 
         matrix = np.stack([e.vector for e in entries])
         norms = np.linalg.norm(matrix, axis=1)

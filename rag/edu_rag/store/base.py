@@ -49,12 +49,15 @@ class VectorStore(Protocol):
         self,
         query_vec: list[float],
         top_k: int = 10,
+        filter: dict | None = None,
     ) -> list[SearchHit]:
         """Return up to ``top_k`` hits sorted by descending similarity.
 
-        ``top_k <= 0`` returns an empty list — never ``scored[:top_k]``
-        with a negative slice (Python's negative slicing would silently
-        return all-but-last-N).
+        ``filter`` is a dict of metadata key → expected value, applied to
+        ``chunk.metadata`` before ranking. ``None`` disables filtering; an
+        empty dict is equivalent to ``None``.
+
+        ``top_k <= 0`` returns an empty list.
         """
         ...
 
