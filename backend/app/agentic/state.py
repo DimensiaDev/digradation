@@ -193,27 +193,26 @@ class ProgramState(BaseModel):
 
     def to_draft(self) -> ProgramDraft:
         """Assemble the draft, or explain why the committed blocks cannot be one."""
-        kind, title, curriculum, summary = self.kind, self.title, self.curriculum, self.summary
-        problems: list[str] = []
-        if kind is None:
-            problems.append("не определён тип программы")
-        if not title:
-            problems.append("не определено название программы")
-        if not self.competencies:
-            problems.append("не сформированы компетенции")
-        if curriculum is None:
-            problems.append("не сформирован учебный план")
-        if summary is None:
-            problems.append("не сформирован паспорт программы")
+        problems = [
+            problem
+            for value, problem in (
+                (self.kind, "не определён тип программы"),
+                (self.title, "не определено название программы"),
+                (self.competencies, "не сформированы компетенции"),
+                (self.curriculum, "не сформирован учебный план"),
+                (self.summary, "не сформирован паспорт программы"),
+            )
+            if not value
+        ]
         if problems:
             raise IncompleteDraft(problems)
 
         draft = ProgramDraft(
-            kind=kind,
-            title=title,
-            summary=summary,
+            kind=self.kind,
+            title=self.title,
+            summary=self.summary,
             competencies=self.competencies,
-            curriculum=curriculum,
+            curriculum=self.curriculum,
             sources=self.sources,
         )
         problems = self._consistency_problems(draft)
