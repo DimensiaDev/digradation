@@ -1052,3 +1052,27 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   that hostname does not resolve from the host, so the test dies before it reaches GigaChat.
   Depend on the `redis_client` fixture even though the test never touches Redis itself: it
   patches the pool onto the container. Found 2026-10-21.
+- **A structured output schema and a tool loop are not the same thing.** The chat turn used
+  to ask for `{chat_name, message}` and validate the reply; the moment the model has to
+  *decide* something — start a programme, confirm a draft — a fixed schema cannot carry the
+  decision, and the tool specifications become the contract. Anything the schema used to
+  carry has to find another home: the chat name went to `app/naming.py`. Found 2026-10-21.
+- **A tool loop does not fail the way a single completion does.** An empty answer is not an
+  error the provider reports, it is an empty string, and publishing it would leave the
+  methodist with a blank bubble. The turn checks the answer itself.
+- **The provider's reply and the chat's transcript are two different texts.** `ChatMessage`
+  keeps the machine-readable payload in `content` and the text the methodist read in
+  `display_text`, and the provider has to read the second one — passing the first makes the
+  model read its own JSON envelope.
+- **A live test that always skips is not a test.** The `live_provider` fixture checked
+  `SBER_API_KEY` after the autouse fixture had already pinned it to `mock`, so two of the
+  four GigaChat live tests had never run. A fixture that needs the real credential has to
+  restore it first, the way `real_provider_env` does. Found 2026-10-21.
+- **A mirrored state and a row can disagree for a moment.** The mirror is written after the
+  row is committed, so a reader that takes the mirror first may see the state one write
+  behind. That is the right trade for an endpoint a client polls, and the wrong one for the
+  pipeline, which must act on the row. Two readers, two rules: `store.load` for the
+  pipeline, the mirror for the endpoint.
+- **An answer that is checked against a question the run never asked is a hole.** The
+  answers move a run, so they are matched against the open questions by id, every open
+  question needs exactly one answer, and a duplicate is refused. Found 2026-10-21.

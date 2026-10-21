@@ -22,6 +22,18 @@ import pytest_asyncio
 
 pytestmark = pytest.mark.live
 
+#: A schema of the kind the chat turn used to ask for. The turn is a tool loop
+#: now, so nothing in the app asks for structured output any more; the schema
+#: lives here because the provider's support for one is still worth proving.
+STRUCTURED_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "chat_name": {"type": "string", "description": "Короткое название текущего чата."},
+        "message": {"type": "string", "description": "Текстовый ответ пользователю."},
+    },
+    "required": ["message", "chat_name"],
+}
+
 
 def _require_real_key():
     import os
@@ -32,7 +44,14 @@ def _require_real_key():
 
 
 @pytest.fixture()
-def live_provider():
+def live_provider(real_provider_env, redis_client):
+    """The provider the application itself would use.
+
+    ``real_provider_env`` puts the key the process was started with back, so
+    the check below sees the real one instead of the mock the suite pins.
+    ``redis_client`` is not used directly: it patches the pool behind the
+    global PERS API lock onto the test container.
+    """
     _require_real_key()
     from app.providers.containers import provider
     from app.providers.mock import MOCK_API_KEY
@@ -68,10 +87,9 @@ async def sber_provider(real_provider_env, redis_client):
 
 
 async def test_live_generate_against_gigachat(live_provider):
-    """One real completion, verifying the harness schema round-trips."""
+    """One real completion, verifying a structured answer round-trips."""
     import json
 
-    from app.harness import HARNESS_STRUCTURED_SCHEMA
     from app.providers.models import Content, Message, ResponseFormat
 
     messages = [
@@ -85,7 +103,7 @@ async def test_live_generate_against_gigachat(live_provider):
         messages,
         ResponseFormat(
             type=ResponseFormat.TYPE_JSON_SCHEMA,
-            schema=HARNESS_STRUCTURED_SCHEMA,
+            schema=STRUCTURED_SCHEMA,
             strict=True,
         ),
         x_client_id=uuid.uuid4(),

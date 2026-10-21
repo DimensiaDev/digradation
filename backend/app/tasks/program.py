@@ -39,14 +39,13 @@ from app.cache import PROGRAM_STAGE_LOCK_TTL, get_program_stage_lock_key, get_re
 from app.database import db_session
 from app.models.auth import User
 from app.models.chat import (
-    DEFAULT_CHAT_NAME,
-    MAX_CHAT_NAME_LENGTH,
     ChatMessage,
     ChatSession,
     GenerationResult,
     GenerationResultType,
     UserRole,
 )
+from app.naming import first_user_message, resolve_chat_name
 from app.providers.containers import provider
 from app.providers.models import GenerationResponse, Message, ResponseFormat
 from app.tasks.conf.broker import broker
@@ -239,10 +238,15 @@ async def finalize_program_draft(session_id: uuid.UUID, run_id: uuid.UUID) -> No
             # it back even when both writes say the same thing.
             finalized = current.mark_finalized()
             row.program_state = store.dump(finalized)
-            update_name = None
-            if row.name == DEFAULT_CHAT_NAME:
-                row.name = _chat_name(draft.title)
-                update_name = row.name
+            # The programme's title is the best name the chat can have, so it
+            # takes over from the name the first message gave it.
+            update_name = resolve_chat_name(
+                row.name,
+                programme_title=draft.title,
+                first_user_message=await first_user_message(db, session_id),
+            )
+            if update_name is not None:
+                row.name = update_name
             await _write_result(db, session_id, message, update_name=update_name)
             db.add(
                 ChatMessage(
@@ -385,9 +389,15 @@ async def _notify(session_id: uuid.UUID, message: str) -> None:
     """Tell the methodist, in the chat, that the pipeline stopped."""
     try:
         async with db_session() as db:
-            if await db.get(ChatSession, session_id) is None:
+            row = await db.get(ChatSession, session_id)
+            if row is None:
                 return
-            await _write_result(db, session_id, message)
+            # A programme that never got a title still deserves a name, and the
+            # first thing the methodist said is the one left.
+            update_name = resolve_chat_name(row.name, first_user_message=await first_user_message(db, session_id))
+            if update_name is not None:
+                row.name = update_name
+            await _write_result(db, session_id, message, update_name=update_name)
             db.add(
                 ChatMessage(
                     chat_session_id=session_id,
@@ -399,13 +409,6 @@ async def _notify(session_id: uuid.UUID, message: str) -> None:
             await db.commit()
     except Exception as error:
         log.error("program_notify_failed", chat_session_id=str(session_id), error=str(error))
-
-
-def _chat_name(title: str) -> str:
-    """The chat name to give the programme, cut to the column's length."""
-    if len(title) <= MAX_CHAT_NAME_LENGTH:
-        return title
-    return title[: MAX_CHAT_NAME_LENGTH - 3].rstrip() + "..."
 
 
 async def _refresh_lock(session_id: uuid.UUID, stage: Stage, token: str) -> bool:

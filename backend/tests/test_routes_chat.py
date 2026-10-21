@@ -20,9 +20,19 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
-from sqlalchemy import func, select
+from redis.asyncio import Redis
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agentic import store
+from app.agentic.models import (
+    Competence,
+    Outcome,
+    ProgramKind,
+    ProgramStatus,
+    Stage,
+)
+from app.agentic.state import ClarificationQuestion, CompetencesBlock, ProgramState, new_state
 from app.cache import (
     get_attachment_ownership_key,
     get_attachment_status_key,
@@ -30,6 +40,7 @@ from app.cache import (
     get_creation_key,
     get_deletion_key,
     get_generation_key,
+    get_program_stage_lock_key,
 )
 from app.harness import SYSTEM_PROMPT, build_system_prompt
 from app.models.auth import User
@@ -54,7 +65,7 @@ def kiq(monkeypatch):
     """Replace both taskiq ``.kiq`` attributes the routes call with mocks."""
     generate = AsyncMock()
     process = AsyncMock()
-    monkeypatch.setattr("app.routes.chat.generate_chat_message.kiq", generate)
+    monkeypatch.setattr("app.routes.chat.run_chat_turn.kiq", generate)
     monkeypatch.setattr("app.routes.chat.process_attachment.kiq", process)
     return SimpleNamespace(generate=generate, process=process)
 
@@ -406,7 +417,7 @@ async def test_send_message(auth_client: AsyncClient, db_session: AsyncSession, 
 
     assert response.status_code == 202
     assert response.json() == {"message": "Message sent"}
-    kiq.generate.assert_awaited_once_with(chat.session_id)
+    kiq.generate.assert_awaited_once_with(chat.session_id, None)
 
     message = (
         await db_session.scalars(
@@ -510,7 +521,7 @@ async def test_get_result_without_any_result(auth_client: AsyncClient, chat, red
     response = await auth_client.get(f"/chats/{chat.session_id}/result")
 
     assert response.status_code == 200
-    assert response.json() == {"running": False, "result": None}
+    assert response.json() == {"running": False, "result": None, "questions": []}
 
 
 async def test_get_result_while_running(
@@ -521,7 +532,7 @@ async def test_get_result_while_running(
     response = await auth_client.get(f"/chats/{chat.session_id}/result")
 
     assert response.status_code == 200
-    assert response.json() == {"running": True, "result": None}
+    assert response.json() == {"running": True, "result": None, "questions": []}
 
 
 async def test_get_result_success(auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None):
@@ -574,6 +585,309 @@ async def test_get_result_forbidden_for_other_user(auth_client: AsyncClient, oth
     response = await auth_client.get(f"/chats/{other_chat.session_id}/result")
 
     assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# GET /chats/{session_id}/program
+# ---------------------------------------------------------------------------
+
+
+def programme(session_id: uuid.UUID, **changes) -> ProgramState:
+    """A run in the state the tests need."""
+    state = new_state(session_id, requested_hours=72, requirements="Программа по аналитике")
+    return state.model_copy(update=changes) if changes else state
+
+
+async def put_programme(db_session: AsyncSession, chat: ChatSession, state: ProgramState) -> None:
+    await db_session.execute(
+        update(ChatSession)
+        .where(ChatSession.session_id == chat.session_id)
+        .values(program_state=state.model_dump(mode="json"))
+    )
+    await db_session.commit()
+
+
+async def test_get_program_without_a_programme(auth_client: AsyncClient, chat, redis_session: None):
+    """A chat that holds no programme answers with the same shape throughout."""
+    response = await auth_client.get(f"/chats/{chat.session_id}/program")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "none"
+    assert body["current_stage"] is None
+    assert body["running"] is False
+    assert body["questions"] == []
+    assert body["draft"]["competencies"] == []
+    assert body["draft"]["title"] is None
+
+
+async def test_get_program_reports_the_state_of_a_run(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    state = programme(chat.session_id)
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/program")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "generating"
+    assert body["current_stage"] == "competences"
+    assert body["stages"]["competences"] == "pending"
+    assert body["version"] == state.version
+    assert body["updated_at"] is not None
+    assert body["error"] is None
+
+
+async def test_get_program_reports_the_blocks_that_are_already_saved(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    block = CompetencesBlock(
+        kind=ProgramKind.GENERAL_DEVELOPMENT,
+        title="Анализ данных",
+        competencies=[
+            Competence(
+                id="comp-01",
+                statement="Готов анализировать данные",
+                knowledge=[Outcome(id="ro-k-01", statement="Знает основы статистики")],
+            )
+        ],
+    )
+    state = programme(chat.session_id).with_competences(block, [])
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/program")
+
+    assert response.status_code == 200
+    draft = response.json()["draft"]
+    assert draft["title"] == "Анализ данных"
+    assert draft["kind"] == "general_development"
+    assert draft["competencies"][0]["id"] == "comp-01"
+    assert draft["curriculum"] is None
+
+
+async def test_get_program_reports_the_open_questions(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    state = programme(chat.session_id, status=ProgramStatus.AWAITING_ANSWERS).model_copy(
+        update={"questions": [ClarificationQuestion(id="q-1", text="На сколько часов?")]}
+    )
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/program")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "awaiting_answers"
+    assert body["questions"] == [{"id": "q-1", "text": "На сколько часов?", "hint": None}]
+
+
+async def test_get_program_reports_a_failed_run_as_failed(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    state = programme(chat.session_id, failed=True, error="этап не завершился")
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/program")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["error"] == "этап не завершился"
+
+
+async def test_get_program_is_running_while_a_worker_holds_the_stage(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_client: Redis, redis_session: None
+):
+    state = programme(chat.session_id)
+    await put_programme(db_session, chat, state)
+    await redis_client.set(get_program_stage_lock_key(chat.session_id, Stage.COMPETENCES), "worker", ex=60)
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/program")
+
+    assert response.status_code == 200
+    assert response.json()["running"] is True
+
+
+async def test_get_program_serves_the_mirror_before_the_row(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_client: Redis, redis_session: None
+):
+    """The mirror is written on every save, so the polled endpoint reads it first."""
+    state = programme(chat.session_id, title="Анализ данных")
+    await put_programme(db_session, chat, state)
+    await store.mirror(state)
+    # The row moves on without the mirror following, which is the window the
+    # mirror-first read is there to cover.
+    await db_session.execute(
+        update(ChatSession).where(ChatSession.session_id == chat.session_id).values(program_state=None)
+    )
+    await db_session.commit()
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/program")
+
+    assert response.status_code == 200
+    assert response.json()["draft"]["title"] == "Анализ данных"
+
+
+async def test_get_program_forbidden_for_other_user(auth_client: AsyncClient, other_chat, redis_session: None):
+    response = await auth_client.get(f"/chats/{other_chat.session_id}/program")
+
+    assert response.status_code == 403
+
+
+async def test_get_result_carries_the_open_questions(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    state = programme(chat.session_id, status=ProgramStatus.AWAITING_ANSWERS).model_copy(
+        update={"questions": [ClarificationQuestion(id="q-1", text="На сколько часов?")]}
+    )
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/result")
+
+    assert response.status_code == 200
+    assert response.json()["questions"] == [{"id": "q-1", "text": "На сколько часов?", "hint": None}]
+
+
+# ---------------------------------------------------------------------------
+# GET /chats/programmes
+# ---------------------------------------------------------------------------
+
+
+async def test_get_programmes_lists_the_programmes(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    state = programme(chat.session_id, title="Анализ данных")
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.get("/chats/programmes")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["page"] == 0
+    assert body["items_per_page"] == 20
+    assert body["items"][0]["session_id"] == str(chat.session_id)
+    assert body["items"][0]["title"] == "Анализ данных"
+    assert body["items"][0]["status"] == "generating"
+
+
+async def test_get_programmes_skips_a_chat_without_a_programme(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    response = await auth_client.get("/chats/programmes")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+    assert response.json()["items"] == []
+
+
+async def test_get_programmes_paginates(
+    auth_client: AsyncClient, db_session: AsyncSession, test_user: User, redis_session: None
+):
+    for index in range(3):
+        row = await make_chat(db_session, test_user.id)
+        await put_programme(db_session, row, programme(row.session_id, title=f"Программа {index}"))
+
+    first = await auth_client.get("/chats/programmes?page=0&items_per_page=2")
+
+    assert first.status_code == 200
+    assert first.json()["total"] == 3
+    assert len(first.json()["items"]) == 2
+
+    last = await auth_client.get("/chats/programmes?page=1&items_per_page=2")
+
+    assert last.status_code == 200
+    assert len(last.json()["items"]) == 1
+
+
+async def test_get_programmes_hides_other_users_programmes(
+    auth_client: AsyncClient, db_session: AsyncSession, other_chat, redis_session: None
+):
+    await put_programme(db_session, other_chat, programme(other_chat.session_id, title="Чужая программа"))
+
+    response = await auth_client.get("/chats/programmes")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# POST /chats/{session_id}: the answers
+# ---------------------------------------------------------------------------
+
+
+async def test_send_message_with_answers_starts_the_programme(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, kiq, redis_session: None
+):
+    state = programme(chat.session_id, status=ProgramStatus.AWAITING_ANSWERS).model_copy(
+        update={"questions": [ClarificationQuestion(id="q-1", text="На сколько часов?")]}
+    )
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.post(
+        f"/chats/{chat.session_id}",
+        json={"content": "", "answers": [{"question_id": "q-1", "text": "72 часа"}]},
+    )
+
+    assert response.status_code == 202
+    kiq.generate.assert_awaited_once_with(chat.session_id, [{"question_id": "q-1", "text": "72 часа"}])
+    message = await db_session.scalar(
+        select(ChatMessage).where(ChatMessage.chat_session_id == chat.session_id, ChatMessage.role == UserRole.USER)
+    )
+    assert message is not None
+    assert "72 часа" in message.content
+
+
+async def test_send_message_refuses_an_answer_to_an_unknown_question(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, kiq, redis_session: None
+):
+    state = programme(chat.session_id, status=ProgramStatus.AWAITING_ANSWERS).model_copy(
+        update={"questions": [ClarificationQuestion(id="q-1", text="На сколько часов?")]}
+    )
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.post(
+        f"/chats/{chat.session_id}",
+        json={"content": "", "answers": [{"question_id": "q-9", "text": "72 часа"}]},
+    )
+
+    assert response.status_code == 400
+    kiq.generate.assert_not_awaited()
+
+
+async def test_send_message_refuses_a_partial_set_of_answers(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, kiq, redis_session: None
+):
+    state = programme(chat.session_id, status=ProgramStatus.AWAITING_ANSWERS).model_copy(
+        update={
+            "questions": [
+                ClarificationQuestion(id="q-1", text="На сколько часов?"),
+                ClarificationQuestion(id="q-2", text="Для кого?"),
+            ]
+        }
+    )
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.post(
+        f"/chats/{chat.session_id}",
+        json={"content": "", "answers": [{"question_id": "q-1", "text": "72 часа"}]},
+    )
+
+    assert response.status_code == 400
+    kiq.generate.assert_not_awaited()
+
+
+async def test_send_message_refuses_answers_without_a_programme(
+    auth_client: AsyncClient, chat, kiq, redis_session: None
+):
+    response = await auth_client.post(
+        f"/chats/{chat.session_id}",
+        json={"content": "", "answers": [{"question_id": "q-1", "text": "72 часа"}]},
+    )
+
+    assert response.status_code == 400
+    kiq.generate.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

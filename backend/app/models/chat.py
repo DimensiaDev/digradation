@@ -25,6 +25,7 @@ MAX_FILENAME_LENGTH = 128
 MAX_CHAT_NAME_LENGTH = 128
 DEFAULT_CHAT_NAME = "Новый чат"
 
+
 if typing.TYPE_CHECKING:
     from app.models.auth import User
 

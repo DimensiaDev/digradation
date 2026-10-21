@@ -3,8 +3,8 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-21** (the programme cycle reviewed against the GigaChat contract;
-the home page now has voice input and the guest-draft handoff)
+Last updated: **2026-10-21** (the chat turn became a tool loop and the programme got an API;
+the home page has voice input and the guest-draft handoff)
 
 ---
 
@@ -60,19 +60,27 @@ behind the auth gate.
 
 **The programme cycle (#3).** A chat can build one educational programme. A run is one
 `ProgramState` in `chat_sessions.program_state` (JSONB), mirrored to Redis for an hour, and it
-starts when a chat turn calls `begin_program` — that turn lives in `app/tasks/api.py`, which is
-owned elsewhere and stays as `main` has it, so this branch delivers the stages and the seam
-they need rather than the chat interaction. One
+starts when a chat turn calls `begin_program`. The chat turn is a tool loop
+(`run_chat_turn`): the model is offered `INTAKE_TOOLS` and decides whether to start a
+programme, to confirm a rendered draft, or to answer in prose. One
 TaskIQ task owns one stage — competences, hours, sources, summary — and each commits its block
 before enqueueing the next, so a worker that dies leaves every finished block behind and
 `recover_stalled_programs` restarts the stage that stopped. `finalize_program_draft` renders
 the assembled draft into the chat, renames a default-named chat and waits for the methodist's
-confirmation, which the model turns into an `approve_program_draft` call (the chat worker only
-has to offer the tool). `assessment`
+confirmation, which the model turns into an `approve_program_draft` call. `assessment`
 and `materials` stay pending for #5; the source catalog behind `sources.py` is still empty
-until the RAG index (#11), so a draft cites no documents today. There is no endpoint and no
-programme UI: the cycle is driven by ordinary chat messages and the frontend needs nothing new
-to see the result, though its five-minute poll can time out before a slow run finishes.
+until the RAG index (#11), so a draft cites no documents today.
+
+**The programme API.** `GET /chats/{session_id}/program` reports where a programme stands
+(status, current stage, the blocks saved so far) and reads the Redis mirror before the row, so
+a client that polls it does not touch PostgreSQL; `running` comes from the stage lock, so a
+stalled programme is distinguishable from a busy one. `GET /chats/{session_id}/result` also
+carries the questions a programme is waiting an answer to, and
+`POST /chats/{session_id}` takes those answers in an `answers` array next to `content`.
+`GET /chats/programmes` lists the user's programmes, paginated. A run may ask the methodist
+questions: `begin_program` takes them, the run waits in `awaiting_answers`, and the answers
+move it on. The frontend has no programme UI yet, and its five-minute poll can time out
+before a slow run finishes.
 
 **Two dead placeholder directories** are still tracked: `frontend/src/app/shared/components/
 chat-widget/` and `.../param-table/`, each holding only a `.gitkeep`. They are leftovers from

@@ -51,6 +51,12 @@ class StageSuperseded(ProgramError):
     reason = "этап перехвачен другим воркером"
 
 
+class AnswersDoNotMatch(ProgramError):
+    """The answers do not match the questions the run is waiting for."""
+
+    reason = "ответы не совпадают с заданными вопросами"
+
+
 class IncompleteDraft(ProgramError):
     """The committed blocks cannot produce a valid draft.
 

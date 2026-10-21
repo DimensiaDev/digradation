@@ -93,6 +93,28 @@ async def load(session_id: uuid.UUID) -> ProgramState | None:
     return state
 
 
+async def load_mirror(session_id: uuid.UUID) -> ProgramState | None:
+    """Read the state from the Redis mirror, or ``None`` when it is not there.
+
+    The mirror is written on every save, so it is as fresh as the row it
+    mirrors; a read that only has to tell a client where the programme stands
+    does not need a database round trip.
+    """
+    try:
+        async with get_redis_client() as redis:
+            raw = await redis.get(get_program_state_key(session_id))
+    except Exception as error:
+        log.warning("program_state_mirror_unreadable", session_id=str(session_id), error=str(error))
+        return None
+    if raw is None:
+        return None
+    try:
+        return parse(json.loads(raw))
+    except ValueError as error:
+        log.error("program_state_mirror_unreadable", session_id=str(session_id), error=str(error))
+        return None
+
+
 async def save(state: ProgramState, *, expected_run_id: uuid.UUID | None = None) -> ProgramState:
     """Write the state, refusing one that is stale against the row."""
     async with locked(state.session_id) as (_, row):

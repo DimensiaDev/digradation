@@ -46,6 +46,7 @@ from app.models.chat import (
     GenerationResultType,
     UserRole,
 )
+from app.naming import resolve_chat_name
 from app.providers.models import (
     Content,
     FunctionCall,
@@ -801,6 +802,29 @@ async def test_a_notification_that_fails_is_logged_not_raised(
     await program._notify(chat, "Не удалось собрать программу.")
 
 
+async def test_a_failed_programme_names_the_chat_after_the_first_message(
+    chat: uuid.UUID, engine: AsyncEngine, task_db: None
+) -> None:
+    """A programme that never got a title still leaves the chat with a name."""
+    maker = async_sessionmaker(bind=engine, expire_on_commit=False)
+    async with maker() as db:
+        db.add(
+            ChatMessage(
+                chat_session_id=chat,
+                role=UserRole.USER,
+                content="Программа по аналитике",
+            )
+        )
+        await db.commit()
+
+    await program._notify(chat, "Не удалось собрать программу.")
+
+    async with maker() as db:
+        row = await db.get(ChatSession, chat)
+    assert row is not None
+    assert row.name == "Программа по аналитике"
+
+
 async def test_a_stage_stops_when_the_chat_is_deleted_under_it(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:
@@ -940,8 +964,9 @@ async def test_a_replay_of_the_last_stage_enqueues_the_finalize(
 
 
 def test_a_long_programme_title_is_cut_to_the_column_length() -> None:
-    name = program._chat_name("я" * 500)
+    name = resolve_chat_name("Новый чат", programme_title="я" * 500)
 
+    assert name is not None
     assert len(name) == MAX_CHAT_NAME_LENGTH
     assert name.endswith("...")
 

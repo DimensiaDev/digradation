@@ -48,11 +48,12 @@ _RAW_MODES = frozenset(mode.value for mode in Mode)
 
 DEFAULT_MODE = Mode.OK
 
-MOCK_CHAT_NAME = "Чат (mock)"
-
 #: Tools of the programme pipeline the ``stage`` mode reacts to.
 BEGIN_PROGRAM = "begin_program"
 SAVE_PROGRAM_DRAFT = "save_program_draft"
+
+#: The question the mock asks when the methodist named no volume.
+MOCK_QUESTION = "На сколько академических часов рассчитана программа?"
 
 #: Volume the fabricated programme takes when the methodist named no hours.
 DEFAULT_PROGRAMME_HOURS = 72.0
@@ -157,11 +158,9 @@ class MockProvider(AIClient):
         )
         return f"mock-file-{_seed(str(x_session_id), filename):08x}"
 
-    def _payload(self, fingerprint: str) -> dict:
-        return {
-            "chat_name": MOCK_CHAT_NAME,
-            "message": f"Это ответ офлайн-мока на сообщение №{_seed(fingerprint) % 1000}.",
-        }
+    def _reply(self, fingerprint: str) -> str:
+        """The plain answer the mock gives when it is not running a programme."""
+        return f"Это ответ офлайн-мока на сообщение №{_seed(fingerprint) % 1000}."
 
     async def generate(
         self,
@@ -194,22 +193,20 @@ class MockProvider(AIClient):
             return self._wrap([Message(role=Role.ASSISTANT, content=[])], fingerprint)
 
         if mode is Mode.STAGE:
-            return self._stage(message_history, response_format, offered, fingerprint)
+            return self._stage(message_history, offered, fingerprint)
 
-        payload = json.dumps(self._payload(fingerprint), ensure_ascii=False)
-        return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=payload)])], fingerprint)
+        return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=self._reply(fingerprint))])], fingerprint)
 
     def _stage(
         self,
         message_history: list[Message],
-        response_format: ResponseFormat,
         offered: list[Tool],
         fingerprint: str,
     ) -> GenerationResponse:
         """Script one turn: start a run, save the offered block, then answer."""
         if message_history and message_history[-1].role == Role.TOOL:
             return self._wrap(
-                [Message(role=Role.ASSISTANT, content=[Content(text=self._stage_answer(response_format))])],
+                [Message(role=Role.ASSISTANT, content=[Content(text=self._stage_answer())])],
                 fingerprint,
             )
         names = {tool.function.name for tool in offered}
@@ -222,9 +219,12 @@ class MockProvider(AIClient):
             hours = _requested_hours(text)
             if hours is not None:
                 arguments["requested_hours"] = hours
+            else:
+                # Without a volume the curriculum cannot be built, so the mock
+                # asks the methodist instead of inventing one.
+                arguments["questions"] = [MOCK_QUESTION]
             return self._call(BEGIN_PROGRAM, arguments, fingerprint)
-        payload = json.dumps(self._payload(fingerprint), ensure_ascii=False)
-        return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=payload)])], fingerprint)
+        return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=self._reply(fingerprint))])], fingerprint)
 
     def _block(self, parameters: dict | None, message_history: list[Message]) -> dict:
         """The block of the stage, told apart by the fields its spec requires."""
@@ -260,14 +260,9 @@ class MockProvider(AIClient):
             }
         }
 
-    def _stage_answer(self, response_format: ResponseFormat) -> str:
+    def _stage_answer(self) -> str:
         """What the mock says once the pipeline has run its call."""
-        if response_format.type == ResponseFormat.TYPE_TEXT:
-            return "Блок сохранён."
-        return json.dumps(
-            {"chat_name": None, "message": "Программа запущена. Черновик придёт в чат, когда все блоки будут готовы."},
-            ensure_ascii=False,
-        )
+        return "Блок сохранён."
 
     def _call(self, name: str, arguments: dict, fingerprint: str) -> GenerationResponse:
         call = ToolCall(function=FunctionCall(name=name, arguments=json.dumps(arguments, ensure_ascii=False)))

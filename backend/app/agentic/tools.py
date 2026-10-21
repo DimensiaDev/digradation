@@ -117,6 +117,14 @@ class BeginProgramArguments(BaseModel):
         le=1000,
         description="Объём программы в академических часах, если методист его назвал",
     )
+    questions: list[str] = Field(
+        default_factory=list,
+        max_length=10,
+        description=(
+            "Вопросы методисту, без которых программу начать нельзя. Если список непуст, "
+            "программа не формируется, пока методист на них не ответит."
+        ),
+    )
 
 
 class ApproveProgramDraftArguments(BaseModel):
@@ -155,7 +163,8 @@ BEGIN_PROGRAM_SPEC = FunctionDefinition(
     description=(
         "Запустить формирование образовательной программы по заданию методиста. "
         "Вызывай, когда из сообщения понятны тема и аудитория программы. Не вызывай повторно: "
-        "программа формируется этапами сама."
+        "программа формируется этапами сама. Если чего-то не хватает, перечисли это в questions — "
+        "программа начнёт формироваться после ответов методиста."
     ),
     parameters=_inline_refs(BeginProgramArguments.model_json_schema()),
 )
@@ -361,8 +370,22 @@ async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> B
 
     A chat holds one programme: only a failed run may be replaced, because a run
     that is working, awaiting confirmation or approved would lose its blocks.
+
+    A run with questions does not generate yet. It waits for the methodist's
+    answers, and the questions are what the client shows one by one.
     """
     if ctx.state is not None and not ctx.state.failed:
+        waiting = ctx.state.pending_questions
+        if waiting:
+            listed = "; ".join(question.text for question in waiting)
+            return BeginProgramResult(
+                ok=False,
+                error="В этом чате уже есть программа",
+                note=(
+                    f"Программа ждёт ответов методиста на {len(waiting)} вопросов: {listed}. "
+                    "Перечисли их методисту и предложи ответить в чате."
+                ),
+            )
         return BeginProgramResult(
             ok=False,
             error="В этом чате уже есть программа",
@@ -372,10 +395,24 @@ async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> B
             ),
         )
     ctx.state = new_state(
-        ctx.session_id, requested_hours=arguments.requested_hours, requirements=arguments.requirements
+        ctx.session_id,
+        requested_hours=arguments.requested_hours,
+        requirements=arguments.requirements,
+        questions=arguments.questions,
     )
     ctx.dirty = True
-    log.info("program_started", chat_session_id=str(ctx.session_id), requested_hours=arguments.requested_hours)
+    log.info(
+        "program_started",
+        chat_session_id=str(ctx.session_id),
+        requested_hours=arguments.requested_hours,
+        questions=len(ctx.state.pending_questions),
+    )
+    if ctx.state.awaiting_answers:
+        listed = "; ".join(question.text for question in ctx.state.pending_questions)
+        return BeginProgramResult(
+            stage=ctx.state.current_stage,
+            note=(f"Программа начнёт формироваться после ответов методиста. " f"Задай ему эти вопросы: {listed}"),
+        )
     return BeginProgramResult(
         stage=ctx.state.current_stage,
         note="Программа запущена и формируется этапами. Скажи методисту, что генерация началась.",

@@ -16,7 +16,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.agentic.errors import IncompleteDraft
+from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
 from app.agentic.models import (
     Competence,
     Curriculum,
@@ -65,6 +65,26 @@ class SummaryBlock(BaseModel):
     summary: ProgramSummary = Field(description="Паспорт программы: цель, аудитория, форма обучения")
 
 
+class ClarificationQuestion(BaseModel):
+    """One question the methodist has to answer before the programme can start.
+
+    The id is assigned by the backend, not by the model: the client sends the
+    answers back by id, so the id has to be stable and has to be one the
+    backend issued.
+    """
+
+    id: str = Field(description="Идентификатор вопроса, по нему приходят ответы")
+    text: str = Field(min_length=1, max_length=1000, description="Текст вопроса методисту")
+    hint: str | None = Field(default=None, max_length=500, description="Подсказка о формате ответа")
+
+
+class ClarificationAnswer(BaseModel):
+    """The methodist's answer to one question."""
+
+    question_id: str = Field(description="Идентификатор вопроса, на который дан ответ")
+    text: str = Field(min_length=1, max_length=4000, description="Текст ответа")
+
+
 class ProgramState(BaseModel):
     """One programme run: the draft blocks plus where the pipeline stopped."""
 
@@ -93,6 +113,12 @@ class ProgramState(BaseModel):
     version: int = 0
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
+    #: Questions the run has asked. They stay on the envelope after they are
+    #: answered, so the stages can read the answers next to the questions.
+    questions: list[ClarificationQuestion] = Field(default_factory=list)
+    #: The answers, kept next to the questions they belong to.
+    answers: list[ClarificationAnswer] = Field(default_factory=list)
+
     @property
     def terminal(self) -> bool:
         """No task should touch this run again."""
@@ -102,6 +128,17 @@ class ProgramState(BaseModel):
     def awaiting_approval(self) -> bool:
         """The draft is rendered and the methodist has not answered yet."""
         return self.status is ProgramStatus.PENDING_APPROVAL and self.finalized and not self.failed
+
+    @property
+    def awaiting_answers(self) -> bool:
+        """The run is on hold until the methodist answers the open questions."""
+        return self.status is ProgramStatus.AWAITING_ANSWERS
+
+    @property
+    def pending_questions(self) -> list[ClarificationQuestion]:
+        """The questions nobody has answered yet."""
+        answered = {answer.question_id for answer in self.answers}
+        return [question for question in self.questions if question.id not in answered]
 
     def stage_status(self, stage: Stage) -> StageStatus:
         return getattr(self.stages, stage.value)
@@ -147,6 +184,19 @@ class ProgramState(BaseModel):
 
     def approved(self) -> Self:
         return self._replace(status=ProgramStatus.APPROVED)
+
+    def with_answers(self, answers: list[ClarificationAnswer]) -> Self:
+        """Take the methodist's answers and let the programme start.
+
+        The competence stage is enqueued from here, so its attempt is spent
+        now, exactly as it would be if the run had started without questions.
+        """
+        return self._replace(
+            answers=answers,
+            status=ProgramStatus.GENERATING,
+            current_stage=Stage.COMPETENCES,
+            attempts={**self.attempts, Stage.COMPETENCES: self.attempts.get(Stage.COMPETENCES, 0) + 1},
+        )
 
     def with_competences(self, block: CompetencesBlock, sources: list[Source]) -> Self:
         """Save the competence block and the standards its competencies cite."""
@@ -276,8 +326,32 @@ class ProgramState(BaseModel):
         return self.model_copy(update=changes)
 
 
-def new_state(session_id: uuid.UUID, *, requested_hours: float | None, requirements: str | None) -> ProgramState:
-    """Start a run: the competence stage is already on the queue."""
+def new_state(
+    session_id: uuid.UUID,
+    *,
+    requested_hours: float | None,
+    requirements: str | None,
+    questions: Iterable[str] = (),
+) -> ProgramState:
+    """Start a run: either generating, or waiting for the methodist's answers.
+
+    Questions are the ones the model could not answer from the methodist's
+    message. A run that has them does not generate yet: it waits, and the first
+    stage is enqueued only once the answers arrive. A run without them starts
+    at once, with the competence stage already on the queue.
+    """
+    pending = [ClarificationQuestion(id=uuid.uuid4().hex, text=text.strip()) for text in questions if text.strip()]
+    if pending:
+        return ProgramState(
+            session_id=session_id,
+            run_id=uuid.uuid4(),
+            status=ProgramStatus.AWAITING_ANSWERS,
+            current_stage=Stage.COMPETENCES,
+            attempts={},
+            requested_hours=requested_hours,
+            requirements=requirements,
+            questions=pending,
+        )
     return ProgramState(
         session_id=session_id,
         run_id=uuid.uuid4(),
@@ -287,6 +361,25 @@ def new_state(session_id: uuid.UUID, *, requested_hours: float | None, requireme
         requested_hours=requested_hours,
         requirements=requirements,
     )
+
+
+def apply_answers(state: ProgramState, answers: Iterable[ClarificationAnswer]) -> ProgramState:
+    """Record the methodist's answers and start the programme.
+
+    The answers are checked against the questions the run is actually waiting
+    for: every open question needs exactly one answer, and an answer to a
+    question nobody asked is refused. A client cannot talk the run into a state
+    it was not in.
+    """
+    if not state.awaiting_answers:
+        raise AnswersDoNotMatch("программа не ждёт ответов")
+    given = {answer.question_id: answer for answer in answers}
+    if len(given) != len(answers):
+        raise AnswersDoNotMatch("ответ на один вопрос продублирован")
+    expected = {question.id for question in state.pending_questions}
+    if set(given) != expected:
+        raise AnswersDoNotMatch("ответы не совпадают с заданными вопросами")
+    return state.with_answers(list(given.values()))
 
 
 def _duplicates(items: Iterable[str]) -> list[str]:

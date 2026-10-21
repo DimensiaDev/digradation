@@ -13,7 +13,7 @@ database `/1`, dashboard at `http://taskiq_dashboard:8000`.
 | Queue | Nature | Use it for |
 |---|---|---|
 | `default` | local, CPU-bound | attachment preparation, avatar normalisation, result processing, cleanup crons |
-| `network` | outbound GigaChat calls | `generate_chat_message` |
+| `network` | outbound GigaChat calls | `run_chat_turn` |
 
 This matters because the `network` queue is bounded by external API latency. Keeping it
 separate *should* mean a slow or rate-limited GigaChat cannot starve attachment preparation or
@@ -99,7 +99,7 @@ frontend polls every 2 s (`AttachmentUploadService`, up to 150 attempts).
 
 | Task | File | Queue | Schedule |
 |---|---|---|---|
-| `generate_chat_message` | `tasks/api.py` | `network` | none |
+| `run_chat_turn` | `tasks/api.py` | `network` | none |
 | `process_response` | `tasks/api.py` | `default` | none |
 | `cleanup_old_results` | `tasks/api.py` | `default` | 1 hour |
 | `process_attachment` | `tasks/files.py` | `default` | none |

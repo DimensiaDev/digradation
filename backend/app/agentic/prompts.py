@@ -11,7 +11,7 @@ import json
 from typing import Any
 
 from app.agentic.models import Stage
-from app.agentic.state import ProgramState
+from app.agentic.state import ClarificationAnswer, ClarificationQuestion, ProgramState
 from app.providers.models import Content, Message
 
 #: What every stage is told about its job, in the same words each time.
@@ -77,11 +77,20 @@ def stage_brief(state: ProgramState) -> str:
     parts = [f"Задание методиста:\n{state.requirements or 'не задано'}"]
     if state.requested_hours is not None:
         parts.append(f"Заявленный объём программы: {state.requested_hours:g} академических часов.")
+    if state.answers:
+        answered = "\n".join(f"- {question.text}: {answer.text}" for question, answer in _answered_questions(state))
+        parts.append(f"Ответы методиста на уточняющие вопросы:\n{answered}")
     blocks = saved_blocks(state)
     saved = json.dumps(blocks, ensure_ascii=False, indent=2) if blocks else "пока ничего"
     parts.append(f"Уже сохранено:\n{saved}")
     parts.append(f"Твой этап: {STAGE_TASKS[state.current_stage]}")
     return "\n\n".join(parts)
+
+
+def _answered_questions(state: ProgramState) -> list[tuple[ClarificationQuestion, ClarificationAnswer]]:
+    """The questions and the answers that belong to them, in the order asked."""
+    by_id = {answer.question_id: answer for answer in state.answers}
+    return [(question, by_id[question.id]) for question in state.questions if question.id in by_id]
 
 
 def stage_messages(state: ProgramState) -> list[Message]:

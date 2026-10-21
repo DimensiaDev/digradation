@@ -1,4 +1,3 @@
-import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -6,24 +5,26 @@ import structlog.stdlib
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agentic import store
+from app.agentic.errors import AnswersDoNotMatch
+from app.agentic.loop import run_tool_loop
+from app.agentic.models import ProgramStatus
+from app.agentic.state import ClarificationAnswer, ProgramState, apply_answers
+from app.agentic.tools import INTAKE_TOOLS, ToolContext, call_executor
 from app.cache import get_deletion_key, get_generation_key, get_redis_client
-from app.harness import HARNESS_STRUCTURED_SCHEMA
 from app.models.auth import User
 from app.models.chat import (
-    MAX_CHAT_NAME_LENGTH,
     ChatMessage,
     ChatSession,
     GenerationResult,
     GenerationResultType,
     UserRole,
 )
+from app.naming import first_user_message, resolve_chat_name
 from app.providers.containers import provider
-from app.providers.models import (
-    HarnessStructuredOutput,
-    Message,
-    ResponseFormat,
-)
+from app.providers.models import Message, ResponseFormat
 from app.tasks.conf.broker import broker, tsq_db
+from app.tasks.program import program_stage
 
 log = structlog.stdlib.get_logger(__name__)
 
@@ -61,7 +62,14 @@ async def cleanup_old_results():
 
 
 @broker.task(queue_name="network")
-async def generate_chat_message(session: uuid.UUID):
+async def run_chat_turn(session: uuid.UUID, answers: list[dict[str, str]] | None = None) -> None:
+    """One turn of a chat: the model's answer, and whatever the tools changed.
+
+    The turn is a tool loop, not a single completion: the model may start a
+    programme, approve a rendered draft, or answer the methodist in prose. The
+    answers the methodist supplied for the open questions are applied before the
+    loop, so the model sees a programme that is already under way.
+    """
     async with tsq_db() as db:
         await db.execute(delete(GenerationResult).where(GenerationResult.chat_session_id == session))
         await db.commit()
@@ -75,7 +83,7 @@ async def generate_chat_message(session: uuid.UUID):
         async with get_redis_client() as redis_client:
             acquired = await redis_client.set(key, "1", ex=300, nx=True)
             if not acquired:
-                log.error("generate_chat_message_already_running", session=session)
+                log.error("run_chat_turn_already_running", session=session)
                 return
     try:
         async with tsq_db() as db:
@@ -91,78 +99,107 @@ async def generate_chat_message(session: uuid.UUID):
 
             log.debug("text_message_generation", last_message=messages[-1])
 
-        try:
-            response = await provider.generate(
-                messages,
-                ResponseFormat(
-                    type=ResponseFormat.TYPE_JSON_SCHEMA,
-                    schema=HARNESS_STRUCTURED_SCHEMA,
-                    strict=True,
-                ),
+        state = await store.load(session)
+        if answers:
+            state = await _start_with_answers(state, answers, session)
+
+        ctx = ToolContext(session_id=session, state=state)
+        offered = INTAKE_TOOLS
+
+        async def generate(history: list[Message]):
+            return await provider.generate(
+                history,
+                ResponseFormat(type=ResponseFormat.TYPE_TEXT),
                 x_client_id=user.uuid,
                 x_session_id=session,
+                tools=offered,
             )
-            log.debug("text_generation_response", response=response)
-            if response is None:
-                raise ValueError("null_response")
+
+        try:
+            reply = await run_tool_loop(
+                messages,
+                generate=generate,
+                call_tool=call_executor(ctx, offered),
+            )
         except Exception as e:
-            log.error("generate_chat_message_error", session=session, error=e)
-            await _add_error_result(db, session, "Internal server error occurred", user.uuid)
+            log.error("run_chat_turn_error", session=session, error=e)
+            async with tsq_db() as db:
+                await _add_error_result(db, session, "Internal server error occurred", user.uuid)
             return
 
-        async with tsq_db() as db:
-            if not response:
-                result = GenerationResult(
-                    chat_session_id=session,
-                    type=GenerationResultType.ERROR,
-                    content="Internal server error occurred, please try again later or contact support.",
-                )
-                db.add(result)
-                await db.commit()
-                return
-            if not response.messages or not response.messages[0].content:
-                log.error("empty_response", session=session)
+        if not reply.strip():
+            log.error("empty_response", session=session)
+            async with tsq_db() as db:
                 await _add_error_result(db, session, "Provider did not respond properly", user.uuid)
-                return
+            return
 
-            # If the session got deleted during worker execution, don't add response there.
-            # Saving result is fine though, it will expire anyway
-            async with get_redis_client() as redis_client:
-                if await redis_client.delete(get_deletion_key(session)):
-                    log.warning("execution_cancelled", session=session)
-                    return
-            text = response.messages[0].content[0].text
-        await process_response.kiq(user.uuid, session, text)
+        await _commit_tool_state(ctx, state, session)
+
+        # If the session got deleted during worker execution, don't add response there.
+        # Saving result is fine though, it will expire anyway
+        async with get_redis_client() as redis_client:
+            if await redis_client.delete(get_deletion_key(session)):
+                log.warning("execution_cancelled", session=session)
+                return
+        await process_response.kiq(user.uuid, session, reply)
     except Exception as e:
         log.error("generation_unknown_exception", exc=e)
         async with tsq_db() as db:
             await _add_error_result(db, session, "Internal server error occurred", user.uuid)
-        async with get_redis_client() as redis_client:
-            await redis_client.delete(key)
+        async with get_redis_client() as redis:
+            await redis.delete(key)
+
+
+async def _start_with_answers(
+    state: ProgramState | None, answers: list[dict[str, str]], session: uuid.UUID
+) -> ProgramState:
+    """Apply the methodist's answers and let the programme start.
+
+    The answers are checked against the questions the run is waiting for, so a
+    client cannot answer a question nobody asked.
+    """
+    if state is None:
+        raise AnswersDoNotMatch("в этом чате нет программы")
+    answered = apply_answers(state, [ClarificationAnswer.model_validate(answer) for answer in answers])
+    saved = await store.save(answered, expected_run_id=answered.run_id)
+    log.info("program_answers_applied", session=str(session), run_id=str(saved.run_id))
+    await program_stage.kiq(session, saved.current_stage.value, saved.run_id)
+    return saved
+
+
+async def _commit_tool_state(ctx: ToolContext, previous: ProgramState | None, session: uuid.UUID) -> None:
+    """Save what the tools changed, and start the programme if one was started."""
+    if not ctx.dirty or ctx.state is None:
+        return
+    started = previous is None or ctx.state.run_id != previous.run_id
+    saved = await store.save(ctx.state) if started else await store.save(ctx.state, expected_run_id=ctx.state.run_id)
+    log.info("program_state_committed", session=str(session), run_id=str(saved.run_id), status=saved.status.value)
+    if started and saved.status is ProgramStatus.GENERATING:
+        await program_stage.kiq(session, saved.current_stage.value, saved.run_id)
 
 
 @broker.task(queue_name="default")
 async def process_response(user_uuid: uuid.UUID, session_id: uuid.UUID, response: str):
+    """Publish the turn's answer: the result row, the chat message and the name."""
     redis_generation_key = get_generation_key(user_uuid)
     try:
-        data = json.loads(response)
-        output = HarnessStructuredOutput.model_validate(data)
-
         async with tsq_db() as db:
             update_name = None
-            if output.chat_name:
-                session = await db.get(ChatSession, session_id)
-                if session is not None and session.name == "Новый чат":
-                    chat_name = output.chat_name
-                    if len(chat_name) > MAX_CHAT_NAME_LENGTH:
-                        chat_name = chat_name[: MAX_CHAT_NAME_LENGTH - 3].rstrip() + "..."
-                    session.name = chat_name
-                    update_name = chat_name
+            session = await db.get(ChatSession, session_id)
+            if session is not None:
+                state = await store.load(session_id)
+                # A programme names itself when it is rendered; until then the
+                # chat takes its name from the first thing the methodist said.
+                if state is None or state.failed:
+                    first = await first_user_message(db, session_id)
+                    update_name = resolve_chat_name(session.name, first_user_message=first)
+                    if update_name is not None:
+                        session.name = update_name
 
             result = GenerationResult(
                 chat_session_id=session_id,
                 type=GenerationResultType.SUCCESS,
-                content=output.message,
+                content=response,
                 update_name=update_name,
             )
             db.add(result)
@@ -171,7 +208,7 @@ async def process_response(user_uuid: uuid.UUID, session_id: uuid.UUID, response
                     chat_session_id=session_id,
                     role=UserRole.ASSISTANT,
                     content=response,
-                    display_text=output.message,
+                    display_text=response,
                 )
             )
             await db.commit()

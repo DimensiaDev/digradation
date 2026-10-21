@@ -159,12 +159,9 @@ class Message(BaseModel):
         files = None
         if obj.files_str:
             files = [FileSchema(id=f.strip()) for f in obj.files_str.split(",")]
-        return cls(content=[Content(text=obj.content, files=files)], role=Role(obj.role))
-
-
-class HarnessStructuredOutput(BaseModel):
-    chat_name: str | None = None
-    message: str
+        # The display text is what the methodist saw, so it is what the model
+        # has to read back; `content` may carry a machine-readable payload.
+        return cls(content=[Content(text=obj.display_text or obj.content, files=files)], role=Role(obj.role))
 
 
 class ResponseFormat(BaseModel):
