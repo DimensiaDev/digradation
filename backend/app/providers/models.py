@@ -160,7 +160,7 @@ class Message(BaseModel):
         files = None
         if obj.files_str:
             files = [FileSchema(id=f.strip()) for f in obj.files_str.split(",")]
-        return cls(content=[Content(text=obj.content, files=files)], role=obj.role)  # type: ignore
+        return cls(content=[Content(text=obj.content, files=files)], role=Role(obj.role))
 
 
 class HarnessStructuredOutput(BaseModel):
