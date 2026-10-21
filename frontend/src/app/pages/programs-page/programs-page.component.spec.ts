@@ -91,7 +91,7 @@ describe('ProgramsPage', () => {
   it('renders the section heading and the mock catalog', () => {
     const heading = fixture.debugElement.query(By.css('h1'));
 
-    expect(heading.nativeElement.textContent.trim()).toBe('Мои программы');
+    expect(heading.nativeElement.textContent.trim()).toBe('Программы');
     expect(cardTitles().length).toBe(6);
     expect(cardTitles()[0]).toBe('Python для анализа данных');
     expect(pagination()).not.toBeNull();
@@ -115,6 +115,21 @@ describe('ProgramsPage', () => {
     fixture.detectChanges();
 
     expect(cardTitles().length).toBe(6);
+  });
+
+  it('collapses distant pages into an ellipsis', () => {
+    for (let index = 0; index < 43; index++) {
+      service.duplicate('it-python');
+    }
+    fixture.detectChanges();
+
+    pageButton(9)?.nativeElement.click();
+    fixture.detectChanges();
+
+    expect(fixture.debugElement.queryAll(By.css('.pagination__ellipsis')).length).toBe(1);
+    expect(pageButton(1)).toBeTruthy();
+    expect(pageButton(7)).toBeTruthy();
+    expect(pageButton(2)).toBeFalsy();
   });
 
   it('returns to the first page when a filter changes', () => {

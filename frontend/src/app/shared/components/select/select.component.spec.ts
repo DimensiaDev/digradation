@@ -36,12 +36,14 @@ class TestHost {
       [formControl]="control"
       [options]="options"
       [multiple]="true"
+      [allValue]="allValue"
       placeholder="Все технологии"
     />
   `
 })
 class MultipleTestHost {
   options: SelectOption[] = OPTIONS;
+  allValue = 'all';
   readonly control = new FormControl<string[]>([]);
 }
 
@@ -196,6 +198,28 @@ describe('Select', () => {
       expect(multipleFixture.componentInstance.control.value).toEqual([]);
       expect(multipleSelect.selectedLabel()).toBe('Все технологии');
       expect(options[0].nativeElement.getAttribute('aria-selected')).toBe('true');
+    });
+
+    it('should clear multiple values through a caller-configured allValue', async () => {
+      const multipleFixture = TestBed.createComponent(MultipleTestHost);
+      multipleFixture.componentInstance.options = [{ value: 'any', label: 'Любой' }, ...OPTIONS];
+      multipleFixture.componentInstance.allValue = 'any';
+      multipleFixture.detectChanges();
+      await multipleFixture.whenStable();
+      const multipleDebug = multipleFixture.debugElement.query(By.directive(Select));
+      const multipleSelect = multipleDebug.componentInstance as Select;
+
+      await openListboxFor(multipleFixture);
+      const options = multipleDebug.queryAll(By.css('li[role="option"]'));
+      options[1].nativeElement.click();
+      multipleFixture.detectChanges();
+      expect(multipleSelect.selectedLabels()).toEqual(['Внутренний проект']);
+
+      options[0].nativeElement.click();
+      multipleFixture.detectChanges();
+
+      expect(multipleFixture.componentInstance.control.value).toEqual([]);
+      expect(multipleSelect.selectedLabel()).toBe('Все технологии');
     });
 
     it('should mark the control touched when the dropdown closes', async () => {

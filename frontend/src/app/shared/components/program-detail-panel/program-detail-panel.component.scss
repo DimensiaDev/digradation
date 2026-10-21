@@ -480,6 +480,16 @@
   }
 }
 
+@media (max-width: 980px) {
+  .program-panel {
+    inset: 0;
+    width: auto;
+    height: auto;
+    border: 0;
+    border-radius: 0;
+  }
+}
+
 @media (max-width: 560px) {
   .program-panel {
     &__header {

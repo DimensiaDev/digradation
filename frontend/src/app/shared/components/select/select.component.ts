@@ -42,6 +42,7 @@ export class Select implements ControlValueAccessor, OnInit {
   readonly placeholder = input('Выберите тип проекта');
   readonly disabled = input(false, { transform: booleanAttribute });
   readonly multiple = input(false, { transform: booleanAttribute });
+  readonly allValue = input<string | null>(null);
 
   readonly isOpen = signal(false);
   readonly value = signal<SelectValue>(null);
@@ -160,7 +161,8 @@ export class Select implements ControlValueAccessor, OnInit {
   readonly isDisabled = computed(() => this.disabled() || this.formDisabled());
 
   isSelected(option: SelectOption): boolean {
-    if (this.multiple() && option.value === 'all') {
+    const allValue = this.allValue();
+    if (this.multiple() && allValue !== null && option.value === allValue) {
       return this.currentValues().length === 0;
     }
     return this.currentValues().includes(option.value);
@@ -199,7 +201,7 @@ export class Select implements ControlValueAccessor, OnInit {
     if (this.multiple()) {
       const current = this.currentValues();
       const next =
-        option.value === 'all'
+        option.value === this.allValue()
           ? []
           : current.includes(option.value)
             ? current.filter((value) => value !== option.value)

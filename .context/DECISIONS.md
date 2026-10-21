@@ -1270,9 +1270,9 @@ template keep working while the number has a single source.
   even though it currently slices an in-memory signal. The page owns the page number,
   resets it on any filter change, and clamps it after a deletion or archive shrinks the
   filtered result.
-- **The catalog has no create CTA.** Program creation starts on the home page. Editing a
-  card still leads to `/programs/new`, which renders `SectionPlaceholder` inside the full
-  gate until the form exists.
+- **The catalog has no create CTA.** Program creation has no entry point yet, and
+  `/programs/new` renders `SectionPlaceholder` inside the full gate until the form exists.
+  No card action navigates there.
 - **The card is a separate component partly for the style budget.** `anyComponentStyle`
   warns at 6 kB, so a page-sized stylesheet would cross it. Theme accents and status colours
   are driven by `data-theme` / `data-status` attributes, and status colours live in global
@@ -1329,3 +1329,20 @@ The catalog now opens a right-side detail view from a card, without leaving `/pr
 - **The card opens through a full-card button.** The button sits under the card's content;
   the content has `pointer-events: none` and the context menu opts back in with
   `pointer-events: auto`, so the whole card is one target without swallowing the menu.
+
+## The programs catalog is lazy, responsive and caller-configured (2026-10-21)
+
+- **`/programs` is lazy-loaded.** The initial bundle was within a few kilobytes of its 1 MB
+  budget, so the page and its detail panel now load through `loadComponent` instead of
+  entering the initial chunk. The next catalogue-sized feature would otherwise cross an
+  error threshold, not just a warning.
+- **Below 980px the panel fills the viewport and the guest overlay drops the sidebar
+  offset.** The layout keeps a fixed 340px sidebar, so a 640px floating panel would cover
+  the navigation on a narrow window. At 980px and below the panel becomes full-screen and
+  the overlay uses `inset: 0`; wide viewports keep the floating card.
+- **The catalogue is labelled `Программы`, and its tag filter is `Теги`.** The route is a
+  catalogue that shows several authors and is previewed to guests, so `Мои программы` was
+  misleading. `Технология` was also too narrow for tags such as soft skills and management.
+- **`Select` no longer hardcodes the `'all'` sentinel.** A multiple select treats a value as
+  the clear action only when the caller supplies `allValue`; `/programs` passes `allValue="all"`.
+  This keeps a page-specific convention out of the shared control.

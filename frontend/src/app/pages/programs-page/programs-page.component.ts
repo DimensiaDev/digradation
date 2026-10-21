@@ -40,10 +40,7 @@ function buildTagOptions(programs: readonly Program[]): SelectOption[] {
   const tags = [...new Set(programs.flatMap((program) => program.tags))].sort((first, second) =>
     first.localeCompare(second, 'ru')
   );
-  return [
-    { value: 'all', label: 'Все технологии' },
-    ...tags.map((tag) => ({ value: tag, label: tag }))
-  ];
+  return [{ value: 'all', label: 'Все теги' }, ...tags.map((tag) => ({ value: tag, label: tag }))];
 }
 
 function buildDateOptions(programs: readonly Program[]): SelectOption[] {

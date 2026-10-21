@@ -20,7 +20,7 @@ export interface NavItem {
 
 export const USER_NAV_ITEMS: NavItem[] = [
   { label: 'Главная', icon: LucideHouse, route: '/home' },
-  { label: 'Мои программы', icon: LucideFolderCode, route: '/programs' },
+  { label: 'Программы', icon: LucideFolderCode, route: '/programs' },
   { label: 'Библиотека', icon: LucideLibrary, route: '/library' }
 ];
 

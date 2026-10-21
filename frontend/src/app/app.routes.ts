@@ -12,7 +12,6 @@ import { SettingsPage } from './pages/settings-page/settings-page.component';
 import { ProfilePage } from './pages/profile-page/profile-page.component';
 import { HomePage } from './pages/home-page/home-page.component';
 import { HelpPage } from './pages/help-page/help-page.component';
-import { ProgramsPage } from './pages/programs-page/programs-page.component';
 import { adminGuard } from './core/guards/admin.guard';
 import { AuthGate } from './shared/components/auth-gate/auth-gate.component';
 import { UsersPage } from './pages/admin/users-page/users-page.component';
@@ -56,7 +55,15 @@ export const routes: Routes = [
         path: 'programs',
         component: AuthGate,
         data: { authGateMode: 'preview' },
-        children: [{ path: '', component: ProgramsPage }]
+        children: [
+          {
+            path: '',
+            loadComponent: () =>
+              import('./pages/programs-page/programs-page.component').then(
+                (module) => module.ProgramsPage
+              )
+          }
+        ]
       },
       {
         path: '',
