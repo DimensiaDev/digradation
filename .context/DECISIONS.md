@@ -1395,6 +1395,8 @@ that lives in the chat worker's turn.
 - **`generate_chat_message` stays exactly as `main` has it.** The intake half of #3 — offering
   `INTAKE_TOOLS`, committing the state a `begin_program` call started and answering a chat that
   already holds a run — is not in this change, and neither is its test block.
+  *Superseded on 2026-10-21, when the chat turn became a tool loop — see "The chat turn became
+  a tool loop, and the programme got an API".*
 - **The seam is what this branch owes that worker.** `INTAKE_TOOLS`, `ToolContext`,
   `execute_tool`/`call_executor`, `store.save` and `program_stage.kiq(session_id, stage, run_id)`
   are usable from `api.py` as written; the worker needs no new module, only the wiring.
