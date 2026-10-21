@@ -9,7 +9,7 @@ the route only reports it.
 
 from __future__ import annotations
 
-from app.agentic.models import StageStatuses
+from app.agentic.models import ProgramStatus, StageStatuses
 from app.agentic.state import ProgramState
 from app.schemas.chat import (
     ClarificationQuestionSchema,
@@ -60,13 +60,17 @@ def programme_state(state: ProgramState | None, *, running: bool = False) -> Pro
 
     `running` is a live fact rather than part of the state: it is true while a
     worker holds the current stage's lock, so a client can tell a programme
-    that is being worked on from one that stalled.
+    that is being worked on from one that stalled. It is not a completion
+    signal — a stage waiting in the queue holds no lock, and the finalisation
+    has none either. `busy` is the one to poll on: it is true for as long as
+    the programme is being worked on, the finalisation included.
     """
     if state is None:
         return ProgramStateSchema(
             status=ProgramViewStatus.NONE,
             stages=StageStatuses(),
             running=False,
+            busy=False,
             updated_at=None,
             version=0,
             draft=ProgramBlocksSchema(),
@@ -76,6 +80,7 @@ def programme_state(state: ProgramState | None, *, running: bool = False) -> Pro
         current_stage=state.current_stage,
         stages=state.stages,
         running=running,
+        busy=state.status is ProgramStatus.GENERATING,
         error=state.error,
         updated_at=state.updated_at,
         version=state.version,

@@ -18,7 +18,6 @@ from datetime import UTC, datetime, timedelta
 
 import structlog.stdlib
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agentic import store
 from app.agentic.errors import (
@@ -41,9 +40,8 @@ from app.models.auth import User
 from app.models.chat import (
     ChatMessage,
     ChatSession,
-    GenerationResult,
-    GenerationResultType,
     UserRole,
+    write_result,
 )
 from app.naming import first_user_message, resolve_chat_name
 from app.providers.containers import provider
@@ -247,7 +245,7 @@ async def finalize_program_draft(session_id: uuid.UUID, run_id: uuid.UUID) -> No
             )
             if update_name is not None:
                 row.name = update_name
-            await _write_result(db, session_id, message, update_name=update_name)
+            await write_result(db, session_id, message, update_name=update_name)
             db.add(
                 ChatMessage(
                     chat_session_id=session_id,
@@ -356,35 +354,6 @@ async def _user_uuid(session_id: uuid.UUID) -> uuid.UUID | None:
     return user.uuid if user is not None else None
 
 
-async def _write_result(
-    db: AsyncSession,
-    session_id: uuid.UUID,
-    message: str,
-    *,
-    update_name: str | None = None,
-) -> None:
-    """Write this turn's result, replacing the row the chat already holds.
-
-    ``generation_results.chat_session_id`` is the primary key, so a second insert
-    fails; a draft or a failure posted mid-run updates the row instead.
-    """
-    result = await db.get(GenerationResult, session_id)
-    if result is None:
-        db.add(
-            GenerationResult(
-                chat_session_id=session_id,
-                type=GenerationResultType.SUCCESS,
-                content=message,
-                update_name=update_name,
-            )
-        )
-        return
-    result.type = GenerationResultType.SUCCESS
-    result.content = message
-    result.update_name = update_name
-    result.timestamp = datetime.now(UTC)
-
-
 async def _notify(session_id: uuid.UUID, message: str) -> None:
     """Tell the methodist, in the chat, that the pipeline stopped."""
     try:
@@ -397,7 +366,7 @@ async def _notify(session_id: uuid.UUID, message: str) -> None:
             update_name = resolve_chat_name(row.name, first_user_message=await first_user_message(db, session_id))
             if update_name is not None:
                 row.name = update_name
-            await _write_result(db, session_id, message, update_name=update_name)
+            await write_result(db, session_id, message, update_name=update_name)
             db.add(
                 ChatMessage(
                     chat_session_id=session_id,

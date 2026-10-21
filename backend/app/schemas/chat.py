@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.agentic.models import (
     Competence,
@@ -80,12 +80,9 @@ class ClarificationQuestionSchema(BaseModel):
 
     id: str = Field(description="Идентификатор вопроса; ответ присылается с тем же идентификатором")
     text: str = Field(description="Текст вопроса")
-    hint: str | None = Field(default=None, description="Подсказка о формате ответа")
 
     model_config = ConfigDict(
-        json_schema_extra={
-            "example": {"id": "9f1c2b7a4d3e4f5a8b6c1d2e3f4a5b6c", "text": "Для кого программа?", "hint": None}
-        }
+        json_schema_extra={"example": {"id": "9f1c2b7a4d3e4f5a8b6c1d2e3f4a5b6c", "text": "Для кого программа?"}}
     )
 
 
@@ -151,7 +148,19 @@ class ProgramStateSchema(BaseModel):
     status: ProgramViewStatus = Field(description="Состояние программы")
     current_stage: Stage | None = Field(default=None, description="Этап, над которым идёт работа")
     stages: StageStatuses = Field(description="Состояние каждого этапа")
-    running: bool = Field(description="True while a worker holds the current stage's lock")
+    running: bool = Field(
+        description=(
+            "True while a worker holds the current stage's lock. It is a live hint, not a "
+            "completion signal: a stage waiting in the queue is not running yet, and the "
+            "finalisation has no lock at all. Poll on `busy` instead."
+        )
+    )
+    busy: bool = Field(
+        description=(
+            "True while the programme is still being worked on, the finalisation included. "
+            "A client polls until it is false, and the status says why the run stopped."
+        )
+    )
     error: str | None = Field(default=None, description="Причина, по которой программа не собралась")
     updated_at: datetime | None = Field(default=None, description="Когда состояние менялось в последний раз")
     version: int = Field(description="Счётчик изменений состояния")
@@ -245,6 +254,13 @@ class SendMessageSchema(BaseModel):
             "который программа действительно задала, и на каждый открытый вопрос нужен ровно один ответ."
         ),
     )
+
+    @model_validator(mode="after")
+    def _something_to_send(self) -> SendMessageSchema:
+        """A turn carries either a message or the answers to the open questions."""
+        if not self.content.strip() and not self.answers:
+            raise ValueError("сообщение пустое и ответов на вопросы нет")
+        return self
 
     model_config = ConfigDict(
         json_schema_extra={

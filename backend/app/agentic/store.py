@@ -2,7 +2,14 @@
 
 PostgreSQL is canonical: ``chat_sessions.program_state`` holds the whole envelope,
 so a worker that dies leaves every committed block behind. Redis holds a copy
-with a TTL for inspection; nothing reads it as a source of truth.
+with a TTL, and the copy is what the state endpoint reads: it is written on
+every save, so it is as fresh as the row it mirrors, and a client that polls
+the programme's state does not touch PostgreSQL at all.
+
+The one gap is a mirror write that fails while Redis is still up: the endpoint
+then serves the last state that was mirrored, until the next successful write
+or the TTL runs out. The response carries the state's ``updated_at`` and
+``version``, so a client can see that it is looking at an older state.
 
 Concurrency is guarded twice: the row lock serialises two writers, and the
 version on the envelope refuses one derived from an older copy. The per-stage

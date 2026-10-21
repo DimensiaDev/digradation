@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Self
 
@@ -37,6 +37,12 @@ STAGE_ORDER: tuple[Stage, ...] = (Stage.COMPETENCES, Stage.HOURS, Stage.SOURCES,
 #: Enqueues a stage may spend before the run is given up on. The counter moves
 #: when a stage is put on the queue, not when a worker picks it up.
 MAX_STAGE_ATTEMPTS = 3
+
+#: How long a question the methodist is asked may be.
+MAX_QUESTION_LENGTH = 1000
+
+#: How long an answer to a question may be.
+MAX_ANSWER_LENGTH = 4000
 
 
 class CompetencesBlock(BaseModel):
@@ -74,15 +80,14 @@ class ClarificationQuestion(BaseModel):
     """
 
     id: str = Field(description="Идентификатор вопроса, по нему приходят ответы")
-    text: str = Field(min_length=1, max_length=1000, description="Текст вопроса методисту")
-    hint: str | None = Field(default=None, max_length=500, description="Подсказка о формате ответа")
+    text: str = Field(min_length=1, max_length=MAX_QUESTION_LENGTH, description="Текст вопроса методисту")
 
 
 class ClarificationAnswer(BaseModel):
     """The methodist's answer to one question."""
 
     question_id: str = Field(description="Идентификатор вопроса, на который дан ответ")
-    text: str = Field(min_length=1, max_length=4000, description="Текст ответа")
+    text: str = Field(min_length=1, max_length=MAX_ANSWER_LENGTH, description="Текст ответа")
 
 
 class ProgramState(BaseModel):
@@ -363,7 +368,7 @@ def new_state(
     )
 
 
-def apply_answers(state: ProgramState, answers: Iterable[ClarificationAnswer]) -> ProgramState:
+def apply_answers(state: ProgramState, answers: Sequence[ClarificationAnswer]) -> ProgramState:
     """Record the methodist's answers and start the programme.
 
     The answers are checked against the questions the run is actually waiting

@@ -1540,6 +1540,22 @@ two together and gives the client something to poll.
   the open questions are rules about a run, not about the transport, so they are built in
   `app/agentic/view.py` and the route only reports them. A route module that grows helper
   functions is a route module that has become a utility module.
+- **A tool's effect is committed when it happens, not when the turn ends.** The stage loop
+  checkpoints after every call; the intake turn does the same, so a model that starts a
+  programme and then answers nothing still starts the programme. Without the checkpoint the
+  run existed only in memory and the turn reported an error over it.
+- **One writer for the result row.** `generation_results.chat_session_id` is the primary
+  key, and two writers can reach it: a turn publishing its reply and the programme
+  finalising a draft. The writer is `app.models.chat.write_result`, which updates the row
+  when it is already there, so the second writer cannot fail on the key.
+- **A chat is named once, and the title wins when it exists.** Until a programme has a
+  title the chat takes the name of the first thing the methodist said — a running
+  programme must not be "Новый чат" in the chat list — and the title replaces that name
+  when the draft is rendered. One rule, one place (`app/naming.py`), three callers.
+- **A client polls on `busy`.** `running` is a live hint: it is true only while a worker
+  holds the current stage's lock, so it is false while a stage waits in the queue and false
+  during the finalisation, which has no lock. `busy` is true for as long as the programme is
+  being worked on, the finalisation included, and it is the field a client polls on.
 - **`GET /chats/programmes` lists what the user has.** A chat counts as a programme once it
   holds a run, whatever the run's state, and the title is the programme's own title with
   the chat's name as the fallback. The list is paginated the way the chat list is, because

@@ -6,6 +6,7 @@ only thing stubbed out is the enqueue itself (``process_response.kiq``), which
 would otherwise need a live RabbitMQ.
 """
 
+import json
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -33,7 +34,15 @@ from app.models.chat import (
     UserRole,
 )
 from app.providers.mock import MOCK_QUESTION
-from app.providers.models import Message
+from app.providers.models import (
+    Content,
+    FunctionCall,
+    GenerationResponse,
+    InputTokenDetails,
+    Message,
+    ToolCall,
+    Usage,
+)
 from app.tasks import api
 from tests.helpers import run_task
 
@@ -67,6 +76,38 @@ class FalsyResponse:
 
     def __bool__(self) -> bool:
         return False
+
+
+def answer(
+    text: str = "",
+    *,
+    calls: tuple[ToolCall, ...] = (),
+    finish_reason: str = "stop",
+) -> GenerationResponse:
+    """One scripted assistant turn."""
+    return GenerationResponse(
+        messages=[Message(role="assistant", content=[Content(text=text)] if text else [])],
+        model="scripted",
+        created_at=datetime.now(UTC),
+        finish_reason=finish_reason,
+        usage=Usage(
+            input_tokens=1,
+            input_tokens_details=InputTokenDetails(prompt_tokens=1, cached_tokens=0),
+            output_tokens=1,
+            total_tokens=2,
+        ),
+        tool_calls=list(calls),
+    )
+
+
+class ScriptedProvider:
+    """A provider that answers from a script, one response per turn."""
+
+    def __init__(self, responses: list[GenerationResponse]) -> None:
+        self.responses = list(responses)
+
+    async def generate(self, messages, response_format, x_client_id, x_session_id, *, tools=None):  # noqa: ARG002
+        return self.responses.pop(0) if self.responses else None
 
 
 # --------------------------------------------------------------------------------------
@@ -813,8 +854,12 @@ async def test_run_chat_turn_refuses_answers_to_questions_nobody_asked(task_db, 
     stages.assert_not_awaited()
 
 
-async def test_run_chat_turn_refuses_answers_without_a_programme(task_db, rows, redis_keys, kiq_spy, mock_mode):
-    """Answers for a chat that holds no programme are refused."""
+async def test_run_chat_turn_ignores_answers_without_a_programme(task_db, rows, redis_keys, kiq_spy, mock_mode):
+    """Answers for a chat that holds no programme are ignored, not an error.
+
+    Another turn may have applied them already, and a turn that carries answers
+    it cannot use is still a turn: it must not report a failure over it.
+    """
     mock_mode("stage")
     user = await rows.user()
     session = await rows.chat_session(user)
@@ -827,10 +872,70 @@ async def test_run_chat_turn_refuses_answers_without_a_programme(task_db, rows, 
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
-    assert result is not None
-    assert result.type == GenerationResultType.ERROR
+    # The success row is written by process_response, which the spy replaces, so
+    # a row here would be the error one.
+    assert result is None
     stages.assert_not_awaited()
-    kiq_spy.assert_not_awaited()
+    kiq_spy.assert_awaited_once()
+
+
+async def test_run_chat_turn_keeps_a_programme_the_model_started_without_an_answer(
+    task_db, rows, redis_keys, kiq_spy, monkeypatch
+):
+    """A model that starts a programme and then says nothing still starts it.
+
+    The tool's effect is committed as soon as it happens, so a turn that ends
+    without an answer cannot lose the programme.
+    """
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Сделай программу по аналитике")
+    stages = AsyncMock(name="program_stage.kiq")
+    call = ToolCall(
+        id="call-1",
+        function=FunctionCall(
+            name="begin_program",
+            arguments=json.dumps({"requirements": "Курс по статистике", "requested_hours": 72}),
+        ),
+    )
+    scripted = ScriptedProvider(
+        [
+            answer(finish_reason="function_call", calls=(call,)),
+            answer(""),
+        ]
+    )
+    monkeypatch.setattr(api, "provider", scripted)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(api.program_stage, "kiq", stages)
+        await run_task(api.run_chat_turn, session.session_id)
+
+    async with rows.session() as db:
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
+    state = store.parse(stored.program_state)
+    assert state is not None
+    assert state.status is ProgramStatus.GENERATING
+    assert state.requested_hours == 72
+    stages.assert_awaited_once()
+
+
+async def test_process_response_does_not_insert_a_second_result_row(task_db, rows, redis_keys):
+    """The result row is keyed by the session, so a second writer updates it.
+
+    The programme can finalise a draft while a turn is still publishing its
+    reply; whichever arrives second has to update the row, not insert into it.
+    """
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.result(session.session_id, content="черновик программы")
+
+    await run_task(api.process_response, user.uuid, session.session_id, payload(message="Готово."))
+
+    async with rows.session() as db:
+        results = list(
+            await db.scalars(select(GenerationResult).where(GenerationResult.chat_session_id == session.session_id))
+        )
+    assert len(results) == 1
+    assert results[0].content == "Готово."
 
 
 # --------------------------------------------------------------------------------------
@@ -899,8 +1004,12 @@ async def test_process_response_without_a_user_message_leaves_the_session_alone(
     assert stored is not None and stored.name == "Новый чат"
 
 
-async def test_process_response_leaves_a_chat_with_a_programme_alone(task_db, rows, redis_keys):
-    """A programme names itself when it is rendered, not before."""
+async def test_process_response_names_a_chat_with_a_programme_after_the_first_message(task_db, rows, redis_keys):
+    """A running programme takes the name of the first thing the methodist said.
+
+    The programme's own title replaces it when the draft is rendered, so the
+    chat is never nameless while it is being built.
+    """
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id, "Программа по аналитике")
@@ -913,8 +1022,8 @@ async def test_process_response_leaves_a_chat_with_a_programme_alone(task_db, ro
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
         stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
-    assert result is not None and result.update_name is None
-    assert stored is not None and stored.name == "Новый чат"
+    assert result is not None and result.update_name == "Программа по аналитике"
+    assert stored is not None and stored.name == "Программа по аналитике"
 
 
 async def test_process_response_truncates_an_overlong_chat_name(task_db, rows, redis_keys, s3):

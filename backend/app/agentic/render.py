@@ -23,8 +23,8 @@ SOURCE_KIND_NAMES = {
     SourceKind.REFERENCE: "справочное издание",
 }
 
-#: What the methodist is asked to answer. Kept next to the renderer because the
-#: approval phrase is matched literally by the chat worker.
+#: What the methodist is asked to answer. The confirmation itself is the
+#: ``approve_program_draft`` tool call, not a phrase the backend matches.
 CONFIRMATION_PROMPT = (
     "Черновик готов. Проверьте его и ответьте «подтверждаю», если всё верно. "
     "Замечания к программе можно обсудить в этом же чате после утверждения."

@@ -637,6 +637,41 @@ async def test_get_program_reports_the_state_of_a_run(
     assert body["version"] == state.version
     assert body["updated_at"] is not None
     assert body["error"] is None
+    # A run that is being worked on is busy; the lock is only a live hint.
+    assert body["busy"] is True
+    assert body["running"] is False
+
+
+async def test_get_program_is_not_busy_once_the_draft_is_ready(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    state = programme(chat.session_id, status=ProgramStatus.PENDING_APPROVAL)
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/program")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "pending_approval"
+    assert body["busy"] is False
+
+
+async def test_get_program_is_not_busy_while_it_waits_for_answers(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    state = programme(chat.session_id, status=ProgramStatus.AWAITING_ANSWERS).model_copy(
+        update={"questions": [ClarificationQuestion(id="q-1", text="На сколько часов?")]}
+    )
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/program")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "awaiting_answers"
+    # The programme is waiting for the methodist, not for a worker.
+    assert body["busy"] is False
+    assert body["questions"] == [{"id": "q-1", "text": "На сколько часов?"}]
 
 
 async def test_get_program_reports_the_blocks_that_are_already_saved(
@@ -679,7 +714,7 @@ async def test_get_program_reports_the_open_questions(
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "awaiting_answers"
-    assert body["questions"] == [{"id": "q-1", "text": "На сколько часов?", "hint": None}]
+    assert body["questions"] == [{"id": "q-1", "text": "На сколько часов?"}]
 
 
 async def test_get_program_reports_a_failed_run_as_failed(
@@ -746,7 +781,7 @@ async def test_get_result_carries_the_open_questions(
     response = await auth_client.get(f"/chats/{chat.session_id}/result")
 
     assert response.status_code == 200
-    assert response.json()["questions"] == [{"id": "q-1", "text": "На сколько часов?", "hint": None}]
+    assert response.json()["questions"] == [{"id": "q-1", "text": "На сколько часов?"}]
 
 
 # ---------------------------------------------------------------------------
@@ -887,6 +922,14 @@ async def test_send_message_refuses_answers_without_a_programme(
     )
 
     assert response.status_code == 400
+    kiq.generate.assert_not_awaited()
+
+
+async def test_send_message_refuses_an_empty_turn(auth_client: AsyncClient, chat, kiq, redis_session: None):
+    """A turn with neither a message nor answers is nothing to do."""
+    response = await auth_client.post(f"/chats/{chat.session_id}", json={"content": "   "})
+
+    assert response.status_code == 422
     kiq.generate.assert_not_awaited()
 
 

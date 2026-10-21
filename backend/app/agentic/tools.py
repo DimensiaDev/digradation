@@ -15,7 +15,7 @@ import json
 import uuid
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Annotated, Any
 
 import structlog.stdlib
 from pydantic import BaseModel, Field, ValidationError
@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
 from app.agentic.sources import SourceFragment, get_source, search
 from app.agentic.state import (
+    MAX_QUESTION_LENGTH,
     STAGE_ORDER,
     CompetencesBlock,
     HoursBlock,
@@ -117,7 +118,7 @@ class BeginProgramArguments(BaseModel):
         le=1000,
         description="Объём программы в академических часах, если методист его назвал",
     )
-    questions: list[str] = Field(
+    questions: list[Annotated[str, Field(max_length=MAX_QUESTION_LENGTH)]] = Field(
         default_factory=list,
         max_length=10,
         description=(

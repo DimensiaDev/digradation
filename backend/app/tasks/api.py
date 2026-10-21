@@ -19,6 +19,7 @@ from app.models.chat import (
     GenerationResult,
     GenerationResultType,
     UserRole,
+    write_result,
 )
 from app.naming import first_user_message, resolve_chat_name
 from app.providers.containers import provider
@@ -101,7 +102,13 @@ async def run_chat_turn(session: uuid.UUID, answers: list[dict[str, str]] | None
 
         state = await store.load(session)
         if answers:
-            state = await _start_with_answers(state, answers, session)
+            try:
+                state = await _start_with_answers(state, answers, session)
+            except AnswersDoNotMatch as error:
+                # Another turn applied the same answers first. The run has moved
+                # on, and this turn continues without them — it must not report
+                # an error over a turn that succeeded.
+                log.info("program_answers_already_applied", session=str(session), reason=str(error))
 
         ctx = ToolContext(session_id=session, state=state)
         offered = INTAKE_TOOLS
@@ -115,11 +122,23 @@ async def run_chat_turn(session: uuid.UUID, answers: list[dict[str, str]] | None
                 tools=offered,
             )
 
+        async def checkpoint() -> None:
+            """Save what a tool changed, so a turn that dies afterwards keeps it.
+
+            Without this a model that started a programme and then failed to
+            answer would lose the programme: the tool's effect would only have
+            been in memory.
+            """
+            if ctx.dirty:
+                await _commit_tool_state(ctx, state, session)
+                ctx.dirty = False
+
         try:
             reply = await run_tool_loop(
                 messages,
                 generate=generate,
                 call_tool=call_executor(ctx, offered),
+                checkpoint=checkpoint,
             )
         except Exception as e:
             log.error("run_chat_turn_error", session=session, error=e)
@@ -187,22 +206,15 @@ async def process_response(user_uuid: uuid.UUID, session_id: uuid.UUID, response
             update_name = None
             session = await db.get(ChatSession, session_id)
             if session is not None:
-                state = await store.load(session_id)
-                # A programme names itself when it is rendered; until then the
-                # chat takes its name from the first thing the methodist said.
-                if state is None or state.failed:
-                    first = await first_user_message(db, session_id)
-                    update_name = resolve_chat_name(session.name, first_user_message=first)
-                    if update_name is not None:
-                        session.name = update_name
+                # A programme takes the name of its title when it is rendered.
+                # Until then the chat takes the name of the first thing the
+                # methodist said, and the finalise replaces it with the title.
+                first = await first_user_message(db, session_id)
+                update_name = resolve_chat_name(session.name, first_user_message=first)
+                if update_name is not None:
+                    session.name = update_name
 
-            result = GenerationResult(
-                chat_session_id=session_id,
-                type=GenerationResultType.SUCCESS,
-                content=response,
-                update_name=update_name,
-            )
-            db.add(result)
+            await write_result(db, session_id, response, update_name=update_name)
             db.add(
                 ChatMessage(
                     chat_session_id=session_id,

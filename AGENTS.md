@@ -467,15 +467,28 @@ The endpoints the client uses:
 | `GET /chats/programmes` | the user's programmes, paginated with `page` and `items_per_page` |
 
 `GET /program` reads the Redis mirror first and falls back to the row, so a client that
-polls it does not touch PostgreSQL; the fallback re-mirrors the state. `running` is read
-from the stage lock, so a client can tell a programme that is being worked on from one that
-stalled. The route docstrings carry the request and response examples.
+polls it does not touch PostgreSQL; the fallback re-mirrors the state. The response carries
+the state's `updated_at` and `version`, so a client can see that it is looking at an older
+state — a mirror write that fails while Redis is up leaves the endpoint behind until the
+next successful write.
+
+**A client polls on `busy`, not on `running`.** `busy` is true for as long as the programme
+is being worked on, the finalisation included, and false once the run is waiting for the
+methodist or has stopped. `running` is only a live hint — it is true while a worker holds
+the current stage's lock, so it is false while a stage waits in the queue and false during
+the finalisation, which has no lock at all. `GET /result.running` is a different thing
+entirely: it is the chat turn's key, and it is released while the stages still run.
 
 **The view a client sees is built in `app/agentic/view.py`**, not in the route: the status
 projection (a run that died reads as failed), the blocks that are already saved and the open
 questions are the programme's rules. `store.load_cached(db, session_id)` reads the mirror
 first and falls back to the row through the caller's session, because a route reads inside
 its own transaction.
+
+**A chat is named once, and the name is the programme's title when it has one.** Until the
+title exists the chat takes the name of the first thing the methodist said, so a running
+programme is not "Новый чат" in the chat list; when the draft is rendered the title replaces
+it. `app/naming.py` holds the rule and the three callers use it.
 
 ### Live API tests
 

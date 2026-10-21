@@ -797,7 +797,7 @@ async def test_a_notification_that_fails_is_logged_not_raised(
     async def broken_write(*_args, **_kwargs) -> None:
         raise RuntimeError("database is down")
 
-    monkeypatch.setattr(program, "_write_result", broken_write)
+    monkeypatch.setattr(program, "write_result", broken_write)
 
     await program._notify(chat, "Не удалось собрать программу.")
 
