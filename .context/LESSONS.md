@@ -1076,3 +1076,9 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
 - **An answer that is checked against a question the run never asked is a hole.** The
   answers move a run, so they are matched against the open questions by id, every open
   question needs exactly one answer, and a duplicate is refused. Found 2026-10-21.
+- **A seeded e2e row must not name the database.** The pagination spec seeded rows with
+  `psql -U digradation`, a name hardcoded next to the compose project. A developer whose
+  `.env` names the role differently got a bare "command failed" and three red specs, and the
+  failure looked like the change under test rather than the seed. The seed now asks the
+  container for its own `POSTGRES_USER` and `POSTGRES_DB`, and the script goes in on stdin
+  because a `DO $$ ... $$` block cannot survive the shell quoting of `-c`. Found 2026-10-21.
