@@ -83,9 +83,10 @@ Chat routes carry a multi-line docstring **and** a `responses={...}` map for 401
   `os.environ`, so importing any route module requires `SBER_API_KEY` and `SBER_API_SCOPE`.
 - **Python 3.14 floor:** PEP 758 brace-less `except ValueError, TypeError:` is valid and is
   what black emits at `target-version = "py314"`. Do not add parentheses.
-- The LLM contract is two halves that must agree: `HARNESS_STRUCTURED_SCHEMA` in
-  `app/harness.py` is what the model is asked for, and `HarnessStructuredOutput` in
-  `app/providers/models.py` is what the reply is validated against.
+- The LLM contract is the prompt plus the tools: `app/harness.py` holds the prompt the
+  session is created with, and the chat turn is a **tool loop** — the model answers by
+  calling a tool whose specification lives in `app/agentic/tools.py`. There is no fixed
+  output schema any more, so there is nothing to keep in sync with a Pydantic model.
 
 ## 9. Testing
 

@@ -2,7 +2,7 @@ from __future__ import annotations  # required so sqlalchemy doesn't go insane
 
 import typing
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
@@ -17,6 +17,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -24,6 +25,7 @@ from app.database import Base
 MAX_FILENAME_LENGTH = 128
 MAX_CHAT_NAME_LENGTH = 128
 DEFAULT_CHAT_NAME = "Новый чат"
+
 
 if typing.TYPE_CHECKING:
     from app.models.auth import User
@@ -120,6 +122,38 @@ class GenerationResult(Base):
     attachment: Mapped[Attachment | None] = relationship(
         "Attachment", back_populates="generation_result", uselist=False
     )
+
+
+async def write_result(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    content: str,
+    *,
+    type: GenerationResultType = GenerationResultType.SUCCESS,
+    update_name: str | None = None,
+) -> None:
+    """Write the chat's result row, replacing the one it already has.
+
+    The row is keyed by the session, so there is exactly one per chat. Two
+    writers can reach it — a turn publishing its reply while the programme
+    finalises a draft — and whichever arrives second has to update the row
+    rather than insert a second one, which the primary key would refuse.
+    """
+    result = await db.get(GenerationResult, session_id)
+    if result is None:
+        db.add(
+            GenerationResult(
+                chat_session_id=session_id,
+                type=type,
+                content=content,
+                update_name=update_name,
+            )
+        )
+        return
+    result.type = type
+    result.content = content
+    result.update_name = update_name
+    result.timestamp = datetime.now(UTC)
 
 
 class Attachment(Base):

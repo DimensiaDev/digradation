@@ -13,6 +13,7 @@ import pytest
 
 from app.providers.mock import (
     DEFAULT_MODE,
+    MOCK_QUESTION,
     MODES,
     MockProvider,
     _requested_hours,
@@ -87,25 +88,25 @@ async def _generate(provider, text: str = "hello"):
     )
 
 
-def _payload(response) -> dict:
-    return json.loads(response.messages[0].content[0].text)
+def _reply(response) -> str:
+    return response.messages[0].content[0].text
 
 
-async def test_mock_ok_mode_returns_the_chat_contract(monkeypatch):
+async def test_mock_ok_mode_answers_in_plain_text(monkeypatch):
+    """The turn is a tool loop, so the reply is prose and not a JSON envelope."""
     monkeypatch.setenv("MOCK_PROVIDER_MODE", "ok")
     provider = MockProvider("mock", "PERS")
-    payload = _payload(await _generate(provider))
+    reply = _reply(await _generate(provider))
 
-    assert set(payload) == {"chat_name", "message"}
-    assert payload["message"]
-    assert payload["chat_name"]
+    assert reply
+    assert not reply.startswith("{")
 
 
 async def test_mock_ok_mode_is_deterministic(monkeypatch):
     """The same conversation must produce the same reply, or e2e assertions drift."""
     monkeypatch.setenv("MOCK_PROVIDER_MODE", "ok")
-    first = _payload(await _generate(MockProvider("mock", "PERS")))
-    second = _payload(await _generate(MockProvider("mock", "PERS")))
+    first = _reply(await _generate(MockProvider("mock", "PERS")))
+    second = _reply(await _generate(MockProvider("mock", "PERS")))
     assert first == second
 
 
@@ -123,11 +124,11 @@ async def test_mock_empty_mode_returns_a_message_with_no_content(monkeypatch):
 
 async def test_mock_output_is_deterministic():
     provider = MockProvider("mock", "PERS")
-    first = _payload(await _generate(provider, "same input"))
-    second = _payload(await _generate(provider, "same input"))
+    first = _reply(await _generate(provider, "same input"))
+    second = _reply(await _generate(provider, "same input"))
     assert first == second
 
-    different = _payload(await _generate(provider, "other input"))
+    different = _reply(await _generate(provider, "other input"))
     assert different != first
 
 
@@ -163,8 +164,11 @@ async def test_mock_stage_starts_a_run_from_the_methodists_message(monkeypatch, 
     assert arguments["requirements"] == text
     if hours is None:
         assert "requested_hours" not in arguments
+        # Without a volume the programme cannot be built, so the mock asks.
+        assert arguments["questions"] == [MOCK_QUESTION]
     else:
         assert arguments["requested_hours"] == hours
+        assert "questions" not in arguments
 
 
 async def test_mock_stage_without_a_recognised_tool_falls_back_to_the_chat_contract(monkeypatch):
@@ -182,19 +186,15 @@ async def test_mock_stage_without_a_recognised_tool_falls_back_to_the_chat_contr
     )
 
     assert response is not None
-    assert set(_payload(response)) == {"chat_name", "message"}
+    assert _reply(response)
 
 
-def test_mock_stage_answer_is_json_when_a_schema_is_requested():
-    from app.providers.models import ResponseFormat
-
+def test_mock_stage_answer_is_plain_text():
     provider = MockProvider("mock", "PERS")
 
-    answer = provider._stage_answer(ResponseFormat(type="json_schema", schema={"type": "object"}, strict=False))
+    answer = provider._stage_answer()
 
-    payload = json.loads(answer)
-    assert payload["chat_name"] is None
-    assert payload["message"]
+    assert answer == "Блок сохранён."
 
 
 async def test_mock_close_is_safe():

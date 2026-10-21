@@ -14,10 +14,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from app.agentic import store
+from app.agentic.models import ProgramStatus, Stage
+from app.agentic.state import ProgramState, new_state
 from app.auth import hash_password
 from app.cache import get_deletion_key, get_generation_key, get_redis_client
 from app.models.auth import User
@@ -30,7 +33,16 @@ from app.models.chat import (
     GenerationResultType,
     UserRole,
 )
-from app.providers.models import Message
+from app.providers.mock import MOCK_QUESTION
+from app.providers.models import (
+    Content,
+    FunctionCall,
+    GenerationResponse,
+    InputTokenDetails,
+    Message,
+    ToolCall,
+    Usage,
+)
 from app.tasks import api
 from tests.helpers import run_task
 
@@ -44,19 +56,19 @@ def payload(
     chat_name: str | None = "Расчёт детали",
     message: str = "Готово.",
 ) -> str:
-    return json.dumps(
-        {
-            "chat_name": chat_name,
-            "message": message,
-        },
-        ensure_ascii=False,
-    )
+    """The reply a turn forwards.
+
+    The model no longer names the chat, so the payload is the answer itself.
+    The `chat_name` argument is kept for the tests that used to read the name
+    out of the model's reply; the name now comes from the first message.
+    """
+    return message
 
 
 class FalsyResponse:
     """A provider response object that is falsy but not ``None``.
 
-    ``generate_chat_message`` guards its provider output twice: once with
+    ``run_chat_turn`` guards its provider output twice: once with
     ``is None`` (which raises and is reported as an internal error) and once with
     a plain truthiness check, which only a response that is falsy without being
     ``None`` can reach.
@@ -64,6 +76,38 @@ class FalsyResponse:
 
     def __bool__(self) -> bool:
         return False
+
+
+def answer(
+    text: str = "",
+    *,
+    calls: tuple[ToolCall, ...] = (),
+    finish_reason: str = "stop",
+) -> GenerationResponse:
+    """One scripted assistant turn."""
+    return GenerationResponse(
+        messages=[Message(role="assistant", content=[Content(text=text)] if text else [])],
+        model="scripted",
+        created_at=datetime.now(UTC),
+        finish_reason=finish_reason,
+        usage=Usage(
+            input_tokens=1,
+            input_tokens_details=InputTokenDetails(prompt_tokens=1, cached_tokens=0),
+            output_tokens=1,
+            total_tokens=2,
+        ),
+        tool_calls=list(calls),
+    )
+
+
+class ScriptedProvider:
+    """A provider that answers from a script, one response per turn."""
+
+    def __init__(self, responses: list[GenerationResponse]) -> None:
+        self.responses = list(responses)
+
+    async def generate(self, messages, response_format, x_client_id, x_session_id, *, tools=None):  # noqa: ARG002
+        return self.responses.pop(0) if self.responses else None
 
 
 # --------------------------------------------------------------------------------------
@@ -142,6 +186,16 @@ class Rows:
             await db.commit()
             await db.refresh(row)
         return row
+
+    async def program_state(self, session_id: uuid.UUID, state: ProgramState) -> None:
+        """Put a programme state on the chat row, the way the pipeline does."""
+        async with self.session() as db:
+            await db.execute(
+                update(ChatSession)
+                .where(ChatSession.session_id == session_id)
+                .values(program_state=state.model_dump(mode="json"))
+            )
+            await db.commit()
 
     async def drop_sessions(self, session_ids: list[uuid.UUID]) -> None:
         async with self.session() as db:
@@ -232,9 +286,13 @@ class ProviderRecorder:
     def __init__(self, original) -> None:
         self._original = original
         self.histories: list[list[Message]] = []
+        self.tools: list[list[str]] = []
 
     async def __call__(self, messages: list[Message], *args, **kwargs):
         self.histories.append(messages)
+        tools = kwargs.get("tools")
+        if tools is not None:
+            self.tools.append([tool.function.name for tool in tools])
         return await self._original(messages, *args, **kwargs)
 
     @property
@@ -311,33 +369,29 @@ async def test_cleanup_old_results_is_idempotent(task_db, rows):
 
 
 # --------------------------------------------------------------------------------------
-# generate_chat_message
+# run_chat_turn
 # --------------------------------------------------------------------------------------
 
 
-async def test_generate_chat_message_enqueues_process_response(task_db, rows, redis_keys, kiq_spy, mock_mode):
+async def test_run_chat_turn_enqueues_process_response(task_db, rows, redis_keys, kiq_spy, mock_mode):
     mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id, "Посчитай кронштейн")
 
-    await run_task(api.generate_chat_message, session.session_id)
+    await run_task(api.run_chat_turn, session.session_id)
 
     kiq_spy.assert_awaited_once()
     args = kiq_spy.await_args.args
     assert args[0] == user.uuid
     assert args[1] == session.session_id
-    forwarded = json.loads(args[2])
-    assert set(forwarded) == {"chat_name", "message"}
-    assert forwarded["message"]
+    assert args[2], "the turn forwards the model's answer"
     # No result is written by this task: that is process_response's job.
     async with rows.session() as db:
         assert await db.scalar(select(func.count()).select_from(GenerationResult)) == 0
 
 
-async def test_generate_chat_message_clears_a_stale_result_and_takes_the_lock(
-    task_db, rows, redis_keys, kiq_spy, mock_mode
-):
+async def test_run_chat_turn_clears_a_stale_result_and_takes_the_lock(task_db, rows, redis_keys, kiq_spy, mock_mode):
     mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
@@ -349,7 +403,7 @@ async def test_generate_chat_message_clears_a_stale_result_and_takes_the_lock(
         timestamp=datetime.now(tz=UTC),
     )
 
-    await run_task(api.generate_chat_message, session.session_id)
+    await run_task(api.run_chat_turn, session.session_id)
 
     async with rows.session() as db:
         assert await db.get(GenerationResult, session.session_id) is None
@@ -357,13 +411,13 @@ async def test_generate_chat_message_clears_a_stale_result_and_takes_the_lock(
     kiq_spy.assert_awaited_once()
 
 
-async def test_generate_chat_message_without_messages_writes_an_error(task_db, rows, redis_keys, kiq_spy, mock_mode):
+async def test_run_chat_turn_without_messages_writes_an_error(task_db, rows, redis_keys, kiq_spy, mock_mode):
     mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     key = redis_keys.track(get_generation_key(user.uuid))
 
-    await run_task(api.generate_chat_message, session.session_id)
+    await run_task(api.run_chat_turn, session.session_id)
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
@@ -374,16 +428,14 @@ async def test_generate_chat_message_without_messages_writes_an_error(task_db, r
     kiq_spy.assert_not_awaited()
 
 
-async def test_generate_chat_message_with_null_provider_response_writes_an_error(
-    task_db, rows, redis_keys, kiq_spy, mock_mode
-):
+async def test_run_chat_turn_with_null_provider_response_writes_an_error(task_db, rows, redis_keys, kiq_spy, mock_mode):
     mock_mode("error")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id)
     key = redis_keys.track(get_generation_key(user.uuid))
 
-    await run_task(api.generate_chat_message, session.session_id)
+    await run_task(api.run_chat_turn, session.session_id)
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
@@ -394,16 +446,14 @@ async def test_generate_chat_message_with_null_provider_response_writes_an_error
     kiq_spy.assert_not_awaited()
 
 
-async def test_generate_chat_message_with_contentless_response_writes_an_error(
-    task_db, rows, redis_keys, kiq_spy, mock_mode
-):
+async def test_run_chat_turn_with_contentless_response_writes_an_error(task_db, rows, redis_keys, kiq_spy, mock_mode):
     mock_mode("empty")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id)
     key = redis_keys.track(get_generation_key(user.uuid))
 
-    await run_task(api.generate_chat_message, session.session_id)
+    await run_task(api.run_chat_turn, session.session_id)
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
@@ -414,7 +464,7 @@ async def test_generate_chat_message_with_contentless_response_writes_an_error(
     kiq_spy.assert_not_awaited()
 
 
-async def test_generate_chat_message_with_falsy_provider_response_writes_an_error(
+async def test_run_chat_turn_with_falsy_provider_response_writes_an_error(
     task_db, rows, redis_keys, kiq_spy, monkeypatch
 ):
     monkeypatch.setattr(api.provider, "generate", AsyncMock(return_value=FalsyResponse()))
@@ -423,28 +473,44 @@ async def test_generate_chat_message_with_falsy_provider_response_writes_an_erro
     await rows.message(session.session_id)
     key = redis_keys.track(get_generation_key(user.uuid))
 
-    await run_task(api.generate_chat_message, session.session_id)
+    await run_task(api.run_chat_turn, session.session_id)
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
     assert result is not None
     assert result.type == GenerationResultType.ERROR
-    assert result.content == "Internal server error occurred, please try again later or contact support."
-    # This branch writes the result inline instead of going through
-    # ``_add_error_result``, so nothing releases the generation lock here. It only
-    # expires on its own TTL, which is what the assertion below pins down.
-    assert await redis_keys.get(key) == "1"
+    assert result.content == "Internal server error occurred"
+    assert await redis_keys.get(key) is None
     kiq_spy.assert_not_awaited()
 
 
-async def test_generate_chat_message_stops_on_a_deletion_tombstone(task_db, rows, redis_keys, kiq_spy, mock_mode):
+async def test_run_chat_turn_with_an_empty_answer_writes_an_error(task_db, rows, redis_keys, kiq_spy, mock_mode):
+    """A provider that answers with nothing is not an answer."""
+    mock_mode("empty")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id)
+    key = redis_keys.track(get_generation_key(user.uuid))
+
+    await run_task(api.run_chat_turn, session.session_id)
+
+    async with rows.session() as db:
+        result = await db.get(GenerationResult, session.session_id)
+    assert result is not None
+    assert result.type == GenerationResultType.ERROR
+    assert result.content == "Provider did not respond properly"
+    assert await redis_keys.get(key) is None
+    kiq_spy.assert_not_awaited()
+
+
+async def test_run_chat_turn_stops_on_a_deletion_tombstone(task_db, rows, redis_keys, kiq_spy, mock_mode):
     mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id)
     await redis_keys.put(get_deletion_key(session.session_id))
 
-    await run_task(api.generate_chat_message, session.session_id)
+    await run_task(api.run_chat_turn, session.session_id)
 
     kiq_spy.assert_not_awaited()
     # The response is dropped, but process_response never runs, so nothing is stored.
@@ -452,16 +518,14 @@ async def test_generate_chat_message_stops_on_a_deletion_tombstone(task_db, rows
         assert await db.scalar(select(func.count()).select_from(GenerationResult)) == 0
 
 
-async def test_generate_chat_message_skips_when_the_generation_lock_is_held(
-    task_db, rows, redis_keys, kiq_spy, mock_mode
-):
+async def test_run_chat_turn_skips_when_the_generation_lock_is_held(task_db, rows, redis_keys, kiq_spy, mock_mode):
     mock_mode("ok")
     user = await rows.user()
     session = await rows.chat_session(user)
     await rows.message(session.session_id)
     key = await redis_keys.put(get_generation_key(user.uuid))
 
-    await run_task(api.generate_chat_message, session.session_id)
+    await run_task(api.run_chat_turn, session.session_id)
 
     assert await redis_keys.get(key) == "1", "the running task keeps the lock, not this one"
     kiq_spy.assert_not_awaited()
@@ -469,19 +533,19 @@ async def test_generate_chat_message_skips_when_the_generation_lock_is_held(
         assert await db.scalar(select(func.count()).select_from(GenerationResult)) == 0
 
 
-async def test_generate_chat_message_without_an_owning_user_reports_an_error(task_db, redis_keys, monkeypatch):
+async def test_run_chat_turn_without_an_owning_user_reports_an_error(task_db, redis_keys, monkeypatch):
     add_error = AsyncMock()
     monkeypatch.setattr(api, "_add_error_result", add_error)
     session = uuid.uuid4()
 
-    await run_task(api.generate_chat_message, session)
+    await run_task(api.run_chat_turn, session)
 
     add_error.assert_awaited_once()
     assert add_error.await_args.args[1] == session
     assert add_error.await_args.args[2] == "Invalid message session"
 
 
-async def test_generate_chat_message_for_a_missing_session_hits_the_foreign_key(task_db, redis_keys):
+async def test_run_chat_turn_for_a_missing_session_hits_the_foreign_key(task_db, redis_keys):
     """The ``no_user_for_session`` guard cannot persist anything for a phantom session.
 
     ``_add_error_result`` inserts a ``GenerationResult`` keyed by the session id,
@@ -489,10 +553,10 @@ async def test_generate_chat_message_for_a_missing_session_hits_the_foreign_key(
     the insert fails, so the task raises instead of returning quietly.
     """
     with pytest.raises(IntegrityError):
-        await run_task(api.generate_chat_message, uuid.uuid4())
+        await run_task(api.run_chat_turn, uuid.uuid4())
 
 
-async def test_generate_chat_message_reports_an_unexpected_failure(task_db, rows, redis_keys, mock_mode):
+async def test_run_chat_turn_reports_an_unexpected_failure(task_db, rows, redis_keys, mock_mode):
     """A failure outside the provider call still produces an error result and unlocks."""
     mock_mode("ok")
     user = await rows.user()
@@ -502,7 +566,7 @@ async def test_generate_chat_message_reports_an_unexpected_failure(task_db, rows
     boom = AsyncMock(side_effect=RuntimeError("broker is down"))
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(api.process_response, "kiq", boom)
-        await run_task(api.generate_chat_message, session.session_id)
+        await run_task(api.run_chat_turn, session.session_id)
 
     boom.assert_awaited_once()
     async with rows.session() as db:
@@ -566,11 +630,11 @@ def test_history_is_empty_without_a_user_message():
 
 
 # --------------------------------------------------------------------------------------
-# generate_chat_message: the history sent to the provider
+# run_chat_turn: the history sent to the provider
 # --------------------------------------------------------------------------------------
 
 
-async def test_generate_chat_message_does_not_resend_the_assistant_turn_being_retried(
+async def test_run_chat_turn_does_not_resend_the_assistant_turn_being_retried(
     task_db, rows, redis_keys, kiq_spy, mock_mode, provider_recorder
 ):
     """A retried turn must not be preceded by the assistant's own previous answer.
@@ -592,14 +656,14 @@ async def test_generate_chat_message_does_not_resend_the_assistant_turn_being_re
     )
     await rows.result(session.session_id, type=GenerationResultType.ERROR, content="Internal server error occurred")
 
-    await run_task(api.generate_chat_message, session.session_id)
+    await run_task(api.run_chat_turn, session.session_id)
 
     kiq_spy.assert_awaited_once()
     assert provider_recorder.roles() == [UserRole.SYSTEM, UserRole.USER]
     assert provider_recorder.texts() == ["system prompt", "Посчитай кронштейн"]
 
 
-async def test_generate_chat_message_keeps_an_assistant_turn_that_precedes_the_last_user_message(
+async def test_run_chat_turn_keeps_an_assistant_turn_that_precedes_the_last_user_message(
     task_db, rows, redis_keys, kiq_spy, mock_mode, provider_recorder
 ):
     """An answer the user has already seen is context, not something to cut."""
@@ -610,7 +674,7 @@ async def test_generate_chat_message_keeps_an_assistant_turn_that_precedes_the_l
     await rows.message(session.session_id, payload(), role=UserRole.ASSISTANT, display_text="Готово.")
     await rows.message(session.session_id, "И пересчитай с другой толщиной")
 
-    await run_task(api.generate_chat_message, session.session_id)
+    await run_task(api.run_chat_turn, session.session_id)
 
     kiq_spy.assert_awaited_once()
     # The first answer is legitimate context; only the trailing one is dropped.
@@ -618,7 +682,7 @@ async def test_generate_chat_message_keeps_an_assistant_turn_that_precedes_the_l
     assert provider_recorder.texts() == ["Посчитай кронштейн", payload(), "И пересчитай с другой толщиной"]
 
 
-async def test_generate_chat_message_keeps_the_whole_history_of_a_healthy_session(
+async def test_run_chat_turn_keeps_the_whole_history_of_a_healthy_session(
     task_db, rows, redis_keys, kiq_spy, mock_mode, provider_recorder
 ):
     """A plain turn ending on a user message reaches the provider untouched."""
@@ -630,7 +694,7 @@ async def test_generate_chat_message_keeps_the_whole_history_of_a_healthy_sessio
     await rows.message(session.session_id, payload(), role=UserRole.ASSISTANT, display_text="Готово.")
     await rows.message(session.session_id, "А ещё одна деталь")
 
-    await run_task(api.generate_chat_message, session.session_id)
+    await run_task(api.run_chat_turn, session.session_id)
 
     kiq_spy.assert_awaited_once()
     assert provider_recorder.roles() == [
@@ -647,7 +711,7 @@ async def test_generate_chat_message_keeps_the_whole_history_of_a_healthy_sessio
     ]
 
 
-async def test_generate_chat_message_without_a_user_message_writes_an_error(
+async def test_run_chat_turn_without_a_user_message_writes_an_error(
     task_db, rows, redis_keys, kiq_spy, mock_mode, provider_recorder
 ):
     """A history that holds no user turn has nothing to answer."""
@@ -657,7 +721,7 @@ async def test_generate_chat_message_without_a_user_message_writes_an_error(
     await rows.message(session.session_id, "system prompt", role=UserRole.SYSTEM)
     redis_keys.track(get_generation_key(user.uuid))
 
-    await run_task(api.generate_chat_message, session.session_id)
+    await run_task(api.run_chat_turn, session.session_id)
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
@@ -669,17 +733,224 @@ async def test_generate_chat_message_without_a_user_message_writes_an_error(
 
 
 # --------------------------------------------------------------------------------------
+# run_chat_turn: the tools the turn offers
+# --------------------------------------------------------------------------------------
+
+
+async def test_run_chat_turn_offers_the_intake_tools(task_db, rows, redis_keys, kiq_spy, mock_mode, provider_recorder):
+    """The turn is a tool loop, so the model is offered the intake tools."""
+    mock_mode("ok")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Сделай программу по аналитике")
+
+    await run_task(api.run_chat_turn, session.session_id)
+
+    kiq_spy.assert_awaited_once()
+    assert provider_recorder.tools == [["begin_program", "approve_program_draft"]]
+
+
+async def test_run_chat_turn_starts_a_programme_and_enqueues_the_first_stage(
+    task_db, rows, redis_keys, kiq_spy, mock_mode
+):
+    """A turn that calls ``begin_program`` leaves a run and a stage on the queue."""
+    mock_mode("stage")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Сделай программу по аналитике на 40 часов")
+    stages = AsyncMock(name="program_stage.kiq")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(api.program_stage, "kiq", stages)
+        await run_task(api.run_chat_turn, session.session_id)
+
+    async with rows.session() as db:
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
+    state = store.parse(stored.program_state)
+    assert state is not None
+    assert state.status is ProgramStatus.GENERATING
+    assert state.title is None
+    stages.assert_awaited_once()
+    assert stages.await_args.args[0] == session.session_id
+    assert stages.await_args.args[1] == Stage.COMPETENCES.value
+
+
+async def test_run_chat_turn_leaves_a_programme_waiting_for_answers(task_db, rows, redis_keys, kiq_spy, mock_mode):
+    """A run that asked questions waits, and nothing is put on the queue."""
+    mock_mode("stage")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Сделай программу по аналитике")
+    stages = AsyncMock(name="program_stage.kiq")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(api.program_stage, "kiq", stages)
+        await run_task(api.run_chat_turn, session.session_id)
+
+    async with rows.session() as db:
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
+    state = store.parse(stored.program_state)
+    assert state is not None
+    assert state.status is ProgramStatus.AWAITING_ANSWERS
+    assert [question.text for question in state.pending_questions] == [MOCK_QUESTION]
+    stages.assert_not_awaited()
+
+
+async def test_run_chat_turn_applies_the_answers_and_starts_the_programme(
+    task_db, rows, redis_keys, kiq_spy, mock_mode
+):
+    """The answers move the run on, and the first stage goes on the queue."""
+    mock_mode("stage")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Сделай программу по аналитике")
+    state = new_state(
+        session.session_id,
+        requested_hours=None,
+        requirements="Программа по аналитике",
+        questions=[MOCK_QUESTION],
+    )
+    await rows.program_state(session.session_id, state)
+    stages = AsyncMock(name="program_stage.kiq")
+    answers = [{"question_id": state.questions[0].id, "text": "72 часа"}]
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(api.program_stage, "kiq", stages)
+        await run_task(api.run_chat_turn, session.session_id, answers)
+
+    async with rows.session() as db:
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
+    saved = store.parse(stored.program_state)
+    assert saved is not None
+    assert saved.status is ProgramStatus.GENERATING
+    assert saved.pending_questions == []
+    assert [answer.text for answer in saved.answers] == ["72 часа"]
+    stages.assert_awaited_once()
+    assert stages.await_args.args[1] == Stage.COMPETENCES.value
+
+
+async def test_run_chat_turn_refuses_answers_to_questions_nobody_asked(task_db, rows, redis_keys, kiq_spy, mock_mode):
+    """An answer to a question the run never asked is refused."""
+    mock_mode("stage")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Сделай программу по аналитике")
+    state = new_state(
+        session.session_id,
+        requested_hours=None,
+        requirements="Программа по аналитике",
+        questions=[MOCK_QUESTION],
+    )
+    await rows.program_state(session.session_id, state)
+    stages = AsyncMock(name="program_stage.kiq")
+    answers = [{"question_id": "not-a-question", "text": "72 часа"}]
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(api.program_stage, "kiq", stages)
+        await run_task(api.run_chat_turn, session.session_id, answers)
+
+    async with rows.session() as db:
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
+    saved = store.parse(stored.program_state)
+    assert saved is not None
+    assert saved.status is ProgramStatus.AWAITING_ANSWERS
+    assert saved.answers == []
+    stages.assert_not_awaited()
+
+
+async def test_run_chat_turn_ignores_answers_without_a_programme(task_db, rows, redis_keys, kiq_spy, mock_mode):
+    """Answers for a chat that holds no programme are ignored, not an error.
+
+    Another turn may have applied them already, and a turn that carries answers
+    it cannot use is still a turn: it must not report a failure over it.
+    """
+    mock_mode("stage")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Сделай программу по аналитике")
+    stages = AsyncMock(name="program_stage.kiq")
+    answers = [{"question_id": "q-1", "text": "72 часа"}]
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(api.program_stage, "kiq", stages)
+        await run_task(api.run_chat_turn, session.session_id, answers)
+
+    async with rows.session() as db:
+        result = await db.get(GenerationResult, session.session_id)
+    # The success row is written by process_response, which the spy replaces, so
+    # a row here would be the error one.
+    assert result is None
+    stages.assert_not_awaited()
+    kiq_spy.assert_awaited_once()
+
+
+async def test_run_chat_turn_keeps_a_programme_the_model_started_without_an_answer(
+    task_db, rows, redis_keys, kiq_spy, monkeypatch
+):
+    """A model that starts a programme and then says nothing still starts it.
+
+    The tool's effect is committed as soon as it happens, so a turn that ends
+    without an answer cannot lose the programme.
+    """
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Сделай программу по аналитике")
+    stages = AsyncMock(name="program_stage.kiq")
+    call = ToolCall(
+        id="call-1",
+        function=FunctionCall(
+            name="begin_program",
+            arguments=json.dumps({"requirements": "Курс по статистике", "requested_hours": 72}),
+        ),
+    )
+    scripted = ScriptedProvider(
+        [
+            answer(finish_reason="function_call", calls=(call,)),
+            answer(""),
+        ]
+    )
+    monkeypatch.setattr(api, "provider", scripted)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(api.program_stage, "kiq", stages)
+        await run_task(api.run_chat_turn, session.session_id)
+
+    async with rows.session() as db:
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
+    state = store.parse(stored.program_state)
+    assert state is not None
+    assert state.status is ProgramStatus.GENERATING
+    assert state.requested_hours == 72
+    stages.assert_awaited_once()
+
+
+async def test_process_response_does_not_insert_a_second_result_row(task_db, rows, redis_keys):
+    """The result row is keyed by the session, so a second writer updates it.
+
+    The programme can finalise a draft while a turn is still publishing its
+    reply; whichever arrives second has to update the row, not insert into it.
+    """
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.result(session.session_id, content="черновик программы")
+
+    await run_task(api.process_response, user.uuid, session.session_id, payload(message="Готово."))
+
+    async with rows.session() as db:
+        results = list(
+            await db.scalars(select(GenerationResult).where(GenerationResult.chat_session_id == session.session_id))
+        )
+    assert len(results) == 1
+    assert results[0].content == "Готово."
+
+
+# --------------------------------------------------------------------------------------
 # process_response
 # --------------------------------------------------------------------------------------
 
 
 async def test_process_response_stores_the_reply_and_renames_the_session(task_db, rows, redis_keys):
+    """The chat takes its name from the first thing the methodist said."""
     user = await rows.user()
     session = await rows.chat_session(user)
-    body = payload(chat_name="Расчёт кронштейна", message="Расчёт готов.")
+    await rows.message(session.session_id, "Расчёт кронштейна")
     await redis_keys.put(get_generation_key(user.uuid))
 
-    await run_task(api.process_response, user.uuid, session.session_id, body)
+    await run_task(api.process_response, user.uuid, session.session_id, payload(message="Расчёт готов."))
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
@@ -699,7 +970,7 @@ async def test_process_response_stores_the_reply_and_renames_the_session(task_db
     assert result.attachment_id is None
     assert stored is not None and stored.name == "Расчёт кронштейна"
     assert assistant is not None
-    assert assistant.content == body
+    assert assistant.content == "Расчёт готов."
     assert assistant.display_text == "Расчёт готов."
     assert attachment_count == 0
     assert await redis_keys.get(get_generation_key(user.uuid)) is None
@@ -708,8 +979,9 @@ async def test_process_response_stores_the_reply_and_renames_the_session(task_db
 async def test_process_response_keeps_an_existing_session_name(task_db, rows, redis_keys):
     user = await rows.user()
     session = await rows.chat_session(user, name="Мой расчёт")
+    await rows.message(session.session_id, "Расчёт кронштейна")
 
-    await run_task(api.process_response, user.uuid, session.session_id, payload(chat_name="Другое имя"))
+    await run_task(api.process_response, user.uuid, session.session_id, payload(message="Готово."))
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
@@ -718,11 +990,12 @@ async def test_process_response_keeps_an_existing_session_name(task_db, rows, re
     assert stored is not None and stored.name == "Мой расчёт"
 
 
-async def test_process_response_without_a_chat_name_leaves_the_session_alone(task_db, rows, redis_keys):
+async def test_process_response_without_a_user_message_leaves_the_session_alone(task_db, rows, redis_keys):
+    """A chat with nothing said in it has no name to take."""
     user = await rows.user()
     session = await rows.chat_session(user)
 
-    await run_task(api.process_response, user.uuid, session.session_id, payload(chat_name=None))
+    await run_task(api.process_response, user.uuid, session.session_id, payload(message="Готово."))
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
@@ -731,11 +1004,34 @@ async def test_process_response_without_a_chat_name_leaves_the_session_alone(tas
     assert stored is not None and stored.name == "Новый чат"
 
 
+async def test_process_response_names_a_chat_with_a_programme_after_the_first_message(task_db, rows, redis_keys):
+    """A running programme takes the name of the first thing the methodist said.
+
+    The programme's own title replaces it when the draft is rendered, so the
+    chat is never nameless while it is being built.
+    """
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Программа по аналитике")
+    await rows.program_state(
+        session.session_id, new_state(session.session_id, requested_hours=None, requirements="Программа")
+    )
+
+    await run_task(api.process_response, user.uuid, session.session_id, payload(message="Готово."))
+
+    async with rows.session() as db:
+        result = await db.get(GenerationResult, session.session_id)
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
+    assert result is not None and result.update_name == "Программа по аналитике"
+    assert stored is not None and stored.name == "Программа по аналитике"
+
+
 async def test_process_response_truncates_an_overlong_chat_name(task_db, rows, redis_keys, s3):
     user = await rows.user()
     session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Д" * 200)
 
-    await run_task(api.process_response, user.uuid, session.session_id, payload(chat_name="Д" * 200))
+    await run_task(api.process_response, user.uuid, session.session_id, payload(message="Готово."))
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
@@ -746,33 +1042,24 @@ async def test_process_response_truncates_an_overlong_chat_name(task_db, rows, r
     assert stored is not None and stored.name == result.update_name
 
 
-async def test_process_response_reports_invalid_json(task_db, rows, redis_keys):
+async def test_process_response_reports_a_failure(task_db, rows, redis_keys):
+    """A failure while publishing still releases the generation lock."""
     user = await rows.user()
     session = await rows.chat_session(user)
     key = await redis_keys.put(get_generation_key(user.uuid))
 
-    await run_task(api.process_response, user.uuid, session.session_id, "{не json")
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("database is down")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(api, "ChatMessage", boom)
+        await run_task(api.process_response, user.uuid, session.session_id, payload())
 
     async with rows.session() as db:
         result = await db.get(GenerationResult, session.session_id)
     assert result is not None
     assert result.type == GenerationResultType.ERROR
-    assert result.content == "Internal server error occurred"
     assert await redis_keys.get(key) is None
-
-
-async def test_process_response_reports_a_schema_mismatch(task_db, rows, redis_keys):
-    """Valid JSON that does not satisfy ``HarnessStructuredOutput``."""
-    user = await rows.user()
-    session = await rows.chat_session(user)
-
-    # `message` is the one required field, so a payload without it is the mismatch.
-    await run_task(api.process_response, user.uuid, session.session_id, json.dumps({"chat_name": "Без ответа"}))
-
-    async with rows.session() as db:
-        result = await db.get(GenerationResult, session.session_id)
-    assert result is not None
-    assert result.type == GenerationResultType.ERROR
 
 
 async def test_process_response_for_a_deleted_session_still_releases_the_lock(task_db, rows, redis_keys, s3):

@@ -126,19 +126,20 @@ Compose only.
 ### 🔁 Request lifecycle
 
 1. `POST /api/v1/chats` creates a session, returns `202`.
-2. The message is enqueued on the **`network`** queue (`generate_chat_message`).
-3. The worker prepares the attachments and asks GigaChat for a structured JSON completion of
-   `{chat_name, message}`.
+2. The message is enqueued on the **`network`** queue (`run_chat_turn`).
+3. The worker asks GigaChat for an answer, offering it the tools it may call — starting a
+   programme, confirming a rendered draft — and runs whatever it calls.
 4. The reply is stored as an assistant message and cached under the session's generation key.
 5. The frontend polls `GET /chats/{id}/result` every 2 s (5 min timeout) — there are no
-   WebSockets.
+   WebSockets. A chat that is building a programme is followed through
+   `GET /chats/{id}/program`.
 
 ### 🧾 Two task queues
 
 | Queue | Purpose | Tasks |
 |---|---|---|
 | `default` | Local / CPU-bound work | attachment and avatar preparation, response processing, cleanup crons |
-| `network` | Outbound calls to GigaChat | `generate_chat_message` |
+| `network` | Outbound calls to GigaChat | `run_chat_turn` |
 
 Splitting them means a slow external API never blocks the local pipeline.
 

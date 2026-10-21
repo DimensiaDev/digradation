@@ -23,7 +23,6 @@ from app.providers.models import (
     FunctionsSpecifications,
     GenerationRequest,
     GenerationResponse,
-    HarnessStructuredOutput,
     InputTokenDetails,
     Message,
     ModelOptions,
@@ -486,35 +485,6 @@ def test_usage_requires_the_prompt_token_details():
 
 def test_input_token_details_is_a_plain_model():
     assert InputTokenDetails(prompt_tokens=8, cached_tokens=2).cached_tokens == 2
-
-
-# ---------------------------------------------------------------------------
-# HarnessStructuredOutput
-# ---------------------------------------------------------------------------
-
-
-def test_harness_structured_output_requires_only_a_message():
-    """`chat_name` is optional so a model that omits it still yields a usable reply.
-
-    The schema asks the provider for both, but a missing name must not cost the user
-    their answer: the session simply keeps its default title.
-    """
-    output = HarnessStructuredOutput(message="ок")
-
-    assert output.message == "ок"
-    assert output.chat_name is None
-
-
-def test_harness_structured_output_takes_both_fields():
-    output = HarnessStructuredOutput.model_validate({"chat_name": "Заметки", "message": "ок"})
-
-    assert output.chat_name == "Заметки"
-    assert output.message == "ок"
-
-
-def test_harness_structured_output_rejects_a_missing_message():
-    with pytest.raises(ValidationError):
-        HarnessStructuredOutput.model_validate({"chat_name": "Заметки"})
 
 
 # ---------------------------------------------------------------------------
