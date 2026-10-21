@@ -6,7 +6,9 @@ money and needs a real key. Run them explicitly:
     SBER_API_KEY=<real-key> SBER_API_SCOPE=PERS poetry run pytest -m live
 
 The GigaChat certificate is read from ``res/gigachat-ca.cer`` by a *relative*
-path, so these must run with CWD == ``backend/``.
+path, so these must run with CWD == ``backend/``. The PERS client also serialises
+requests through a Redis lock, so the fixtures start a Redis test container to
+stand in for the Compose ``redis`` host, which a host-side run cannot resolve.
 
 None of this is needed for the normal suite: `SBER_API_KEY=mock` swaps in
 `MockProvider`, which is what every other test uses.
@@ -41,8 +43,13 @@ def live_provider():
 
 
 @pytest_asyncio.fixture
-async def sber_provider(real_provider_env):
-    """A real :class:`SberProvider` built from the variables the process started with."""
+async def sber_provider(real_provider_env, redis_client):
+    """A real :class:`SberProvider` built from the variables the process started with.
+
+    ``redis_client`` is not used directly: it patches the pool behind the global
+    PERS API lock onto the test container, which is the only Redis a host-side
+    run can reach. Without it the first request dies on the ``redis`` hostname.
+    """
     from app.providers.mock import MOCK_API_KEY
     from app.providers.sber import SberProvider
 

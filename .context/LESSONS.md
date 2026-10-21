@@ -951,3 +951,8 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   pay for provider calls. Renew the lock before every turn rather than assuming a stage fits in
   the TTL, and treat the lost compare-and-expire as "superseded", not as a stage failure.
   Review of #32, 2026-10-21.
+- **A host-side live PERS test needs the Redis test container.** `SberProvider._pers_api_lock`
+  serialises requests through `get_redis_client`, which is hardcoded to `redis://redis:6379`;
+  that hostname does not resolve from the host, so the test dies before it reaches GigaChat.
+  Depend on the `redis_client` fixture even though the test never touches Redis itself: it
+  patches the pool onto the container. Found 2026-10-21.
