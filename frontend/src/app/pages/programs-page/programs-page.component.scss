@@ -11,7 +11,7 @@
 
   &__header {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 16px;
@@ -19,7 +19,7 @@
 
   &__heading {
     display: grid;
-    gap: 4px;
+    gap: 8px;
 
     min-width: 0;
   }

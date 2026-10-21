@@ -3,11 +3,9 @@
   [attr.data-status]="program().status"
   [attr.data-theme]="program().theme"
 >
-  <header class="program-card__top">
-    <span class="program-card__icon" aria-hidden="true">
-      <svg size="24" [lucideIcon]="icon()"></svg>
-    </span>
+  <svg class="program-card__watermark" [lucideIcon]="icon()" aria-hidden="true"></svg>
 
+  <header class="program-card__top">
     <span class="program-card__status">
       <span class="program-card__status-dot" aria-hidden="true"></span>
       {{ statusLabel() }}

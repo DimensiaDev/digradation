@@ -73,12 +73,14 @@ describe('ProgramCardComponent', () => {
     expect(time.attributes['datetime']).toBe(PROGRAM.updatedAt);
   });
 
-  it('renders the theme icon and the status data attributes', () => {
+  it('renders the theme watermark and the status data attributes', () => {
     const card = fixture.debugElement.query(By.css('.program-card'));
+    const watermark = fixture.debugElement.query(By.css('svg.program-card__watermark'));
 
     expect(card.attributes['data-theme']).toBe('it');
     expect(card.attributes['data-status']).toBe('published');
-    expect(fixture.debugElement.query(By.css('.program-card__icon svg'))).toBeTruthy();
+    expect(watermark).toBeTruthy();
+    expect(watermark.attributes['aria-hidden']).toBe('true');
   });
 
   it('renders author initials when there is no avatar', () => {
