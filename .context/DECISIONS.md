@@ -1817,3 +1817,23 @@ to — so the report is the same rules, run once and shown.
   instead of raising, so a client can poll it while the programme is still being written.
 - **It is part of `GET /chats/{session_id}/program`**, next to the blocks: the client
   reads the state and the verdict from one place.
+
+## The programme leaves the system as a document and as slides (2026-10-22)
+
+The criteria ask for the programme as a DOCX by the АЦР template and for the slides of at
+least one module as a PPTX. The renderer came from the `feat/backend-docx-gen` branch and
+now renders the whole programme rather than the skeleton alone.
+
+- **The document is the programme, not the draft.** `render_program_document` takes the
+  `ProgramDocument` — the approved draft and the content written from it — and renders the
+  assessment and the materials as real sections instead of the "to be filled in" block. The
+  draft alone still renders, for a programme that has not reached its content yet.
+- **The slides are the decks the materials stage wrote.** `render_slides` builds a PPTX with
+  a title slide and one slide per bullet. A caller can ask for one module's decks; the
+  decks are written per topic, so the whole set is what there is to hand out.
+- **The exports read the canonical row**, through the request's own session, because a
+  stale mirror would hand out a document that is not the programme.
+- **A programme that is not finished cannot be assembled**, and that is a conflict rather
+  than a missing resource: the run is still going. The endpoint says so with 409.
+- **A seminar task has criteria.** The schema had none, and the criteria ask for them, so
+  `SeminarTask.criteria` was added.

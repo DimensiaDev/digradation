@@ -277,6 +277,7 @@ class SeminarTask(SchemaModel):
     title: str = Field(min_length=1, max_length=500)
     statement: str = Field(min_length=1, max_length=4000)
     outcome_ids: list[OutcomeId] = Field(min_length=1, description="Outcomes the task reveals")
+    criteria: list[str] = Field(default_factory=list, description="Критерии оценки задания")
 
 
 class FinalAttestation(SchemaModel):

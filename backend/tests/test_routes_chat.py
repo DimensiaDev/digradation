@@ -12,8 +12,10 @@ the budget is 5 requests a minute for ``chats:post``, which is what the 429
 tests spend deliberately.
 """
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -32,7 +34,17 @@ from app.agentic.models import (
     ProgramStatus,
     Stage,
 )
-from app.agentic.state import ClarificationQuestion, CompetencesBlock, ProgramState, new_state
+from app.agentic.state import (
+    AssessmentBlock,
+    ClarificationQuestion,
+    CompetencesBlock,
+    HoursBlock,
+    MaterialsBlock,
+    ProgramState,
+    SourcesBlock,
+    SummaryBlock,
+    new_state,
+)
 from app.cache import (
     get_attachment_ownership_key,
     get_attachment_status_key,
@@ -55,6 +67,9 @@ from app.models.chat import (
 )
 from app.models.settings import SETTINGS_ROW_ID, Settings
 from app.routes.chat import delete_chat
+
+#: The canonical programme the export tests render.
+EXAMPLE_PATH = Path(__file__).resolve().parents[1] / "examples" / "document_state_example.json"
 
 #: Fixed base so message ordering in the list endpoint is deterministic.
 BASE_TIME = datetime(2024, 1, 1, tzinfo=UTC)
@@ -782,6 +797,75 @@ async def test_get_result_carries_the_open_questions(
 
     assert response.status_code == 200
     assert response.json()["questions"] == [{"id": "q-1", "text": "На сколько часов?"}]
+
+
+# ---------------------------------------------------------------------------
+# the exports
+# ---------------------------------------------------------------------------
+
+
+async def test_the_programme_can_be_downloaded_as_a_document(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
+    state = new_state(chat.session_id, requested_hours=72, requirements="Программа")
+    state = state.with_competences(
+        CompetencesBlock(kind=raw["meta"]["kind"], title=raw["meta"]["title"], competencies=raw["competencies"]), []
+    )
+    state = state.with_curriculum(HoursBlock(curriculum=raw["curriculum"]))
+    state = state.with_sources(SourcesBlock(sources=raw["sources"]))
+    state = state.with_summary(SummaryBlock(summary=raw["summary"]), [])
+    state = state.with_assessment(AssessmentBlock(assessment=raw["assessment"]))
+    state = state.with_materials(MaterialsBlock(materials=raw["materials"]))
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/program.docx")
+
+    assert response.status_code == 200
+    assert response.content[:2] == b"PK"
+    assert "wordprocessingml" in response.headers["content-type"]
+
+
+async def test_a_document_of_a_chat_without_a_programme_is_not_found(
+    auth_client: AsyncClient, chat, redis_session: None
+):
+    response = await auth_client.get(f"/chats/{chat.session_id}/program.docx")
+
+    assert response.status_code == 404
+
+
+async def test_a_document_of_an_unfinished_programme_is_a_conflict(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    state = new_state(chat.session_id, requested_hours=72, requirements="Программа")
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/program.docx")
+
+    assert response.status_code == 409
+
+
+async def test_the_slides_can_be_downloaded(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
+    state = new_state(chat.session_id, requested_hours=72, requirements="Программа")
+    state = state.with_materials(MaterialsBlock(materials=raw["materials"]))
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/program.pptx")
+
+    assert response.status_code == 200
+    assert response.content[:2] == b"PK"
+    assert "presentationml" in response.headers["content-type"]
+
+
+async def test_the_slides_of_a_chat_without_materials_are_not_found(
+    auth_client: AsyncClient, chat, redis_session: None
+):
+    response = await auth_client.get(f"/chats/{chat.session_id}/program.pptx")
+
+    assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------

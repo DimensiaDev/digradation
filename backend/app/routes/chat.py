@@ -7,11 +7,12 @@ from typing import Annotated, Literal
 
 import structlog.stdlib
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import aliased, selectinload
 
 from app.agentic import store
-from app.agentic.errors import AnswersDoNotMatch
+from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
 from app.agentic.render import render_answers
 from app.agentic.state import ClarificationAnswer, apply_answers
 from app.agentic.view import programme_questions, programme_state, programme_status
@@ -46,6 +47,7 @@ from app.models.chat import (
     UserRole,
 )
 from app.models.settings import SETTINGS_ROW_ID, Settings
+from app.render import render_program_document
 from app.schemas import MessageResponse
 from app.schemas.chat import (
     ChatAttachment,
@@ -70,6 +72,7 @@ from app.schemas.files import (
     S3ChatUploadRequest,
     S3UploadParams,
 )
+from app.slides import render_slides
 from app.storage import get_s3_attachment_key
 from app.tasks.api import run_chat_turn
 from app.tasks.files import _s3_try_delete, process_attachment
@@ -91,6 +94,10 @@ ALLOWED_CHAT_FILE_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg"})
 # found there, including an expired key which reads back as None, is reported as unknown rather
 # than passed to the response schema, which would raise on an unexpected value.
 ATTACHMENT_STATUSES = frozenset({"uploading", "processing", "completed", "error"})
+
+#: The media types the exports answer with.
+DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 
 def _is_bare_filename(filename: str) -> bool:
@@ -566,6 +573,68 @@ async def get_program(session_id: VerifiedMessageSession, db: DbSession, redis_c
     if state is not None:
         running = bool(await redis_client.exists(get_program_stage_lock_key(session_id, state.current_stage)))
     return programme_state(state, running=running)
+
+
+@router.get(
+    "/{session_id}/program.docx",
+    summary="Download the programme as a DOCX document",
+    response_class=Response,
+    responses={
+        401: {"description": "Not authenticated, or session expired/invalid"},
+        403: {"description": "Chat session not found or does not belong to the user"},
+        404: {"description": "The chat holds no programme"},
+        409: {"description": "The programme is not complete yet"},
+        429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
+    },
+)
+async def download_program_docx(session_id: VerifiedMessageSession, db: DbSession):
+    """Return the programme as a DOCX document.
+
+    The document is the whole programme: the approved skeleton and the content
+    written from it. A programme that is not finished cannot be assembled, and
+    that is a conflict rather than a missing resource — the run is still going.
+    """
+    state = await store.load_from(db, session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="The chat holds no programme")
+    try:
+        document = state.to_document()
+    except IncompleteDraft as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return Response(
+        content=render_program_document(document),
+        media_type=DOCX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="programme-{session_id}.docx"'},
+    )
+
+
+@router.get(
+    "/{session_id}/program.pptx",
+    summary="Download the slides of the programme as a PPTX file",
+    response_class=Response,
+    responses={
+        401: {"description": "Not authenticated, or session expired/invalid"},
+        403: {"description": "Chat session not found or does not belong to the user"},
+        404: {"description": "The chat holds no programme with slides"},
+        429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
+    },
+)
+async def download_program_pptx(session_id: VerifiedMessageSession, db: DbSession):
+    """Return the slides of the programme as a PPTX file.
+
+    Every deck of the programme is in the file. The criterion is the slides of
+    at least one module, and the decks of a programme are written per topic, so
+    the whole set is what there is to hand out.
+    """
+    state = await store.load_from(db, session_id)
+    if state is None or state.materials is None:
+        raise HTTPException(status_code=404, detail="The chat holds no programme with slides")
+    title = state.title or "Презентационные материалы программы"
+    return Response(
+        content=render_slides(state.materials, programme_title=title),
+        media_type=PPTX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="programme-{session_id}.pptx"'},
+    )
 
 
 @router.get(

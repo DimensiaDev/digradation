@@ -471,6 +471,8 @@ The endpoints the client uses:
 | `GET /chats/{session_id}/result` | the last turn's reply, and the open questions |
 | `GET /chats/{session_id}/program` | where the programme stands: status, stage, the blocks saved so far, the self-check report |
 | `GET /chats/programmes` | the user's programmes, paginated with `page` and `items_per_page` |
+| `GET /chats/{session_id}/program.docx` | the programme as a DOCX document |
+| `GET /chats/{session_id}/program.pptx` | the slides of the programme as a PPTX file |
 
 `GET /program` reads the Redis mirror first and falls back to the row, so a client that
 polls it does not touch PostgreSQL; the fallback re-mirrors the state. The response carries

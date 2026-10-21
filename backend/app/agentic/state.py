@@ -134,6 +134,19 @@ class ProgramReport(BaseModel):
     checks: list[ProgramCheck] = Field(default_factory=list, description="Проверки по порядку")
 
 
+class ProgramDocument(BaseModel):
+    """The whole programme: the draft the methodist approved and the content.
+
+    The draft is the skeleton — the goal, the competences and the hours — and
+    the content is what was written from it once it was approved. The export
+    takes the document, so a document without a content is still a document.
+    """
+
+    draft: ProgramDraft
+    assessment: AssessmentPlan | None = None
+    materials: Materials | None = None
+
+
 class ProgramState(BaseModel):
     """One programme run: the draft blocks plus where the pipeline stopped."""
 
@@ -350,6 +363,14 @@ class ProgramState(BaseModel):
             for competence in self.competencies
             for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
         ]
+
+    def to_document(self) -> ProgramDocument:
+        """The whole programme: the approved draft and the content written from it."""
+        return ProgramDocument(
+            draft=self.to_draft(),
+            assessment=self.assessment,
+            materials=self.materials,
+        )
 
     def report(self) -> ProgramReport:
         """The checks of the programme, for the methodist to read.
