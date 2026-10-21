@@ -877,3 +877,8 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   omitted, and an empty string counts as omitted.** The provider now requires a non-blank
   `OPENAI_URL` and always passes `base_url`, so a missing setting fails at startup instead
   of quietly sending traffic to a public host. Found 2026-10-21.
+- **A Playwright test timeout cannot interrupt a synchronous `execFileSync` or an
+  `Atomics.wait` loop.** The e2e helpers run both inside an autouse fixture, so a hung
+  Docker call would outlive the test's deadline and hang the worker. Bound the subprocess
+  with `execFileSync(..., { timeout })` and the loop with its own deadline; the global test
+  timeout is not a backstop for either. Found 2026-10-21.

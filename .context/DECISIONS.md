@@ -1132,3 +1132,18 @@ showed a scrollbar with nothing to scroll to.
   and immediate.
 - **`base_url` is always passed explicitly.** No code path remains in which `AsyncOpenAI`
   can supply its own default endpoint.
+
+## E2E waits are explicitly bounded (2026-10-21)
+
+- **The global test timeout is 120s, and every potentially blocking wait also carries its
+  own bound.** The autouse fixture may wait up to 45s for an in-flight generation, and the
+  generation assertions allow 45s, so the old 60s ceiling could expire inside setup before
+  the body ran. `waitForRequest`, `waitForResponse` and `waitForEvent` calls now pass an
+  explicit 15s.
+- **Docker subprocesses get a timeout because Playwright cannot interrupt a synchronous
+  `execFileSync`.** A stuck `docker compose exec` would otherwise outlive the test timeout
+  and hang the worker: the rate-limit clear is bounded at 15s, each idle-generation poll at
+  10s, and the pagination seed at 60s.
+- **`setup.sh` exits when its readiness loops expire.** The loops already waited 120s but
+  fell through to seeding, turning an unready stack into a confusing login failure. Each
+  `curl` attempt is capped at 5s, so a hung connection cannot stretch the loop past its bound.

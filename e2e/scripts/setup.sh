@@ -55,26 +55,38 @@ echo "==> Starting the stack"
 E2E_FRONTEND_PORT="$E2E_FRONTEND_PORT" "${DC[@]}" up -d --build
 
 echo "==> Waiting for the frontend"
+frontend_ready=false
 for _ in $(seq 1 60); do
-  if curl -fsS -o /dev/null "http://localhost:${E2E_FRONTEND_PORT}/" 2>/dev/null; then
+  if curl -fsS --max-time 5 -o /dev/null "http://localhost:${E2E_FRONTEND_PORT}/" 2>/dev/null; then
+    frontend_ready=true
     break
   fi
   sleep 2
 done
+if [ "$frontend_ready" != "true" ]; then
+  echo "Frontend did not answer on port ${E2E_FRONTEND_PORT} within 120s." >&2
+  exit 1
+fi
 
 # nginx answering `/` only proves the bundle was served. The first spec still
 # needs the API: it logs in, and a login against a backend that is still starting
 # fails in a way that surfaces as "the app stayed on the login page". An
 # unauthenticated 401 is the correct answer here and means the routes are loaded.
 echo "==> Waiting for the backend API"
+backend_ready=false
 for _ in $(seq 1 60); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' \
+  code=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' \
     "http://localhost:${E2E_FRONTEND_PORT}/api/v1/users/me" 2>/dev/null)
   if [ "$code" = "401" ]; then
+    backend_ready=true
     break
   fi
   sleep 2
 done
+if [ "$backend_ready" != "true" ]; then
+  echo "Backend API did not answer with 401 on port ${E2E_FRONTEND_PORT} within 120s." >&2
+  exit 1
+fi
 
 echo "==> Seeding the e2e superuser (${E2E_USER})"
 # `exec -e` is required: compose does not forward host variables into the

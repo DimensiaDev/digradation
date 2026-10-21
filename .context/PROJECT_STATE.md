@@ -21,7 +21,7 @@ Everything described below is working and running via Docker Compose.
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness                                               |
 | `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings |
-| `e2e/`      | Complete: specs against the real Compose stack with the offline provider                                                           |
+| `e2e/`      | Complete: specs with bounded timeouts against the real Compose stack with the offline provider                                     |
 | Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup                                                     |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat

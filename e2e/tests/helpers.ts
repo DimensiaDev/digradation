@@ -59,7 +59,7 @@ function clearRateLimits(): void {
         "-c",
         'redis-cli --scan --pattern "ratelimit:*" | xargs -r redis-cli DEL',
       ],
-      { cwd: REPO_ROOT, stdio: "ignore" },
+      { cwd: REPO_ROOT, stdio: "ignore", timeout: 15_000 },
     );
   } catch {
     // If Docker is not reachable from here the suite is already broken; failing
@@ -76,11 +76,13 @@ function clearRateLimits(): void {
  * generation is still running, so the next `createChat` is refused and fails
  * on navigation with no mention of a lock. Polling here serialises the suite
  * against the backend's own lock; on a fast machine the key is already gone
- * and this is a single Redis round trip. Bounded: on timeout the test runs
- * anyway and surfaces the 409 itself.
+ * and this is a single Redis round trip. Bounded twice: each Redis call has its
+ * own timeout, and the total wait matches the 45s generation assertion so the
+ * body still gets a chance to run. On timeout the test proceeds and surfaces the
+ * 409 itself.
  */
 function waitForIdleGeneration(): void {
-  const deadline = Date.now() + 120_000;
+  const deadline = Date.now() + 45_000;
   for (;;) {
     let outstanding = "";
     try {
@@ -100,6 +102,7 @@ function waitForIdleGeneration(): void {
           cwd: REPO_ROOT,
           encoding: "utf-8",
           stdio: ["ignore", "pipe", "ignore"],
+          timeout: 10_000,
         },
       ).trim();
     } catch {

@@ -28,9 +28,11 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   // A generation walks the real worker pipeline: an attachment upload to object
-  // storage, the provider call, and the reply being stored. A minute is a
-  // comfortable ceiling on a cold image.
-  timeout: 60_000,
+  // storage, the provider call, and the reply being stored. The autouse fixture
+  // can also spend up to 45s waiting for a previous generation to drain, and the
+  // body still needs its 45s generation assertions, so the ceiling has to cover
+  // both. Two minutes leaves room without hiding a real hang.
+  timeout: 120_000,
   expect: { timeout: 15_000 },
   reporter: process.env.CI
     ? [["github"], ["html", { open: "never" }], ["list"]]
