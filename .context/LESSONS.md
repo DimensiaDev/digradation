@@ -887,11 +887,11 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   test failed later with a misleading 429 or 409. Retry within a deadline, then throw with
   the underlying reason; "the suite is already broken" is not a reason to let the next
   assertion misdiagnose it. Found 2026-10-21.
-
   - **Poetry writes absolute `file://` URLs for `poetry add ../path` on some
-  installs.** When committing a path dependency, verify the URL in
-  `[project.dependencies]` is `file:../<pkg>`, not `file:///home/<user>/...`.
-  An absolute path works locally and fails on CI with "path not found".
+    installs.** When committing a path dependency, verify the URL in
+    `[project.dependencies]` is `file:../<pkg>`, not `file:///home/<user>/...`.
+    An absolute path works locally and fails on CI with "path not found".
+
 - **`dimension=0` is falsy.** `dimension or default` silently replaces 0
   with the default. Use `dimension if dimension is not None else default`
   when 0 must be rejected explicitly.
@@ -981,7 +981,7 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   2026-10-20 on `feat/program-cycle`.
 - **TaskIQ picks a new task module up through `-tp 'app/tasks/*.py'`, not through
   `app/tasks/__init__.py`.** There is no `__init__.py` and `import app.tasks` imports nothing,
-  so a worker does not need a registration step — but a *test* that imports the task body does,
+  so a worker does not need a registration step — but a _test_ that imports the task body does,
   and the `task_db` fixture has to patch `tsq_db` in the new module by name or the task quietly
   writes to the environment's PostgreSQL. Found 2026-10-20 on `feat/program-cycle`.
 - **The block models are frozen, so a test cannot mutate a nested field.** `topic.hours = ...`
@@ -997,7 +997,7 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   knows the volume because the brief states it — so the mock parses "Заявленный объём программы"
   from the same text the real model reads. Found 2026-10-20 on `feat/program-cycle`.
 - **The two TaskIQ worker services both consume both queues.** `AioPikaBroker.with_queue()`
-  *appends* to `_task_queues` and `listen()` consumes every declared queue, so
+  _appends_ to `_task_queues` and `listen()` consumes every declared queue, so
   `worker_default` and `worker_network` are the same worker with different replica counts:
   a `default`-queue task can run in `worker_network`. Messages are not duplicated (each queue
   binds with routing key = its own name), so state guards still see one execution; but the
@@ -1025,7 +1025,7 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   part of the rebase range, checking that commit out removes the files from the working tree
   as well, because git has no reason to keep what the tree no longer has — the ignore rule
   only stops them being re-added. Recover with `git show <last-commit-with-them>:.context/X.md`;
-  recover *before* letting a rebase run over the deletion commit. Found 2026-10-20 on
+  recover _before_ letting a rebase run over the deletion commit. Found 2026-10-20 on
   `feat/program-cycle`.
 - **Do not rewrite comments in files the change only passes through.** A provider docstring
   that gains a sentence about the pipeline makes the diff look as if every provider changed,
@@ -1052,9 +1052,31 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   that hostname does not resolve from the host, so the test dies before it reaches GigaChat.
   Depend on the `redis_client` fixture even though the test never touches Redis itself: it
   patches the pool onto the container. Found 2026-10-21.
+- **Angular `animate.leave` does not run in jsdom.** `areAnimationSupported` checks for
+  `document.documentElement.getAnimations`, which jsdom does not provide, so `@if` content is
+  removed immediately and a test cannot wait for `animationend`. Assert removal after
+  `TestBed.tick()` instead of trying to observe the leave animation. Found 2026-10-21 on
+  `feat/my-programs-page`.
+- **A full-card overlay button does not receive clicks through a higher content layer, even
+  when that content is non-interactive.** The overlay is a sibling, and the content catches
+  the hit first; give the content `pointer-events: none` and opt the context menu back in
+  with `pointer-events: auto`. Found 2026-10-21 on `feat/my-programs-page`.
+- **A component stylesheet over the 10 kB `anyComponentStyle` error budget fails `ng build`,
+  even if the repeated rules could live globally.** Moving the shared popover block to
+  `_menu.scss` took the panel from a 12.01 kB error to 9.51 kB (a warning), because global
+  styles do not count against the component budget. Found 2026-10-21 on
+  `feat/my-programs-page`.
+- **`@HostListener('document:keydown.tab')` types `$event` as `Event`, not `KeyboardEvent`.**
+  Strict template checking rejects reading `event.key`; listen on `document:keydown` and
+  branch on `event.key === 'Tab'` instead. Found 2026-10-21 on `feat/my-programs-page`.
+- **A mask does not clip scrollable overflow; an oversized pseudo-element still counts.**
+  `.brand-logo__sheen::before` is `inset: -100%` and the parent masks it, so it looks clipped,
+  but `.home__body`'s scrollable overflow grew on any layout invalidation — opening the file
+  preview was only the trigger. `overflow: hidden` on `.brand-logo__sheen` clips the box
+  without changing the visible sheen. Found 2026-10-21 on `feat/my-programs-page`.
 - **A structured output schema and a tool loop are not the same thing.** The chat turn used
   to ask for `{chat_name, message}` and validate the reply; the moment the model has to
-  *decide* something — start a programme, confirm a draft — a fixed schema cannot carry the
+  _decide_ something — start a programme, confirm a draft — a fixed schema cannot carry the
   decision, and the tool specifications become the contract. Anything the schema used to
   carry has to find another home: the chat name went to `app/naming.py`. Found 2026-10-21.
 - **A tool loop does not fail the way a single completion does.** An empty answer is not an
@@ -1082,3 +1104,9 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   failure looked like the change under test rather than the seed. The seed now asks the
   container for its own `POSTGRES_USER` and `POSTGRES_DB`, and the script goes in on stdin
   because a `DO $$ ... $$` block cannot survive the shell quoting of `-c`. Found 2026-10-21.
+- `GET /chats/programmes` returns only `session_id`, `title`, `status` and `updated_at`.
+  Type, hours, tags, author and the draft text are absent; they come from
+  `GET /chats/{session_id}/program`, which is a per-chat request. Do not render a catalogue
+  field as if the list had it, and do not open a detail request for every card to fill one.
+  The optional fields in `ProgramApiItem` are the seam for the catalogue contract growing.
+  Found 2026-10-21.

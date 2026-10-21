@@ -21,7 +21,7 @@
     (click)="toggle()"
     (keydown)="onKeydown($event)"
   >
-    <span class="select__value" [class.select__value--placeholder]="!value()">
+    <span class="select__value" [class.select__value--placeholder]="!hasValue() && !multiple()">
       {{ selectedLabel() }}
     </span>
     <svg class="select__chevron" lucideChevronDown size="18" aria-hidden="true"></svg>
@@ -33,6 +33,7 @@
       role="listbox"
       class="select__listbox"
       [id]="listboxId"
+      [attr.aria-multiselectable]="multiple() ? 'true' : null"
       animate.enter="select__listbox--enter"
       animate.leave="select__listbox--leave"
     >

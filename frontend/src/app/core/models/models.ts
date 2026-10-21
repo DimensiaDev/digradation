@@ -162,3 +162,159 @@ export const MAX_FILE_SIZE = 30 * 1024 * 1024;
 export const MAX_MESSAGE_LENGTH = 5000;
 
 export const VISIBLE_FILES_LIMIT = 5;
+
+export type ProgramViewStatus =
+  | 'none'
+  | 'draft'
+  | 'generating'
+  | 'awaiting_answers'
+  | 'pending_approval'
+  | 'approved'
+  | 'verified'
+  | 'failed';
+
+export type ProgramStatus = ProgramViewStatus | 'in_progress' | 'review' | 'published' | 'archived';
+
+export type ProgramKind = 'professional_development' | 'general_development';
+
+export type ProgramTheme = 'it' | 'analytics' | 'soft-skills' | 'agile' | 'management' | 'security';
+
+export interface ProgramAuthor {
+  name: string;
+  avatarUrl: string | null;
+}
+
+export interface ProgramModule {
+  id: string;
+  title: string;
+  summary: string;
+  hours: number;
+}
+
+export interface Program {
+  id: string;
+  title: string;
+  type: string;
+  direction: string;
+  hours: number;
+  tags: readonly string[];
+  status: ProgramStatus;
+  theme: ProgramTheme;
+  author: ProgramAuthor;
+  updatedAt: string;
+  description: string;
+  goals: readonly string[];
+  /** Real curriculum modules, when the programme detail has been loaded. */
+  modules?: readonly ProgramModule[];
+  /** Real competency statements, when the programme detail has been loaded. */
+  competencyStatements?: readonly string[];
+  /** Live hint from the programme endpoint: a worker is working on the run. */
+  busy?: boolean;
+  error?: string | null;
+}
+
+export interface ProgramApiItem {
+  session_id: string;
+  title: string;
+  status: ProgramViewStatus;
+  updated_at: string | null;
+  /** Optional fields the catalogue may expose later. */
+  kind?: ProgramKind | null;
+  type?: string | null;
+  direction?: string | null;
+  hours?: number | null;
+  tags?: readonly string[] | null;
+  author?: ProgramAuthor | null;
+  description?: string | null;
+  goals?: readonly string[] | null;
+  theme?: ProgramTheme | null;
+}
+
+export interface ProgramPageApi {
+  items: ProgramApiItem[];
+  total: number;
+  page: number;
+  items_per_page: number;
+}
+
+export interface ProgramHoursApi {
+  lecture?: number;
+  practice?: number;
+  lab?: number;
+  self_study?: number;
+}
+
+export interface ProgramTopicApi {
+  id: string;
+  title: string;
+  hours: ProgramHoursApi;
+}
+
+export interface ProgramModuleApi {
+  id: string;
+  title: string;
+  topics: readonly ProgramTopicApi[];
+}
+
+export interface ProgramCurriculumApi {
+  modules: readonly ProgramModuleApi[];
+}
+
+export interface ProgramCompetenceApi {
+  id: string;
+  statement: string;
+  code?: string | null;
+}
+
+export interface ProgramSummaryApi {
+  goal: string;
+  tasks: readonly string[];
+  target_audience: string;
+  annotation?: string | null;
+  relevance?: string | null;
+  focus?: string | null;
+}
+
+export interface ProgramBlocksApi {
+  kind: ProgramKind | null;
+  title: string | null;
+  competencies: readonly ProgramCompetenceApi[];
+  curriculum: ProgramCurriculumApi | null;
+  sources: readonly unknown[];
+  summary: ProgramSummaryApi | null;
+}
+
+export interface ProgramQuestionApi {
+  id: string;
+  text: string;
+}
+
+export interface ProgramStateApi {
+  status: ProgramViewStatus;
+  current_stage: string | null;
+  stages: Record<string, string>;
+  running: boolean;
+  busy: boolean;
+  error: string | null;
+  updated_at: string | null;
+  version: number;
+  questions: readonly ProgramQuestionApi[];
+  draft: ProgramBlocksApi;
+}
+
+export type ProgramAction = 'duplicate' | 'archive' | 'unarchive' | 'delete';
+
+export const PROGRAM_STATUS_LABELS: Record<ProgramStatus, string> = {
+  none: 'Нет программы',
+  draft: 'Черновик',
+  generating: 'Генерируется',
+  awaiting_answers: 'Нужны ответы',
+  pending_approval: 'На согласовании',
+  approved: 'Согласована',
+  verified: 'Проверена',
+  failed: 'Ошибка',
+  in_progress: 'В работе',
+  review: 'На проверке',
+  published: 'Опубликовано',
+  archived: 'Архив'
+};

@@ -1,4 +1,19 @@
-@if (user()) {
+@if (guestPreview) {
+  <div
+    class="auth-gate__preview"
+    [class.auth-gate__preview--locked]="!user()"
+    [attr.inert]="user() ? null : ''"
+    [attr.aria-hidden]="user() ? null : 'true'"
+  >
+    <router-outlet />
+  </div>
+
+  @if (!user()) {
+    <div class="auth-gate__overlay">
+      <app-login-prompt />
+    </div>
+  }
+} @else if (user()) {
   <router-outlet />
 } @else {
   <div class="auth-gate__prompt">

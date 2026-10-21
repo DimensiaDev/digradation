@@ -52,13 +52,30 @@ export const routes: Routes = [
       { path: 'home', component: HomePage },
       { path: 'help', component: HelpPage },
       {
+        path: 'programs',
+        component: AuthGate,
+        data: { authGateMode: 'preview' },
+        children: [
+          {
+            path: '',
+            loadComponent: () =>
+              import('./pages/programs-page/programs-page.component').then(
+                (module) => module.ProgramsPage
+              )
+          }
+        ]
+      },
+      {
         path: '',
         component: AuthGate,
         children: [
           {
-            path: 'programs',
+            path: 'programs/new',
             component: SectionPlaceholder,
-            data: { title: 'Мои программы', subtitle: 'Здесь появятся ваши программы' }
+            data: {
+              title: 'Новая программа',
+              subtitle: 'Создание программы появится в следующем обновлении'
+            }
           },
           {
             path: 'library',

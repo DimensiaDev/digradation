@@ -1,0 +1,248 @@
+@if (program(); as program) {
+  <aside
+    class="program-panel"
+    aria-labelledby="program-panel-title"
+    animate.enter="program-panel--enter"
+    animate.leave="program-panel--leave"
+  >
+    <header class="program-panel__header">
+      <button
+        #closeButton
+        type="button"
+        class="program-panel__close icon-action"
+        aria-label="Закрыть панель программы"
+        (click)="close()"
+      >
+        <svg size="20" lucideArrowLeft aria-hidden="true"></svg>
+      </button>
+
+      <h2 id="program-panel-title" class="program-panel__title">{{ program.title }}</h2>
+
+      <span class="program-panel__status" [attr.data-status]="program.status">
+        <span class="program-panel__status-dot" aria-hidden="true"></span>
+        {{ statusLabel() }}
+      </span>
+
+      <div #headerMenu class="program-panel__menu program-panel__menu--header">
+        <button
+          #headerMenuButton
+          type="button"
+          class="program-panel__menu-button icon-action"
+          [attr.aria-label]="'Действия с программой «' + program.title + '»'"
+          aria-haspopup="menu"
+          [attr.aria-expanded]="menuOpen()"
+          [attr.aria-controls]="menuOpen() ? menuId : null"
+          (click)="toggleMenu()"
+        >
+          <svg size="18" lucideEllipsisVertical aria-hidden="true"></svg>
+        </button>
+
+        @if (menuOpen()) {
+          <div
+            class="program-panel__dropdown program-panel__dropdown--header popover-menu popover-menu--below"
+            role="menu"
+            tabindex="-1"
+            [id]="menuId"
+            (keydown)="onMenuKeydown($event)"
+            animate.enter="popover-menu--enter"
+            animate.leave="popover-menu--leave"
+          >
+            <button
+              #menuItem
+              type="button"
+              class="program-panel__menu-item popover-menu__item"
+              role="menuitem"
+              [attr.tabindex]="activeMenuItem() === 0 ? 0 : -1"
+              (click)="runMenuAction()"
+            >
+              <svg size="16" lucideCopy aria-hidden="true"></svg>
+              <span>Дублировать</span>
+            </button>
+
+            @if (!isArchived()) {
+              <button
+                #menuItem
+                type="button"
+                class="program-panel__menu-item popover-menu__item"
+                role="menuitem"
+                [attr.tabindex]="activeMenuItem() === 1 ? 0 : -1"
+                (click)="runMenuAction()"
+              >
+                <svg size="16" lucideArchive aria-hidden="true"></svg>
+                <span>Архивировать</span>
+              </button>
+            }
+
+            <button
+              #menuItem
+              type="button"
+              class="program-panel__menu-item program-panel__menu-item--danger popover-menu__item popover-menu__item--danger"
+              role="menuitem"
+              [attr.tabindex]="activeMenuItem() === deleteMenuIndex() ? 0 : -1"
+              (click)="runMenuAction()"
+            >
+              <svg size="16" lucideTrash2 aria-hidden="true"></svg>
+              <span>Удалить</span>
+            </button>
+          </div>
+        }
+      </div>
+    </header>
+
+    <div #scroll class="program-panel__scroll">
+      <div class="program-panel__hero" [attr.data-theme]="program.theme" aria-hidden="true">
+        <svg class="program-panel__hero-icon" [lucideIcon]="themeIcon()"></svg>
+      </div>
+
+      <div class="program-panel__body">
+        <dl class="program-panel__meta">
+          <div class="program-panel__meta-item">
+            <dt class="program-panel__meta-label">
+              <svg size="15" lucideClock aria-hidden="true"></svg>
+              Длительность
+            </dt>
+            <dd class="program-panel__meta-value">{{ hoursLabel() }}</dd>
+          </div>
+
+          <div class="program-panel__meta-item">
+            <dt class="program-panel__meta-label">
+              <svg size="15" lucideGraduationCap aria-hidden="true"></svg>
+              Тип
+            </dt>
+            <dd class="program-panel__meta-value">{{ program.type }}</dd>
+          </div>
+
+          <div class="program-panel__meta-item">
+            <dt class="program-panel__meta-label">
+              <svg size="15" lucideCompass aria-hidden="true"></svg>
+              Направление
+            </dt>
+            <dd class="program-panel__meta-value">{{ program.direction }}</dd>
+          </div>
+        </dl>
+
+        <div class="program-panel__tabs" role="tablist" aria-label="Разделы программы">
+          @for (tab of tabs; track tab.id) {
+            <button
+              #tabButton
+              type="button"
+              class="program-panel__tab"
+              role="tab"
+              [id]="'program-panel-tab-' + tab.id"
+              [attr.aria-selected]="activeTab() === tab.id"
+              [attr.aria-controls]="activeTab() === tab.id ? 'program-panel-content' : null"
+              [attr.tabindex]="activeTab() === tab.id ? 0 : -1"
+              (click)="selectTab(tab.id)"
+              (keydown)="onTabKeydown($event)"
+            >
+              {{ tab.label }}
+            </button>
+          }
+        </div>
+
+        <section
+          id="program-panel-content"
+          class="program-panel__content"
+          role="tabpanel"
+          [attr.aria-labelledby]="'program-panel-tab-' + activeTab()"
+          tabindex="0"
+        >
+          @switch (activeTab()) {
+            @case ('description') {
+              <h3 class="program-panel__section-title">Описание программы</h3>
+              <p class="program-panel__text">{{ program.description }}</p>
+
+              <h3 class="program-panel__section-title">
+                <svg size="18" lucideTarget aria-hidden="true"></svg>
+                Цели
+              </h3>
+              <ul class="program-panel__goals">
+                @for (goal of program.goals; track goal) {
+                  <li class="program-panel__goal">
+                    <span class="program-panel__goal-icon" aria-hidden="true">
+                      <svg size="13" lucideCheck></svg>
+                    </span>
+                    <span>{{ goal }}</span>
+                  </li>
+                }
+              </ul>
+            }
+
+            @case ('structure') {
+              <h3 class="program-panel__section-title">
+                <svg size="18" lucideLayers aria-hidden="true"></svg>
+                Структура программы
+              </h3>
+              <div class="program-panel__modules">
+                @for (module of modules(); track module.id; let index = $index) {
+                  <article class="program-panel__module">
+                    <span class="program-panel__module-index">{{ index + 1 }}</span>
+                    <div class="program-panel__module-main">
+                      <div class="program-panel__module-head">
+                        <h4 class="program-panel__module-title">{{ module.title }}</h4>
+                        <span class="program-panel__module-hours">{{
+                          formatHours(module.hours)
+                        }}</span>
+                      </div>
+                      <p class="program-panel__module-summary">{{ module.summary }}</p>
+                    </div>
+                  </article>
+                }
+              </div>
+              <p class="program-panel__total">Итого: {{ hoursLabel() }}</p>
+            }
+
+            @case ('competencies') {
+              <h3 class="program-panel__section-title">
+                <svg size="18" lucideBookOpen aria-hidden="true"></svg>
+                Компетенции
+              </h3>
+              <ul class="program-panel__competencies">
+                @for (competency of competencies(); track competency) {
+                  <li class="program-panel__competency">
+                    <svg size="16" lucideCheck aria-hidden="true"></svg>
+                    <span>{{ competency }}</span>
+                  </li>
+                }
+              </ul>
+            }
+
+            @case ('materials') {
+              <h3 class="program-panel__section-title">
+                <svg size="18" lucideFileText aria-hidden="true"></svg>
+                Материалы
+              </h3>
+              <ul class="program-panel__materials">
+                @for (material of materials(); track material.id) {
+                  <li class="program-panel__material">
+                    <span
+                      class="program-panel__material-icon"
+                      [style.color]="material.style.color"
+                      aria-hidden="true"
+                    >
+                      <svg [lucideIcon]="material.style.icon"></svg>
+                    </span>
+                    <span class="program-panel__material-main">
+                      <span class="program-panel__material-name">{{ material.name }}</span>
+                      <span class="program-panel__material-meta">{{ material.meta }}</span>
+                    </span>
+                  </li>
+                }
+              </ul>
+            }
+          }
+        </section>
+      </div>
+    </div>
+
+    <footer class="program-panel__footer">
+      <button type="button" class="button button--main program-panel__action">
+        Открыть программу
+      </button>
+      <button type="button" class="button button--outline program-panel__action">
+        <svg size="16" lucidePencil aria-hidden="true"></svg>
+        Редактировать
+      </button>
+    </footer>
+  </aside>
+}

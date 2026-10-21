@@ -18,12 +18,15 @@ chat application" in `DECISIONS.md` for why each piece went.
 
 Everything described below is working and running via Docker Compose.
 
-| Component   | State                                                                                                                              |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, providers, the programme cycle (#3)                             |
-| `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings |
-| `e2e/`      | Complete: specs with bounded timeouts against the real Compose stack with the offline provider                                     |
-| Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup                                                     |
+| Component   | State                                                                                                                                                     |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness                                                                      |
+| `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings, mock programs catalog |
+| `e2e/`      | Complete: specs against the real Compose stack with the offline provider                                                                                  |
+| `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, providers, the programme cycle (#3)                                                   |
+| `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings                        |
+| `e2e/`      | Complete: specs with bounded timeouts against the real Compose stack with the offline provider                                                            |
+| Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup                                                                            |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
 sessions with async generation, attachment upload / list / delete, presigned S3 results.
@@ -55,8 +58,21 @@ tiles inside the composer field, above the textarea: images show a small preview
 types the same tile with a file icon. Clicking the tile opens the preview (there is no
 separate preview button); the file name and remove action appear on hover and keyboard
 focus, and stay visible on touch devices. `/help` is still an
-intentional `SectionPlaceholder` host, and `programs` / `library` render the same placeholder
-behind the auth gate.
+intentional `SectionPlaceholder` host, `library` renders the same placeholder behind the
+auth gate, and `/programs/new` uses it until the form exists. `/programs` is now
+`Мои программы`, a lazy-loaded workspace backed by `GET /chats/programmes`.
+`ProgramsService` fetches every page of the catalogue (the endpoint caps a page at 100),
+keeps filters and the six-item paging client-side, and opens a programme through
+`GET /chats/{session_id}/program`; a run whose `busy` is true is polled every two seconds.
+The detail aside fills the description, goals, competencies, curriculum modules and hours
+from the returned draft; type, tags and author stay in the card and panel and are read when
+the catalogue starts returning them, with placeholders until then. A guest sees the page
+behind the blurred overlay, but the catalogue is empty because the endpoint is
+authenticated. Duplicate / archive / restore / delete still mutate the loaded list only:
+there are no endpoints for them yet. The card and panel action menus use the menu-button
+keyboard pattern with roving tab focus, and the detail panel remains a non-modal right-side
+aside that fills the viewport below 980px. Program creation has no entry point yet, so the
+catalog has no create button.
 
 **The programme cycle (#3).** A chat can build one educational programme. A run is one
 `ProgramState` in `chat_sessions.program_state` (JSONB), mirrored to Redis for an hour, and it
@@ -79,8 +95,9 @@ carries the questions a programme is waiting an answer to, and
 `POST /chats/{session_id}` takes those answers in an `answers` array next to `content`.
 `GET /chats/programmes` lists the user's programmes, paginated. A run may ask the methodist
 questions: `begin_program` takes them, the run waits in `awaiting_answers`, and the answers
-move it on. The frontend has no programme UI yet, and its five-minute poll can time out
-before a slow run finishes.
+move it on. The catalogue and its detail aside consume both endpoints; the chat-side
+programme flow (answering the run's questions and approving a rendered draft) is still not
+built, and the chat's five-minute poll can time out before a slow run finishes.
 
 **Two dead placeholder directories** are still tracked: `frontend/src/app/shared/components/
 chat-widget/` and `.../param-table/`, each holding only a `.gitkeep`. They are leftovers from
@@ -183,24 +200,27 @@ Ordered by value, not by commitment:
 0. **Decide what the application is for.** Everything else is downstream. The base system
    prompt is one paragraph and the schema carries only `{chat_name, message}`, which is
    deliberate headroom rather than an oversight.
-1. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
+1. **Turn the programs catalog into a real feature.** `ProgramsService` is an in-memory mock
+   and the detail aside's tabs are derived demo content; replace both with API calls,
+   persistence, and the create/edit form behind `/programs/new`.
+2. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
    where per-content-type preparation belongs. The first content type that needs work is the
    first thing that goes in it, offloaded with `asyncio.to_thread`.
-2. **Extend the e2e suite.** It covers authentication (including the guest path and the
+3. **Extend the e2e suite.** It covers authentication (including the guest path and the
    sign-in dialog), the chat journey, a follow-up message, attachments, the paginated history
    list, admin roles and the admin prompt editor.
-   Not yet covered: the docx/xlsx preview, avatar upload, the theme toggle, and the error
-   paths (a generation that fails, a session deleted mid-flight).
-3. **Fill the placeholder sections:** profile, user settings, the admin action log
+   Not yet covered: the docx/xlsx preview, avatar upload, the theme toggle, the programs
+   catalog, and the error paths (a generation that fails, a session deleted mid-flight).
+4. **Fill the placeholder sections:** profile, user settings, the admin action log
    (`Журнал действий`) and system info.
-4. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
-5. **Mirror the Garage image into a registry we control** and pin it by digest. MinIO's
+5. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
+6. **Mirror the Garage image into a registry we control** and pin it by digest. MinIO's
    deletion cost a CI outage and this migration; the same event could happen to
    `dxflrs/garage`.
-6. **Add a LICENSE file**, currently absent.
-7. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
+7. **Add a LICENSE file**, currently absent.
+8. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
    and in the code, but not in the example env file.
-8. **Add a per-test e2e user.** The suite shares one seeded user and works around the
+9. **Add a per-test e2e user.** The suite shares one seeded user and works around the
    5-per-minute rate limit by clearing Redis between tests.
 
 ---

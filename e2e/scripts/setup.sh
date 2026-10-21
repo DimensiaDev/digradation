@@ -136,6 +136,81 @@ async def main():
 asyncio.run(main())
 PY
 
+echo "==> Seeding e2e programmes"
+# The catalogue is read from `chat_sessions.program_state`, so the pagination and
+# detail specs need rows to look at. The run envelope is deliberately minimal: the
+# list endpoint reads its title, status and `updated_at`, and the detail endpoint
+# accepts the same defaults the model gives an empty run.
+"${DC[@]}" exec -T \
+  -e "E2E_USERNAME=${E2E_USER}" \
+  backend poetry run python - <<'PY'
+import asyncio
+import os
+import uuid
+from datetime import UTC, datetime, timedelta
+
+from app.database import get_session_maker
+from app.models.auth import User
+from app.models.chat import ChatSession
+from sqlalchemy import delete, select
+
+USERNAME = os.environ["E2E_USERNAME"]
+
+# title, state status, failed, days ago
+PROGRAMMES = [
+    ("Python для анализа данных", "draft", False, 1),
+    ("Кибербезопасность для сотрудников", "generating", False, 2),
+    ("Основы машинного обучения", "pending_approval", False, 3),
+    ("Agile-трансформация команд", "approved", False, 4),
+    ("Управление проектами", "draft", False, 5),
+    ("Soft skills для руководителей", "awaiting_answers", False, 6),
+    ("Веб-разработка: полный цикл", "draft", True, 7),
+    ("Продуктовая аналитика", "verified", False, 8),
+]
+
+
+async def main():
+    async with get_session_maker()() as db:
+        user = (await db.execute(select(User).where(User.username == USERNAME))).scalar_one()
+        await db.execute(
+            delete(ChatSession).where(
+                ChatSession.user_id == user.id,
+                ChatSession.program_state.is_not(None),
+            )
+        )
+
+        now = datetime.now(UTC)
+        for title, status, failed, days_ago in PROGRAMMES:
+            session_id = uuid.uuid4()
+            state = {
+                "session_id": str(session_id),
+                "run_id": str(uuid.uuid4()),
+                "status": status,
+                "title": title,
+                "kind": "professional_development",
+                "failed": failed,
+                "version": 1,
+                "updated_at": (now - timedelta(days=days_ago)).isoformat(),
+                "questions": [],
+                "answers": [],
+            }
+            if failed:
+                state["error"] = "e2e seeded failure"
+            db.add(
+                ChatSession(
+                    session_id=session_id,
+                    user_id=user.id,
+                    name=title,
+                    program_state=state,
+                )
+            )
+        await db.commit()
+        print(f"seeded {len(PROGRAMMES)} programmes for {USERNAME}")
+
+
+asyncio.run(main())
+PY
+
 echo "==> Clearing rate-limit keys"
 # Both chat creation and message sending are limited to 5 per minute per user
 # (`chats:post` in app/routes/chat.py). A single e2e run creates several chats

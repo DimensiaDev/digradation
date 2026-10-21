@@ -1146,6 +1146,7 @@ showed a scrollbar with nothing to scroll to.
 - **`setup.sh` shares one 120s readiness deadline between the frontend and backend probes.**
   Each `curl` attempt is capped at 5s, so a hung connection cannot stretch the deadline; the
   script exits when the deadline passes instead of seeding an unready stack.
+
 ## Embedding provider lives in backend/app/providers
 
 The embedding client is a backend concern, not an edu_rag one. edu_rag
@@ -1160,6 +1161,7 @@ rule.
 in code. A deployment that reaches the embedding path with either unset
 gets a hard KeyError at container construction instead of a silent wrong-
 endpoint fallback.
+
 ## The landing logo is a separate animated component (2026-10-19)
 
 `/home` became the program-creation landing: a big brand mark, a greeting, prompt-example
@@ -1184,7 +1186,7 @@ morphed, and it is shared with the sidebar.
   nothing is uploaded or submitted. The real flow stays on `/create`.
 - **The landing opts out of the routed-page pin.** It sets `:host { flex: 1 1 auto }` to fill
   `main` and centre its content; `:host` has higher specificity than the `main router-outlet
-  + *` rule documented above.
+  - \*` rule documented above.
 
 ## A guest's home-page send survives the sign-in dialog (2026-10-20)
 
@@ -1285,6 +1287,168 @@ submit check, so it could hand the API text the other client-side path already r
 `ChatCreateComponent.MAX_SYMBOLS` now aliases the shared constant so its existing tests and
 template keep working while the number has a single source.
 
+## The programs catalog is mock-first behind a service (2026-10-21)
+
+`/programs` ships as a working catalogue before there is a programs API.
+
+- **The page talks to `ProgramsService`, not to fixtures.** The service owns an in-memory
+  signal and the duplicate / archive / delete mutations, so the page contains no mock data
+  and replacing the service body with HTTP calls later is the only integration point.
+- **The filter row is type + update month + technology tag, not status.** Status stays a
+  card badge and a draft is not a separate browsing section. Type options come from `type`
+  (split from `direction` when the detail panel landed; see the later section), date
+  options are the months present in `updatedAt`, and tag options are the
+  distinct `tags` values, all derived from `ProgramsService` so a duplicated row appears
+  under its new month immediately.
+- **Technology filtering is multi-select and OR-based.** The shared `Select` gains a
+  `multiple` mode that keeps the listbox open while options are toggled and treats the
+  `all` sentinel as a clear action. A program matches when it has _any_ of the selected
+  tags, which is what a filter chip row is expected to do; selecting Python and Agile
+  widens the result rather than narrowing it to programs tagged with both.
+- **Pagination is part of the service seam.** `ProgramsService.query` takes the active
+  filters plus `page` / `itemsPerPage` and returns the existing `PaginatedResponse` shape,
+  even though it currently slices an in-memory signal. The page owns the page number,
+  resets it on any filter change, and clamps it after a deletion or archive shrinks the
+  filtered result.
+- **The catalog has no create CTA.** Program creation has no entry point yet, and
+  `/programs/new` renders `SectionPlaceholder` inside the full gate until the form exists.
+  No card action navigates there.
+- **The card is a separate component partly for the style budget.** `anyComponentStyle`
+  warns at 6 kB, so a page-sized stylesheet would cross it. Theme accents and status colours
+  are driven by `data-theme` / `data-status` attributes, and status colours live in global
+  tokens so the card does not hardcode them.
+
+## `/programs` previews behind a guest gate instead of hiding the page (2026-10-21)
+
+The programs catalogue is the first route that is useful to see before signing in.
+
+- **The route stays inside `AuthGate` and opts into a preview mode.** Its parent route
+  carries `data: { authGateMode: 'preview' }`; `AuthGate` reads that flag and renders the
+  outlet plus an overlay for a guest. Other protected routes still render only the inline
+  prompt, so the gate remains the single place that decides what a guest may see.
+- **The preview is inert, blurred and hidden from assistive technology.** The outlet sits in
+  a wrapper with `filter: blur(6px)`, `pointer-events: none`, `inert` and `aria-hidden`;
+  only the `LoginPrompt` in the overlay is interactive.
+- **The overlay is fixed to the main column, below the sticky header.** Its
+  `left: var(--sidebar-width)` keeps the navigation sharp, and `z-index: 10` sits under the
+  header's `z-index: 20`. That blurs the catalogue rather than the whole application shell.
+- **The outlet is not recreated on login.** The preview wrapper stays mounted and only loses
+  its locked class; a guest who signs in keeps the same page instance instead of resetting
+  filters and local mock state.
+
+## The program detail panel is a side aside with demo content (2026-10-21)
+
+The catalog now opens a right-side detail view from a card, without leaving `/programs`.
+
+- **`type` is split from `direction`.** `Program.type` is the filterable programme kind
+  ("Повышение квалификации", "Корпоративное обучение", ...), while `direction` is the
+  subject area shown in the panel's metadata. The earlier catalog note that type options
+  come from `direction` is superseded; `ProgramsService.query` filters on `type`.
+- **The panel is page state, not a route.** `ProgramsPage` owns `selectedProgramId` and
+  renders the panel beside the grid, so filters, pagination and the scroll position survive
+  opening and closing it. The URL is unchanged, and the card that opened the panel is the
+  focus-restoration target.
+- **The detail view is a floating aside, not a modal and not a grid column.** The panel is
+  `position: fixed` above the page, so its alignment is relative to the viewport and it stays
+  in place while the catalog scrolls. The page does not reflow. There is no backdrop, focus
+  trap or scroll lock: the page stays a normal document. The component host is always mounted,
+  but its content lives behind `@if (program(); as program)` so `animate.leave` can finish
+  before Angular removes it. Closing is available from the arrow and Escape; focus returns to
+  the triggering card.
+- **The panel is a card set off the viewport edges.** It uses `top: 20px`, `right: 5px`,
+  `width: min(640px, calc(100vw - 10px))`, `height: calc(100dvh - 40px)` and a full
+  `--color-outline` border with a 20px radius, mirroring the existing side panels instead of
+  touching the screen edge with a left border-only drawer.
+- **The panel's header menu and footer actions are deliberately visual-only.** Per the product
+  decision, "Дублировать", "Архивировать" and "Удалить" in the header menu only close the
+  menu, and "Открыть программу" / "Редактировать" are styled buttons with no handlers. The
+  card's context menu remains the functional path for duplicate / archive / delete.
+- **Demo detail content is derived, not placeholder text.** Modules split the programme hours,
+  competencies are built from tags and direction, and materials come from the existing file
+  type styles. This keeps the panel presentable until the programs API and editor exist.
+- **The card opens through a full-card button.** The button sits under the card's content;
+  the content has `pointer-events: none` and the context menu opts back in with
+  `pointer-events: auto`, so the whole card is one target without swallowing the menu.
+
+## The programs catalog is lazy, responsive and caller-configured (2026-10-21)
+
+- **`/programs` is lazy-loaded.** The initial bundle was within a few kilobytes of its 1 MB
+  budget, so the page and its detail panel now load through `loadComponent` instead of
+  entering the initial chunk. The next catalogue-sized feature would otherwise cross an
+  error threshold, not just a warning.
+- **Below 980px the panel fills the viewport and the guest overlay drops the sidebar
+  offset.** The layout keeps a fixed 340px sidebar, so a 640px floating panel would cover
+  the navigation on a narrow window. At 980px and below the panel becomes full-screen and
+  the overlay uses `inset: 0`; wide viewports keep the floating card.
+- **The section is labelled `Мои программы`, and its tag filter is `Теги`.** The page is
+  the signed-in user's own workspace: every mock program is authored by `Админ Демо`, so the
+  nav label and heading match the list. Guests still see the page behind the preview gate.
+  `Технология` was too narrow for tags such as soft skills and management.
+- **`Select` no longer hardcodes the `'all'` sentinel.** A multiple select treats a value as
+  the clear action only when the caller supplies `allValue`; `/programs` passes `allValue="all"`.
+  This keeps a page-specific convention out of the shared control.
+
+## Programs results are announced, and pagination returns to them (2026-10-21)
+
+- **The range summary and the empty state are polite live regions.** Filter and page changes
+  therefore reach a screen reader without a separate status component.
+- **The grid and empty state sit in a focusable `role="region"` labelled "Результаты".**
+  Pagination and reset move focus there and scroll it to the top, because leaving focus on
+  the old page control would keep the new cards above the viewport.
+- **Single-select filters only scroll to the results and keep focus on the select.** Moving
+  focus after a filter change would break keyboard adjustment. The tag multi-select does
+  neither while it stays open: scrolling would pull the open dropdown away from the pointer.
+- **`scroll-margin-top: 72px` clears the sticky application header.** Focus scrolling uses
+  the same offset as `scrollIntoView`, so neither lands under the header.
+
+## Program action menus implement the menu button keyboard pattern (2026-10-21)
+
+- **Both card and panel action menus keep `role="menu"` and add the missing keyboard
+  behaviour.** Opening the menu focuses its first item; ArrowDown/ArrowUp wrap, Home/End
+  jump, and Escape still closes and restores focus to the trigger.
+- **The items use a roving `tabindex`.** Only the active item is in the tab order, so Tab
+  does not walk through every command before leaving the menu.
+- **Navigation lives in `shared/utils/menu-keyboard.ts`.** The card and panel menus have the
+  same command set and would otherwise drift; the helper returns the next index and leaves
+  unrelated keys alone.
+
+## Filters keep a selected value that no longer exists (2026-10-21)
+
+- **The catalogue options are derived from the surviving programs, but a selected value is
+  appended back when its last program is deleted.** Otherwise `Select` lost the label and
+  fell back to its placeholder while the filter signal stayed set, so the page showed an
+  empty grid with no visible active filter.
+- **The filter is not auto-cleared.** Clearing it in an effect would silently widen the
+  results after a destructive action. Keeping the value visible makes the empty state
+  explainable and leaves the user in control of resetting it.
+- **The same rule covers type, month and tags.** The helper appends every missing selected
+  value, with the month label formatter reused for dates.
+
+## Card actions return focus to the grid (2026-10-21)
+
+- **Closing a card menu removes the focused menu item, so the browser drops focus to the
+  body.** The card now emits its trigger explicitly with the open and action events instead
+  of the page reading `document.activeElement`; the page can restore focus after the DOM has
+  settled.
+- **A surviving card gets its menu trigger back; a deleted card hands focus to the next card
+  at the same position, or to the results region when the grid becomes empty.** Duplicate and
+  archive keep the same card, while delete has no trigger left to focus.
+- **Restoration runs in `afterNextRender`, not in the click handler.** The deleted card is
+  still in the DOM while the action is handled, so focusing synchronously would lose focus
+  again when Angular removes it.
+
+## Deleting a program is confirmed, and archiving is reversible (2026-10-21)
+
+- **Delete asks for confirmation through `window.confirm`.** The admin user list already
+  uses the same native confirmation for a destructive action; a bespoke modal would add a
+  component and focus trap before the catalogue needs one. Cancelling keeps the program and
+  leaves focus on the card trigger.
+- **Archived cards offer `Восстановить` instead of `Архивировать`.** The action republishes
+  the program, because the mock service keeps no pre-archive status. A real API should return
+  the previous status rather than assume `published`.
+- **The card menu stays the functional action surface.** The detail-panel menu is still
+  visual-only, so it does not advertise an unarchive action it cannot run.
+
 ## The programme cycle: one row, one task per stage, three layers of safety (2026-10-20, #3)
 
 The cycle was re-done from `main` after the earlier attempt's infrastructure was rejected.
@@ -1311,7 +1475,7 @@ These are the choices that the code cannot explain on its own.
 - **Three different guards, and each catches a different failure.** The PostgreSQL row lock
   orders two writers that save at the same instant; the version on the envelope refuses a
   writer that loaded the row ten minutes ago; the Redis stage lock keeps a slow stage from
-  overlapping the recovery run. The version check alone would still let two workers *execute*
+  overlapping the recovery run. The version check alone would still let two workers _execute_
   a stage — the lock is what stops the duplicate work, the version is what stops the duplicate
   write when the lock has expired.
 - **The lock is released with a Lua compare-and-delete.** `redis-py`'s `lock()` generates its
@@ -1452,6 +1616,7 @@ weaker than it looked. These are the rules that came out of it.
   ```
 
   `function_result` has no `id`, and `result` is a JSON-encoded **string**, not an object.
+
 - **`FunctionResult.result` is typed `str`.** The loop serialises the payload once with
   `json.dumps(..., ensure_ascii=False)` and the OpenAI `tool` message sends the same string as
   its text. A dict can no longer reach the wire by accident.
@@ -1465,7 +1630,7 @@ weaker than it looked. These are the rules that came out of it.
   `tool_state_id` belongs to the assistant message and must not be repeated on the `tool`
   message, or the API answers `every assistant function call must have a result in history`;
   and a `text` sibling next to `function_result` is rejected with `function content must
-  contain function result or files entries only`. Both are stripped in
+contain function result or files entries only`. Both are stripped in
   `_to_gigachat_message()`, which leaves the shared model and the OpenAI client carrying the
   text and the state id they need. The schema excerpt above describes the first half of the
   contract only; these two rules are the other half.
@@ -1565,3 +1730,39 @@ two together and gives the client something to poll.
   stages write the document and build their own prompt. Carrying the extension there would
   mean storing it in `ProgramState` from the intake, which is a product decision, not a
   mechanical one.
+
+## The programme catalogue reads the API, and the UI keeps the fields it cannot show yet (2026-10-21)
+
+`GET /chats/programmes` and `GET /chats/{session_id}/program` exist, so the mock catalogue
+in `ProgramsService` was replaced by them. The client maps the API onto the existing view
+model instead of redesigning the page: the card and the detail aside stay, and fields the
+catalogue does not return yet keep their elements.
+
+- **The whole catalogue is fetched, then filtered and paged in the client.** The endpoint
+  paginates but does not filter, and the page has type, month and tag filters. Fetching one
+  page at a time would filter only the page, so `ProgramsService` walks the API in
+  `items_per_page=100` pages and applies the existing filters to the full list. The
+  catalogue is small; a server-side filter contract should replace this when it exists.
+- **The list and the detail return different amounts.** The catalogue has title, status and
+  `updated_at`; type, hours, description, goals, competencies and modules come from the
+  draft only when a programme is opened. The service merges a detail response into the list
+  item, so the card and panel update without a second source of truth.
+- **Fields the backend may add later are optional in the API model.** `type`, `direction`,
+  `hours`, `tags`, `author`, `description`, `goals` and `theme` are accepted when the
+  catalogue returns them and fall back to placeholders otherwise. The elements stay in the
+  template, because removing them would have to be undone when the contract grows.
+- **A guest gets no catalogue.** `/programs` is an auth-gate preview, but
+  `/chats/programmes` is authenticated. The page loads only when `ProfileService.user()` is
+  set and clears when it is not; the overlay remains, the list is empty. Serving mock rows
+  to a guest would be the old mock by another name.
+- **Duplicate, archive, restore and delete are still local.** There are no write endpoints
+  for a programme, so these actions change the loaded list and are lost on reload. They stay
+  because their menu items are part of the page; the service is where they will call the
+  API once it exists.
+- **The page polls `busy`, not `running`.** The detail request repeats every two seconds
+  while `busy` is true, and stops on close, on deletion of the selected row, or when the
+  run stops. This follows the backend contract: `running` is only a stage-lock hint.
+- **The e2e stack seeds programme rows.** `/programs` is now empty without data, so
+  `e2e/scripts/setup.sh` writes eight minimal `chat_sessions.program_state` envelopes for
+  the e2e user. The list endpoint needs only title, status and `updated_at`; the detail
+  endpoint accepts the model's defaults for the rest.
