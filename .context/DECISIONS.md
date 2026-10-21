@@ -1121,3 +1121,18 @@ showed a scrollbar with nothing to scroll to.
   is 100% of `main`, header included, so that page still scrolls by the header height. It
   predates this change and needs its internal `calc(100dvh - 40px)` reworked, which is a
   separate piece of work.
+
+## Embedding provider lives in backend/app/providers
+
+The embedding client is a backend concern, not an edu_rag one. edu_rag
+stays dependency-light (no openai SDK) and declares only a structural
+protocol (`model`, `dimension`, `async embed()`). `OpenAIEmbeddingProvider`
+and `MockEmbeddingProvider` are backend classes, matching the
+SberProvider/MockProvider pattern. Scope selects which one is used; the
+mock is preferred whenever `SBER_API_KEY=mock`, mirroring the chat-provider
+rule.
+
+`OPENAI_EMBEDDING_MODEL` and `OPENAI_EMBEDDING_DIMENSION` have no default
+in code. A deployment that reaches the embedding path with either unset
+gets a hard KeyError at container construction instead of a silent wrong-
+endpoint fallback.

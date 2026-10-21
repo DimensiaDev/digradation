@@ -21,6 +21,8 @@ from app.cache import (
 from app.database import get_db
 from app.models.auth import ROLE_RANK, AccountRole, Session, User
 from app.models.chat import Attachment, ChatSession
+from app.providers.containers import get_embedding_provider
+from app.providers.embeddings import EmbeddingProvider
 from app.storage import storage
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -161,3 +163,10 @@ async def s3_internal_client() -> AsyncGenerator[S3Client]:
 
 
 S3InternalClient = Annotated[S3Client, Depends(s3_internal_client)]
+
+
+async def _embedding_provider() -> EmbeddingProvider:
+    return get_embedding_provider()
+
+
+EmbeddingProviderDep = Annotated[EmbeddingProvider, Depends(_embedding_provider)]
