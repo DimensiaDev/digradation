@@ -272,6 +272,7 @@ class ProgramState(BaseModel):
         ]
         problems += [f"результат обучения {item} объявлен дважды" for item in _duplicates(outcomes)]
         problems += self.topic_problems(draft.curriculum, set(outcomes))
+        problems += self.uncovered_outcome_problems(draft.curriculum, set(outcomes))
         problems += self.curriculum_problems(draft.curriculum)
         problems += self.citation_problems([*draft.summary.basis_source_ids, *standards])
         return problems
@@ -291,6 +292,21 @@ class ProgramState(BaseModel):
                         f"тема {topic.id} ссылается на необъявленные результаты обучения: {', '.join(missing)}"
                     )
         return problems
+
+    def uncovered_outcome_problems(self, curriculum: Curriculum, declared: set[str]) -> list[str]:
+        """Declared outcomes that no topic of the plan reveals.
+
+        The other direction of the same rule: a topic may not name an outcome
+        that does not exist, and an outcome nobody teaches is not a result of
+        the programme. Public so the hours stage can refuse the plan in the
+        reply that produced it.
+        """
+        covered = {
+            outcome_id for module in curriculum.modules for topic in module.topics for outcome_id in topic.outcome_ids
+        }
+        return [
+            f"результат обучения {outcome_id} не раскрыт ни в одной теме" for outcome_id in sorted(declared - covered)
+        ]
 
     def curriculum_problems(self, curriculum: Curriculum) -> list[str]:
         """The hour totals against the requested volume and the schedule."""

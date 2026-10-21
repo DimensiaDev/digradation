@@ -305,7 +305,11 @@ def _hours_problems(state: ProgramState, block: HoursBlock) -> list[str]:
         for competence in state.competencies
         for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
     }
-    return state.topic_problems(block.curriculum, declared) + state.curriculum_problems(block.curriculum)
+    return (
+        state.topic_problems(block.curriculum, declared)
+        + state.uncovered_outcome_problems(block.curriculum, declared)
+        + state.curriculum_problems(block.curriculum)
+    )
 
 
 @dataclass(frozen=True)

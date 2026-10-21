@@ -275,6 +275,18 @@ def test_a_topic_may_not_cover_an_undeclared_outcome(blocks: Blocks) -> None:
     assert "ro-k-99" in str(caught.value)
 
 
+def test_an_outcome_nobody_teaches_is_refused(blocks: Blocks) -> None:
+    """A declared result that no topic reveals is not a result of the programme."""
+    for module in blocks["curriculum"]["modules"]:
+        for topic in module["topics"]:
+            topic["outcome_ids"] = [item for item in topic["outcome_ids"] if item != "ro-s-02"]
+
+    with pytest.raises(IncompleteDraft) as caught:
+        make_state(blocks).to_draft()
+
+    assert "результат обучения ro-s-02 не раскрыт ни в одной теме" in str(caught.value)
+
+
 def test_the_curriculum_must_match_the_requested_volume(blocks: Blocks) -> None:
     with pytest.raises(IncompleteDraft) as caught:
         make_state(blocks, requested_hours=80).to_draft()
