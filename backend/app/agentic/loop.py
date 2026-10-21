@@ -94,20 +94,20 @@ def _attach_call_ids(response: GenerationResponse, calls: list[ToolCall]) -> Non
             _take_call(pending, part.function_call)
 
 
-def _tools_state_id(response: GenerationResponse) -> str | None:
+def _tool_state_id(response: GenerationResponse) -> str | None:
     """The tool-round id, from the envelope or the assistant message."""
-    return response.tools_state_id or next(
-        (message.tools_state_id for message in response.messages if message.tools_state_id is not None),
+    return response.tool_state_id or next(
+        (message.tool_state_id for message in response.messages if message.tool_state_id is not None),
         None,
     )
 
 
 def _assistant_messages(response: GenerationResponse) -> list[Message]:
     """The assistant turn, carrying the calls in both wire shapes."""
-    state_id = _tools_state_id(response)
+    state_id = _tool_state_id(response)
     messages = [
         message.model_copy(
-            update={"tool_calls": response.tool_calls, "tools_state_id": message.tools_state_id or state_id}
+            update={"tool_calls": response.tool_calls, "tool_state_id": message.tool_state_id or state_id}
         )
         for message in response.messages
         if message.role == Role.ASSISTANT
@@ -119,7 +119,7 @@ def _assistant_messages(response: GenerationResponse) -> list[Message]:
             role=Role.ASSISTANT,
             content=[Content(text=_answer_text(response.messages))],
             tool_calls=response.tool_calls,
-            tools_state_id=state_id,
+            tool_state_id=state_id,
         )
     ]
 
@@ -131,15 +131,15 @@ def _result_payload(result: Any) -> Any:
     return result
 
 
-def _tool_message(call: ToolCall, result: Any, tools_state_id: str | None) -> Message:
+def _tool_message(call: ToolCall, result: Any, tool_state_id: str | None) -> Message:
     """The ``tool`` turn carrying one call's result in both wire shapes."""
-    payload = _result_payload(result)
-    function_result = FunctionResult(id=call.id, name=call.function.name, result=payload)
+    payload = json.dumps(_result_payload(result), ensure_ascii=False)
+    function_result = FunctionResult(name=call.function.name, result=payload)
     return Message(
         role=Role.TOOL,
-        content=[Content(text=json.dumps(payload, ensure_ascii=False), function_result=function_result)],
+        content=[Content(text=payload, function_result=function_result)],
         tool_call_id=call.id,
-        tools_state_id=tools_state_id,
+        tool_state_id=tool_state_id,
     )
 
 
@@ -174,12 +174,12 @@ async def run_tool_loop(
         _normalise_call_ids(calls)
         _attach_call_ids(response, calls)
         messages.extend(_assistant_messages(response))
-        tools_state_id = _tools_state_id(response)
+        tool_state_id = _tool_state_id(response)
         for call in calls:
             result = await call_tool(call)
             if checkpoint is not None:
                 await checkpoint()
-            messages.append(_tool_message(call, result, tools_state_id))
+            messages.append(_tool_message(call, result, tool_state_id))
         log.info("tool_round", round=round_number, calls=[call.function.name for call in calls])
         response = await _generate_turn(generate, messages)
 

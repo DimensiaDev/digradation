@@ -25,18 +25,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agentic.errors import MissingChat, StaleState
 from app.agentic.state import ProgramState
 from app.cache import PROGRAM_STATE_TTL, get_program_state_key, get_redis_client
+from app.database import db_session
 from app.models.chat import ChatSession
 
 log = structlog.stdlib.get_logger(__name__)
-
-
-@asynccontextmanager
-async def _session() -> AsyncGenerator[AsyncSession]:
-    # Imported per call so the test fixtures can replace the session maker.
-    from app.database import get_session_maker
-
-    async with get_session_maker()() as db:
-        yield db
 
 
 def parse(raw: Any) -> ProgramState | None:
@@ -70,12 +62,11 @@ async def mirror(state: ProgramState) -> None:
 @asynccontextmanager
 async def locked(session_id: uuid.UUID) -> AsyncGenerator[tuple[AsyncSession, ChatSession]]:
     """Lock the chat row for the duration of the block, committing on a clean exit."""
-    async with _session() as db:
+    async with db_session() as db, db.begin():
         row = await db.scalar(select(ChatSession).where(ChatSession.session_id == session_id).with_for_update())
         if row is None:
             raise MissingChat(str(session_id))
         yield db, row
-        await db.commit()
 
 
 def writable(current: ProgramState | None, incoming: ProgramState, expected_run_id: uuid.UUID | None) -> bool:
@@ -94,7 +85,7 @@ def writable(current: ProgramState | None, incoming: ProgramState, expected_run_
 
 async def load(session_id: uuid.UUID) -> ProgramState | None:
     """Read the state from PostgreSQL, refreshing the Redis copy on the way."""
-    async with _session() as db:
+    async with db_session() as db:
         raw = await db.scalar(select(ChatSession.program_state).where(ChatSession.session_id == session_id))
     state = parse(raw)
     if state is not None:

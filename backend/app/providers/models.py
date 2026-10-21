@@ -1,7 +1,7 @@
 import json
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, ClassVar, Literal, Self
+from typing import ClassVar, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -73,16 +73,15 @@ class ContentFunctionCall(BaseModel):
 
 
 class FunctionResult(BaseModel):
-    """The value of a function call, sent back as a ``tool`` message part.
+    """The value of a function call, sent back in a GigaChat v2 content part.
 
-    GigaChat v2 ties the result to the call by ``id`` and ``name`` inside the
-    content part, while the OpenAI shape keeps the id on the ``tool`` message.
-    The loop fills both, so either wire format can be produced from one history.
+    GigaChat wants ``result`` as a string holding a JSON object, so the loop
+    serialises the payload once; the OpenAI ``tool`` message sends the same
+    string as its text.
     """
 
-    id: str | None = None
     name: str
-    result: Any
+    result: str
 
 
 class Content(BaseModel):
@@ -153,7 +152,7 @@ class Message(BaseModel):
     #: a content part; the SDK accepts both, so the history preserves it.
     function_call: ContentFunctionCall | None = None
     #: GigaChat v2 ties the results of one round together with this id.
-    tools_state_id: str | None = None
+    tool_state_id: str | None = None
 
     @classmethod
     def from_chat_message(cls, obj: ChatMessage) -> Self:
@@ -253,7 +252,7 @@ class GenerationResponse(BaseModel):
     #: both text and tool calls, or tool calls with no text at all.
     tool_calls: list[ToolCall] = Field(default_factory=list)
     #: GigaChat v2 answer to a tool round; echoed back on the next request.
-    tools_state_id: str | None = None
+    tool_state_id: str | None = None
 
     @field_validator("created_at", mode="before")
     @classmethod

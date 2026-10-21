@@ -513,13 +513,36 @@ async def test_generate_restores_object_arguments_for_gigachat(provider_factory)
 
 
 @pytest.mark.asyncio
+async def test_generate_refuses_to_send_unparseable_arguments(provider_factory):
+    """A broken call is a provider failure, not a body GigaChat has to reject."""
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+    history = [
+        Message(
+            role="assistant",
+            content=[Content(function_call=ContentFunctionCall(id="call-1", name="lookup", arguments="{not json"))],
+        )
+    ]
+
+    result = await provider.generate(
+        history,
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    assert result is None
+    assert captured == []
+
+
+@pytest.mark.asyncio
 async def test_generate_reads_a_message_level_function_call(provider_factory):
     body = generation_body()
     body["messages"] = [
         {
             "role": "assistant",
             "function_call": {"id": "call-7", "name": "lookup", "arguments": {"city": "Москва"}},
-            "tools_state_id": "state-1",
+            "tool_state_id": "state-1",
         }
     ]
     body["finish_reason"] = "function_call"
@@ -535,7 +558,7 @@ async def test_generate_reads_a_message_level_function_call(provider_factory):
 
     assert [call.id for call in result.tool_calls] == ["call-7"]
     assert result.tool_calls[0].function.arguments == '{"city": "Москва"}'
-    assert result.tools_state_id == "state-1"
+    assert result.tool_state_id == "state-1"
 
 
 @pytest.mark.asyncio
@@ -800,23 +823,23 @@ async def test_generate_sends_a_tool_result_as_a_gigachat_content_part(provider_
 
     The offline mock answers without a model, so this shape is the one thing the
     rest of the suite cannot check. v2 carries a result as a ``content[]`` part with
-    ``function_result``, tied to the round by ``tools_state_id`` on the message —
+    ``function_result``, tied to the round by ``tool_state_id`` on the message —
     not as an OpenAI ``tool_call_id``.
     """
     captured: list[httpx.Request] = []
     provider = provider_factory(ok_handler(captured))
     history = [
-        Message(role="assistant", content=[Content(text="Сейчас сохраню")], tools_state_id="state-1"),
+        Message(role="assistant", content=[Content(text="Сейчас сохраню")], tool_state_id="state-1"),
         Message(
             role="tool",
             content=[
                 Content(
                     text='{"ok": true}',
-                    function_result=FunctionResult(id="call-1", name="save_program_draft", result={"ok": True}),
+                    function_result=FunctionResult(name="save_program_draft", result='{"ok": true}'),
                 )
             ],
             tool_call_id="call-1",
-            tools_state_id="state-1",
+            tool_state_id="state-1",
         ),
     ]
 
@@ -830,9 +853,9 @@ async def test_generate_sends_a_tool_result_as_a_gigachat_content_part(provider_
     messages = json.loads(captured[-1].read().decode())["messages"]
     tool_message = messages[1]
     assert tool_message["role"] == "tool"
-    assert tool_message["tools_state_id"] == "state-1"
+    assert tool_message["tool_state_id"] == "state-1"
     assert "tool_call_id" not in tool_message
     assert tool_message["content"][0] == {
         "text": '{"ok": true}',
-        "function_result": {"id": "call-1", "name": "save_program_draft", "result": {"ok": True}},
+        "function_result": {"name": "save_program_draft", "result": '{"ok": true}'},
     }

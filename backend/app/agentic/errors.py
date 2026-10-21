@@ -45,6 +45,12 @@ class StaleState(ProgramError):
     reason = "состояние программы устарело"
 
 
+class StageSuperseded(ProgramError):
+    """Another worker owns the stage now; this one must stop without retrying."""
+
+    reason = "этап перехвачен другим воркером"
+
+
 class IncompleteDraft(ProgramError):
     """The committed blocks cannot produce a valid draft.
 

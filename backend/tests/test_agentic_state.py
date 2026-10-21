@@ -18,12 +18,7 @@ from pydantic import ValidationError
 
 from app.agentic.errors import IncompleteDraft
 from app.agentic.models import ProgramStatus, Stage, StageStatus
-from app.agentic.state import (
-    STAGE_ORDER,
-    ProgramState,
-    is_approval_message,
-    new_state,
-)
+from app.agentic.state import STAGE_ORDER, ProgramState, new_state
 
 EXAMPLE_PATH = Path(__file__).resolve().parents[1] / "examples" / "document_state_example.json"
 
@@ -250,33 +245,3 @@ def test_an_unrendered_draft_is_not_awaiting_approval(blocks: Blocks) -> None:
     state = make_state(blocks, finalized=False)
 
     assert not state.awaiting_approval
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "Подтверждаю",
-        "  подтверждаю!  ",
-        "УТВЕРЖДАЮ ПРОГРАММУ",
-        "да, подтверждаю.",
-        "согласен",
-        "подтверждаю\n",
-    ],
-)
-def test_approval_phrases_are_recognised(text: str) -> None:
-    assert is_approval_message(text)
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "не подтверждаю",
-        "подтверждаю, но переделай часы",
-        "да",
-        "ок",
-        "",
-        "утверждаю после правок",
-    ],
-)
-def test_anything_else_is_not_an_approval(text: str) -> None:
-    assert not is_approval_message(text)

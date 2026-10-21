@@ -38,23 +38,6 @@ STAGE_ORDER: tuple[Stage, ...] = (Stage.COMPETENCES, Stage.HOURS, Stage.SOURCES,
 #: when a stage is put on the queue, not when a worker picks it up.
 MAX_STAGE_ATTEMPTS = 3
 
-#: Answers that confirm a rendered draft. Whole phrases only: "не подтверждаю" is
-#: a different sentence, and a substring match would approve what it rejects.
-_APPROVAL_PHRASES = frozenset(
-    {
-        "подтверждаю",
-        "подтверждаю черновик",
-        "подтверждаю программу",
-        "утверждаю",
-        "утверждаю программу",
-        "да, подтверждаю",
-        "согласен",
-        "согласна",
-    }
-)
-
-_PUNCTUATION = " \t\r\n.!?,;:—–-«»\"'"
-
 
 class CompetencesBlock(BaseModel):
     """What the competences stage saves: the programme identity and its outcomes."""
@@ -304,12 +287,6 @@ def new_state(session_id: uuid.UUID, *, requested_hours: float | None, requireme
         requested_hours=requested_hours,
         requirements=requirements,
     )
-
-
-def is_approval_message(text: str) -> bool:
-    """True when the message is exactly one of the confirmation phrases."""
-    normalised = " ".join(text.lower().strip(_PUNCTUATION).split())
-    return normalised in _APPROVAL_PHRASES
 
 
 def _duplicates(items: Iterable[str]) -> list[str]:

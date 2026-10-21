@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-20** (the sequential programme cycle runs end to end, #3)
+Last updated: **2026-10-21** (the programme cycle reviewed against the GigaChat contract, #3)
 
 ---
 
@@ -52,7 +52,8 @@ TaskIQ task owns one stage — competences, hours, sources, summary — and each
 before enqueueing the next, so a worker that dies leaves every finished block behind and
 `recover_stalled_programs` restarts the stage that stopped. `finalize_program_draft` renders
 the assembled draft into the chat, renames a default-named chat and waits for the methodist's
-confirmation, which the chat worker is to turn into `approve_program_draft`. `assessment`
+confirmation, which the model turns into an `approve_program_draft` call (the chat worker only
+has to offer the tool). `assessment`
 and `materials` stay pending for #5; the source catalog behind `sources.py` is still empty
 until the RAG index (#11), so a draft cites no documents today. There is no endpoint and no
 programme UI: the cycle is driven by ordinary chat messages and the frontend needs nothing new
@@ -106,7 +107,9 @@ silently. See the rule in `AGENTS.md`.
 PostgreSQL, Redis and Garage are real testcontainers in the backend suite. The LLM is faked by
 `app/providers/mock.py`, selected with `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) and
 switchable via `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`, `stage`); the real provider is
-only reachable through `@pytest.mark.live` tests, which are deselected by default. The `stage`
+only reachable through `@pytest.mark.live` tests, which are deselected by default. Both live
+provider suites carry a full model -> tool -> model round, because that is the one shape the
+offline suite cannot prove the real API accepts. The `stage`
 mode scripts `begin_program` when that tool is offered and the stage's own
 `save_program_draft` block afterwards, so the stages are exercised end to end with no model.
 

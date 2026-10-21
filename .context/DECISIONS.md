@@ -1169,8 +1169,9 @@ These are the choices that the code cannot explain on its own.
 - **A citation must have been seen.** `search_sources` records the ids it returned on the
   context, and a save resolves every cited id against that set: an invented id and a plausible
   but unseen id are refused the same way. The catalog is empty until the RAG index (#11), so
-  today every citation is refused and the sources stage stores an empty list — which the draft
-  accepts, because a programme without citations is a weaker document, not an invalid one.
+  the prompts and the refusal hints say to leave citations empty rather than invent ids, and
+  the sources stage stores an empty list — which the draft accepts, because a programme
+  without citations is a weaker document, not an invalid one.
 - **The schedule check is one-sided.** `days x hours_per_day >= total` is a ceiling rather than
   an equality, because the final attestation sits outside the curriculum: the canonical example
   schedules 72 hours for 66 hours of topics. The equality against `requested_hours` is checked
@@ -1178,9 +1179,10 @@ These are the choices that the code cannot explain on its own.
 - **Finalisation renames the chat, and only once.** The programme title is a better chat name
   than "Новый чат", and the rename happens in the same transaction as the rendered message so a
   failed save cannot leave a renamed chat without the draft it was named for.
-- **Confirmation is a phrase, not an endpoint.** #3 allows no new route, so the chat worker
-  matches `is_approval_message` against the exact confirmation phrases and runs
-  `approve_program_draft`. It is only accepted once `finalized` is true, which is what keeps a
+- **Confirmation is the `approve_program_draft` tool call, not an endpoint and not a phrase.**
+  #3 allows no new route, and a phrase matcher would be dead code until the chat worker is
+  wired anyway. The model sees the rendered draft and the tool, and calls it when the
+  methodist confirms; the tool is only accepted once `finalized` is true, which keeps a
   confirmation from overtaking the transaction that renders the draft. An approved programme
   then continues as an ordinary chat: the next stage (#5) discusses the document.
 - **The mock has a `stage` mode.** Every other cycle test scripts the provider, and the wire
@@ -1205,8 +1207,9 @@ model on the other end was not served. These are the rules that came out of it.
   approved programme, because an approved run is deliberately handed back to the model as an
   ordinary chat.
 - **The rendered draft does not invite an edit it cannot accept.** The only way out of
-  `PENDING_APPROVAL` is the confirmation phrase (`begin_program` refuses a live run), so the
-  closing line asks for confirmation and says the remarks can be discussed after approval.
+  `PENDING_APPROVAL` is the `approve_program_draft` call (`begin_program` refuses a live run),
+  so the closing line asks for confirmation and says the remarks can be discussed after
+  approval.
 - **`failed` is the only terminal flag; `status` is left as it was.** There is no
   `ProgramStatus.FAILED`, and inventing one would have made every `status` reader a two-value
   switch. The envelope therefore reads `generating` with `failed: true` and the reason in
@@ -1227,13 +1230,11 @@ model on the other end was not served. These are the rules that came out of it.
 that lives in the chat worker's turn.
 
 - **`generate_chat_message` stays exactly as `main` has it.** The intake half of #3 — offering
-  `INTAKE_TOOLS`, committing the state a `begin_program` call started, answering a chat that
-  already holds a run, and turning the confirmation phrase into `approve_program_draft` — is
-  not in this change, and neither is its test block.
+  `INTAKE_TOOLS`, committing the state a `begin_program` call started and answering a chat that
+  already holds a run — is not in this change, and neither is its test block.
 - **The seam is what this branch owes that worker.** `INTAKE_TOOLS`, `ToolContext`,
-  `execute_tool`/`call_executor`, `store.save`, `is_approval_message` and
-  `program_stage.kiq(session_id, stage, run_id)` are usable from `api.py` as written; the
-  worker needs no new module, only the wiring.
+  `execute_tool`/`call_executor`, `store.save` and `program_stage.kiq(session_id, stage, run_id)`
+  are usable from `api.py` as written; the worker needs no new module, only the wiring.
 - **The `stage` mock mode's intake branch is therefore unexercised.** It still scripts
   `begin_program` when that tool is offered, and each stage's block when `save_program_draft`
   is offered, which is what the Docker run exercised: a run seeded directly into
@@ -1254,3 +1255,72 @@ hard-coded strings.
   `state.attempts[Stage.HOURS]` reads the same before and after the JSON round trip.
 - **Comments describe behaviour, not the history of the feature.** The rationale and the
   review notes go here; files the change only passes through keep the comments `main` had.
+
+## The GigaChat contract, one system prompt, and a lock that stays alive (2026-10-21, review of #32)
+
+The second review of #32 found two contract blockers (the tool round could not work against the
+real API), a missing live round test, and several places where a comment or a safety net was
+weaker than it looked. These are the rules that came out of it.
+
+- **`tool_state_id`, not `tools_state_id`.** The GigaChat v2 schema names the field
+  `tool_state_id` on a message and on the messages in a response. The old spelling went out as
+  an unknown key, so the round id was never sent, and was never read back, so the next round
+  could not be tied to the previous one. The internal `Message` and `GenerationResponse` use the
+  contract spelling verbatim; there is no alias to keep in sync. `docs/gigachat.yml` is
+  gitignored, so the excerpt this branch relies on lives here:
+
+  ```yaml
+  Message:
+    properties:
+      tool_state_id:
+        type: string
+        nullable: true
+  Content:
+    properties:
+      function_result:
+        type: object
+        properties:
+          name:
+            type: string
+          result:
+            type: string
+  ```
+
+  `function_result` has no `id`, and `result` is a JSON-encoded **string**, not an object.
+- **`FunctionResult.result` is typed `str`.** The loop serialises the payload once with
+  `json.dumps(..., ensure_ascii=False)` and the OpenAI `tool` message sends the same string as
+  its text. A dict can no longer reach the wire by accident.
+- **The wire conversion is one pure function.** `_to_gigachat_message()` drops the OpenAI-only
+  message keys and parses `arguments` from a string into an object. Invalid JSON is logged as
+  `request_message_invalid` and returns `None` — the provider's failure convention — instead of
+  sending a body GigaChat would reject.
+- **One system message per request.** GigaChat rejects a second system message, so a stage's
+  conversation is exactly `STAGE_SYSTEM_PROMPT` plus the brief; the chat worker must not append
+  the session system prompt to a stage history. The admin `prompt_extension` from
+  `harness.build_system_prompt` therefore does not reach programme stages. Applying it would
+  mean carrying the extension in `ProgramState` from `begin_program`, which is the chat
+  worker's turn (`app/tasks/api.py`); the stage prompt is the tool contract, not the session
+  persona. This is deliberate, not an oversight.
+- **The worker session lives next to the engine.** `app.database.db_session()` is the one
+  session context manager for task bodies and reusable modules; `tsq_db` in
+  `app/tasks/conf/broker.py` is now an alias so existing task imports stay untouched.
+  `app.agentic.store` imports the neutral name instead of reaching into `app.tasks`, and the
+  test fixture patches only the session maker.
+- **`FOR UPDATE` stays, and the transaction is explicit.** `store.locked()` is
+  `async with db_session() as db, db.begin():` and commits on a clean exit. The row lock orders
+  two writers; the version on the envelope refuses one that loaded the row long ago.
+- **The stage lock is renewed before every provider turn.** The Lua compare-and-expire only
+  extends a lock still owned by this worker; losing it raises `StageSuperseded`, the stage
+  returns quietly, and recovery re-enqueues it later. No duplicate provider call is made and
+  the run is not marked failed. `PROGRAM_STAGE_LOCK_TTL` (900 s) is therefore safe for a stage
+  that runs longer than it, and recovery is not delayed by a dead worker. A Redis outage during
+  the refresh counts as "still held", matching the recovery policy.
+- **`StaleState` is handled at both saves.** Marking the stage started and completing it are
+  inside the protected block, as are the failure saves, so a worker that lost the version
+  between reading the row and starting stops silently instead of failing the task.
+- **`Role` and `UserRole` stay separate.** The provider vocabulary is wider (`tool`) and a chat
+  row can never be one; a test pins the overlap so a rename on either side fails loudly.
+- **Live tests cover the whole round.** The offline suite cannot prove that GigaChat accepts a
+  `function_result` part; `test_live_gigachat_completes_a_tool_round` and its OpenAI twin run
+  model -> tool -> model through `run_tool_loop`, so the exact shape that blocked the merge is
+  exercised by the real API. They stay deselected by default and need a real key.

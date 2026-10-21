@@ -417,7 +417,11 @@ completeness gate that a partial state cannot pass.
 - **Three guards, not one.** The chat row lock orders simultaneous writers, the version on
   the envelope refuses a writer that loaded the row long ago, and a per-stage Redis lock
   (`PROGRAM_STAGE_LOCK_TTL`) keeps a slow stage from overlapping its own recovery. The lock is
-  released with a Lua compare-and-delete, never a plain `DEL`.
+  renewed before every provider turn with a Lua compare-and-expire, so a stage may run longer
+  than the TTL, and is released with a Lua compare-and-delete, never a plain `DEL`.
+- **The worker session is `app.database.db_session()`.** `store` and the task bodies take it
+  from there; `tsq_db` in `app/tasks/conf/broker.py` is only an alias for the imports that
+  predate it. The row lock is explicit: `async with db_session() as db, db.begin():`.
 - **`program_stage` refuses a task from another run** by comparing the `run_id` in its
   argument with the row, and replays a completed stage by handing over to its successor
   instead of regenerating the block.
@@ -428,11 +432,17 @@ completeness gate that a partial state cannot pass.
   default-named chat, and writes the state, the result and the assistant message in one
   transaction. A state whose blocks cannot produce a valid draft is failed, not retried.
 - **The pipeline does not own the chat worker.** `app/tasks/api.py` is untouched by this
-  work: the intake turn, the answers a chat with a live run gets, and the confirmation phrase
-  are its owner's to write (#3's remaining half). What this branch provides is the seam —
+  work: the intake turn and the answers a chat with a live run gets are its owner's to write
+  (#3's remaining half). Confirmation is the `approve_program_draft` tool call, not a phrase,
+  so there is no `is_approval_message` to wire. What this branch provides is the seam —
   `INTAKE_TOOLS` (`begin_program`, `approve_program_draft`), `ToolContext`, `call_executor`
   and `program_stage.kiq(session_id, stage, run_id)` — so the worker only has to offer the
   tools, commit the state a `begin_program` call started, and enqueue the stage it names.
+- **A stage sends exactly one system message.** GigaChat rejects a second one, so the stage
+  prompt is the tool contract and the conversation is `STAGE_SYSTEM_PROMPT` plus the brief.
+  The admin `prompt_extension` from `harness.build_system_prompt` does not reach programme
+  stages; carrying it there would mean storing it in `ProgramState` from the chat worker's
+  intake turn. That is a deliberate decision, recorded in `.context/DECISIONS.md`.
 
 ### Live API tests
 
@@ -452,7 +462,9 @@ poetry -C backend run pytest -m 'live and openai'
 
 The autouse `env` fixture pins `SBER_API_KEY=mock` for the normal suite; the
 `real_provider_env` fixture restores whatever the process was started with, which is how a
-live test sees a real credential at all.
+live test sees a real credential at all. Both provider suites carry a full model -> tool ->
+model round through `run_tool_loop`, which is the only test that can prove the real API
+accepts the `function_result` and `tool_state_id` shape.
 
 ### End-to-end (Playwright)
 

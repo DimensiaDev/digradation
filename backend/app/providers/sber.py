@@ -2,8 +2,8 @@ import json
 import os
 import ssl
 import uuid
-from contextlib import suppress
 from pathlib import Path
+from typing import Any
 
 from httpx import AsyncClient, Timeout
 
@@ -23,6 +23,25 @@ from app.providers.models import (
     ToolConfig,
     ToolsFunctions,
 )
+
+
+def _to_gigachat_message(message: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite one shared-history message into the GigaChat v2 wire shape."""
+    message.pop("tool_calls", None)
+    message.pop("tool_call_id", None)
+    for function_call in (
+        message.get("function_call"),
+        *(part.get("function_call") for part in message.get("content") or [] if part.get("function_call") is not None),
+    ):
+        if function_call is None:
+            continue
+        arguments = function_call.get("arguments")
+        if isinstance(arguments, str):
+            parsed = json.loads(arguments)
+            if not isinstance(parsed, dict):
+                raise ValueError("function arguments must be a JSON object")
+            function_call["arguments"] = parsed
+    return message
 
 
 class SberProvider(AIClient):
@@ -98,24 +117,11 @@ class SberProvider(AIClient):
             tool_config=ToolConfig(mode="auto") if tool_payload else None,
         )
         request_body = data.model_dump(exclude_unset=True, exclude_none=True, by_alias=True)
-        # v2 rejects the OpenAI-only message keys and takes ``arguments`` as an object.
-        for message in request_body["messages"]:
-            message.pop("tool_calls", None)
-            message.pop("tool_call_id", None)
-            for function_call in (
-                message.get("function_call"),
-                *(
-                    part.get("function_call")
-                    for part in message.get("content") or []
-                    if part.get("function_call") is not None
-                ),
-            ):
-                if function_call is None:
-                    continue
-                arguments = function_call.get("arguments")
-                if isinstance(arguments, str):
-                    with suppress(json.JSONDecodeError):
-                        function_call["arguments"] = json.loads(arguments)
+        try:
+            request_body["messages"] = [_to_gigachat_message(message) for message in request_body["messages"]]
+        except ValueError as error:
+            log.error("request_message_invalid", error=str(error))
+            return None
 
         r = await self._post(
             "/chat/completions",
@@ -158,9 +164,9 @@ class SberProvider(AIClient):
             )
         response.tool_calls = calls
         # The state id may arrive on the assistant message rather than the envelope.
-        if response.tools_state_id is None:
-            response.tools_state_id = next(
-                (message.tools_state_id for message in response.messages if message.tools_state_id is not None),
+        if response.tool_state_id is None:
+            response.tool_state_id = next(
+                (message.tool_state_id for message in response.messages if message.tool_state_id is not None),
                 None,
             )
         return response

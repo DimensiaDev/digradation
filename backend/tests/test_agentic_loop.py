@@ -45,7 +45,7 @@ def answer(
     *,
     calls: tuple[ToolCall, ...] = (),
     finish_reason: str = "stop",
-    tools_state_id: str | None = None,
+    tool_state_id: str | None = None,
 ) -> GenerationResponse:
     """One scripted assistant turn."""
     return GenerationResponse(
@@ -55,7 +55,7 @@ def answer(
         finish_reason=finish_reason,
         usage=USAGE,
         tool_calls=list(calls),
-        tools_state_id=tools_state_id,
+        tool_state_id=tool_state_id,
     )
 
 
@@ -154,27 +154,27 @@ async def test_a_missing_call_id_is_generated_for_both_sides_of_the_round() -> N
     assistant, tool_message = generate.requests[1][-2], generate.requests[1][-1]
     assert assistant.tool_calls[0].id
     assert assistant.tool_calls[0].id == tool_message.tool_call_id
-    assert tool_message.content[0].function_result.id == tool_message.tool_call_id
+    assert tool_message.content[0].function_result.name == assistant.tool_calls[0].function.name
 
 
 async def test_the_state_id_of_a_round_travels_with_both_messages() -> None:
-    generate = Script(answer(calls=(call(call_id="call-1"),), tools_state_id="state-1"), answer("готово"))
+    generate = Script(answer(calls=(call(call_id="call-1"),), tool_state_id="state-1"), answer("готово"))
 
     await run_tool_loop([], generate=generate, call_tool=Dispatcher())
 
     assistant, tool_message = generate.requests[1][-2], generate.requests[1][-1]
-    assert assistant.tools_state_id == "state-1"
-    assert tool_message.tools_state_id == "state-1"
+    assert assistant.tool_state_id == "state-1"
+    assert tool_message.tool_state_id == "state-1"
 
 
 async def test_a_state_id_on_the_message_is_used_when_the_envelope_has_none() -> None:
     first = answer(calls=(call(call_id="call-1"),))
-    first.messages[0].tools_state_id = "state-2"
+    first.messages[0].tool_state_id = "state-2"
     generate = Script(first, answer("готово"))
 
     await run_tool_loop([], generate=generate, call_tool=Dispatcher())
 
-    assert generate.requests[1][-2].tools_state_id == "state-2"
+    assert generate.requests[1][-2].tool_state_id == "state-2"
 
 
 async def test_a_truncated_answer_is_refused() -> None:

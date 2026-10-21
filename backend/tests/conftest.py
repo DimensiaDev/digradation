@@ -1,7 +1,6 @@
 import os
 import time
 from collections.abc import AsyncGenerator, Generator
-from contextlib import asynccontextmanager
 
 # These must be set before anything under `app` is imported. `app.storage` builds
 # an `ObjectStorage` at import time and `app.providers.containers` builds the
@@ -275,16 +274,14 @@ async def redis_client(redis_session: None) -> AsyncGenerator[Redis]:
 
 @pytest_asyncio.fixture()
 async def task_db(monkeypatch, engine: AsyncEngine):
-    """Bind ``tsq_db()`` inside the workers to the test database.
+    """Bind the worker session to the test database.
 
-    Task bodies open their own session via ``app.tasks.conf.broker.tsq_db``, which
-    resolves ``app.database.get_session_maker()`` — a separate, ``lru_cache``d
-    engine built from the ``POSTGRES_*`` environment. Without this a worker test
-    would quietly write to whatever PostgreSQL the environment points at instead
-    of the throwaway container.
+    ``app.database.db_session()`` looks ``get_session_maker()`` up at call time, so
+    replacing the module attribute covers every consumer — including the task
+    modules that imported ``tsq_db`` before the patch, because that name is the
+    same function object.
     """
     from app import database
-    from app.tasks.conf import broker as broker_module
 
     # Grab the lru_cache'd function before replacing the module attribute, so the
     # cache can still be cleared in teardown.
@@ -293,18 +290,6 @@ async def task_db(monkeypatch, engine: AsyncEngine):
 
     maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(database, "get_session_maker", lambda: maker)
-
-    @asynccontextmanager
-    async def _tsq_db():
-        async with maker() as session:
-            yield session
-
-    # The task modules do `from app.tasks.conf.broker import tsq_db`, which binds
-    # the name into their own namespace. Patching only the defining module leaves
-    # those bindings pointing at the real database, so every consumer is patched.
-    monkeypatch.setattr(broker_module, "tsq_db", _tsq_db)
-    for module_name in ("app.tasks.api", "app.tasks.files", "app.tasks.users", "app.tasks.program"):
-        monkeypatch.setattr(f"{module_name}.tsq_db", _tsq_db)
     yield
     cached_session_maker.cache_clear()
 

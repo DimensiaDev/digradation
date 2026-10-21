@@ -566,6 +566,80 @@ async def test_a_stage_superseded_mid_flight_does_not_overwrite_the_row(
     stages.assert_not_awaited()
 
 
+async def test_a_state_that_moved_before_the_stage_started_is_left_alone(
+    chat: uuid.UUID,
+    task_db: None,
+    redis_client: Redis,
+    provider: FakeProvider,
+    enqueued,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The save that marks the stage started is inside the protected block too.
+
+    A worker can read the row, lose the version to another writer and only then
+    begin; that first save must stop it without spending an attempt.
+    """
+    state = await store.save(new_state(chat, requested_hours=None, requirements=None))
+    real_user_uuid = program._user_uuid
+
+    async def move_the_row(session_id: uuid.UUID) -> uuid.UUID:
+        current = await store.load(session_id)
+        assert current is not None
+        await store.save(current.completed(Stage.COMPETENCES))
+        user_uuid = await real_user_uuid(session_id)
+        assert user_uuid is not None
+        return user_uuid
+
+    monkeypatch.setattr(program, "_user_uuid", move_the_row)
+    provider.answers.append(save_turn(COMPETENCES_BLOCK))
+
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
+
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.title is None
+    assert not saved.failed
+    assert saved.attempts[Stage.COMPETENCES.value] == 1
+    assert provider.calls == []
+    stages, _ = enqueued
+    stages.assert_not_awaited()
+
+
+async def test_a_stage_that_lost_its_lock_stops_before_the_next_turn(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """A lost lock ends the stage instead of paying for another provider call."""
+    state = await store.save(new_state(chat, requested_hours=None, requirements=None))
+    provider.answers.extend([save_turn(COMPETENCES_BLOCK), answer("готово")])
+
+    async def drop_the_lock() -> None:
+        await redis_client.delete(get_program_stage_lock_key(chat, Stage.COMPETENCES))
+
+    provider.on_generate = drop_the_lock
+
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
+
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.title == "Анализ данных"
+    assert saved.stage_status(Stage.COMPETENCES) is StageStatus.IN_PROGRESS
+    assert len(provider.calls) == 1
+    stages, _ = enqueued
+    stages.assert_not_awaited()
+
+
+async def test_refreshing_a_stage_lock_extends_only_the_owner(
+    chat: uuid.UUID, task_db: None, redis_client: Redis
+) -> None:
+    key = get_program_stage_lock_key(chat, Stage.COMPETENCES)
+    await redis_client.set(key, "worker-1", ex=60)
+
+    assert await program._refresh_lock(chat, Stage.COMPETENCES, "worker-1")
+    assert await redis_client.ttl(key) > 60
+
+    assert not await program._refresh_lock(chat, Stage.COMPETENCES, "worker-2")
+
+
 async def test_a_stage_stops_when_the_chat_is_deleted_under_it(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:

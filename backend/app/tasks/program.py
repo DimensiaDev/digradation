@@ -26,6 +26,7 @@ from app.agentic.errors import (
     MissingChat,
     ProgramError,
     StageNotCompleted,
+    StageSuperseded,
     StaleState,
 )
 from app.agentic.loop import run_tool_loop
@@ -35,6 +36,7 @@ from app.agentic.render import render_draft
 from app.agentic.state import MAX_STAGE_ATTEMPTS, ProgramState
 from app.agentic.tools import ToolContext, call_executor, stage_tools
 from app.cache import PROGRAM_STAGE_LOCK_TTL, get_program_stage_lock_key, get_redis_client
+from app.database import db_session
 from app.models.auth import User
 from app.models.chat import (
     DEFAULT_CHAT_NAME,
@@ -47,7 +49,7 @@ from app.models.chat import (
 )
 from app.providers.containers import provider
 from app.providers.models import GenerationResponse, Message, ResponseFormat
-from app.tasks.conf.broker import broker, tsq_db
+from app.tasks.conf.broker import broker
 
 log = structlog.stdlib.get_logger(__name__)
 
@@ -62,6 +64,14 @@ STALLED_AFTER = timedelta(minutes=10)
 _UNLOCK = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
     return redis.call("del", KEYS[1])
+end
+return 0
+"""
+
+#: Extends a lock only while it still holds the token of the worker that took it.
+_REFRESH = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("expire", KEYS[1], ARGV[2])
 end
 return 0
 """
@@ -97,7 +107,7 @@ async def program_stage(session_id: uuid.UUID, stage: str, run_id: uuid.UUID) ->
         stage_log.info("program_stage_locked", reason="another worker holds the stage")
         return
     try:
-        await _run_stage(session_id, state, stage_value, stage_log)
+        await _run_stage(session_id, state, stage_value, token, stage_log)
     finally:
         await _unlock(session_id, stage_value, token)
 
@@ -106,6 +116,7 @@ async def _run_stage(
     session_id: uuid.UUID,
     state: ProgramState,
     stage: Stage,
+    token: str,
     stage_log: structlog.stdlib.BoundLogger,
 ) -> None:
     """One model turn with one job: fill the stage's block and commit it."""
@@ -113,15 +124,19 @@ async def _run_stage(
     if user_uuid is None:
         stage_log.error("program_stage_no_user")
         return
-    started = await store.save(state.started(stage), expected_run_id=state.run_id)
     offered = stage_tools(stage)
     ctx = ToolContext(
         session_id=session_id,
-        state=started,
-        known_source_ids={source.id for source in started.sources},
+        state=state,
+        known_source_ids={source.id for source in state.sources},
     )
 
+    async def keep_lock() -> None:
+        if not await _refresh_lock(session_id, stage, token):
+            raise StageSuperseded()
+
     async def generate(messages: list[Message]) -> GenerationResponse | None:
+        await keep_lock()
         return await provider.generate(
             messages,
             ResponseFormat(type=ResponseFormat.TYPE_TEXT),
@@ -136,23 +151,23 @@ async def _run_stage(
             ctx.dirty = False
 
     try:
+        ctx.state = await store.save(state.started(stage), expected_run_id=state.run_id)
         await run_tool_loop(
-            stage_messages(started),
+            stage_messages(ctx.state),
             generate=generate,
             call_tool=call_executor(ctx, offered),
             checkpoint=checkpoint,
         )
-    except (StaleState, MissingChat) as error:
+        if not ctx.saved or ctx.state is None:
+            raise StageNotCompleted()
+        saved = await store.save(ctx.state.completed(stage), expected_run_id=state.run_id)
+    except (MissingChat, StageSuperseded, StaleState) as error:
         stage_log.warning("program_stage_superseded", reason=str(error))
         return
     except ProgramError as error:
-        await _stage_failed(ctx.state or started, stage, error, stage_log)
+        await _stage_failed(ctx.state or state, stage, error, stage_log)
         return
 
-    if not ctx.saved or ctx.state is None:
-        await _stage_failed(ctx.state or started, stage, StageNotCompleted(), stage_log)
-        return
-    saved = await store.save(ctx.state.completed(stage), expected_run_id=state.run_id)
     stage_log.info("program_stage_completed", version=saved.version)
     await _advance(saved)
 
@@ -165,12 +180,19 @@ async def _stage_failed(
 ) -> None:
     """Spend an attempt, then either retry the stage or end the run."""
     failed = state.failed_stage(stage, str(error))
+    try:
+        saved = (
+            await store.save(failed, expected_run_id=state.run_id)
+            if failed.terminal
+            else await _enqueue_stage(failed, stage)
+        )
+    except (MissingChat, StaleState) as superseded:
+        stage_log.info("program_stage_superseded", reason=str(superseded))
+        return
     if failed.terminal:
-        saved = await store.save(failed, expected_run_id=state.run_id)
         stage_log.error("program_stage_gave_up", error=str(error))
         await _notify(saved.session_id, _failure_message(str(error)))
         return
-    saved = await _enqueue_stage(failed, stage)
     stage_log.warning("program_stage_retry", attempt=saved.attempts.get(stage), error=str(error))
 
 
@@ -245,7 +267,7 @@ async def recover_stalled_programs() -> None:
     doubled, and spends an attempt on the re-enqueue so a stage that kills its
     worker ends the run instead of cycling through the queue forever.
     """
-    async with tsq_db() as db:
+    async with db_session() as db:
         rows = list(await db.scalars(select(ChatSession).where(ChatSession.program_state.is_not(None))))
     now = datetime.now(UTC)
     for row in rows:
@@ -323,7 +345,7 @@ async def _advance(state: ProgramState) -> None:
 
 async def _user_uuid(session_id: uuid.UUID) -> uuid.UUID | None:
     """The user the provider call is attributed to."""
-    async with tsq_db() as db:
+    async with db_session() as db:
         user = await db.scalar(
             select(User).join(User.chat_sessions).where(ChatSession.session_id == session_id).limit(1)
         )
@@ -362,7 +384,7 @@ async def _write_result(
 async def _notify(session_id: uuid.UUID, message: str) -> None:
     """Tell the methodist, in the chat, that the pipeline stopped."""
     try:
-        async with tsq_db() as db:
+        async with db_session() as db:
             if await db.get(ChatSession, session_id) is None:
                 return
             await _write_result(db, session_id, message)
@@ -384,6 +406,24 @@ def _chat_name(title: str) -> str:
     if len(title) <= MAX_CHAT_NAME_LENGTH:
         return title
     return title[: MAX_CHAT_NAME_LENGTH - 3].rstrip() + "..."
+
+
+async def _refresh_lock(session_id: uuid.UUID, stage: Stage, token: str) -> bool:
+    """Extend the stage lock; ``False`` when another worker owns the stage."""
+    try:
+        async with get_redis_client() as redis:
+            refreshed = await redis.eval(
+                _REFRESH,
+                1,
+                get_program_stage_lock_key(session_id, stage),
+                token,
+                PROGRAM_STAGE_LOCK_TTL,
+            )
+    except Exception as error:
+        # A Redis outage must not abort a stage that may still own the lock.
+        log.warning("program_stage_refresh_failed", chat_session_id=str(session_id), error=str(error))
+        return True
+    return bool(refreshed)
 
 
 async def _lock(session_id: uuid.UUID, stage: Stage) -> str | None:

@@ -246,13 +246,19 @@ def _citation_error(citations: _Citations) -> SaveProgramDraftResult | None:
         return SaveProgramDraftResult(
             ok=False,
             error="Неизвестные источники: " + ", ".join(citations.unknown),
-            details=["Используй только источники из результатов search_sources; выдуманные документы запрещены."],
+            details=[
+                "Используй только источники из результатов search_sources; выдуманные документы запрещены. "
+                "Если поиск ничего не нашёл, оставь ссылки пустыми."
+            ],
         )
     if citations.unsearched:
         return SaveProgramDraftResult(
             ok=False,
             error="Не подтверждённые поиском источники: " + ", ".join(citations.unsearched),
-            details=["Сначала найди документ вызовом search_sources и ссылайся только на то, что вернул поиск."],
+            details=[
+                "Сначала найди документ вызовом search_sources и ссылайся только на то, что вернул поиск. "
+                "Если поиск ничего не нашёл, оставь ссылки пустыми."
+            ],
         )
     if citations.not_standards:
         return SaveProgramDraftResult(

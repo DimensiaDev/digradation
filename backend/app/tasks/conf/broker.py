@@ -1,14 +1,11 @@
 import os
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from taskiq import TaskiqMiddleware
 from taskiq_aio_pika import AioPikaBroker, Queue
 from taskiq_dashboard import DashboardMiddleware
 from taskiq_redis import RedisAsyncResultBackend
 
-from app.database import get_session_maker
+from app.database import db_session
 from app.providers.containers import provider
 from app.util import get_rabbitmq_url
 
@@ -34,8 +31,5 @@ broker = (
     )
 )
 
-
-@asynccontextmanager
-async def tsq_db() -> AsyncGenerator[AsyncSession]:
-    async with get_session_maker()() as session:
-        yield session
+#: Kept as the task-side name; the session itself lives next to the engine.
+tsq_db = db_session

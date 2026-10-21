@@ -935,3 +935,19 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   that gains a sentence about the pipeline makes the diff look as if every provider changed,
   and the reviewer has to diff prose before code. Rationale belongs in `.context`. Review of
   #32, 2026-10-21.
+- **GigaChat v2 spells the field `tool_state_id`, and `function_result.result` is a string.**
+  The schema is in the gitignored `docs/gigachat.yml`, so a plausible internal spelling
+  (`tools_state_id`) silently goes out as an unknown key: the id is never sent, never parsed
+  back, and the second round cannot be tied to the first. Match the contract spelling verbatim,
+  keep the excerpt in `DECISIONS.md`, and let the live round test prove the shape. Review of
+  #32, 2026-10-21.
+- **A session context manager that captured the session maker at import cannot be
+  monkeypatched.** `tsq_db` used to call the `get_session_maker` imported into
+  `app.tasks.conf.broker`, so patching `app.database.get_session_maker` was invisible and the
+  fixture had to replace every module's binding. Defining `db_session()` in `app.database` and
+  resolving the maker at call time leaves one patch point. Review of #32, 2026-10-21.
+- **A lock TTL shorter than a stage's worst case loses the lock while the worker is alive.**
+  Two workers then run the same stage; the version check prevents the double write, but both
+  pay for provider calls. Renew the lock before every turn rather than assuming a stage fits in
+  the TTL, and treat the lost compare-and-expire as "superseded", not as a stage failure.
+  Review of #32, 2026-10-21.
