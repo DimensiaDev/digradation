@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-21** (programs catalog accessibility)
+Last updated: **2026-10-21** (programs catalog filters)
 
 ---
 
@@ -59,7 +59,9 @@ auth gate, and `/programs/new` uses it until the form exists. `/programs` is now
 mock-backed, lazy-loaded catalog: type, update-month and tag filters, a responsive card
 grid, local duplicate / archive / delete actions, pagination, and a non-modal right-side
 detail aside opened from a card. Filter and page changes update a polite live summary;
-pagination and reset return focus to a labelled results region at the top of the grid. The
+pagination and reset return focus to a labelled results region at the top of the grid. A
+selected type, month or tag stays visible as a selected option even after its last matching
+program is deleted, so an active filter never collapses into a placeholder. The
 card and panel action menus use the menu-button keyboard pattern with roving tab focus. The
 aside floats above the page and is set off its edges as a rounded card at wide viewports;
 below 980px it fills the viewport. It shows the programme metadata, description and goals,

@@ -61,6 +61,20 @@ function buildDateOptions(programs: readonly Program[]): SelectOption[] {
   ];
 }
 
+function includeSelectedOptions(
+  options: SelectOption[],
+  selected: readonly string[],
+  labelFor: (value: string) => string = (value) => value
+): SelectOption[] {
+  const available = new Set(options.map((option) => option.value));
+  const missing = selected.filter((value) => value !== 'all' && !available.has(value));
+  if (missing.length === 0) {
+    return options;
+  }
+
+  return [...options, ...missing.map((value) => ({ value, label: labelFor(value) }))];
+}
+
 @Component({
   selector: 'app-programs-page',
   imports: [
@@ -80,14 +94,24 @@ export class ProgramsPage {
   private readonly programsService = inject(ProgramsService);
   private readonly notifications = inject(NotificationService);
 
-  readonly typeOptions = computed(() => buildTypeOptions(this.programsService.programs()));
-  readonly dateOptions = computed(() => buildDateOptions(this.programsService.programs()));
-  readonly tagOptions = computed(() => buildTagOptions(this.programsService.programs()));
-
   readonly typeFilter = signal('all');
   readonly dateFilter = signal('all');
   readonly tagFilter = signal<readonly string[]>([]);
   readonly page = signal(0);
+
+  readonly typeOptions = computed(() =>
+    includeSelectedOptions(buildTypeOptions(this.programsService.programs()), [this.typeFilter()])
+  );
+  readonly dateOptions = computed(() =>
+    includeSelectedOptions(
+      buildDateOptions(this.programsService.programs()),
+      [this.dateFilter()],
+      monthLabel
+    )
+  );
+  readonly tagOptions = computed(() =>
+    includeSelectedOptions(buildTagOptions(this.programsService.programs()), this.tagFilter())
+  );
   readonly selectedProgramId = signal<string | null>(null);
 
   private readonly resultsRegion = viewChild<ElementRef<HTMLElement>>('resultsRegion');

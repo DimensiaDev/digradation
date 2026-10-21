@@ -187,6 +187,59 @@ describe('ProgramsPage', () => {
     expect(pageInfo().nativeElement.textContent).toContain('Показано 1–6 из 6 программ');
   });
 
+  it('keeps a selected type visible when its last program is deleted', () => {
+    selectType('Профессиональная переподготовка');
+    expect(cardTitles().length).toBe(2);
+
+    choose('Удалить');
+    choose('Удалить');
+
+    expect(typeSelect().value()).toBe('Профессиональная переподготовка');
+    expect(typeSelect().selectedLabel()).toBe('Профессиональная переподготовка');
+    expect(
+      typeSelect()
+        .options()
+        .map((option) => option.value)
+    ).toContain('Профессиональная переподготовка');
+    expect(cardTitles().length).toBe(0);
+    expect(emptyState().nativeElement.textContent).toContain('По фильтрам ничего не найдено');
+  });
+
+  it('keeps a selected month visible when its last program is deleted', () => {
+    selectDate('Август 2025');
+    expect(cardTitles().length).toBe(2);
+
+    choose('Удалить');
+    choose('Удалить');
+
+    expect(dateSelect().selectedLabel()).toBe('Август 2025');
+    expect(
+      dateSelect()
+        .options()
+        .some((option) => option.label === 'Август 2025')
+    ).toBe(true);
+    expect(cardTitles().length).toBe(0);
+    expect(emptyState().nativeElement.textContent).toContain('По фильтрам ничего не найдено');
+  });
+
+  it('keeps a selected tag visible when its last program is deleted', () => {
+    selectTag('Agile');
+    expect(cardTitles().length).toBe(2);
+
+    choose('Удалить');
+    choose('Удалить');
+
+    expect(tagSelect().value()).toEqual(['Agile']);
+    expect(tagSelect().selectedLabels()).toEqual(['Agile']);
+    expect(
+      tagSelect()
+        .options()
+        .some((option) => option.value === 'Agile')
+    ).toBe(true);
+    expect(cardTitles().length).toBe(0);
+    expect(emptyState().nativeElement.textContent).toContain('По фильтрам ничего не найдено');
+  });
+
   it('shows the catalog filters with all values selected by default', () => {
     expect(filters().length).toBe(3);
     expect(typeSelect().value()).toBe('all');

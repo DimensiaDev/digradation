@@ -1370,3 +1370,15 @@ The catalog now opens a right-side detail view from a card, without leaving `/pr
 - **Navigation lives in `shared/utils/menu-keyboard.ts`.** The card and panel menus have the
   same command set and would otherwise drift; the helper returns the next index and leaves
   unrelated keys alone.
+
+## Filters keep a selected value that no longer exists (2026-10-21)
+
+- **The catalogue options are derived from the surviving programs, but a selected value is
+  appended back when its last program is deleted.** Otherwise `Select` lost the label and
+  fell back to its placeholder while the filter signal stayed set, so the page showed an
+  empty grid with no visible active filter.
+- **The filter is not auto-cleared.** Clearing it in an effect would silently widen the
+  results after a destructive action. Keeping the value visible makes the empty state
+  explainable and leaves the user in control of resetting it.
+- **The same rule covers type, month and tags.** The helper appends every missing selected
+  value, with the month label formatter reused for dates.
