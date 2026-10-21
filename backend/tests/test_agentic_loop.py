@@ -254,6 +254,38 @@ async def test_a_content_part_call_without_an_id_gets_the_generated_one() -> Non
     assert assistant.content[-1].function_call.id == assistant.tool_calls[0].id
 
 
+async def test_a_text_part_beside_a_call_is_skipped_when_attaching_ids() -> None:
+    """A content part with no call carries no id to attach; the text survives."""
+    first = answer("думаю", calls=(call(call_id="call-1"),))
+    generate = Script(first, answer("готово"))
+
+    await run_tool_loop([], generate=generate, call_tool=Dispatcher())
+
+    assistant = generate.requests[1][-2]
+    assert assistant.content[0].text == "думаю"
+    assert assistant.content[0].function_call is None
+    assert assistant.tool_calls[0].id == "call-1"
+
+
+async def test_a_content_part_call_is_matched_by_name_not_by_position() -> None:
+    """The second pending call matches, and an absent name consumes nothing."""
+    first = answer(calls=(call(name="first", call_id="call-1"), call(name="second", call_id="call-2")))
+    first.messages[0].content.extend(
+        [
+            Content(function_call=ContentFunctionCall(name="second")),
+            Content(function_call=ContentFunctionCall(name="absent")),
+        ]
+    )
+    generate = Script(first, answer("готово"))
+
+    await run_tool_loop([], generate=generate, call_tool=Dispatcher({"ok": True}, {"ok": True}))
+
+    assistant = generate.requests[1][-3]
+    assert assistant.content[0].function_call.id == "call-2"
+    assert assistant.content[1].function_call.id is None
+    assert [tool_call.id for tool_call in assistant.tool_calls] == ["call-1", "call-2"]
+
+
 async def test_a_response_without_an_assistant_message_still_produces_a_tool_round() -> None:
     first = answer(calls=(call(call_id="call-1"),))
     first.messages = []

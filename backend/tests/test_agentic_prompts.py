@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import uuid
 
-from app.agentic.models import ProgramKind, Stage
+from app.agentic.models import ProgramKind, ProgramSummary, Source, SourceKind, Stage
 from app.agentic.prompts import STAGE_TASKS, saved_blocks, stage_brief, stage_messages
-from app.agentic.state import CompetencesBlock, ProgramState, new_state
+from app.agentic.state import CompetencesBlock, ProgramState, SourcesBlock, SummaryBlock, new_state
 
 COMPETENCE = {
     "id": "comp-01",
@@ -94,3 +94,22 @@ def test_an_empty_catalog_tells_the_model_to_leave_citations_empty() -> None:
 
     assert "оставь standard_source_id пустым" in stage_brief(run_at(Stage.COMPETENCES))
     assert "оставь список пустым" in stage_brief(run_at(Stage.SUMMARY))
+
+
+def test_the_brief_carries_the_sources_and_the_passport() -> None:
+    """The two blocks the later stages commit are visible to the model."""
+    state = run_at(Stage.SUMMARY)
+    source = Source(id="src-01", kind=SourceKind.PROFESSIONAL_STANDARD, title="Профстандарт 06.042")
+    summary = ProgramSummary(
+        goal="Научить анализу данных",
+        target_audience="Аналитики",
+        form="очно-заочная",
+        issued_document="удостоверение",
+    )
+    state = state.with_sources(SourcesBlock(sources=[source]))
+    state = state.with_summary(SummaryBlock(summary=summary), [source])
+
+    blocks = saved_blocks(state)
+
+    assert blocks["источники"] == [source.model_dump(mode="json")]
+    assert blocks["паспорт"]["goal"] == "Научить анализу данных"

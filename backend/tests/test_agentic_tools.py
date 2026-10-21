@@ -20,11 +20,13 @@ from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
 from app.agentic.state import ProgramState, new_state
 from app.agentic.tools import (
     ApproveProgramDraftResult,
+    BeginProgramArguments,
     BeginProgramResult,
     SaveProgramDraftResult,
     ToolContext,
     call_executor,
     execute_tool,
+    save_program_draft,
     stage_tools,
 )
 from app.providers.models import FunctionCall, ToolCall
@@ -320,6 +322,55 @@ async def test_saving_without_a_programme_is_refused() -> None:
 
     assert result.ok is False
     assert "не начата" in (result.error or "")
+
+
+async def test_the_save_handler_itself_refuses_a_missing_run() -> None:
+    """The dispatcher guards the same case; the handler must not trust a caller."""
+    result = await save_program_draft(
+        ToolContext(session_id=uuid.uuid4()),
+        BeginProgramArguments(requirements="Курс"),
+    )
+
+    assert result.ok is False
+    assert "не начата" in (result.error or "")
+
+
+async def test_the_save_handler_refuses_a_block_it_does_not_own(context: ToolContext) -> None:
+    result = await save_program_draft(context, BeginProgramArguments(requirements="Курс"))
+
+    assert result.ok is False
+    assert "Неизвестный блок" in (result.error or "")
+
+
+async def test_saving_on_a_stage_without_a_block_is_refused(context: ToolContext) -> None:
+    state = context.state
+    assert state is not None
+    context.state = state.model_copy(update={"current_stage": Stage.ASSESSMENT})
+
+    result = await execute_tool(context, save(competences_block()))
+
+    assert result.ok is False
+    assert "нет сохраняемого блока" in (result.error or "")
+
+
+async def test_a_handler_that_raises_becomes_a_failed_result(
+    context: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = tools.AGENT_TOOL_REGISTRY["search_sources"]
+
+    async def explode(_ctx: ToolContext, _arguments: Any) -> Any:
+        raise RuntimeError("handler exploded")
+
+    monkeypatch.setitem(
+        tools.AGENT_TOOL_REGISTRY,
+        "search_sources",
+        tools.AgentTool(original.spec, original.arguments, explode),
+    )
+
+    result = await execute_tool(context, call("search_sources", {"query": "аналитика"}))
+
+    assert result.ok is False
+    assert "Внутренняя ошибка" in (result.error or "")
 
 
 # --------------------------------------------------------------------------------------

@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from app.agentic.models import ProgramDraft
+from app.agentic.models import ProgramDraft, Schedule
 from app.agentic.render import CONFIRMATION_PROMPT, render_draft
 
 EXAMPLE_PATH = Path(__file__).resolve().parents[1] / "examples" / "document_state_example.json"
@@ -112,3 +112,27 @@ def test_a_topic_without_an_hour_split_renders_without_empty_parentheses() -> No
 
     assert f"{topic['title']} ({topic['id']}) — 0 ч" in text
     assert "()" not in text
+
+
+def test_a_schedule_with_only_weeks_renders_what_it_has(draft: ProgramDraft) -> None:
+    curriculum = draft.curriculum.model_copy(update={"schedule": Schedule(weeks=4)})
+
+    text = render_draft(draft.model_copy(update={"curriculum": curriculum}))
+
+    assert "**График:** 4 нед." in text
+
+
+def test_a_passport_without_tasks_hides_the_task_list(draft: ProgramDraft) -> None:
+    summary = draft.summary.model_copy(update={"tasks": []})
+
+    text = render_draft(draft.model_copy(update={"summary": summary}))
+
+    assert "**Задачи:**" not in text
+
+
+def test_basis_ids_that_do_not_match_a_source_are_dropped(draft: ProgramDraft) -> None:
+    summary = draft.summary.model_copy(update={"basis_source_ids": ["src-99"]})
+
+    text = render_draft(draft.model_copy(update={"summary": summary}))
+
+    assert "Разработана на основе" not in text

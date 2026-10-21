@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -388,6 +389,63 @@ async def test_finalising_twice_renders_one_message(
     assert len(await read_messages(engine, chat)) == 1
 
 
+async def test_finalising_stops_when_another_writer_finalized_first(
+    chat: uuid.UUID,
+    engine: AsyncEngine,
+    task_db: None,
+    redis_client: Redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The row can move between the load and the lock; the lock's copy wins."""
+    state = await store.save(complete_state(chat))
+    real_parse = store.parse
+    calls = 0
+
+    def parse(raw):
+        nonlocal calls
+        calls += 1
+        current = real_parse(raw)
+        if calls == 2 and current is not None:
+            return current.mark_finalized()
+        return current
+
+    monkeypatch.setattr(program.store, "parse", parse)
+
+    await run_task(program.finalize_program_draft, chat, state.run_id)
+
+    saved = await store.load(chat)
+    assert saved is not None
+    assert not saved.finalized
+    assert await read_result(engine, chat) is None
+
+
+async def test_finalising_a_chat_deleted_under_it_stops_quietly(
+    chat: uuid.UUID,
+    engine: AsyncEngine,
+    task_db: None,
+    redis_client: Redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The lock raises ``MissingChat``; finalizing must swallow it, not crash."""
+    state = await store.save(complete_state(chat))
+    real_locked = store.locked
+    maker = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+    @asynccontextmanager
+    async def delete_then_lock(session_id: uuid.UUID):
+        async with maker() as db:
+            await db.execute(delete(ChatSession).where(ChatSession.session_id == session_id))
+            await db.commit()
+        async with real_locked(session_id) as pair:
+            yield pair
+
+    monkeypatch.setattr(program.store, "locked", delete_then_lock)
+
+    await run_task(program.finalize_program_draft, chat, state.run_id)
+
+    assert await read_result(engine, chat) is None
+
+
 async def test_an_incomplete_draft_ends_the_run(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, enqueued
 ) -> None:
@@ -433,6 +491,21 @@ async def test_recovery_leaves_a_fresh_run_alone(chat: uuid.UUID, task_db: None,
 
     stages, _ = enqueued
     stages.assert_not_awaited()
+
+
+async def test_recovery_ignores_a_run_that_is_not_generating(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, enqueued
+) -> None:
+    """A draft status belongs to a different lifecycle; recovery leaves it alone."""
+    state = new_state(chat, requested_hours=None, requirements=None)
+    drafted = state.model_copy(update={"status": ProgramStatus.DRAFT})
+    await store.save(aged(drafted))
+
+    await run_task(program.recover_stalled_programs)
+
+    stages, finalizes = enqueued
+    stages.assert_not_awaited()
+    finalizes.assert_not_awaited()
 
 
 async def test_recovery_leaves_a_stage_whose_worker_is_alive(
@@ -701,6 +774,33 @@ async def test_a_lock_refresh_survives_a_redis_outage(monkeypatch: pytest.Monkey
     assert await program._locked(session_id, Stage.COMPETENCES)
 
 
+async def test_unlocking_after_a_redis_outage_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The stage is already over; a lock that cannot be released must not raise."""
+
+    def unavailable() -> None:
+        raise ConnectionError("redis is down")
+
+    monkeypatch.setattr(program, "get_redis_client", unavailable)
+
+    await program._unlock(uuid.uuid4(), Stage.COMPETENCES, "worker-1")
+
+
+async def test_notifying_a_deleted_chat_writes_nothing(task_db: None) -> None:
+    """The failure path can find the chat gone; that is not an error."""
+    await program._notify(uuid.uuid4(), "Не удалось собрать программу.")
+
+
+async def test_a_notification_that_fails_is_logged_not_raised(
+    chat: uuid.UUID, task_db: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def broken_write(*_args, **_kwargs) -> None:
+        raise RuntimeError("database is down")
+
+    monkeypatch.setattr(program, "_write_result", broken_write)
+
+    await program._notify(chat, "Не удалось собрать программу.")
+
+
 async def test_a_stage_stops_when_the_chat_is_deleted_under_it(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:
@@ -718,6 +818,32 @@ async def test_a_stage_stops_when_the_chat_is_deleted_under_it(
 
     stages, _ = enqueued
     stages.assert_not_awaited()
+
+
+async def test_a_stage_stops_when_the_chat_has_no_user(
+    chat: uuid.UUID,
+    task_db: None,
+    redis_client: Redis,
+    provider: FakeProvider,
+    enqueued,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A chat whose user row vanished cannot attribute a provider call."""
+    state = await store.save(new_state(chat, requested_hours=None, requirements=None))
+
+    async def no_user(_session_id: uuid.UUID) -> None:
+        return None
+
+    monkeypatch.setattr(program, "_user_uuid", no_user)
+
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
+
+    assert provider.calls == []
+    stages, _ = enqueued
+    stages.assert_not_awaited()
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.stage_status(Stage.COMPETENCES) is StageStatus.PENDING
 
 
 async def test_a_completed_stage_does_not_enqueue_a_successor_that_is_running(
@@ -902,6 +1028,22 @@ async def test_a_replayed_stage_does_not_spend_an_attempt_on_its_successor(
     saved = await store.load(chat)
     assert saved is not None
     assert saved.attempts[Stage.HOURS.value] == 1
+
+
+@pytest.mark.parametrize(
+    "closed",
+    [lambda state: state.failed_run("не вышло"), lambda state: state.approved()],
+    ids=["failed", "approved"],
+)
+async def test_advancing_a_closed_run_enqueues_nothing(enqueued, closed) -> None:
+    """A failure or an approval ends the pipeline; nothing follows it."""
+    state = closed(new_state(uuid.uuid4(), requested_hours=None, requirements=None))
+
+    await program._advance(state)
+
+    stages, finalizes = enqueued
+    stages.assert_not_awaited()
+    finalizes.assert_not_awaited()
 
 
 async def test_recovery_keeps_going_when_one_row_moved_under_it(

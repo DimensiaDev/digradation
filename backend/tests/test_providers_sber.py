@@ -32,7 +32,7 @@ from app.providers.models import (
     Tool,
     ToolCall,
 )
-from app.providers.sber import SberProvider
+from app.providers.sber import SberProvider, _to_gigachat_message
 
 #: The client is built with a ``/v2`` base path, and httpx merges that prefix
 #: into every *relative* request URL. So the code's ``_post("/chat/completions")``
@@ -536,6 +536,42 @@ async def test_generate_refuses_to_send_unparseable_arguments(provider_factory):
 
 
 @pytest.mark.asyncio
+async def test_generate_refuses_arguments_that_are_not_a_json_object(provider_factory):
+    captured: list[httpx.Request] = []
+    provider = provider_factory(ok_handler(captured))
+    history = [
+        Message(
+            role="assistant",
+            content=[Content(function_call=ContentFunctionCall(id="call-1", name="lookup", arguments="[1, 2]"))],
+        )
+    ]
+
+    result = await provider.generate(
+        history,
+        ResponseFormat(type="text"),
+        x_client_id=uuid.uuid4(),
+        x_session_id=uuid.uuid4(),
+    )
+
+    assert result is None
+    assert captured == []
+
+
+def test_object_arguments_are_left_as_objects() -> None:
+    """The wire shape may already carry an object; converting it again is wrong."""
+    message = {
+        "role": "assistant",
+        "function_call": {"name": "lookup", "arguments": {"city": "Москва"}},
+        "content": [{"function_call": {"name": "lookup", "arguments": {"city": "Москва"}}}],
+    }
+
+    _to_gigachat_message(message)
+
+    assert message["function_call"]["arguments"] == {"city": "Москва"}
+    assert message["content"][0]["function_call"]["arguments"] == {"city": "Москва"}
+
+
+@pytest.mark.asyncio
 async def test_generate_reads_a_message_level_function_call(provider_factory):
     body = generation_body()
     body["messages"] = [
@@ -559,6 +595,25 @@ async def test_generate_reads_a_message_level_function_call(provider_factory):
     assert [call.id for call in result.tool_calls] == ["call-7"]
     assert result.tool_calls[0].function.arguments == '{"city": "Москва"}'
     assert result.tool_state_id == "state-1"
+
+
+@pytest.mark.asyncio
+async def test_generate_keeps_a_tool_state_id_from_the_envelope(provider_factory):
+    """An envelope-level id wins over hunting for one on the messages."""
+    body = tool_call_body()
+    body["tool_state_id"] = "state-envelope"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == AUTH_PATH:
+            return httpx.Response(200, json=auth_body())
+        return httpx.Response(200, json=body)
+
+    provider = provider_factory(httpx.MockTransport(handler))
+
+    result = await _generate(provider)
+
+    assert result is not None
+    assert result.tool_state_id == "state-envelope"
 
 
 @pytest.mark.asyncio

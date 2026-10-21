@@ -111,6 +111,13 @@ def test_the_last_stage_leaves_the_run_awaiting_approval() -> None:
     assert all(state.stage_status(stage) is StageStatus.COMPLETED for stage in STAGE_ORDER)
 
 
+def test_a_stage_outside_the_order_has_no_successor() -> None:
+    """Assessment and materials wait for #5, so they are not in the pipeline yet."""
+    state = new_state(SESSION_ID, requested_hours=None, requirements=None)
+
+    assert state._successor(Stage.ASSESSMENT) is None
+
+
 def test_a_failure_below_the_budget_keeps_the_run_alive() -> None:
     state = new_state(SESSION_ID, requested_hours=None, requirements=None)
 
