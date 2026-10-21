@@ -8,16 +8,13 @@ import {
   Validators
 } from '@angular/forms';
 import { Router } from '@angular/router';
-import { catchError, EMPTY, finalize, forkJoin, map, of, switchMap } from 'rxjs';
-import { ChatService } from '../../core/services/chat.service';
-import { AttachmentUploadService } from '../../core/services/attachment-upload.service';
+import { catchError, EMPTY, finalize } from 'rxjs';
+import { MAX_MESSAGE_LENGTH } from '../../core/models/models';
+import { ChatStarterService } from '../../core/services/chat-starter.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
 import { NotificationService } from '../../core/services/notification.service';
-import { UploadItem } from '../../core/models/models';
 import { DragNDropComponent } from '../../shared/components/drag-n-drop/drag-n-drop.component';
 import { InputComponent } from '../../shared/components/input/input.component';
-import { getFileExtension } from '../../shared/utils/upload-format';
-import { createId } from '../../shared/utils/create-id';
 import { LucideArrowRight } from '@lucide/angular';
 
 function trimmedRequired(control: AbstractControl): ValidationErrors | null {
@@ -34,14 +31,13 @@ function trimmedRequired(control: AbstractControl): ValidationErrors | null {
 export class ChatCreateComponent {
   private readonly fb = inject(FormBuilder);
   private readonly router = inject(Router);
-  private readonly chatService = inject(ChatService);
-  private readonly attachmentUpload = inject(AttachmentUploadService);
+  private readonly chatStarter = inject(ChatStarterService);
   private readonly initialChatState = inject(InitialChatStateService);
   private readonly notifications = inject(NotificationService);
 
   readonly isSubmitting = signal<boolean>(false);
   readonly selectedFiles = signal<File[]>([]);
-  readonly MAX_SYMBOLS = 5000;
+  readonly MAX_SYMBOLS = MAX_MESSAGE_LENGTH;
   readonly COUNTER_VISIBLE_FROM = 1000;
 
   readonly messageForm = this.fb.nonNullable.group({
@@ -66,18 +62,9 @@ export class ChatCreateComponent {
     const { description } = this.messageForm.getRawValue();
     const files = this.selectedFiles();
 
-    this.chatService
-      .create()
+    this.chatStarter
+      .start(description.trim(), files)
       .pipe(
-        switchMap(({ session_id }) =>
-          (files.length
-            ? forkJoin(files.map((file) => this.uploadFile(session_id, file)))
-            : of([])
-          ).pipe(map(() => session_id))
-        ),
-        switchMap((session_id) =>
-          this.chatService.send(session_id, description.trim()).pipe(map(() => session_id))
-        ),
         finalize(() => this.isSubmitting.set(false)),
         catchError((err: HttpErrorResponse | Error) => {
           if (!(err instanceof HttpErrorResponse)) {
@@ -104,18 +91,5 @@ export class ChatCreateComponent {
           this.router.navigate(['/chats', session_id]);
         }
       });
-  }
-
-  private uploadFile(sessionId: string, file: File) {
-    const item: UploadItem = {
-      id: createId(),
-      name: file.name,
-      size: file.size,
-      extension: getFileExtension(file.name),
-      file,
-      status: 'queued',
-      uploaded: 0
-    };
-    return this.attachmentUpload.upload(item, sessionId);
   }
 }

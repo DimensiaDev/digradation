@@ -1,1 +1,135 @@
-<app-section-placeholder title="Главная" subtitle="Добро пожаловать в рабочую панель" />
+<section class="home" [class.home--composing]="hasContent()">
+  <div class="home__body">
+    <div class="home__hero">
+      <app-brand-logo-animated class="home__logo" [size]="200" [active]="isComposerActive()" />
+      <h1 class="h2 home__greeting">Готовы к созданию новой программы?</h1>
+    </div>
+
+    <div
+      class="home__examples"
+      [class.home__examples--hidden]="hasContent()"
+      [attr.inert]="hasContent() ? '' : null"
+      [attr.aria-hidden]="hasContent()"
+    >
+      <div class="home__examples-inner">
+        <p class="h4 home__examples-label">Например:</p>
+        <ul class="home__examples-list">
+          @for (example of examples; track example) {
+            <li class="home__examples-item">
+              <button type="button" class="example-card" (click)="applyExample(example)">
+                {{ example }}
+              </button>
+            </li>
+          }
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <form class="composer" (submit)="onSubmit($event)">
+    <div
+      class="composer__field"
+      role="presentation"
+      [class.composer__field--dragging]="isDragging()"
+      [class.composer__field--expanded]="isExpanded()"
+      (dragenter)="onDragEnter($event)"
+      (dragover)="onDragOver($event)"
+      (dragleave)="onDragLeave()"
+      (drop)="onDrop($event)"
+      (click)="onFieldClick($event)"
+    >
+      @if (files().length > 0) {
+        <ul class="composer__files" aria-label="Прикреплённые файлы">
+          @for (file of files(); track file.id) {
+            <li>
+              <app-file-tile
+                [file]="file.file"
+                (preview)="openPreview(file)"
+                (remove)="removeFile(file.id)"
+              />
+            </li>
+          }
+        </ul>
+      }
+
+      <textarea
+        #composerTextarea
+        class="composer__textarea"
+        rows="1"
+        placeholder="Опишите программу или прикрепите файлы..."
+        aria-label="Сообщение"
+        autocomplete="off"
+        [attr.maxlength]="MAX_MESSAGE_LENGTH"
+        [value]="message()"
+        [readOnly]="isStarting()"
+        (input)="onInput($event)"
+        (focus)="onFocus()"
+        (blur)="onBlur()"
+      ></textarea>
+
+      @if (isDragging()) {
+        <div class="composer__dropzone" aria-hidden="true">
+          <svg class="composer__outline" aria-hidden="true">
+            <rect class="composer__outline-dash" x="1" y="1" rx="19" />
+          </svg>
+          <svg size="32" lucidePaperclip aria-hidden="true"></svg>
+          <span>Перетащите файлы сюда</span>
+        </div>
+      }
+
+      <div class="composer__actions">
+        <button
+          type="button"
+          class="composer__attach"
+          aria-label="Прикрепить файлы"
+          [disabled]="isStarting()"
+          (click)="openFilePicker()"
+        >
+          <svg size="18" lucidePaperclip aria-hidden="true"></svg>
+          <span>Прикрепить</span>
+        </button>
+
+        <div class="composer__submit">
+          <button
+            type="button"
+            class="composer__mic"
+            [class.composer__mic--recording]="isRecording()"
+            [attr.aria-label]="speechLabel()"
+            [attr.aria-pressed]="isRecording()"
+            [attr.title]="
+              isSpeechSupported ? null : 'Голосовой ввод не поддерживается этим браузером'
+            "
+            [disabled]="!isSpeechSupported || isStarting()"
+            (click)="toggleSpeech()"
+          >
+            <svg size="20" lucideMic aria-hidden="true"></svg>
+          </button>
+
+          <button
+            type="submit"
+            class="button button--main button--squared composer__send"
+            aria-label="Отправить"
+            [disabled]="!canSend()"
+          >
+            <svg size="20" lucideArrowUp aria-hidden="true"></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <input
+      #fileInput
+      type="file"
+      class="visually-hidden"
+      multiple
+      tabindex="-1"
+      [accept]="acceptAttr"
+      [disabled]="isStarting()"
+      (change)="onFilesSelected($event)"
+    />
+  </form>
+
+  @if (previewedFile(); as file) {
+    <app-file-preview [file]="file" (closed)="previewedFile.set(null)" />
+  }
+</section>

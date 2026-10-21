@@ -3,7 +3,7 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-18** (tool calling merged; the agentic tool registry begins)
+Last updated: **2026-10-20** (voice input added to the home composer)
 
 ---
 
@@ -39,9 +39,23 @@ management, admin prompt-extension editor. Section switches animate through the 
 View Transitions API (`withViewTransitions`), direction derived from the sidebar order.
 
 **Not started or placeholder.** The profile page body, the user settings page body, and two
-admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`. The public
-`/home` and `/help` pages are intentional `SectionPlaceholder` hosts, and `programs` /
-`library` render the same placeholder behind the auth gate.
+admin sections (`Журнал действий`, `О системе`) render `SectionPlaceholder`. `/home` is a
+single-column program-creation landing (animated brand mark, prompt examples, and a composer
+docked to the bottom of the viewport while empty; once the user types or attaches a file the
+prompt examples fold away, the composer rises into the freed space at its normal height and
+reveals the attach action, with drag-and-drop). A send from `/home` starts a chat: an
+authenticated user goes straight to it, while a guest's text and files are held in
+`PendingChatDraftService`, the sign-in dialog opens, and the same chat is created and sent
+after login. The composer also dictates: a microphone button to the left of send starts
+continuous Russian recognition through the Web Speech API, fills the field with interim and
+final text, and turns red while recording; the button is disabled when the browser has no
+engine (Firefox keeps it behind an off-by-default preference). Attached files render as
+tiles inside the composer field, above the textarea: images show a small preview, other
+types the same tile with a file icon. Clicking the tile opens the preview (there is no
+separate preview button); the file name and remove action appear on hover and keyboard
+focus, and stay visible on touch devices. `/help` is still an
+intentional `SectionPlaceholder` host, and `programs` / `library` render the same placeholder
+behind the auth gate.
 
 **In flight: tool calling.** The provider layer advertises tools at construction, and both
 the OpenAI-compatible client and the GigaChat v2 client surface the calls the model requests

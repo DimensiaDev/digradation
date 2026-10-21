@@ -4,7 +4,11 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideRouter } from '@angular/router';
 import { vi } from 'vitest';
 
-import { AttachmentUploadService } from './attachment-upload.service';
+import {
+  AttachmentUploadService,
+  STORAGE_UPLOAD_TIMEOUT_MS,
+  UPLOAD_REQUEST_TIMEOUT_MS
+} from './attachment-upload.service';
 import { UploadItem } from '../models/models';
 import { environment } from '../../../environments/environment';
 
@@ -19,6 +23,7 @@ class FakeXhr {
   }
 
   status = 0;
+  timeout = 0;
   aborted = false;
   openedUrl = '';
   sent = false;
@@ -26,6 +31,7 @@ class FakeXhr {
   upload: { onprogress: ((event: ProgressEvent) => void) | null } = { onprogress: null };
   onload: (() => void) | null = null;
   onerror: (() => void) | null = null;
+  ontimeout: (() => void) | null = null;
 
   open(method: string, url: string): void {
     this.openedUrl = url;
@@ -273,6 +279,33 @@ describe('AttachmentUploadService', () => {
     FakeXhr.last().onerror?.();
 
     expect(message).toBe('Не удалось загрузить файл в хранилище');
+  });
+
+  it('sets a deadline on the storage request and explains a timeout', () => {
+    let message: string | undefined;
+
+    service.upload(makeItem(), SESSION_ID).subscribe({ error: (err) => (message = err.message) });
+
+    requestParams();
+    const xhr = FakeXhr.last();
+    expect(xhr.timeout).toBe(STORAGE_UPLOAD_TIMEOUT_MS);
+
+    xhr.ontimeout?.();
+
+    expect(message).toBe('Превышено время ожидания загрузки файла в хранилище');
+  });
+
+  it('times out a hung upload params request', () => {
+    let message: string | undefined;
+
+    vi.useFakeTimers();
+    service.upload(makeItem(), SESSION_ID).subscribe({ error: (err) => (message = err.message) });
+
+    http.expectOne(`${environment.apiUrl}/chats/${SESSION_ID}/uploads`);
+    vi.advanceTimersByTime(UPLOAD_REQUEST_TIMEOUT_MS);
+
+    expect(message).toBe('Превышено время ожидания регистрации файла');
+    vi.useRealTimers();
   });
 
   it('errors when the upload params request fails', () => {

@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 
 import { AuthModalService } from './auth-modal.service';
+import { PendingChatDraftService } from './pending-chat-draft.service';
 
 @Component({ selector: 'app-stub', template: '' })
 class StubComponent {}
@@ -51,5 +52,26 @@ describe('AuthModalService', () => {
     service.close();
 
     expect(service.isOpen()).toBe(false);
+  });
+
+  it('drops a pending guest draft when the attempt is dismissed', () => {
+    const drafts = TestBed.inject(PendingChatDraftService);
+    drafts.set({ text: 'Нужна программа', files: [] });
+    service.open();
+
+    service.close();
+
+    expect(drafts.peek()).toBeNull();
+  });
+
+  it('keeps the draft after a successful login', () => {
+    const drafts = TestBed.inject(PendingChatDraftService);
+    const draft = { text: 'Нужна программа', files: [] };
+    drafts.set(draft);
+    service.open();
+
+    service.complete();
+
+    expect(drafts.peek()).toEqual(draft);
   });
 });

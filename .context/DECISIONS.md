@@ -1121,3 +1121,128 @@ showed a scrollbar with nothing to scroll to.
   is 100% of `main`, header included, so that page still scrolls by the header height. It
   predates this change and needs its internal `calc(100dvh - 40px)` reworked, which is a
   separate piece of work.
+
+## The landing logo is a separate animated component (2026-10-19)
+
+`/home` became the program-creation landing: a big brand mark, a greeting, prompt-example
+cards and a markup-only composer (local signals, no API). The design brief asked for an
+animated brand mark, but the shipped mark is `public/assets/svgs/logo.svg`, which is an SVG
+wrapper around a base64 PNG. It carries no vector paths, so it can be neither recoloured nor
+morphed, and it is shared with the sidebar.
+
+- **`app-brand-logo-animated` keeps the real asset and animates around it.** The `<img>` is
+  the untouched `logo.svg`; a breathing transform, a blurred aura and a light wave clipped to
+  the mark's silhouette with `mask-image: url(logo.svg)` provide the motion. A first attempt
+  re-drew the mark as generic vector blobs and read as "just a blob", so brand fidelity won
+  over a fully vector mark.
+- **The static `logo.svg` is untouched.** The sidebar keeps the raster mark unanimated; only
+  the landing mounts the animated component, which is why it is a new component rather than
+  an override of the existing asset.
+- **Only `transform` / `opacity` are animated.** `prefers-reduced-motion`
+  disables every keyframe, and the active state (field focus / typing) only shortens the
+  durations and scales the mark up.
+- **The composer is presentational.** `/home` is public and this was a markup task, so the
+  attach button fills local file chips and the send button only toggles on non-empty text —
+  nothing is uploaded or submitted. The real flow stays on `/create`.
+- **The landing opts out of the routed-page pin.** It sets `:host { flex: 1 1 auto }` to fill
+  `main` and centre its content; `:host` has higher specificity than the `main router-outlet
+  + *` rule documented above.
+
+## A guest's home-page send survives the sign-in dialog (2026-10-20)
+
+`/home` is public and the composer is the first thing a visitor meets, so sending as a guest
+must not lose what was typed. The draft is kept in `PendingChatDraftService` (the trimmed
+text and the original `File`s) and consumed once `ProfileService.user()` becomes non-null.
+
+- **Why not `InitialChatStateService`:** it is keyed by a session id that does not exist yet.
+  The draft is what the session is created for; the initial-chat state still hands the sent
+  message to the chat page after creation.
+- **One starter for both entry points.** `ChatStarterService` owns create → upload files →
+  send, so `/create` and `/home` cannot drift apart. Home also uses it for an authenticated
+  user, which is what makes the send button meaningful without a sign-in detour.
+- **The sign-in dialog keeps returning to `/home`.** The resume effect lives in `HomePage`,
+  and a same-URL navigation keeps that component alive. A different return target would
+  destroy the only consumer of the draft.
+- **The draft is consumed before the request starts,** so retrying after a failure cannot
+  create two chats. The composer still holds the text and files for a manual retry.
+
+## Voice input is the Web Speech API, wrapped in a service (2026-10-20)
+
+The home composer gained a microphone button beside send. Dictation uses the browser's
+native `SpeechRecognition` (`webkitSpeechRecognition` fallback) rather than an upload flow.
+
+- **Native, not `getUserMedia` + a speech backend.** This is a text-entry convenience, not
+  transcription as a product feature; a backend would add a service, credentials and latency
+  for the same text. Chromium and Safari ship an engine, and Firefox users get a disabled
+  button instead of a button that fails after the click.
+- **Continuous Russian with interim results.** `lang = 'ru-RU'`, `continuous = true`,
+  `interimResults = true`; each result recomposes `base + final + interim`, so the field
+  fills while the user speaks and the final text replaces the interim.
+- **The service owns recognition, the component owns the text policy.** The service normalizes
+  chunks into `{final, interim}` and reports errors; HomePage decides that dictation appends
+  to the existing text and that the transcript survives stopping.
+- **Errors become Russian notifications.** Microphone denial, a missing device, no network and
+  an unsupported language are errors; `no-speech` is information, because silence is not a
+  failure of the app.
+- **The engine is cloud-hosted and may be unreachable.** Chrome sends audio to Google and
+  fails with `network` where that service is blocked; Safari's Apple-backed engine recognised
+  the same speech on the same machine. The app keeps the native API and explains the failure
+  instead of shipping server-side STT. A Chrome-first audience would need a backend
+  recogniser (SaluteSpeech or a local Whisper), which is a separate decision with credentials
+  or a model to host.
+
+## Attachment tiles own their thumbnail and preview action (2026-10-20)
+
+The home composer renders each pending file as an `app-file-tile` above the textarea.
+
+- **The tile owns the object URL.** It creates a thumbnail with `URL.createObjectURL` for
+  image extensions in an effect and revokes it when the file changes or the tile is
+  destroyed. The parent only keeps the `File`, so removing an attachment cannot leak a blob
+  URL.
+- **Preview reuses `FilePreviewComponent`.** The composer passes the pending `File` to the
+  existing dialog, so PDFs and images preview before upload, and the heavy docx/xlsx
+  renderers stay lazy.
+- **The image area is the preview trigger.** There is no separate eye button: the media is a
+  button that opens the preview, and it is disabled when `previewKindFor` returns null. A
+  file with an unknown extension still gets the same tile, name and remove action, just no
+  preview.
+- **The tile lives in `shared/components/file-tile` partly for the style budget.** The home
+  stylesheet was at the 10 kB `anyComponentStyle` error line; a tile's worth of CSS belonged
+  in its own component rather than pushing the page over.
+
+## Failed chat starts clean up after themselves
+
+`ChatStarterService.start` deletes a session it created as soon as uploading or sending
+fails, together with every attachment the backend has already registered. Without this a
+failed attempt left an empty or half-filled chat in the user's history while the UI claimed
+nothing was created. Cleanup is best effort: deletions run with a short timeout, their own
+errors are swallowed, and the original failure is rethrown so the user still sees the real
+reason. Attachment ids are collected through `onAttachmentId`, which fires before the
+storage POST, so a file whose bytes never arrived is still deleted.
+
+## A guest draft belongs to one login attempt
+
+Dismissing the auth dialog clears `PendingChatDraftService`; a successful login does not.
+The draft is created only when a guest submits the home composer, and it is meant for the
+login flow that dialog was opened for. Keeping it after dismissal let a later sign-in in the
+same application instance send the previous guest's text and files under another account
+without confirmation. Cleanup therefore lives in `AuthModalService.close()`, which every
+cancellation path reaches, rather than in the dialog component, where an external
+`modal.close()` could bypass it. The success path calls the separate `complete()`, which
+closes the dialog and keeps the draft for the authenticated start.
+
+## Chat starts upload through the same three-slot queue
+
+`ChatStarterService` uploads with `mergeMap(..., MAX_CONCURRENT_UPLOADS)` rather than a
+`forkJoin` over every file. Attaching ten files used to open ten storage uploads at once,
+bypassing the limit the drag-and-drop queue already enforced and inviting rate limits and
+network failures. The shared constant keeps both paths in sync; the per-file upload deadline
+still starts only when its slot is taken, so queued files are not timed out while waiting.
+
+## One message-length limit for both creation forms
+
+`MAX_MESSAGE_LENGTH = 5000` lives in `core/models/models.ts` and is used by both the
+`/create` form and the home composer. The home composer previously had no `maxlength` and no
+submit check, so it could hand the API text the other client-side path already rejected.
+`ChatCreateComponent.MAX_SYMBOLS` now aliases the shared constant so its existing tests and
+template keep working while the number has a single source.

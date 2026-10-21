@@ -873,3 +873,76 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   commits. After #26 merged and `main` moved, PR #24's checks vanished this way. Re-pushing
   and reopening the pull request do not help — `reopened` is skipped for the same reason —
   the conflict has to be resolved first. Found 2026-10-18 on `feat/gen-cicle`.
+- **`public/assets/svgs/logo.svg` is not a vector mark.** It is a 1.6 MB SVG whose only
+  child is one `<image>` holding a base64 PNG, so there are no paths to recolour or morph and
+  editing it to animate is not possible. It stays the sidebar mark unchanged; the landing
+  animates around the rendered `<img>` (aura, breathing, masked sheen) rather than editing the
+  file. Read an SVG's contents before promising to animate it. Found 2026-10-19 on
+  `feat/main-page`.
+- **A `--modifier` class loses to `&:focus-within`.** A pseudo-class counts like a class,
+  so `.field:focus-within` (0,2,0) outranks `.field--dragging` (0,1,0) no matter the source
+  order; the focus ring kept painting under the drag blur until the state was repeated as
+  `&--dragging:focus-within`. Found 2026-10-20 on `feat/main-page`.
+- **Changing `animation-duration` on a running animation jumps its progress.** The elapsed
+  time is kept, so the new duration maps it to a different keyframe and the element snaps;
+  the landing logo sped up 7s to 3.8s on focus and occasionally popped in size. Keep the
+  duration fixed and animate a separate property for the active state. Found 2026-10-20 on
+  `feat/main-page`.
+- **A click handler that only moves focus still trips two a11y lint rules.**
+  `click-events-have-key-events` and `interactive-supports-focus` treat the composer wrapper
+  as an interactive control even though its click only focuses the textarea. Adding
+  `tabindex` would create a redundant tab stop; `role="presentation"` is the accurate signal
+  that the wrapper is not an action, and both rules accept it. Found 2026-10-20 on
+  `feat/main-page`.
+- **A local `ng build` keeps the `__BACKEND_URL__` placeholder.** Only
+  `docker/rewrite-env.mjs` replaces it at image build time, so serving `dist/frontend/browser`
+  statically sends API calls to `/__BACKEND_URL__/api/v1/...`. Match that suffix in test
+  interception, or rewrite the output first; the app is not broken. Found 2026-10-20 on
+  `feat/main-page`.
+- **TypeScript has no `SpeechRecognition` interface.** `lib.dom.d.ts` ships
+  `SpeechRecognitionResult`, `SpeechRecognitionResultList` and
+  `SpeechRecognitionAlternative`, but not the controller or either event, so a wrapper needs
+  minimal local interfaces for `start` / `stop` and the two events. Do not reach for `any`.
+  Found 2026-10-20 on `feat/main-page`.
+- **In continuous recognition, every result event carries all results seen so far.**
+  `event.resultIndex` is the first changed one; accumulating from `0` duplicates earlier
+  finals, while starting at `resultIndex` without having processed the earlier events drops
+  them. A real browser delivers from `0`, but a test that jumps straight to `resultIndex: 1`
+  produces a transcript missing the first phrase. Found 2026-10-20 on `feat/main-page`.
+- **A Web Speech `network` error in Chrome is the browser's cloud recogniser, not our
+  backend.** Chrome sends audio to Google; where that is blocked, or in Chromium builds
+  without the API keys, every start fails with `network`. Safari uses Apple and worked on the
+  same machine, which is the quick way to tell the two apart. Found 2026-10-20 on
+  `feat/main-page`.
+- **The home-page component stylesheet is close to the `anyComponentStyle` error budget.**
+  `angular.json` warns at 6 kB and fails the production build at 10 kB; the home composer
+  alone was around 9.9 kB, and a tile's worth of CSS crossed the error line. Trim
+  declarations rather than raising the budget, or move a self-contained block into its own
+  component as the attachment tile did, and run `npm run build` after styling this page.
+  Found 2026-10-20 on `feat/main-page`.
+
+- **A conditionally rendered dialog host is still a flex item.** Rendering `<app-file-preview>` at the end of the home's flex column inserted a zero-size host into the flow, and the column's `gap` shifted the composer up by one gap the moment a tile was clicked. `display: contents` on the host removes its box while the native `<dialog>` stays in the top layer. Found 2026-10-20 on `feat/main-page`.
+
+- **Commitlint needs three things that are all per clone.** The root `npm install` provides `@commitlint/*`, `pre-commit install --hook-type commit-msg` wires the hook, and the hook entry must let pre-commit pass the message path; with `pass_filenames: false`, `commitlint --edit` silently linted the stale `.git/COMMIT_EDITMSG` instead of the message being committed. Found 2026-10-20 on `feat/main-page`.
+
+- **A transcript-rendering effect that reads the input signal retriggers on every keystroke.** Read the composer value with `untracked()` and replace the previously applied transcript in place; rebuilding from a value captured at recording start discards anything the user typed mid-dictation. Found 2026-10-20 on `feat/main-page`.
+
+- **A request that never closes its socket is not the same as a failed one.** RxJS `timeout()` on each upload phase plus `XMLHttpRequest.timeout` on the storage POST is what actually ends the starter stream; without them `forkJoin` waits forever, `finalize` never runs and the send button stays disabled. Polling limits alone do not help while the status request itself is hung. Found 2026-10-20 on `feat/main-page`.
+
+- **A fire-and-forget start subscription outlives the page that owns it.** Without `takeUntilDestroyed` the success handler still navigates after the user left `/home`; with it, leaving cancels the request and keeps the user's chosen destination. Lock the composer while `isStarting()` too, otherwise edits made during the request silently vanish on navigation. Found 2026-10-20 on `feat/main-page`.
+
+- **An effect tracks every signal its call chain reads, not just the ones in its own body.** Leaving a failed guest draft in place while the effect called `startChat` made the effect depend on `isStarting()`, which toggled on each retry, so the effect rescheduled itself forever. Wrap the whole consume-and-start block in `untracked()`; keeping the draft until the start succeeds is then a safe way to "restore" it. A synchronous run that never finishes is a hint that effects are looping, not that a request is hung. Found 2026-10-20 on `feat/main-page`.
+
+- **Name and size do not identify a `File`.** Two different files can share both, and the composer deduplicated on that pair, silently dropping the second attachment. Compare the `File` reference instead; the same instance presented twice is the only safe "already attached" signal. Found 2026-10-20 on `feat/main-page`.
+- The home composer must validate an attachment's extension and size in `addFiles`, before it
+  registers a `PendingFile`. The accepted list and the size cap already existed, but only the
+  drag-and-drop component on the chat page enforced them; the home flow discovered a bad file
+  after `ChatStarterService` had already created the session, so the user saw an upload error
+  instead of an immediate one. Both paths now gate on `ACCEPTED_EXTENSIONS` and `MAX_FILE_SIZE`.
+- `speech.stop()` is not the end of the utterance: the engine delivers its final result and
+  only then fires `onend`. Reading the message right after `stop()` drops the last words.
+  `SpeechRecognitionService.stopAndWait()` resolves on `onend`/`onerror`; the home page holds
+  the composer while awaiting it and folds the settled transcript in synchronously, because
+  the transcript `effect()` runs on a later tick than the awaited continuation.
+- **A 1px border on a rounded corner is a dotted arc at DPR 1, and `outline` draws the same dots.** The border's antialiasing leaves partially covered pixels that blend with the page background; dark theme makes that worse because the background is darker than the surface, so the arc reads as fading out. Raising `--color-outline` (`#263349` to `#33445f`) keeps the arc visible without thickening it. Verified against the running dev server at 1x and 2x, 2026-10-21.
+- **A masked gradient sheen must not tile.** The logo wave animated `background-position` on a `260%` gradient, so the image repeated and its edge crossed the mark, cutting the highlight off with a straight line mid-sweep. Move the band to an oversized (`inset: -100%`) pseudo-element and animate `transform` instead; the tile seam then stays outside the mask. Found 2026-10-21 on `feat/main-page`.

@@ -91,7 +91,6 @@ repos:
         entry: npx --no -- commitlint --edit
         language: system
         stages: [commit-msg]
-        pass_filenames: false
 
       # --- coverage reporting ---
       # Runs at pre-push, not pre-commit, because each of these needs the whole
