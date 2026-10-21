@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  computed,
+  inject,
+  signal,
+  viewChild
+} from '@angular/core';
 import { LucideChevronLeft, LucideChevronRight, LucideFolderOpen } from '@lucide/angular';
 import { FormsModule } from '@angular/forms';
 import { Program, ProgramAction } from '../../core/models/models';
@@ -82,6 +90,7 @@ export class ProgramsPage {
   readonly page = signal(0);
   readonly selectedProgramId = signal<string | null>(null);
 
+  private readonly resultsRegion = viewChild<ElementRef<HTMLElement>>('resultsRegion');
   private lastTrigger: HTMLElement | null = null;
 
   readonly pageSize = PROGRAMS_PAGE_SIZE;
@@ -142,11 +151,13 @@ export class ProgramsPage {
   selectType(value: string): void {
     this.typeFilter.set(value);
     this.page.set(0);
+    this.scrollToResults();
   }
 
   selectDate(value: string): void {
     this.dateFilter.set(value);
     this.page.set(0);
+    this.scrollToResults();
   }
 
   selectTags(values: string[]): void {
@@ -159,24 +170,42 @@ export class ProgramsPage {
     this.dateFilter.set('all');
     this.tagFilter.set([]);
     this.page.set(0);
+    this.focusResults();
   }
 
   previousPage(): void {
     if (this.canGoBack()) {
       this.page.update((page) => page - 1);
+      this.focusResults();
     }
   }
 
   nextPage(): void {
     if (this.canGoForward()) {
       this.page.update((page) => page + 1);
+      this.focusResults();
     }
   }
 
   goToPage(page: number): void {
     if (page >= 1 && page <= this.totalPages()) {
       this.page.set(page - 1);
+      this.focusResults();
     }
+  }
+
+  private focusResults(): void {
+    const results = this.resultsRegion()?.nativeElement;
+    if (!results) {
+      return;
+    }
+
+    results.focus({ preventScroll: true });
+    results.scrollIntoView?.({ block: 'start', behavior: 'auto' });
+  }
+
+  private scrollToResults(): void {
+    this.resultsRegion()?.nativeElement.scrollIntoView?.({ block: 'start', behavior: 'auto' });
   }
 
   private clampPage(): void {

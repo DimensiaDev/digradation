@@ -1346,3 +1346,16 @@ The catalog now opens a right-side detail view from a card, without leaving `/pr
 - **`Select` no longer hardcodes the `'all'` sentinel.** A multiple select treats a value as
   the clear action only when the caller supplies `allValue`; `/programs` passes `allValue="all"`.
   This keeps a page-specific convention out of the shared control.
+
+## Programs results are announced, and pagination returns to them (2026-10-21)
+
+- **The range summary and the empty state are polite live regions.** Filter and page changes
+  therefore reach a screen reader without a separate status component.
+- **The grid and empty state sit in a focusable `role="region"` labelled "Результаты".**
+  Pagination and reset move focus there and scroll it to the top, because leaving focus on
+  the old page control would keep the new cards above the viewport.
+- **Single-select filters only scroll to the results and keep focus on the select.** Moving
+  focus after a filter change would break keyboard adjustment. The tag multi-select does
+  neither while it stays open: scrolling would pull the open dropdown away from the pointer.
+- **`scroll-margin-top: 72px` clears the sticky application header.** Focus scrolling uses
+  the same offset as `scrollIntoView`, so neither lands under the header.

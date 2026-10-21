@@ -28,6 +28,23 @@ test.describe("programs catalog", () => {
     ).toBeVisible();
   });
 
+  test("announces pagination and moves focus to the results", async ({
+    page,
+  }) => {
+    await login(page);
+    await page.goto("/programs");
+
+    const summary = page.locator(".pagination__info");
+    await expect(summary).toHaveAttribute("aria-live", "polite");
+    await expect(summary).toHaveAttribute("aria-atomic", "true");
+
+    await page.getByRole("button", { name: "Вперёд" }).click();
+
+    await expect(page.locator(".programs-page__results")).toBeFocused();
+    await expect(page.locator(".program-card")).toHaveCount(2);
+    await expect(summary).toContainText("Показано 7–8 из 8 программ");
+  });
+
   test("opens the detail panel full-screen on a narrow viewport", async ({
     page,
   }) => {

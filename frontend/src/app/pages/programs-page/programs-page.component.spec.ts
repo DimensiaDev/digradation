@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { vi } from 'vitest';
 import { ProgramsService } from '../../core/services/programs.service';
 import { Select } from '../../shared/components/select/select.component';
 import { ProgramsPage } from './programs-page.component';
@@ -21,6 +22,7 @@ describe('ProgramsPage', () => {
   const pagination = () => fixture.debugElement.query(By.css('.pagination'));
   const paginationNav = () => fixture.debugElement.query(By.css('.pagination__nav'));
   const pageInfo = () => fixture.debugElement.query(By.css('.pagination__info'));
+  const resultsRegion = () => fixture.debugElement.query(By.css('.programs-page__results'));
   const navigationButtons = () => fixture.debugElement.queryAll(By.css('.pagination__button'));
   const previousButton = () => navigationButtons()[0];
   const nextButton = () => navigationButtons()[navigationButtons().length - 1];
@@ -115,6 +117,35 @@ describe('ProgramsPage', () => {
     fixture.detectChanges();
 
     expect(cardTitles().length).toBe(6);
+  });
+
+  it('announces and focuses the results after changing the page', () => {
+    const results = resultsRegion().nativeElement as HTMLElement;
+    results.scrollIntoView ??= () => undefined;
+    const scroll = vi.spyOn(results, 'scrollIntoView');
+
+    expect(pageInfo().nativeElement.getAttribute('aria-live')).toBe('polite');
+    expect(pageInfo().nativeElement.getAttribute('aria-atomic')).toBe('true');
+
+    nextButton().nativeElement.click();
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(results);
+    expect(scroll).toHaveBeenCalledWith({ block: 'start', behavior: 'auto' });
+  });
+
+  it('scrolls to the results on a filter change without stealing focus', () => {
+    const results = resultsRegion().nativeElement as HTMLElement;
+    results.scrollIntoView ??= () => undefined;
+    const scroll = vi.spyOn(results, 'scrollIntoView');
+    const trigger = filters()[0].query(By.css('button[role="combobox"]'))
+      .nativeElement as HTMLButtonElement;
+    trigger.focus();
+
+    selectType('Повышение квалификации');
+
+    expect(scroll).toHaveBeenCalledWith({ block: 'start', behavior: 'auto' });
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('collapses distant pages into an ellipsis', () => {
@@ -272,6 +303,8 @@ describe('ProgramsPage', () => {
 
     expect(cardTitles().length).toBe(0);
     expect(emptyState().nativeElement.textContent).toContain('По фильтрам ничего не найдено');
+    expect(emptyState().nativeElement.getAttribute('aria-live')).toBe('polite');
+    expect(emptyState().nativeElement.getAttribute('aria-atomic')).toBe('true');
 
     fixture.debugElement.query(By.css('.programs-page__empty-action')).nativeElement.click();
     await fixture.whenStable();
@@ -281,6 +314,7 @@ describe('ProgramsPage', () => {
     expect(dateSelect().value()).toBe('all');
     expect(tagSelect().value()).toEqual([]);
     expect(cardTitles().length).toBe(6);
+    expect(document.activeElement).toBe(resultsRegion().nativeElement);
   });
 
   it('shows the empty catalog state after every program is deleted', () => {

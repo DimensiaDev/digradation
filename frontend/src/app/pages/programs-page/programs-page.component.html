@@ -38,17 +38,54 @@
       />
     </div>
 
-    @if (programs().length > 0) {
-      <div class="programs-page__grid">
-        @for (program of programs(); track program.id) {
-          <app-program-card
-            [program]="program"
-            (open)="openProgram(program)"
-            (action)="onAction(program, $event)"
-          />
-        }
-      </div>
+    <div
+      #resultsRegion
+      class="programs-page__results"
+      role="region"
+      aria-label="Результаты"
+      tabindex="-1"
+    >
+      @if (programs().length > 0) {
+        <div class="programs-page__grid">
+          @for (program of programs(); track program.id) {
+            <app-program-card
+              [program]="program"
+              (open)="openProgram(program)"
+              (action)="onAction(program, $event)"
+            />
+          }
+        </div>
+      } @else {
+        <div class="programs-page__empty" role="status" aria-live="polite" aria-atomic="true">
+          <span class="programs-page__empty-icon" aria-hidden="true">
+            <svg size="32" lucideFolderOpen></svg>
+          </span>
 
+          <p class="h3">
+            {{ hasActiveFilters() ? 'По фильтрам ничего не найдено' : 'Пока нет программ' }}
+          </p>
+          <p class="h5 programs-page__empty-hint">
+            {{
+              hasActiveFilters()
+                ? 'Попробуйте изменить тип, дату или теги.'
+                : 'Здесь появятся ваши программы.'
+            }}
+          </p>
+
+          @if (hasActiveFilters()) {
+            <button
+              type="button"
+              class="button button--outline programs-page__empty-action"
+              (click)="resetFilters()"
+            >
+              Сбросить фильтры
+            </button>
+          }
+        </div>
+      }
+    </div>
+
+    @if (programs().length > 0) {
       <div class="pagination">
         @if (totalPages() > 1) {
           <nav class="pagination__nav" aria-label="Постраничная навигация по программам">
@@ -90,36 +127,9 @@
           </nav>
         }
 
-        <span class="pagination__info">
+        <span class="pagination__info" aria-live="polite" aria-atomic="true">
           Показано {{ rangeStart() }}–{{ rangeEnd() }} из {{ total() }} программ
         </span>
-      </div>
-    } @else {
-      <div class="programs-page__empty">
-        <span class="programs-page__empty-icon" aria-hidden="true">
-          <svg size="32" lucideFolderOpen></svg>
-        </span>
-
-        <p class="h3">
-          {{ hasActiveFilters() ? 'По фильтрам ничего не найдено' : 'Пока нет программ' }}
-        </p>
-        <p class="h5 programs-page__empty-hint">
-          {{
-            hasActiveFilters()
-              ? 'Попробуйте изменить тип, дату или теги.'
-              : 'Здесь появятся ваши программы.'
-          }}
-        </p>
-
-        @if (hasActiveFilters()) {
-          <button
-            type="button"
-            class="button button--outline programs-page__empty-action"
-            (click)="resetFilters()"
-          >
-            Сбросить фильтры
-          </button>
-        }
       </div>
     }
   </div>
