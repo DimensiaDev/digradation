@@ -13,7 +13,7 @@ import type { LucideIconData } from '@lucide/angular';
 import { fileTypeStyleFor } from '../../shared/utils/file-types';
 import { formatBytes, getFileExtension } from '../../shared/utils/upload-format';
 import { renderMarkdown } from '../../shared/utils/markdown';
-import { ChatMessage, ChatMessageAttachment } from './chat-message.model';
+import { ChatMessage, ChatMessageAnswer, ChatMessageAttachment } from './chat-message.model';
 
 @Component({
   selector: 'app-chat-message',
@@ -53,6 +53,13 @@ export class ChatMessageComponent {
 
   readonly renderedText = computed(() => renderMarkdown(this.message().text));
 
+  readonly answers = computed<readonly ChatMessageAnswer[]>(() => {
+    const explicit = this.message().answers;
+    return explicit?.length ? explicit : parseAnswerTranscript(this.message().text);
+  });
+
+  readonly hasAnswers = computed(() => this.answers().length > 0);
+
   readonly hasAttachments = computed(() => (this.message().attachments?.length ?? 0) > 0);
 
   copyText(): void {
@@ -75,4 +82,27 @@ export class ChatMessageComponent {
   formatBytes(bytes: number): string {
     return formatBytes(bytes);
   }
+}
+
+const ANSWERS_HEADER = 'Ответы на уточняющие вопросы по программе:';
+
+function parseAnswerTranscript(text: string): readonly ChatMessageAnswer[] {
+  const lines = text.split('\n');
+  if (lines[0]?.trim() !== ANSWERS_HEADER) {
+    return [];
+  }
+
+  return lines.slice(1).flatMap((line) => {
+    const body = line.trim().replace(/^—\s*/, '');
+    const separator = body.indexOf(': ');
+    if (separator === -1) {
+      return [];
+    }
+    return [
+      {
+        question: body.slice(0, separator).trim(),
+        text: body.slice(separator + 2).trim()
+      }
+    ];
+  });
 }

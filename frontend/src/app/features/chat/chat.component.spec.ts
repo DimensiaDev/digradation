@@ -798,6 +798,10 @@ describe('Chat behaviour', () => {
     expect(text).toContain('Ответы на уточняющие вопросы по программе:');
     expect(text).toContain('— Сколько часов?: 72');
     expect(text).toContain('— Какой срок?: до декабря');
+    expect(component.messages().at(-1)?.answers).toEqual([
+      { question: 'Сколько часов?', text: '72' },
+      { question: 'Какой срок?', text: 'до декабря' }
+    ]);
     expect(component.answersSubmitted()).toBe(true);
     expect(component.agentStatus()).toBe('thinking');
     expect(started).toHaveBeenCalled();

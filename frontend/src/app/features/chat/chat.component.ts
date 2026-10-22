@@ -30,7 +30,12 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { EMPTY, catchError, finalize } from 'rxjs';
 import { DragNDropComponent } from '../../shared/components/drag-n-drop/drag-n-drop.component';
 import { ChatMessageComponent } from './chat-message.component';
-import { ChatMessage, ChatMessageAttachment, ChatMessageStatus } from './chat-message.model';
+import {
+  ChatMessage,
+  ChatMessageAnswer,
+  ChatMessageAttachment,
+  ChatMessageStatus
+} from './chat-message.model';
 import { AgentStatusComponent } from './agent-status.component';
 import { FilePreviewComponent } from '../../shared/components/drag-n-drop/file-preview.component';
 import { NotificationService } from '../../core/services/notification.service';
@@ -404,7 +409,8 @@ export class ChatComponent implements OnInit {
       merged.push({
         ...message,
         attachments: message.attachments ?? pending[pendingIndex].attachments,
-        status: message.status ?? pending[pendingIndex].status
+        status: message.status ?? pending[pendingIndex].status,
+        answers: message.answers ?? pending[pendingIndex].answers
       });
       pending.splice(pendingIndex, 1);
     }
@@ -547,7 +553,8 @@ export class ChatComponent implements OnInit {
       return;
     }
 
-    const text = this.formatAnswers(this.questions(), answers);
+    const details = this.answerDetails(this.questions(), answers);
+    const text = this.formatAnswers(details);
     const messageId = this.nextLocalMessageId--;
 
     this.messages.update((messages) => [
@@ -557,7 +564,8 @@ export class ChatComponent implements OnInit {
         direction: 'outgoing',
         text,
         time: this.formatTime(),
-        status: 'sending'
+        status: 'sending',
+        answers: details
       }
     ]);
 
@@ -641,14 +649,21 @@ export class ChatComponent implements OnInit {
     this.notifications.error(notice.message, { description: notice.description });
   }
 
-  private formatAnswers(
+  private answerDetails(
     questions: readonly ProgramQuestionApi[],
     answers: readonly ProgramAnswerApi[]
-  ): string {
+  ): readonly ChatMessageAnswer[] {
     const byId = new Map(answers.map((answer) => [answer.question_id, answer.text.trim()]));
+    return questions.map((question) => ({
+      question: question.text,
+      text: byId.get(question.id) ?? ''
+    }));
+  }
+
+  private formatAnswers(answers: readonly ChatMessageAnswer[]): string {
     return [
       'Ответы на уточняющие вопросы по программе:',
-      ...questions.map((question) => `— ${question.text}: ${byId.get(question.id) ?? ''}`)
+      ...answers.map((answer) => `— ${answer.question}: ${answer.text}`)
     ].join('\n');
   }
 

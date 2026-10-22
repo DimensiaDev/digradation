@@ -26,6 +26,37 @@ describe('ChatMessageComponent', () => {
     expect(element.querySelector('.message__text')?.textContent).not.toContain('**');
   });
 
+  it('renders clarification answers as cards instead of prose', () => {
+    const fixture = TestBed.createComponent(ChatMessageComponent);
+    fixture.componentRef.setInput('message', {
+      id: 1,
+      direction: 'outgoing',
+      text: 'Ответы на уточняющие вопросы по программе:\n— Сколько часов?: 72\n— Кто учится?: Руководители',
+      time: '12:00',
+      answers: [
+        { question: 'Сколько часов?', text: '72' },
+        { question: 'Кто учится?', text: 'Руководители' }
+      ]
+    } as ChatMessage);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelectorAll('.message__answer')).toHaveLength(2);
+    expect(element.querySelector('.message__text')).toBeNull();
+    expect(element.textContent).toContain('Сколько часов?');
+    expect(element.textContent).toContain('Руководители');
+  });
+
+  it('parses answer transcripts restored from history into cards', () => {
+    const element = render(
+      'Ответы на уточняющие вопросы по программе:\n— Сколько часов?: 72\n— Кто учится?: Руководители'
+    );
+
+    expect(element.querySelectorAll('.message__answer')).toHaveLength(2);
+    expect(element.querySelector('.message__answer-text')?.textContent).toBe('72');
+    expect(element.querySelector('.message__text')).toBeNull();
+  });
+
   it('renders a server attachment chip with enabled preview and download', () => {
     const element = render('Коммерческое предложение готово', [
       { name: 'kp.xlsx', attachmentId: 5 }
