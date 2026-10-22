@@ -159,6 +159,144 @@
           </p>
         }
       </section>
+
+      <section
+        class="program-preview__section"
+        data-section="sources"
+        [class.program-preview__section--focused]="focused() === 'sources'"
+      >
+        <header class="program-preview__section-header">
+          <h3 class="program-preview__section-title">
+            <svg size="16" lucideBookOpen aria-hidden="true"></svg>
+            Источники
+          </h3>
+          @if (sources().length) {
+            <span class="program-preview__count">{{ sources().length }}</span>
+          }
+        </header>
+
+        @if (sources().length) {
+          <ul class="program-preview__sources">
+            @for (source of sources(); track source.id) {
+              <li
+                class="program-preview__module program-preview__source"
+                [class.program-preview__source--unconfirmed]="!source.confirmed"
+              >
+                <div class="program-preview__module-body">
+                  <span class="program-preview__source-kind">{{ source.kindLabel }}</span>
+                  <p class="program-preview__source-title">{{ source.title }}</p>
+
+                  <p
+                    class="program-preview__source-status"
+                    [attr.data-confirmed]="source.confirmed"
+                  >
+                    @if (source.confirmed) {
+                      <svg size="13" lucideCheck aria-hidden="true"></svg>
+                      Подтверждён каталогом
+                    } @else {
+                      <svg size="13" lucideTriangleAlert aria-hidden="true"></svg>
+                      Не подтверждён — проверьте вручную
+                    }
+                  </p>
+
+                  @if (source.trust || source.origin) {
+                    <p class="program-preview__source-meta">
+                      @if (source.trust) {
+                        <span>Доверие: {{ source.trust }}</span>
+                      }
+                      @if (source.origin) {
+                        <span>Происхождение: {{ source.origin }}</span>
+                      }
+                    </p>
+                  }
+                </div>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="program-preview__empty-note">Источники появятся после этапа «Источники».</p>
+        }
+      </section>
+
+      <section
+        class="program-preview__section"
+        data-section="report"
+        [class.program-preview__section--focused]="focused() === 'report'"
+      >
+        <header class="program-preview__section-header">
+          <h3 class="program-preview__section-title">
+            <svg size="16" lucideClipboardCheck aria-hidden="true"></svg>
+            Проверка
+          </h3>
+          @if (report(); as report) {
+            <span class="program-preview__count">{{ report.checks.length }}</span>
+          }
+        </header>
+
+        @if (report(); as report) {
+          <div class="program-preview__report-verdict" role="status">
+            <span
+              class="program-preview__badge"
+              [attr.data-tone]="report.ok ? 'success' : 'danger'"
+            >
+              @if (report.ok) {
+                <svg size="13" lucideCheck aria-hidden="true"></svg>
+              } @else {
+                <svg size="13" lucideTriangleAlert aria-hidden="true"></svg>
+              }
+              {{ report.ok ? 'Проверки пройдены' : 'Нельзя утверждать' }}
+            </span>
+            <span class="program-preview__report-summary">
+              {{ report.passed }} из {{ report.checks.length }} проверок
+            </span>
+          </div>
+
+          <ul class="program-preview__checks">
+            @for (check of report.checks; track check.name) {
+              <li
+                class="program-preview__module program-preview__check"
+                [class.program-preview__check--problem]="!check.ok"
+              >
+                <div class="program-preview__module-body">
+                  <header class="program-preview__check-head">
+                    <span class="program-preview__check-icon" aria-hidden="true">
+                      @if (check.ok) {
+                        <svg size="14" lucideCheck></svg>
+                      } @else {
+                        <svg size="14" lucideTriangleAlert></svg>
+                      }
+                    </span>
+                    <h4 class="program-preview__check-name">{{ check.label }}</h4>
+                    <span class="visually-hidden">
+                      {{ check.ok ? 'Пройдено' : 'Есть замечания' }}
+                    </span>
+                  </header>
+
+                  @if (check.problems.length) {
+                    <ul class="program-preview__check-problems">
+                      @for (problem of check.problems; track problem) {
+                        <li>{{ problem }}</li>
+                      }
+                    </ul>
+                  }
+
+                  @if (check.details.length) {
+                    <div class="program-preview__check-details">
+                      @for (detail of check.details; track detail.label) {
+                        <span>{{ detail.label }}: {{ detail.value }}</span>
+                      }
+                    </div>
+                  }
+                </div>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="program-preview__empty-note">
+            Самопроверка появится, когда программа соберёт первые блоки.
+          </p>
+        }
+      </section>
     } @else {
       <div class="program-preview__empty">
         <span class="program-preview__empty-icon" aria-hidden="true">

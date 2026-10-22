@@ -8,6 +8,8 @@ import {
   programHoursLabel,
   programKindLabel,
   programModules,
+  programReport,
+  programSources,
   programStatusLabel,
   programStep,
   programTopicCountLabel,
@@ -185,5 +187,98 @@ describe('program-view', () => {
       { id: 'competence-1', label: 'Анализировать данные' }
     ]);
     expect(programCompetencies(null)).toEqual([]);
+  });
+
+  it('maps sources and the self-check report for display', () => {
+    const reviewed = state({
+      draft: {
+        kind: 'professional_development',
+        title: 'Аналитика',
+        competencies: [],
+        curriculum: null,
+        sources: [
+          {
+            id: 'src-01',
+            kind: 'normative_act',
+            title: 'ФГОС по аналитике',
+            confirmed: true,
+            trust: ' Действующий документ ',
+            origin: 'Минпросвещения'
+          },
+          {
+            id: 'web-1',
+            kind: 'internet_resource',
+            title: 'Статья о данных',
+            confirmed: false,
+            trust: null,
+            origin: 'Открытая энциклопедия'
+          }
+        ],
+        summary: null
+      },
+      report: {
+        ok: false,
+        checks: [
+          {
+            name: 'часы',
+            ok: false,
+            problems: ['объём не совпадает с заявленным'],
+            details: { заявлено: 72, всего: 70, 'итоговая аттестация': 2 }
+          },
+          {
+            name: 'покрытие',
+            ok: true,
+            problems: [],
+            details: { 'результатов обучения': 3, 'раскрыто в темах': 3 }
+          },
+          {
+            name: 'разделы',
+            ok: true,
+            problems: [],
+            details: { компетенции: true, материалы: false }
+          }
+        ]
+      }
+    });
+
+    expect(programSources(null)).toEqual([]);
+    expect(programSources(reviewed)).toEqual([
+      {
+        id: 'src-01',
+        title: 'ФГОС по аналитике',
+        kindLabel: 'Нормативный акт',
+        confirmed: true,
+        trust: 'Действующий документ',
+        origin: 'Минпросвещения'
+      },
+      {
+        id: 'web-1',
+        title: 'Статья о данных',
+        kindLabel: 'Интернет-ресурс',
+        confirmed: false,
+        trust: null,
+        origin: 'Открытая энциклопедия'
+      }
+    ]);
+
+    expect(programReport(null)).toBeNull();
+    const report = programReport(reviewed);
+    expect(report?.ok).toBe(false);
+    expect(report?.passed).toBe(2);
+    expect(report?.checks.map((check) => check.label)).toEqual([
+      'Часы',
+      'Покрытие результатов',
+      'Разделы программы'
+    ]);
+    expect(report?.checks[0].problems).toEqual(['объём не совпадает с заявленным']);
+    expect(report?.checks[0].details).toEqual([
+      { label: 'Заявлено', value: '72 часа' },
+      { label: 'Всего', value: '70 часов' },
+      { label: 'Итоговая аттестация', value: '2 часа' }
+    ]);
+    expect(report?.checks[2].details).toEqual([
+      { label: 'Компетенции', value: 'есть' },
+      { label: 'Материалы', value: 'нет' }
+    ]);
   });
 });

@@ -49,7 +49,9 @@ an authenticated user goes straight to it, while a guest's text and files are he
 after login. The composer also dictates Russian through the Web Speech API. `/programs` is
 `Мои программы`: a lazy-loaded catalogue backed by `GET /chats/programmes` and
 `GET /chats/{session_id}/program`, with client-side filtering and paging, and two-second
-polling while a run is busy. Program creation has no entry point yet.
+polling while a run is busy. The chat workspace's aside shows the saved blocks, the cited
+sources with their catalogue confirmation, and the self-check report with its problems and
+key details. Program creation has no entry point yet.
 
 **Not started or placeholder.** The profile page body, user settings, and two admin sections
 (`Журнал действий`, `О системе`) render `SectionPlaceholder`. `/help` and `library` are
@@ -113,9 +115,10 @@ the open questions while a run is `awaiting_answers`; the workspace reads them f
 `answers` array next to `content`.
 `GET /chats/programmes` lists the user's programmes, paginated. A run may ask the methodist
 questions: `begin_program` takes them, the run waits in `awaiting_answers`, and the answers
-move it on. The chat can answer the run's questions; approving a rendered draft, asking
-for one part to be redone, and showing the report and exports are still not built, and the
-chat's five-minute poll can time out before a slow run finishes.
+move it on. The chat can answer the run's questions and the aside shows the self-check
+report; approving a rendered draft, asking for one part to be redone and exposing the
+exports are still not built, and the chat's five-minute poll can time out before a slow run
+finishes.
 
 **RAG ingestion.** `backend/index_rag.py` is a one-off operator CLI, not an HTTP endpoint. It
 joins parser output under `edu_materials/parsed` to `backend/res/rag-sources.json` by
@@ -251,9 +254,9 @@ Ordered by value, not by commitment:
    deliberate headroom rather than an oversight.
 1. **Build the chat-side programme flow.** The backend can now write a programme in two
    halves, report on it, export it and redo one part of it; the client can list the
-   programmes, read the state and answer the questions of a run, but it cannot yet approve a
-   rendered draft, ask for a change or show the report and exports. That is the gap that
-   keeps the feature out of the user's hands.
+   programmes, read the state, answer the questions of a run and show the self-check report,
+   but it cannot yet approve a rendered draft, ask for a change or expose the exports. That
+   is the gap that keeps the feature out of the user's hands.
 2. **Turn the programs catalog into a real feature.** `ProgramsService` is an in-memory mock
    and the detail aside's tabs are derived demo content; replace both with API calls,
    persistence, and the create/edit form behind `/programs/new`.
@@ -286,7 +289,7 @@ Ordered by value, not by commitment:
 13. **OCR for the scanned FGO PDFs.** The catalog already marks them `allow_empty`, so the
     rest of the corpus can be indexed first; OCR is a parser change, not an ingestion change.
 14. **Finish the chat-side programme flow:** approve a rendered draft, ask for one part to be
-    redone, show the report and exports, and make the five-minute poll survive a slow run.
+    redone, expose the exports, and make the five-minute poll survive a slow run.
 15. **Make `/programs` writable.** Duplicate, archive, restore and delete are still local; add
     the endpoints and persist the actions.
 16. **Fill the placeholder sections:** profile, user settings, the admin action log

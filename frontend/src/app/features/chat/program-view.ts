@@ -2,13 +2,14 @@ import {
   PROGRAM_STATUS_LABELS,
   ProgramBlocksApi,
   ProgramCurriculumApi,
+  ProgramSourceKind,
   ProgramStateApi
 } from '../../core/models/models';
 import { formatProgramHours } from '../../shared/utils/program-detail-content';
 
 export type ProgramWizardStep = 1 | 2 | 3 | 4 | 5;
 export type ProgramStepState = 'completed' | 'active' | 'pending' | 'failed';
-export type ProgramPreviewSection = 'summary' | 'competencies' | 'modules';
+export type ProgramPreviewSection = 'summary' | 'competencies' | 'modules' | 'sources' | 'report';
 export type ProgramBadgeTone = 'neutral' | 'progress' | 'success' | 'danger';
 
 export interface ProgramWizardStepView {
@@ -28,6 +29,70 @@ export interface ProgramBadge {
   readonly label: string;
   readonly tone: ProgramBadgeTone;
 }
+
+export interface ProgramSourceView {
+  readonly id: string;
+  readonly title: string;
+  readonly kindLabel: string;
+  readonly confirmed: boolean;
+  readonly trust: string | null;
+  readonly origin: string | null;
+}
+
+export interface ProgramCheckDetailView {
+  readonly label: string;
+  readonly value: string;
+}
+
+export interface ProgramCheckView {
+  readonly name: string;
+  readonly label: string;
+  readonly ok: boolean;
+  readonly problems: readonly string[];
+  readonly details: readonly ProgramCheckDetailView[];
+}
+
+export interface ProgramReportView {
+  readonly ok: boolean;
+  readonly passed: number;
+  readonly checks: readonly ProgramCheckView[];
+}
+
+export const PROGRAM_SOURCE_KIND_LABELS: Record<ProgramSourceKind, string> = {
+  normative_act: 'Нормативный акт',
+  professional_standard: 'Профессиональный стандарт',
+  literature: 'Литература',
+  internet_resource: 'Интернет-ресурс',
+  reference: 'Справочное издание'
+};
+
+const PROGRAM_CHECK_LABELS: Record<string, string> = {
+  часы: 'Часы',
+  покрытие: 'Покрытие результатов',
+  источники: 'Источники',
+  разделы: 'Разделы программы'
+};
+
+const PROGRAM_DETAIL_LABELS: Record<string, string> = {
+  заявлено: 'Заявлено',
+  всего: 'Всего',
+  темы: 'Темы',
+  'итоговая аттестация': 'Итоговая аттестация',
+  аудиторных: 'Аудиторных',
+  'самостоятельной работы': 'Самостоятельная работа',
+  'результатов обучения': 'Результатов обучения',
+  'раскрыто в темах': 'Раскрыто в темах',
+  'проверяется двумя средствами': 'Проверяется двумя средствами',
+  'всего источников': 'Всего источников',
+  подтверждено: 'Подтверждено',
+  'не подтверждено': 'Не подтверждено',
+  компетенции: 'Компетенции',
+  'учебный план': 'Учебный план',
+  паспорт: 'Паспорт',
+  источники: 'Источники',
+  'оценочные средства': 'Оценочные средства',
+  материалы: 'Материалы'
+};
 
 export const PROGRAM_WIZARD_STEPS: readonly ProgramWizardStepView[] = [
   { id: 1, label: 'Запрос' },
@@ -203,4 +268,62 @@ export function programCompetencies(
       label: competence.statement
     })) ?? []
   );
+}
+
+export function programSources(state: ProgramStateApi | null): readonly ProgramSourceView[] {
+  return (
+    state?.draft.sources.map((source) => ({
+      id: source.id,
+      title: source.title.trim(),
+      kindLabel: PROGRAM_SOURCE_KIND_LABELS[source.kind] ?? source.kind,
+      confirmed: source.confirmed,
+      trust: source.trust?.trim() || null,
+      origin: source.origin?.trim() || null
+    })) ?? []
+  );
+}
+
+export function programReport(state: ProgramStateApi | null): ProgramReportView | null {
+  const report = state?.report;
+  if (!report) {
+    return null;
+  }
+  const checks = report.checks.map((check) => ({
+    name: check.name,
+    label: PROGRAM_CHECK_LABELS[check.name] ?? capitalize(check.name),
+    ok: check.ok,
+    problems: [...check.problems],
+    details: Object.entries(check.details)
+      .map(([key, value]) => {
+        const formatted = formatReportDetail(check.name, value);
+        return formatted === null
+          ? null
+          : { label: PROGRAM_DETAIL_LABELS[key] ?? capitalize(key), value: formatted };
+      })
+      .filter((detail): detail is ProgramCheckDetailView => detail !== null)
+  }));
+  return {
+    ok: report.ok,
+    passed: checks.filter((check) => check.ok).length,
+    checks
+  };
+}
+
+function formatReportDetail(checkName: string, value: unknown): string | null {
+  if (typeof value === 'boolean') {
+    return value ? 'есть' : 'нет';
+  }
+  if (typeof value === 'number') {
+    return checkName === 'часы'
+      ? formatProgramHours(value)
+      : value.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+  }
+  if (typeof value === 'string') {
+    return value.trim() || null;
+  }
+  return null;
+}
+
+function capitalize(value: string): string {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }

@@ -62,6 +62,58 @@ const FILLED = state({
   }
 });
 
+const REVIEWED = state({
+  ...FILLED,
+  status: 'pending_approval',
+  draft: {
+    ...FILLED.draft,
+    sources: [
+      {
+        id: 'src-01',
+        kind: 'normative_act',
+        title: 'ФГОС по аналитике данных',
+        confirmed: true,
+        trust: 'Действующий документ',
+        origin: 'Минпросвещения России'
+      },
+      {
+        id: 'web-1',
+        kind: 'internet_resource',
+        title: 'Статья об аналитике',
+        confirmed: false,
+        trust: null,
+        origin: 'Открытая энциклопедия'
+      }
+    ]
+  },
+  report: {
+    ok: false,
+    checks: [
+      {
+        name: 'часы',
+        ok: true,
+        problems: [],
+        details: {
+          заявлено: 18,
+          всего: 18,
+          темы: 16,
+          'итоговая аттестация': 2
+        }
+      },
+      {
+        name: 'покрытие',
+        ok: false,
+        problems: ['результат обучения c-2 не раскрыт ни в одной теме'],
+        details: {
+          'результатов обучения': 2,
+          'раскрыто в темах': 1,
+          'проверяется двумя средствами': 0
+        }
+      }
+    ]
+  }
+});
+
 describe('ProgramPreviewComponent', () => {
   let fixture: ComponentFixture<ProgramPreviewComponent>;
   let component: ProgramPreviewComponent;
@@ -101,6 +153,83 @@ describe('ProgramPreviewComponent', () => {
     expect(text).toContain('Введение');
     expect(text).toContain('1 тема');
     expect(text).toContain('Итого: 18 часов');
+  });
+
+  it('renders sources with their kind, confirmation, trust and origin', () => {
+    fixture.componentRef.setInput('state', REVIEWED);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Источники');
+    expect(text).toContain('ФГОС по аналитике данных');
+    expect(text).toContain('Нормативный акт');
+    expect(text).toContain('Подтверждён каталогом');
+    expect(text).toContain('Доверие:');
+    expect(text).toContain('Действующий документ');
+    expect(text).toContain('Происхождение:');
+    expect(text).toContain('Минпросвещения России');
+    expect(text).toContain('Статья об аналитике');
+    expect(text).toContain('Интернет-ресурс');
+    expect(text).toContain('Не подтверждён — проверьте вручную');
+    expect(text).toContain('Открытая энциклопедия');
+
+    const unconfirmed = fixture.nativeElement.querySelector(
+      '.program-preview__source--unconfirmed'
+    ) as HTMLElement;
+    expect(unconfirmed).not.toBeNull();
+    expect(unconfirmed.textContent).toContain('Не подтверждён');
+  });
+
+  it('renders the self-check report with problems and key details', () => {
+    fixture.componentRef.setInput('state', REVIEWED);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Проверка');
+    expect(text).toContain('1 из 2 проверок');
+    expect(text).toContain('Нельзя утверждать');
+    expect(text).toContain('Часы');
+    expect(text).toContain('Заявлено');
+    expect(text).toContain('18 часов');
+    expect(text).toContain('Итоговая аттестация');
+    expect(text).toContain('2 часа');
+    expect(text).toContain('Покрытие результатов');
+    expect(text).toContain('Раскрыто в темах');
+    expect(text).toContain('результат обучения c-2 не раскрыт ни в одной теме');
+
+    const verdict = fixture.nativeElement.querySelector(
+      '.program-preview__report-verdict .program-preview__badge'
+    ) as HTMLElement;
+    expect(verdict.getAttribute('data-tone')).toBe('danger');
+
+    const problems = fixture.nativeElement.querySelectorAll(
+      '.program-preview__check--problem'
+    ) as NodeListOf<HTMLElement>;
+    expect(problems.length).toBe(1);
+    expect(problems[0].textContent).toContain('не раскрыт');
+  });
+
+  it('shows a passed self-check without problem highlighting', () => {
+    const checks = (REVIEWED.report?.checks ?? []).map((check) => ({
+      ...check,
+      ok: true,
+      problems: []
+    }));
+    fixture.componentRef.setInput('state', {
+      ...REVIEWED,
+      report: { ok: true, checks }
+    });
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Проверки пройдены');
+    expect(text).toContain('2 из 2 проверок');
+    expect(
+      fixture.nativeElement
+        .querySelector('.program-preview__report-verdict .program-preview__badge')
+        .getAttribute('data-tone')
+    ).toBe('success');
+    expect(fixture.nativeElement.querySelector('.program-preview__check--problem')).toBeNull();
   });
 
   it('pulses the badge when the programme version changes', () => {

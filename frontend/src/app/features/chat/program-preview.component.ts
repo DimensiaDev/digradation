@@ -12,6 +12,8 @@ import {
   viewChild
 } from '@angular/core';
 import {
+  LucideBookOpen,
+  LucideCheck,
   LucideClipboardCheck,
   LucideClock,
   LucideLaptop,
@@ -33,6 +35,8 @@ import {
   programHoursLabel,
   programKindLabel,
   programModules,
+  programReport,
+  programSources,
   programTopicCountLabel
 } from './program-view';
 
@@ -41,6 +45,8 @@ const FOCUS_HIGHLIGHT_MS = 1_400;
 @Component({
   selector: 'app-program-preview',
   imports: [
+    LucideBookOpen,
+    LucideCheck,
     LucideClipboardCheck,
     LucideClock,
     LucideLaptop,
@@ -70,12 +76,16 @@ export class ProgramPreviewComponent {
   readonly goal = computed(() => programGoal(this.state()));
   readonly competencies = computed(() => programCompetencies(this.state()));
   readonly modules = computed(() => programModules(this.state()?.draft.curriculum));
+  readonly sources = computed(() => programSources(this.state()));
+  readonly report = computed(() => programReport(this.state()));
   readonly hasContent = computed(
     () =>
       Boolean(this.title()) ||
       Boolean(this.goal()) ||
       this.competencies().length > 0 ||
       this.modules().length > 0 ||
+      this.sources().length > 0 ||
+      Boolean(this.report()) ||
       Boolean(this.state()?.draft.summary)
   );
   readonly justUpdated = signal(false);
