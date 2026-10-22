@@ -278,11 +278,13 @@ granted access.
 The Dockerfile handles this with `WORKDIR /app`. Follow the same pattern for any new
 resource file.
 
-### Build contexts are per-package
+### Build contexts
 
-`backend` builds from `backend/`, `frontend` from `frontend/`, the Garage bootstrap
-from `conf/`. Nothing builds from the repository root, so there is no root
-`.dockerignore`; each context carries its own.
+`backend` builds from the **repository root**, because its image needs both `backend/` and
+the sibling `rag/` package. The root `.dockerignore` excludes everything else; the
+Dockerfile copies `backend/pyproject.toml`, `backend/poetry.lock` and `rag/` before
+`backend/`. `frontend` builds from `frontend/` and the Garage bootstrap from `conf/`; each
+of those contexts carries its own `.dockerignore`.
 
 ### Build caching is CI-only
 
