@@ -1252,3 +1252,22 @@ to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALF
   methodist — so they share one slot; a control placed anywhere else leaves the methodist able
   to type a message while the run is blocked, and the model answers it in prose. Found
   2026-10-22.
+- **A block inherited from a deleted component can carry classes nothing styles.** The files
+  accordion's markup moved into the programme aside when the chat's own files panel was
+  deleted, and `.session-files__*` came with it — but the block defined no `&__subtitle`,
+  so `<h3 class="session-files__subtitle">` rendered as a browser-default heading, and its
+  rows used the shared `.button`, whose 15px padding is sized for a labelled action: three
+  icon buttons per row came out ~46×46px and dwarfed the file name. The symptom reads as "this
+  section was designed by someone else", and the cause is a rule that is *absent*, which no
+  grep for the class will show. Compare the element against a sibling that looks right
+  (`.program-preview__module`, `.program-preview__report-group-title`) and re-style to that,
+  rather than looking for the rule to change. Moving the block out also matters: the component
+  had reached 9.93 kB against the 10 kB `anyComponentStyle` ceiling, so `.session-files` now
+  lives in the global partial `_session-files.scss`, the pattern `_flash.scss` set. Found
+  2026-10-22.
+- The mock has to answer every route the client calls, or the demo blames the feature. Opening
+  the files accordion in mock mode asked for `GET /chats/{id}/attachments`, which the mock did
+  not answer, and the client's own error path raised "не удалось загрузить список файлов" — a
+  mock gap that looks like a broken feature. The list is now derived from the session's own
+  messages, so its ids cannot drift from the attachments those messages carry, and the demo
+  shows sent files without a second source of truth. Found 2026-10-22.
