@@ -11,6 +11,13 @@ export type ProgramWizardStep = 1 | 2 | 3 | 4 | 5;
 export type ProgramStepState = 'completed' | 'active' | 'pending' | 'failed';
 export type ProgramPreviewSection =
   'summary' | 'competencies' | 'modules' | 'sources' | 'report' | 'files' | 'results';
+/**
+ * Every region of the aside that can flash when the run writes to it: the
+ * accordion sections, and the blocks that are not accordions — the metadata row
+ * above them and the pinned results footer.
+ */
+export type ProgramHighlightSection = ProgramPreviewSection | 'meta';
+export type ProgramDiffableSection = Exclude<ProgramHighlightSection, 'files'>;
 export type ProgramBadgeTone = 'neutral' | 'progress' | 'success' | 'danger';
 
 export interface ProgramWizardStepView {
@@ -154,6 +161,49 @@ export function programStepState(
     return 'pending';
   }
   return state?.status === 'failed' ? 'failed' : 'active';
+}
+
+/**
+ * The content that decides whether a block of the aside changed. A stage
+ * rewrites its own block and bumps the version, so the version says that
+ * something moved but not which block, and only a comparison of the blocks
+ * themselves can tell the methodist where to look.
+ */
+const PROGRAM_BLOCK_SIGNATURES: Record<
+  ProgramDiffableSection,
+  (state: ProgramStateApi | null) => string
+> = {
+  meta: (state) =>
+    JSON.stringify([programHours(state?.draft.curriculum), state?.draft.summary?.form ?? null]),
+  summary: (state) =>
+    JSON.stringify([
+      state?.draft.summary?.goal ?? null,
+      state?.draft.summary?.tasks ?? [],
+      state?.draft.summary?.target_audience ?? null
+    ]),
+  competencies: (state) => JSON.stringify(state?.draft.competencies ?? []),
+  modules: (state) => JSON.stringify(state?.draft.curriculum ?? null),
+  sources: (state) => JSON.stringify(state?.draft.sources ?? []),
+  report: (state) => JSON.stringify(state?.report ?? null),
+  results: (state) => JSON.stringify(state?.exports ?? null)
+};
+
+export const PROGRAM_DIFFABLE_SECTIONS = Object.keys(
+  PROGRAM_BLOCK_SIGNATURES
+) as readonly ProgramDiffableSection[];
+
+export function programChangedSections(
+  previous: ProgramStateApi | null,
+  next: ProgramStateApi | null
+): readonly ProgramDiffableSection[] {
+  if (previous === null || next === null) {
+    return [];
+  }
+
+  return PROGRAM_DIFFABLE_SECTIONS.filter(
+    (section) =>
+      PROGRAM_BLOCK_SIGNATURES[section](previous) !== PROGRAM_BLOCK_SIGNATURES[section](next)
+  );
 }
 
 export function programBadge(state: ProgramStateApi | null): ProgramBadge {

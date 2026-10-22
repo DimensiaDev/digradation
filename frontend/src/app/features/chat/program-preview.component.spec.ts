@@ -428,6 +428,74 @@ describe('ProgramPreviewComponent', () => {
     vi.useRealTimers();
   });
 
+  it('flashes the backdrop on the blocks a stage just wrote', () => {
+    vi.useFakeTimers();
+    fixture.componentRef.setInput('state', { ...FILLED, version: 4 });
+    fixture.detectChanges();
+
+    const modules = fixture.nativeElement.querySelector('[data-section="modules"]') as HTMLElement;
+    const meta = fixture.nativeElement.querySelector('.program-preview__meta') as HTMLElement;
+    const summary = fixture.nativeElement.querySelector('[data-section="summary"]') as HTMLElement;
+    expect(modules.classList.contains('update-flash')).toBe(false);
+
+    fixture.componentRef.setInput('state', {
+      ...FILLED,
+      version: 5,
+      draft: {
+        ...FILLED.draft,
+        curriculum: {
+          modules: [
+            ...(FILLED.draft.curriculum?.modules ?? []),
+            {
+              id: 'm-3',
+              title: 'Итоги',
+              topics: [{ id: 't-3', title: 'Защита', hours: { practice: 6 } }]
+            }
+          ]
+        }
+      }
+    });
+    fixture.detectChanges();
+
+    expect(modules.classList.contains('update-flash')).toBe(true);
+    expect(meta.classList.contains('update-flash')).toBe(true);
+    expect(summary.classList.contains('update-flash')).toBe(false);
+    expect(component.isUpdated('modules')).toBe(true);
+
+    vi.advanceTimersByTime(1400);
+    fixture.detectChanges();
+
+    expect(modules.classList.contains('update-flash')).toBe(false);
+    expect(component.isUpdated('modules')).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('flashes the files block when an upload changes', () => {
+    vi.useFakeTimers();
+    fixture.componentRef.setInput('state', FILLED);
+    fixture.detectChanges();
+
+    const files = fixture.nativeElement.querySelector('[data-section="files"]') as HTMLElement;
+    expect(files.classList.contains('update-flash')).toBe(false);
+
+    fixture.componentRef.setInput('pendingFiles', [
+      {
+        id: 1,
+        filename: 'a.pdf',
+        status: 'uploading',
+        ready: false,
+        chat_message_id: null,
+        timestamp: ''
+      }
+    ]);
+    fixture.detectChanges();
+
+    expect(files.classList.contains('update-flash')).toBe(true);
+    // The badge speaks for the programme, and an upload is not the programme.
+    expect(component.justUpdated()).toBe(false);
+    vi.useRealTimers();
+  });
+
   it('shows a loading skeleton before the first state arrives', () => {
     fixture.componentRef.setInput('loading', true);
     fixture.detectChanges();

@@ -2247,3 +2247,23 @@ file button duplicated navigation.
   chat, so the attachment API is loaded once and the two panes see the same upload state.
 - **Opening the section reloads pending uploads.** A file can be uploaded while the accordion
   is closed, and the chat reloads the list when a batch finishes, so stale rows are not kept.
+
+## The aside marks the block a stage just wrote (2026-10-22)
+
+The programme aside is watched while it polls, and the run reports only a new `version` — which
+says that something moved, never what.
+
+- **The client settles it by comparing the blocks, not the version.** `programChangedSections`
+  holds a signature per region of the aside (the volume and format, the summary, the
+  competences, the curriculum, the sources, the self-check, the exports) and flashes exactly
+  the regions whose content differs from the previous state.
+- **The backdrop is a shared global utility, not a component rule.** `.update-flash` in
+  `_flash.scss` is a tinted overlay that fades once; it carries the metadata row, the accordion
+  sections and the pinned results footer alike, because a region that is not an accordion must
+  be markable the same way.
+- **The files arrive out of band and flash without the badge.** Session and staged files are an
+  input rather than part of the state, so a second effect watches their ids and statuses and
+  marks the section only: the badge speaks for the programme.
+- **The stepper spins on `busy`, not on `running`.** `busy` survives the finalisation, which
+  holds no stage lock, and turns false exactly while the run waits for the methodist, so the
+  ring means "the run is working" and its absence means "it is your turn".

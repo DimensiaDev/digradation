@@ -94,6 +94,24 @@
     text-wrap: balance;
   }
 
+  // The current stage is worked on for as long as the run is busy, so the ring
+  // turns around the marker instead of the marker pulsing: a pulse reads as a
+  // finished event, and this one lasts minutes.
+  &__marker--spinning::after {
+    content: '';
+
+    position: absolute;
+    inset: -4px;
+
+    border: 2px solid color-mix(in srgb, var(--color-main) 20%, transparent);
+    border-top-color: var(--color-main);
+    border-radius: 50%;
+
+    animation: program-stepper-spin 900ms linear infinite;
+
+    @include reduced-motion;
+  }
+
   &__step[data-state='completed'] {
     color: var(--color-text);
 
@@ -133,6 +151,12 @@
     .program-stepper__label {
       font-weight: 600;
     }
+  }
+}
+
+@keyframes program-stepper-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

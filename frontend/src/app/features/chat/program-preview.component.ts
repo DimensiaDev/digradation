@@ -44,8 +44,10 @@ import { getFileExtension } from '../../shared/utils/upload-format';
 import { ChatMessageAttachment } from './chat-message.model';
 import { ProgramReportComponent } from './program-report.component';
 import {
+  ProgramHighlightSection,
   ProgramPreviewSection,
   programBadge,
+  programChangedSections,
   programCompetencies,
   programFormLabel,
   programGoal,
@@ -58,6 +60,16 @@ import {
 } from './program-view';
 
 const FOCUS_HIGHLIGHT_MS = 1_400;
+
+function fileSignature(
+  sessionFiles: readonly ChatMessageAttachment[],
+  pendingFiles: readonly ChatSessionAttachment[]
+): string {
+  return JSON.stringify([
+    sessionFiles.map((file) => file.attachmentId),
+    pendingFiles.map((file) => [file.id, file.status, file.ready])
+  ]);
+}
 
 export type ProgramAccordionSection = Exclude<ProgramPreviewSection, 'results'>;
 
@@ -129,6 +141,7 @@ export class ProgramPreviewComponent {
   );
   readonly justUpdated = signal(false);
   readonly focused = signal<ProgramPreviewSection | null>(null);
+  readonly updated = signal<ReadonlySet<ProgramHighlightSection>>(new Set());
   readonly expandedSection = signal<ProgramAccordionSection | null>('summary');
   readonly downloading = signal<'document' | 'slides' | null>(null);
 
@@ -136,23 +149,35 @@ export class ProgramPreviewComponent {
   private readonly attachmentDownload = inject(AttachmentDownloadService);
   private readonly notifications = inject(NotificationService);
   private readonly destroyRef = inject(DestroyRef);
-  private lastVersion: number | null = null;
+  private lastState: ProgramStateApi | null = null;
+  private lastFilesSignature: string | null = null;
   private updateTimer: ReturnType<typeof setTimeout> | null = null;
   private focusTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     effect(() => {
-      const version = this.state()?.version ?? null;
+      const state = this.state();
 
-      if (version === null) {
-        this.lastVersion = null;
+      if (state === null) {
+        this.lastState = null;
         return;
       }
 
-      if (this.lastVersion !== null && version !== this.lastVersion) {
-        this.markUpdated();
+      if (this.lastState !== null && state.version !== this.lastState.version) {
+        this.markUpdated(programChangedSections(this.lastState, state), true);
       }
-      this.lastVersion = version;
+      this.lastState = state;
+    });
+
+    effect(() => {
+      const signature = fileSignature(this.sessionFiles(), this.pendingFiles());
+
+      // The first signature belongs to the files a session already had, so it
+      // is adopted rather than announced.
+      if (this.lastFilesSignature !== null && signature !== this.lastFilesSignature) {
+        this.markUpdated(['files'], false);
+      }
+      this.lastFilesSignature = signature;
     });
 
     this.destroyRef.onDestroy(() => {
@@ -243,6 +268,10 @@ export class ProgramPreviewComponent {
     return this.expandedSection() === section;
   }
 
+  isUpdated(section: ProgramHighlightSection): boolean {
+    return this.updated().has(section);
+  }
+
   toggleSection(section: ProgramAccordionSection): void {
     const opening = this.expandedSection() !== section;
     this.expandedSection.set(opening ? section : null);
@@ -270,10 +299,17 @@ export class ProgramPreviewComponent {
     }
   }
 
-  private markUpdated(): void {
-    this.justUpdated.set(true);
+  private markUpdated(sections: readonly ProgramHighlightSection[], pulseBadge: boolean): void {
+    if (pulseBadge) {
+      this.justUpdated.set(true);
+    }
+    this.updated.set(new Set(sections));
+
     this.clearUpdateTimer();
-    this.updateTimer = setTimeout(() => this.justUpdated.set(false), FOCUS_HIGHLIGHT_MS);
+    this.updateTimer = setTimeout(() => {
+      this.updated.set(new Set());
+      this.justUpdated.set(false);
+    }, FOCUS_HIGHLIGHT_MS);
   }
 
   private clearUpdateTimer(): void {

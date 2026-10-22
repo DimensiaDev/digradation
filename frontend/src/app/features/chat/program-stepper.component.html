@@ -6,7 +6,11 @@
         [attr.data-state]="stepState(step.id)"
         [attr.aria-current]="step.id === activeStep() ? 'step' : null"
       >
-        <span class="program-stepper__marker" aria-hidden="true">
+        <span
+          class="program-stepper__marker"
+          [class.program-stepper__marker--spinning]="isWorking(step.id)"
+          aria-hidden="true"
+        >
           @switch (stepState(step.id)) {
             @case ('completed') {
               <svg size="16" lucideCheck></svg>
@@ -20,6 +24,9 @@
           }
         </span>
         <span class="program-stepper__label">{{ step.label }}</span>
+        @if (isWorking(step.id)) {
+          <span class="visually-hidden">Этап выполняется</span>
+        }
       </li>
     }
   </ol>

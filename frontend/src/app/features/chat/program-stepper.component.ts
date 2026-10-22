@@ -20,8 +20,17 @@ export class ProgramStepperComponent {
 
   readonly steps = PROGRAM_WIZARD_STEPS;
   readonly activeStep = computed(() => programStep(this.state()));
+  readonly busy = computed(() => this.state()?.busy === true);
 
   stepState(step: ProgramWizardStep) {
     return programStepState(this.state(), step);
+  }
+
+  /**
+   * `busy` covers the finalisation too, which holds no stage lock, so the
+   * spinner follows the run rather than the worker's live hint.
+   */
+  isWorking(step: ProgramWizardStep): boolean {
+    return this.busy() && this.stepState(step) === 'active';
   }
 }

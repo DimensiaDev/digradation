@@ -1193,3 +1193,4 @@ to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALF
   item, and keep the grid item itself padding-free with `min-height: 0; overflow: hidden`.
   Found 2026-10-22.
 - A programme block is not a pipeline stage. The preview placeholders said «Паспорт программы», «Учебный план» and «Источники» as if they were stages the client shows; the wizard names only five steps, so placeholders must point at «Каркас программы» or describe the agent's action, never invent a stage name.
+- `angular.json` caps a single component's stylesheet at 10 kB (`anyComponentStyle`, error) and warns from 6. The programme preview's 700 lines sit close to it, so adding a shared utility to that file pushed the build over by 24 bytes. The fix is a global partial under `src/app/` `@use`d from `styles.scss` — the pattern `_skeletons.scss` already sets — not a raised budget. Found 2026-10-22.

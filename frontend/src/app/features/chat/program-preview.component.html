@@ -31,7 +31,7 @@
       </div>
     }
 
-    <dl class="program-preview__meta">
+    <dl class="program-preview__meta" [class.update-flash]="isUpdated('meta')">
       <div class="program-preview__meta-item">
         <span class="program-preview__meta-icon" aria-hidden="true">
           <svg size="17" lucideClock></svg>
@@ -68,6 +68,7 @@
           sectionId="program-preview-summary"
           [expanded]="isExpanded('summary')"
           [class.program-preview__section--focused]="focused() === 'summary'"
+          [class.update-flash]="isUpdated('summary')"
           (toggled)="toggleSection('summary')"
         >
           <span accordionTitle class="program-preview__section-title">
@@ -88,6 +89,7 @@
           sectionId="program-preview-competencies"
           [expanded]="isExpanded('competencies')"
           [class.program-preview__section--focused]="focused() === 'competencies'"
+          [class.update-flash]="isUpdated('competencies')"
           (toggled)="toggleSection('competencies')"
         >
           <span accordionTitle class="program-preview__section-title">
@@ -121,6 +123,7 @@
           sectionId="program-preview-modules"
           [expanded]="isExpanded('modules')"
           [class.program-preview__section--focused]="focused() === 'modules'"
+          [class.update-flash]="isUpdated('modules')"
           (toggled)="toggleSection('modules')"
         >
           <span accordionTitle class="program-preview__section-title">
@@ -164,6 +167,7 @@
           sectionId="program-preview-sources"
           [expanded]="isExpanded('sources')"
           [class.program-preview__section--focused]="focused() === 'sources'"
+          [class.update-flash]="isUpdated('sources')"
           (toggled)="toggleSection('sources')"
         >
           <span accordionTitle class="program-preview__section-title">
@@ -227,6 +231,7 @@
           sectionId="program-preview-report"
           [expanded]="isExpanded('report')"
           [class.program-preview__section--focused]="focused() === 'report'"
+          [class.update-flash]="isUpdated('report')"
           (toggled)="toggleSection('report')"
         >
           <span accordionTitle class="program-preview__section-title">
@@ -260,6 +265,7 @@
       sectionId="program-preview-files"
       [expanded]="isExpanded('files')"
       [class.program-preview__section--focused]="focused() === 'files'"
+      [class.update-flash]="isUpdated('files')"
       (toggled)="toggleSection('files')"
     >
       <span accordionTitle class="program-preview__section-title">
@@ -375,6 +381,7 @@
       class="program-preview__footer"
       data-section="results"
       [class.program-preview__footer--focused]="focused() === 'results'"
+      [class.update-flash]="isUpdated('results')"
       aria-labelledby="program-preview-results-title"
     >
       <h3 id="program-preview-results-title" class="program-preview__footer-title">

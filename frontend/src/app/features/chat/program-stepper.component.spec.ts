@@ -111,6 +111,35 @@ describe('ProgramStepperComponent', () => {
     expect(steps()[2].getAttribute('aria-current')).toBe('step');
   });
 
+  it('spins a ring around the stage a busy run is working on', () => {
+    create(state({ status: 'generating', current_stage: 'hours', busy: false }));
+
+    const markers = (): HTMLElement[] =>
+      Array.from(fixture.nativeElement.querySelectorAll('.program-stepper__marker'));
+
+    expect(markers()[1].classList.contains('program-stepper__marker--spinning')).toBe(false);
+    expect(fixture.nativeElement.textContent).not.toContain('Этап выполняется');
+
+    create(state({ status: 'generating', current_stage: 'hours', busy: true }));
+
+    expect(markers()[1].classList.contains('program-stepper__marker--spinning')).toBe(true);
+    expect(markers()[0].classList.contains('program-stepper__marker--spinning')).toBe(false);
+    expect(fixture.nativeElement.textContent).toContain('Этап выполняется');
+  });
+
+  it('stops spinning once the run waits for the methodist', () => {
+    // `busy` is false exactly while a run waits, so the ring is off there even
+    // though the approval step is the current one.
+    create(state({ status: 'pending_approval', busy: false }));
+
+    expect(fixture.nativeElement.querySelector('.program-stepper__marker--spinning')).toBeNull();
+    expect(
+      (
+        fixture.nativeElement.querySelectorAll('.program-stepper__marker')[2] as HTMLElement
+      ).classList.contains('program-stepper__marker--spinning')
+    ).toBe(false);
+  });
+
   it('keeps the final step current once the programme is approved', () => {
     create(state({ status: 'approved' }));
 

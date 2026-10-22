@@ -1,6 +1,7 @@
 import { ProgramStateApi } from '../../core/models/models';
 import {
   programBadge,
+  programChangedSections,
   programCompetencies,
   programFormLabel,
   programGoal,
@@ -135,6 +136,89 @@ describe('program-view', () => {
   it('labels the run status', () => {
     expect(programStatusLabel(null)).toBe('Нет программы');
     expect(programStatusLabel(state({ status: 'pending_approval' }))).toBe('На согласовании');
+  });
+
+  it('names only the blocks that changed between two states', () => {
+    const before = state({
+      draft: {
+        ...state().draft,
+        title: 'Аналитика данных',
+        curriculum: CURRICULUM
+      }
+    });
+    const afterModules = state({
+      version: 1,
+      draft: {
+        ...before.draft,
+        curriculum: { ...CURRICULUM, attestation_hours: 2 }
+      }
+    });
+
+    expect(programChangedSections(before, afterModules)).toEqual(['meta', 'modules']);
+    expect(programChangedSections(before, before)).toEqual([]);
+
+    const afterSources = state({
+      version: 1,
+      draft: {
+        ...before.draft,
+        sources: [
+          {
+            id: 'src-01',
+            kind: 'normative_act',
+            title: 'ФГОС',
+            confirmed: true,
+            trust: null,
+            origin: null
+          }
+        ]
+      }
+    });
+    expect(programChangedSections(before, afterSources)).toEqual(['sources']);
+  });
+
+  it('separates the goal from the metadata and the exports', () => {
+    const filled = state({
+      draft: {
+        ...state().draft,
+        title: 'Аналитика данных',
+        curriculum: CURRICULUM,
+        summary: {
+          goal: 'Подготовить аналитиков',
+          tasks: [],
+          target_audience: '',
+          form: 'Очная'
+        }
+      }
+    });
+
+    const afterForm = state({
+      version: 1,
+      draft: {
+        ...filled.draft,
+        summary: { ...filled.draft.summary!, form: 'Заочная' }
+      }
+    });
+    const afterGoal = state({
+      version: 1,
+      draft: {
+        ...filled.draft,
+        summary: { ...filled.draft.summary!, goal: 'Другая цель' }
+      }
+    });
+    const afterExports = state({
+      ...filled,
+      version: 1,
+      exports: { document_attachment_id: 7, slides_attachment_id: null }
+    });
+
+    expect(programChangedSections(filled, afterForm)).toEqual(['meta']);
+    expect(programChangedSections(filled, afterGoal)).toEqual(['summary']);
+    expect(programChangedSections(filled, afterExports)).toEqual(['results']);
+  });
+
+  it('reports nothing to highlight without two states to compare', () => {
+    expect(programChangedSections(null, state())).toEqual([]);
+    expect(programChangedSections(state(), null)).toEqual([]);
   });
 
   it('sums curriculum hours and exposes modules', () => {
