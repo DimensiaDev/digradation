@@ -1833,3 +1833,17 @@ for the primary action: `/home` creates a chat and sends a message before it nav
   `awaiting_answers` with two questions; posting answers clears them and moves it to
   `pending_approval`. Without this, the status would advertise a question flow the mock could
   not complete.
+
+## Completion cards are not chat messages (2026-10-22)
+
+The workspace no longer renders `chat-milestone` cards. They were derived on the client from
+`GET /chats/{id}/program`; the API has no milestone entity.
+
+- **They duplicated the stepper and the preview.** All three projected the same `status` and
+  saved blocks, so the chat carried a third, competing explanation of progress.
+- **They sat at the end of the transcript without belonging to it.** The cards were rendered
+  after `messages()`, not stored in history, so a card for an old stage stayed below newer
+  messages and a reload rewrote the sequence.
+- **Readiness needs a real event.** `pending_approval` is the only point where the draft is
+  complete; a card at the end of the list cannot mark the moment a stage finished. If those
+  moments are wanted later, the backend must persist them as system messages.

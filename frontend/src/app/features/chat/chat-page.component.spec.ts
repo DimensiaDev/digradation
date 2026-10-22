@@ -12,8 +12,6 @@ import { ProgramQuestionApi, ProgramStateApi } from '../../core/models/models';
 import { ChatService } from '../../core/services/chat.service';
 import { ChatPage } from './chat-page.component';
 import { ChatComponent } from './chat.component';
-import { ProgramMilestone, ProgramPreviewSection } from './program-view';
-import { ProgramPreviewComponent } from './program-preview.component';
 
 const SESSION_ID = 'd0a3f1e2-0000-4000-8000-123456789abc';
 const SECOND_SESSION_ID = 'b1c2d3e4-0000-4000-8000-000000000001';
@@ -49,18 +47,13 @@ const question = (id: string, text = 'Сколько часов?'): ProgramQuest
   template: `
     <button class="start-turn" type="button" (click)="turnStarted.emit()">start</button>
     <button class="finish-turn" type="button" (click)="turnFinished.emit()">finish</button>
-    <button class="focus-preview" type="button" (click)="previewFocus.emit('modules')">
-      focus
-    </button>
   `
 })
 class ChatStub {
   readonly id = input.required<string>();
   readonly questions = input<readonly ProgramQuestionApi[]>([]);
-  readonly milestones = input<readonly ProgramMilestone[]>([]);
   readonly turnStarted = output<void>();
   readonly turnFinished = output<void>();
-  readonly previewFocus = output<ProgramPreviewSection>();
   readonly refreshProgram = output<void>();
 }
 
@@ -120,7 +113,6 @@ describe('ChatPage', () => {
     expect(fixture.nativeElement.textContent).toContain('Создание образовательной программы');
     expect(fixture.nativeElement.textContent).toContain('Проверка');
     expect(chat.questions()).toEqual([question('q1')]);
-    expect(chat.milestones().length).toBe(1);
   });
 
   it('polls the programme while it is busy and stops once it settles', async () => {
@@ -241,22 +233,5 @@ describe('ChatPage', () => {
     expect(fixture.nativeElement.querySelector('.chat-page__pane--chat').classList).not.toContain(
       'chat-page__pane--mobile-hidden'
     );
-  });
-
-  it('opens the preview and focuses a section from a chat milestone', () => {
-    vi.useFakeTimers();
-    create(SESSION_ID, state({ busy: false }));
-    const preview = fixture.debugElement.query(By.directive(ProgramPreviewComponent))
-      .componentInstance as ProgramPreviewComponent;
-    const focus = vi.spyOn(preview, 'focusSection');
-
-    const button = fixture.debugElement.query(By.css('.focus-preview'))
-      .nativeElement as HTMLElement;
-    button.click();
-    fixture.detectChanges();
-    expect(component.mobileView()).toBe('preview');
-
-    vi.advanceTimersByTime(0);
-    expect(focus).toHaveBeenCalledWith('modules');
   });
 });

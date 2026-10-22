@@ -32,7 +32,6 @@ import {
   programHours,
   programHoursLabel,
   programKindLabel,
-  programMilestones,
   programModules,
   programStatusHint,
   programTopicCountLabel
@@ -72,7 +71,6 @@ export class ProgramPreviewComponent {
   readonly goal = computed(() => programGoal(this.state()));
   readonly competencies = computed(() => programCompetencies(this.state()));
   readonly modules = computed(() => programModules(this.state()?.draft.curriculum));
-  readonly milestones = computed(() => programMilestones(this.state()));
   readonly statusHint = computed(() => programStatusHint(this.state()));
   readonly hasContent = computed(
     () =>
@@ -80,7 +78,7 @@ export class ProgramPreviewComponent {
       Boolean(this.goal()) ||
       this.competencies().length > 0 ||
       this.modules().length > 0 ||
-      this.milestones().length > 0
+      Boolean(this.state()?.draft.summary)
   );
   readonly justUpdated = signal(false);
   readonly focused = signal<ProgramPreviewSection | null>(null);

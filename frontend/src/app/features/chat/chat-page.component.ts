@@ -6,8 +6,7 @@ import {
   effect,
   inject,
   input,
-  signal,
-  viewChild
+  signal
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { LucideArrowLeft, LucideLayoutTemplate, LucideMessageSquareText } from '@lucide/angular';
@@ -18,7 +17,6 @@ import { extractApiErrorMessage } from '../../shared/utils/api-error';
 import { ChatComponent } from './chat.component';
 import { ProgramPreviewComponent } from './program-preview.component';
 import { ProgramStepperComponent } from './program-stepper.component';
-import { ProgramMilestone, ProgramPreviewSection, programMilestones } from './program-view';
 
 const PROGRAM_POLL_INTERVAL_MS = 2_000;
 
@@ -51,17 +49,12 @@ export class ChatPage {
   readonly questions = computed(() =>
     this.turnInFlight() ? [] : (this.program()?.questions ?? [])
   );
-  readonly milestones = computed<readonly ProgramMilestone[]>(() =>
-    programMilestones(this.program())
-  );
 
   private readonly chatService = inject(ChatService);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly preview = viewChild(ProgramPreviewComponent);
 
   private currentSessionId: string | null = null;
   private programPollTimer: ReturnType<typeof setTimeout> | null = null;
-  private focusTimer: ReturnType<typeof setTimeout> | null = null;
   private programRequestId = 0;
 
   constructor() {
@@ -84,7 +77,6 @@ export class ChatPage {
 
     this.destroyRef.onDestroy(() => {
       this.stopProgramPolling();
-      this.clearFocusTimer();
     });
   }
 
@@ -102,15 +94,6 @@ export class ChatPage {
     this.programLoading.set(true);
     this.programError.set(null);
     this.fetchProgram(this.id());
-  }
-
-  onPreviewFocus(section: ProgramPreviewSection): void {
-    this.mobileView.set('preview');
-    this.clearFocusTimer();
-    this.focusTimer = setTimeout(() => {
-      this.focusTimer = null;
-      this.preview()?.focusSection(section);
-    }, 0);
   }
 
   showChat(): void {
@@ -186,13 +169,6 @@ export class ChatPage {
     if (this.programPollTimer !== null) {
       clearTimeout(this.programPollTimer);
       this.programPollTimer = null;
-    }
-  }
-
-  private clearFocusTimer(): void {
-    if (this.focusTimer !== null) {
-      clearTimeout(this.focusTimer);
-      this.focusTimer = null;
     }
   }
 }

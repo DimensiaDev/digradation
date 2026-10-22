@@ -15,14 +15,10 @@ import {
   viewChild
 } from '@angular/core';
 import {
-  LucideArrowRight,
   LucideArrowUp,
-  LucideCheckCheck,
   LucideDownload,
   LucideDynamicIcon,
   LucideEye,
-  LucideFileCheck2,
-  LucideLayoutTemplate,
   LucideMic,
   LucidePanelRightClose,
   LucidePanelRightOpen,
@@ -55,7 +51,6 @@ import { fileTypeStyleFor } from '../../shared/utils/file-types';
 import { getFileExtension } from '../../shared/utils/upload-format';
 import { DragOverlayComponent } from '../../shared/components/drag-n-drop/drag-overlay.component';
 import { ChatQuestionFormComponent } from './chat-question-form.component';
-import { ProgramMilestone, ProgramPreviewSection } from './program-view';
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
@@ -72,11 +67,7 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
     DragNDropComponent,
     DragOverlayComponent,
     LucideTrash2,
-    LucideArrowRight,
     LucideArrowUp,
-    LucideCheckCheck,
-    LucideFileCheck2,
-    LucideLayoutTemplate,
     LucideMic,
     ChatMessageComponent,
     AgentStatusComponent,
@@ -94,10 +85,8 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 export class ChatComponent implements OnInit {
   readonly id = input.required<string>();
   readonly questions = input<readonly ProgramQuestionApi[]>([]);
-  readonly milestones = input<readonly ProgramMilestone[]>([]);
   readonly turnStarted = output<void>();
   readonly turnFinished = output<void>();
-  readonly previewFocus = output<ProgramPreviewSection>();
   readonly refreshProgram = output<void>();
 
   private readonly speech = inject(SpeechRecognitionService);

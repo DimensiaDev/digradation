@@ -90,8 +90,8 @@ the run is `busy` or a chat turn is in flight, stops while the run waits for ans
 refreshes once a turn finishes. The preview renders only blocks the backend has actually
 saved: title, kind, hours, form, goal, competencies and modules, with placeholders for what
 has not arrived. The stepper maps `status` and `current_stage` onto brief / structure /
-content / review / done and marks a failed stage. Programme milestones appear in the chat
-transcript and focus the matching preview section. When the run is `awaiting_answers`, the
+content / review / done and marks a failed stage. Progress is conveyed by the stepper and preview; there are no separate milestone cards in
+the transcript. When the run is `awaiting_answers`, the
 composer is replaced by a one-question-at-a-time form whose answers are submitted together
 in the chat message's `answers` array; the optimistic transcript line mirrors the backend's
 `render_answers()` text. The composer also dictates through the same Web Speech service as

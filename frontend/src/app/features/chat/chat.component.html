@@ -31,38 +31,6 @@
         </li>
       }
 
-      @for (milestone of milestones(); track milestone.id) {
-        <li class="chat-milestone">
-          <article class="chat-milestone__card">
-            <span class="chat-milestone__icon" aria-hidden="true">
-              @switch (milestone.id) {
-                @case ('structure') {
-                  <svg size="18" lucideCheckCheck></svg>
-                }
-                @case ('scaffold') {
-                  <svg size="18" lucideLayoutTemplate></svg>
-                }
-                @default {
-                  <svg size="18" lucideFileCheck2></svg>
-                }
-              }
-            </span>
-            <div class="chat-milestone__content">
-              <p class="chat-milestone__title">{{ milestone.title }}</p>
-              <p class="chat-milestone__description">{{ milestone.description }}</p>
-            </div>
-            <button
-              type="button"
-              class="chat-milestone__action"
-              (click)="previewFocus.emit(milestone.section)"
-            >
-              Открыть каркас
-              <svg size="14" lucideArrowRight aria-hidden="true"></svg>
-            </button>
-          </article>
-        </li>
-      }
-
       @if (agentStatus()) {
         <li>
           <app-agent-status />

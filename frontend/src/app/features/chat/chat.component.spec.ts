@@ -11,7 +11,6 @@ import { environment } from '../../../environments/environment';
 import { NotificationService } from '../../core/services/notification.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
 import { SpeechRecognitionService } from '../../core/services/speech-recognition.service';
-import { ProgramMilestone } from './program-view';
 
 const SESSION_ID = 'd0a3f1e2-0000-4000-8000-123456789abc';
 const HISTORY_URL = `${environment.apiUrl}/chats/${SESSION_ID}`;
@@ -762,7 +761,7 @@ describe('Chat behaviour', () => {
     // The view child is absent in this fixture; the optional chain must not throw.
     expect(true).toBe(true);
   });
-  // --- programme questions, milestones and voice --------------------------
+  // --- programme questions and voice ---------------------------------------
 
   it('renders open questions and sends every answer in one request', () => {
     vi.useFakeTimers();
@@ -842,29 +841,6 @@ describe('Chat behaviour', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('app-chat-question-form')).not.toBeNull();
     expect(component.answersSubmitted()).toBe(false);
-  });
-
-  it('renders programme milestones and asks the page to focus the preview', () => {
-    openSession();
-    const milestones: ProgramMilestone[] = [
-      {
-        id: 'structure',
-        title: 'Структура программы готова',
-        description: '72 часа · модулей: 2',
-        section: 'modules'
-      }
-    ];
-    fixture.componentRef.setInput('milestones', milestones);
-    fixture.detectChanges();
-
-    expect(fixture.nativeElement.textContent).toContain('Структура программы готова');
-    expect(fixture.nativeElement.textContent).toContain('Открыть каркас');
-
-    const focused = vi.fn();
-    component.previewFocus.subscribe(focused);
-    fixture.debugElement.query(By.css('.chat-milestone__action')).nativeElement.click();
-
-    expect(focused).toHaveBeenCalledWith('modules');
   });
 
   it('starts and replaces the live speech transcript without duplicating it', async () => {

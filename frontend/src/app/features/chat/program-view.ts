@@ -24,13 +24,6 @@ export interface ProgramModuleView {
   readonly topics: readonly string[];
 }
 
-export interface ProgramMilestone {
-  readonly id: 'structure' | 'scaffold' | 'review';
-  readonly title: string;
-  readonly description: string;
-  readonly section: ProgramPreviewSection;
-}
-
 export interface ProgramBadge {
   readonly label: string;
   readonly tone: ProgramBadgeTone;
@@ -241,48 +234,4 @@ export function programCompetencies(
       label: competence.statement
     })) ?? []
   );
-}
-
-export function programMilestones(state: ProgramStateApi | null): readonly ProgramMilestone[] {
-  if (!state) {
-    return [];
-  }
-
-  const milestones: ProgramMilestone[] = [];
-  const draft = state.draft;
-  const modules = programModules(draft.curriculum);
-  const hasStructure = draft.competencies.length > 0 || modules.length > 0;
-
-  if (hasStructure) {
-    const description = modules.length
-      ? `${programHoursLabel(programHours(draft.curriculum))} · модулей: ${modules.length}`
-      : 'Компетенции и результаты освоения сохранены';
-
-    milestones.push({
-      id: 'structure',
-      title: 'Структура программы готова',
-      description,
-      section: modules.length ? 'modules' : 'competencies'
-    });
-  }
-
-  if (draft.summary) {
-    milestones.push({
-      id: 'scaffold',
-      title: 'Каркас программы обновлён',
-      description: 'Цель, формат обучения и паспорт программы добавлены',
-      section: 'summary'
-    });
-  }
-
-  if (state.status === 'pending_approval') {
-    milestones.push({
-      id: 'review',
-      title: 'Черновик готов к проверке',
-      description: 'Проверьте каркас и подтвердите программу в чате',
-      section: 'summary'
-    });
-  }
-
-  return milestones;
 }

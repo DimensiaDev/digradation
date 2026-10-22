@@ -7,7 +7,6 @@ import {
   programHours,
   programHoursLabel,
   programKindLabel,
-  programMilestones,
   programModules,
   programStatusHint,
   programStatusLabel,
@@ -195,66 +194,5 @@ describe('program-view', () => {
       { id: 'competence-1', label: 'Анализировать данные' }
     ]);
     expect(programCompetencies(null)).toEqual([]);
-  });
-
-  it('builds chat milestone cards from the saved blocks', () => {
-    expect(programMilestones(null)).toEqual([]);
-    expect(programMilestones(state())).toEqual([]);
-
-    const structure = state({
-      draft: {
-        kind: null,
-        title: null,
-        competencies: [{ id: 'c-1', statement: 'Умеет' }],
-        curriculum: null,
-        sources: [],
-        summary: null
-      }
-    });
-    expect(programMilestones(structure)).toEqual([
-      {
-        id: 'structure',
-        title: 'Структура программы готова',
-        description: 'Компетенции и результаты освоения сохранены',
-        section: 'competencies'
-      }
-    ]);
-
-    const modules = state({
-      draft: {
-        kind: null,
-        title: null,
-        competencies: [],
-        curriculum: CURRICULUM,
-        sources: [],
-        summary: null
-      }
-    });
-    expect(programMilestones(modules)[0]).toMatchObject({
-      section: 'modules',
-      description: '18 часов · модулей: 2'
-    });
-
-    const complete = state({
-      status: 'pending_approval',
-      draft: {
-        kind: 'general_development',
-        title: 'Программа',
-        competencies: [{ id: 'c-1', statement: 'Умеет' }],
-        curriculum: CURRICULUM,
-        sources: [],
-        summary: {
-          goal: 'Цель',
-          tasks: [],
-          target_audience: 'Все',
-          form: 'Очная'
-        }
-      }
-    });
-    expect(programMilestones(complete).map((milestone) => milestone.id)).toEqual([
-      'structure',
-      'scaffold',
-      'review'
-    ]);
   });
 });
