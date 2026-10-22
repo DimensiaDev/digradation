@@ -120,7 +120,7 @@ def test_mock_implements_interface(mock_provider):
 def test_mock_defaults():
     p = MockEmbeddingProvider()
     assert p.model == "mock-embeddings"
-    assert p.dimension == 1024
+    assert p.dimension == 2048
 
 
 def test_mock_rejects_nonpositive_dimension():

@@ -13,10 +13,12 @@ Append new entries at the bottom, one `##` section per topic, chronological.
 - **No monorepo tool** (no npm workspaces, Nx, Turborepo, Bazel, Pants). Docker Compose is
   the sole orchestrator. The project was simple enough that workspace tooling would cost
   more than it saves, and Compose was already the required run path.
-- **Each package is also its own Docker build context** (`backend/`, `frontend/`, `conf/`).
-  Nothing builds from the repo root, so there is no root `.dockerignore`; each context
-  carries its own. This only became possible when `processing/` went — the backend used to
-  need a `COPY processing/ /processing/` from the root context.
+- **Each package is also its own Docker build context** (`frontend/`, `conf/`). The backend
+  is the exception since the RAG integration: it builds from the repository root because the
+  image installs the sibling `rag/` package, so the root `.dockerignore` excludes the
+  unrelated trees and `backend/Dockerfile` copies both `backend/` and `rag/`. This only
+  became possible when `processing/` went — the backend used to need a
+  `COPY processing/ /processing/` from the root context.
 - **`parser/` at the repo root was a dead leftover** containing only `__pycache__` directories
   from the pre-rename layout. It was never tracked in git and is gone from the working tree
   now (verified 2026-10-16). If it ever reappears, it is not a missing source directory.
@@ -1766,3 +1768,47 @@ catalogue does not return yet keep their elements.
   `e2e/scripts/setup.sh` writes eight minimal `chat_sessions.program_state` envelopes for
   the e2e user. The list endpoint needs only title, status and `updated_at`; the detail
   endpoint accepts the model's defaults for the rest.
+
+## Programme sources use the school hub and a pgvector index (2026-10-22)
+
+The programme stages need real documents behind `search_sources`, and the parser already
+produces text chunks and tables. The integration is deliberately split into an offline
+ingestion step and a feature-flagged query seam, so the pipeline works unchanged until an
+index has been built.
+
+- **One hub for chat and embeddings.** The OpenAI-compatible hub is the only endpoint with
+  an embeddings API; `PERS`/`B2B`/`CORP` have none. `SBER_API_SCOPE=openai` therefore selects
+  both the chat provider and the embedding provider, and the mock provider remains the
+  offline path for tests and e2e.
+- **The vector is fixed at 2048 dimensions.** The embedding model is
+  `ai-sage/Giga-Embeddings-instruct-3B`; `OPENAI_EMBEDDING_DIMENSION` is checked against
+  `EMBEDDING_DIMENSION` in `app/rag/config.py` before the provider is returned. A deployment
+  that changes the model needs a migration, not just an environment edit.
+- **The column is `halfvec(2048)`, not `vector(2048)`.** pgvector's HNSW index refuses
+  `vector` above 2000 dimensions; `halfvec` supports 4000 and has `halfvec_cosine_ops`. The
+  store, the model and the migration all use the same `HALFVEC` type, so the index and the
+  `cosine_distance` query stay on one representation. The precision loss is acceptable for
+  an educational corpus and is the price of an HNSW index without a second column.
+- **Citations use catalog ids, not parser ids.** The parser's `doc_id` is a content hash,
+  while `ProgramState` requires `src-NN`. `backend/res/rag-sources.json` is the curated
+  catalog that assigns those ids and maps each to a `source_path`; ingestion joins parser
+  output to it, and the same catalog is the only thing `search_sources` can return. Ids are
+  canonicalised in the tool seam so `src-1` and `src-01` cannot become two citations.
+- **A scanned source may legitimately have no chunks.** FGO PDFs are in the corpus now, OCR
+  is not. `allow_empty: true` lets a scanned document pass ingestion with zero chunks instead
+  of failing the other nine sources; `--strict` still reports it as a warning, and the index
+  does not invent text.
+- **Ingestion is a one-off CLI first.** `backend/index_rag.py` is an operator command, not an
+  HTTP endpoint: the corpus and the hub are not yet proven in a deployment, and indexing is
+  a privileged, expensive operation. It is idempotent by fingerprint, supports `--dry-run`,
+  `--prune` and `--strict`, and stays the only writer of `rag_chunks` until the flow is
+  proven.
+- **Search is stage-only and failure-tolerant.** `search_sources` is offered by
+  `stage_tools(stage)` for the stages that cite documents, never by the chat intake, because
+  an intake turn that searched could start a second run mid-document. A provider or database
+  failure becomes `RagUnavailable`, which the tool turns into a model-visible note and
+  `found=false`; a stage continues without citations rather than dying. An empty result is a
+  normal answer, not an error.
+- **The backend image builds from the repository root.** It needs both `backend/` and the
+  sibling `rag/` package, so the Compose backend context is `.`, and the root
+  `.dockerignore` keeps the frontend, e2e, parser and test trees out.

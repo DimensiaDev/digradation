@@ -26,6 +26,7 @@ os.environ.setdefault("S3_SECRET_KEY", _S3_SECRET_KEY)
 os.environ.setdefault("DEBUG", "1")
 os.environ.setdefault("FRONTEND_URL", "http://frontend.test")
 os.environ.setdefault("BACKEND_URL", "http://backend.test")
+os.environ.setdefault("RAG_ENABLED", "false")
 
 #: Provider variables as the process received them, captured before the autouse
 #: ``env`` fixture overwrites ``SBER_API_KEY``/``SBER_API_SCOPE`` with mock values.
@@ -36,7 +37,7 @@ import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from redis.asyncio import ConnectionPool, Redis  # noqa: E402
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import select, text  # noqa: E402
 from sqlalchemy.ext.asyncio import (  # noqa: E402
     AsyncEngine,
     AsyncSession,
@@ -111,12 +112,21 @@ def env(monkeypatch):
     monkeypatch.setenv("DEBUG", "1")
     monkeypatch.setenv("FRONTEND_URL", "http://frontend.test")
     monkeypatch.setenv("BACKEND_URL", "http://backend.test")
+    monkeypatch.setenv("RAG_ENABLED", "false")
+    monkeypatch.delenv("RAG_OVERSAMPLE", raising=False)
+    monkeypatch.delenv("RAG_MIN_SCORE", raising=False)
+    monkeypatch.delenv("RAG_MAX_PER_SOURCE", raising=False)
     monkeypatch.delenv("MOCK_PROVIDER_MODE", raising=False)
+    # The retriever caches the client; a test that toggles RAG_ENABLED must not
+    # leak that client into the next test.
+    from app.agentic import sources
+
+    sources.clear_retriever_cache()
 
 
 @pytest.fixture(scope="session")
 def postgres_container() -> Generator[PostgresContainer]:
-    with PostgresContainer("postgres:18-alpine", driver="asyncpg") as postgres:
+    with PostgresContainer("pgvector/pgvector:pg18", driver="asyncpg") as postgres:
         yield postgres
 
 
@@ -253,6 +263,10 @@ async def engine(postgres_container: PostgresContainer):
     url = postgres_container.get_connection_url()
     engine = create_async_engine(url)
     async with engine.begin() as conn:
+        # The test database is created by `create_all`, not by migrations, so
+        # nothing has installed pgvector yet. The model's vector column needs
+        # the extension before the table DDL can parse.
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)  # type: ignore
     yield engine
     await engine.dispose()

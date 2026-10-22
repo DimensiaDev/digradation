@@ -21,7 +21,7 @@ import structlog.stdlib
 from pydantic import BaseModel, Field, ValidationError
 
 from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
-from app.agentic.sources import SourceFragment, get_source, search
+from app.agentic.sources import RagUnavailable, SourceFragment, get_source, search
 from app.agentic.state import (
     MAX_QUESTION_LENGTH,
     STAGE_ORDER,
@@ -33,6 +33,7 @@ from app.agentic.state import (
     new_state,
 )
 from app.providers.models import FunctionCall, FunctionDefinition, Tool, ToolCall
+from app.rag.catalog import canonical_source_id
 
 log = structlog.stdlib.get_logger(__name__)
 
@@ -77,6 +78,7 @@ class ToolResult(BaseModel):
 
 class SearchSourcesResult(ToolResult):
     query: str
+    found: bool = False
     fragments: list[SourceFragment] = Field(default_factory=list)
 
 
@@ -210,17 +212,29 @@ STAGE_SPECS: dict[Stage, FunctionDefinition] = {
 
 async def search_sources(ctx: ToolContext, arguments: SearchSourcesArguments) -> SearchSourcesResult:
     """Search the catalog and remember the ids the model may now cite."""
-    fragments = await search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
+    try:
+        fragments = await search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
+    except RagUnavailable as error:
+        log.warning("source_search_unavailable", query=arguments.query, error=str(error))
+        return SearchSourcesResult(
+            query=arguments.query,
+            found=False,
+            note=(
+                "Поиск по источникам временно недоступен. Продолжай без ссылок на документы: "
+                "не выдумывай источники и оставь ссылки пустыми, если поиск не вернул фрагменты."
+            ),
+        )
     ctx.known_source_ids.update(fragment.source.id for fragment in fragments)
     if not fragments:
         return SearchSourcesResult(
             query=arguments.query,
+            found=False,
             note=(
                 "По запросу ничего не найдено. Сформулируй запрос иначе или уточни вид деятельности; "
                 "не выдумывай источники и не ссылайся на документы, которых нет в результатах."
             ),
         )
-    return SearchSourcesResult(query=arguments.query, fragments=fragments)
+    return SearchSourcesResult(query=arguments.query, found=True, fragments=fragments)
 
 
 @dataclass(frozen=True)
@@ -235,16 +249,21 @@ class _Citations:
 
 def _resolve_sources(ctx: ToolContext, source_ids: Iterable[str], *, standards: Iterable[str] = ()) -> _Citations:
     """Replace the cited ids with their catalog records, collecting every refusal."""
-    standard_ids = set(standards)
+    standard_ids = {canonical_source_id(source_id) for source_id in standards}
     citations = _Citations(sources=[], unknown=[], unsearched=[], not_standards=[])
-    for source_id in dict.fromkeys(source_ids):
+    seen: set[str] = set()
+    for raw_source_id in source_ids:
+        source_id = canonical_source_id(raw_source_id)
+        if source_id in seen:
+            continue
+        seen.add(source_id)
         source = get_source(source_id)
         if source is None:
-            citations.unknown.append(source_id)
+            citations.unknown.append(raw_source_id)
         elif source_id not in ctx.known_source_ids:
-            citations.unsearched.append(source_id)
+            citations.unsearched.append(raw_source_id)
         elif source_id in standard_ids and source.kind is not SourceKind.PROFESSIONAL_STANDARD:
-            citations.not_standards.append(source_id)
+            citations.not_standards.append(raw_source_id)
         else:
             citations.sources.append(source)
     return citations
@@ -361,6 +380,10 @@ async def save_program_draft(ctx: ToolContext, arguments: BaseModel) -> SaveProg
     citations = _resolve_sources(ctx, rule.cited(arguments), standards=rule.standards(arguments))
     if error := _citation_error(citations):
         return error
+    if isinstance(arguments, SourcesBlock):
+        # The catalog record is what the draft cites, not the copy the model
+        # wrote; canonical ids and deduplication come from the resolver.
+        arguments = arguments.model_copy(update={"sources": citations.sources})
     ctx.state = rule.apply(state, arguments, citations.sources)
     ctx.dirty = ctx.saved = True
     return SaveProgramDraftResult(status=ctx.state.status, stage=ctx.state.current_stage, note=rule.note)

@@ -11,7 +11,7 @@ These tests matter because create_all() can never catch:
   - models that were changed without a corresponding migration being written
 
 Requires Docker to be available (testcontainers spins up a real
-postgres:18-alpine container per test run).
+pgvector/pgvector:pg18 container per test run).
 """
 
 import os
@@ -60,7 +60,7 @@ def _run_alembic(*args: str, database_url: str) -> subprocess.CompletedProcess:
 
 @pytest.fixture(scope="module")
 def migration_postgres_url():
-    with PostgresContainer("postgres:18-alpine", driver="asyncpg") as postgres:
+    with PostgresContainer("pgvector/pgvector:pg18", driver="asyncpg") as postgres:
         yield postgres.get_connection_url()
 
 
