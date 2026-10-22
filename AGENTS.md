@@ -681,7 +681,7 @@ seeded users and chats into the developer's own database; and copying the overri
 later `docker compose` command in the repo silently recreated the developer's containers
 with the e2e ports.
 
-Three constraints worth knowing before adding a spec:
+Four constraints worth knowing before adding a spec:
 
 - **The suite runs as one user, and the backend limits chat creation and message sending
   to 5 per minute per user.** The helper fixture clears the `ratelimit:*` counters in Redis
@@ -698,6 +698,13 @@ Three constraints worth knowing before adding a spec:
   timeout. The rate-limit clear retries within 15s and the idle-generation scan within 45s,
   then throws rather than letting the next test report a misleading 429 or 409; retry waits
   use `setTimeout` so the event loop stays free.
+- **A seeded programme is a real run, so the recovery cron will end it.** `recover_stalled_programs`
+  fails any non-terminal run untouched for ten minutes, so a seeded status decays within minutes:
+  seed a run that is terminal, waiting, or `finalized` (see `setup.sh`). `program-decision.spec.ts`
+  opens the seeded `pending_approval` programme, which is `finalized` with a committed skeleton for
+  exactly this reason, and it answers `POST /program/approve` and `/program/revision` locally —
+  a real revision starts a stage, and the offline provider cannot save one, so the run would fail
+  and the programme would stop being a draft for the rest of the suite.
 
 ### Frontend
 

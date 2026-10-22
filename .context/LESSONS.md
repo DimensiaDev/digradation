@@ -1271,3 +1271,24 @@ to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALF
   mock gap that looks like a broken feature. The list is now derived from the session's own
   messages, so its ids cannot drift from the attachments those messages carry, and the demo
   shows sent files without a second source of truth. Found 2026-10-22.
+- **A lookup that misses the row it just read is the index, not the data.** The e2e suite
+  started failing a test in three: sign-in answered 200 and set its cookie, the next
+  authenticated request was answered `401 Invalid session`, and whole runs came back green. The
+  row was there — the newest one by `expires_at` — while
+  `select count(*) from sessions where token = (select token from sessions order by expires_at desc limit 1)`
+  returned 0 in the same connection. With `set enable_indexscan = off` the same predicate
+  returned 1, and `bt_index_check` named it: `item order invariant violated for index
+  "sessions_pkey"`. `REINDEX TABLE sessions` repaired it in place; the data was never wrong and
+  the volume is disposable, but the *symptom* belonged to the session code. The trail to walk
+  is: row present in a scan → the same row missed by equality → disable index scans to confirm
+  → `bt_index_check` to name the index. Found 2026-10-22 on the e2e stack, where every test
+  signs in and the table had grown to several hundred rows.
+- **A seeded programme is a real run, and the recovery cron will fail it.** The e2e fixture
+  wrote a minimal envelope per status, and `recover_stalled_programs` treats a run untouched for
+  ten minutes as stalled: the `pending_approval` row had `finalize_program_draft` re-enqueued
+  (its blocks are absent, so `IncompleteDraft` ended the run) and the `generating` row had its
+  first stage enqueued against a provider that cannot save a block (three attempts, then
+  failed). So a seeded status decays within minutes and any spec that reads one is
+  time-dependent. Seed a run that is terminal (`failed`, `approved`, `verified`), waiting
+  (`draft`, `awaiting_answers`) or `finalized` — the last is what a rendered draft actually is,
+  and it is what keeps a decision panel reachable for a whole run. Found 2026-10-22.
