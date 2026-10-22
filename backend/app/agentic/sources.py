@@ -300,10 +300,13 @@ def clear_cache() -> None:
     """Forget the corpus, so a changed one is read again.
 
     The corpus does not change while the app runs, but a test that points the
-    catalogue at another directory has to be able to make it read again.
+    catalogue at another directory has to be able to make it read again — and
+    the mapping from a file name to a curated id with it, or the corpus would
+    be filed under the ids of the catalogue it was just read against.
     """
     corpus_entries.cache_clear()
     _corpus_by_id.cache_clear()
+    _curated_by_stem.cache_clear()
 
 
 def get_source(source_id: str) -> Source | None:

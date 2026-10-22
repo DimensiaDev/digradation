@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from edu_rag.models import SearchHit
 
@@ -18,8 +20,10 @@ from app.agentic.sources import (
 @pytest.fixture(autouse=True)
 def _clear_retriever_cache():
     sources.clear_retriever_cache()
+    sources.clear_cache()
     yield
     sources.clear_retriever_cache()
+    sources.clear_cache()
 
 
 def test_the_catalog_has_the_curated_sources() -> None:
@@ -101,6 +105,41 @@ async def test_search_maps_hits_to_catalog_sources(monkeypatch: pytest.MonkeyPat
     assert fragment.page == 7
     assert fragment.trust == 1.0
     assert fragment.score == 0.91
+
+
+async def test_a_hit_without_a_source_is_left_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fragment that belongs to no document cannot be cited."""
+
+    class FakeRetriever:
+        async def retrieve(self, *_args, **_kwargs):
+            return [
+                SearchHit(
+                    doc_id="abc123",
+                    ordinal=1,
+                    kind="text",
+                    source_id="",
+                    source_kind="normative_act",
+                    section_title="Раздел",
+                    page_number=1,
+                    content="Фрагмент",
+                    score=0.9,
+                ),
+                SearchHit(
+                    doc_id="abc123",
+                    ordinal=2,
+                    kind="text",
+                    source_id="src-99",
+                    source_kind="normative_act",
+                    section_title="Раздел",
+                    page_number=2,
+                    content="Фрагмент",
+                    score=0.8,
+                ),
+            ]
+
+    monkeypatch.setattr(sources, "get_retriever", lambda: FakeRetriever())
+
+    assert await search("начальное общее образование") == []
 
 
 async def test_a_broken_catalog_is_reported_as_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -205,3 +244,77 @@ async def test_the_fragment_holds_the_lines_that_answer_the_query() -> None:
     assert fragments
     assert fragments[0].source.id == "src-03"
     assert fragments[0].text
+
+
+def test_the_corpus_is_read_from_where_the_deployment_puts_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The corpus path is a setting, not a place the code guesses."""
+    monkeypatch.setenv(sources.CORPUS_ENV, "/somewhere/else")
+
+    assert sources.corpus_path() == Path("/somewhere/else")
+
+
+def test_a_corpus_without_a_description_contributes_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A directory of the corpus without a description is skipped, not an error."""
+    empty = tmp_path / "corpus"
+    (empty / "fgos").mkdir(parents=True)
+    monkeypatch.setenv(sources.CORPUS_ENV, str(empty))
+    sources.clear_cache()
+
+    assert corpus_entries() == ()
+
+
+def test_a_broken_catalogue_does_not_break_the_corpus(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The corpus answers on its own when the catalogue cannot be read."""
+
+    def broken():
+        raise RuntimeError("каталог не читается")
+
+    monkeypatch.setattr(sources, "catalog_by_id", broken)
+    monkeypatch.setattr(sources, "get_catalog_entry", broken)
+    sources.clear_cache()
+
+    entries = corpus_entries()
+
+    assert entries
+    assert "fgos-noo-2021" in {entry.id for entry in entries}
+    # The document is still found, from the corpus rather than the catalogue.
+    record = get_source("fgos-noo-2021")
+    assert record is not None
+    assert record.title
+
+
+async def test_a_blank_query_never_reaches_the_corpus() -> None:
+    """A query of nothing finds nothing."""
+    assert await sources.search_corpus("   ") == []
+
+
+def test_the_retriever_is_built_when_the_index_is_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the RAG on, the retriever is built from the provider and the store."""
+    monkeypatch.setenv("RAG_ENABLED", "true")
+    monkeypatch.setenv("RAG_OVERSAMPLE", "6")
+    monkeypatch.setenv("RAG_MIN_SCORE", "0.42")
+    monkeypatch.setenv("RAG_MAX_PER_SOURCE", "2")
+    monkeypatch.setattr(sources, "get_session_maker", lambda: "session")
+    monkeypatch.setattr(sources, "PgVectorStore", lambda _session, _table: ("store", "table"))
+    sources.clear_retriever_cache()
+
+    retriever = sources.get_retriever()
+
+    assert retriever is not None
+    assert retriever._min_score == 0.42
+    assert retriever._max_per_source == 2
+    assert retriever._oversample == 6
+
+
+def test_a_provider_that_fails_leaves_the_search_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An index that cannot be built is a note to the model, not a crash."""
+
+    def broken():
+        raise RuntimeError("нет эмбеддингов")
+
+    monkeypatch.setenv("RAG_ENABLED", "true")
+    monkeypatch.setattr(sources, "get_embedding_provider", broken)
+    sources.clear_retriever_cache()
+
+    with pytest.raises(RagUnavailable):
+        sources.get_retriever()

@@ -173,6 +173,119 @@ async def test_the_mock_provider_turns_the_search_off(monkeypatch: pytest.Monkey
     assert await websearch.search_web("ФГОС НОО") == []
 
 
+def _transport(handler) -> httpx.MockTransport:
+    """A transport that answers every request the way the handler says."""
+    return httpx.MockTransport(handler)
+
+
+async def test_the_encyclopedia_is_asked_with_an_agent_and_a_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The encyclopedia refuses a request without a user agent, and the query has to be there."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"query": {"search": []}})
+
+    original = httpx.AsyncClient
+
+    def client(*args, **kwargs):
+        kwargs["transport"] = _transport(handler)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    monkeypatch.setattr(websearch, "offline", lambda: False)
+
+    assert await websearch.search_web("ФГОС НОО") == []
+    assert seen[0].headers["User-Agent"] == websearch.USER_AGENT
+    assert seen[0].url.params["srsearch"] == "ФГОС НОО"
+
+
+async def test_a_search_service_of_our_own_is_asked_over_post(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The deployment's own service answers the same shape."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json={"results": [{"title": "Приказ № 286", "url": "https://docs.test/286", "snippet": "Текст"}]},
+        )
+
+    original = httpx.AsyncClient
+
+    def client(*args, **kwargs):
+        kwargs["transport"] = _transport(handler)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    monkeypatch.setattr(websearch, "offline", lambda: False)
+    monkeypatch.setenv(websearch.WEB_SEARCH_ENV, "https://search.test/api")
+
+    found = await websearch.search_web("ФГОС НОО")
+
+    assert [document.url for document in found] == ["https://docs.test/286"]
+    assert seen[0].method == "POST"
+
+
+async def test_a_service_that_answers_nothing_useful_is_a_search_that_found_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A payload of another shape is not an answer."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"results": "not a list"})
+
+    original = httpx.AsyncClient
+
+    def client(*args, **kwargs):
+        kwargs["transport"] = _transport(handler)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    monkeypatch.setattr(websearch, "offline", lambda: False)
+    monkeypatch.setenv(websearch.WEB_SEARCH_ENV, "https://search.test/api")
+
+    assert await websearch.search_web("ФГОС НОО") == []
+
+
+async def test_a_hit_the_encyclopedia_cannot_name_is_left_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hit without a title is not a document."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"query": {"search": ["not a hit", {"title": ""}]}})
+
+    original = httpx.AsyncClient
+
+    def client(*args, **kwargs):
+        kwargs["transport"] = _transport(handler)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    monkeypatch.setattr(websearch, "offline", lambda: False)
+
+    assert await websearch.search_web("ФГОС НОО") == []
+
+
+async def test_a_service_that_fails_is_a_search_that_found_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A service that is down does not break the stage."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    original = httpx.AsyncClient
+
+    def client(*args, **kwargs):
+        kwargs["transport"] = _transport(handler)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    monkeypatch.setattr(websearch, "offline", lambda: False)
+
+    assert await websearch.search_web("ФГОС НОО") == []
+
+
 async def test_a_web_document_is_cited_as_an_internet_resource() -> None:
     """The kind is the one the document is cited as, and it is not confirmed."""
     document = websearch.WebDocument(title="ФГОС НОО", url="https://ru.wikipedia.org/wiki/ФГОС", snippet="Текст")

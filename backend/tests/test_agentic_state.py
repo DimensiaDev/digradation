@@ -216,6 +216,36 @@ def test_the_report_calls_an_empty_assessment_an_empty_section(blocks: Blocks) -
     assert "оценочные средства" in " ".join(sections.problems)
 
 
+def test_the_report_counts_the_means_of_checking(blocks: Blocks) -> None:
+    """The coverage check counts how many means each outcome has."""
+    state = make_state(blocks)
+    state = state.with_assessment(
+        AssessmentBlock(
+            assessment={
+                "questions": [
+                    {
+                        "id": "q-01-01",
+                        "tool_id": "at-01",
+                        "outcome_ids": ["ro-k-01"],
+                        "text": "Вопрос",
+                        "answers": ["Ответ"],
+                    }
+                ],
+                "seminar_tasks": [],
+                "tools": [],
+                "final": {"form": "экзамен", "hours": 0, "outcome_ids": ["ro-k-01"]},
+            }
+        )
+    )
+
+    report = state.report()
+
+    coverage = report.checks[1]
+    assert coverage.name == "покрытие"
+    assert coverage.details["проверяется двумя средствами"] == 0
+    assert "нужно хотя бы два" in " ".join(coverage.problems)
+
+
 def test_the_report_says_which_sections_are_empty(blocks: Blocks) -> None:
     state = make_state(blocks)
 
