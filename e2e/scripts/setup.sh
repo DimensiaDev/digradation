@@ -151,7 +151,8 @@ from datetime import UTC, datetime, timedelta
 
 from app.database import get_session_maker
 from app.models.auth import User
-from app.models.chat import ChatSession
+from app.models.chat import Attachment, ChatSession
+from app.storage import get_s3_attachment_key, storage
 from sqlalchemy import delete, select
 
 USERNAME = os.environ["E2E_USERNAME"]
@@ -213,14 +214,44 @@ async def main():
                     "assessment": "pending",
                     "materials": "pending",
                 }
-            db.add(
-                ChatSession(
-                    session_id=session_id,
-                    user_id=user.id,
-                    name=title,
-                    program_state=state,
-                )
+            session = ChatSession(
+                session_id=session_id,
+                user_id=user.id,
+                name=title,
+                program_state=state,
             )
+            db.add(session)
+
+            if status == "approved":
+                # The finished programme is the one with the two export forms, and
+                # the client fetches them through the attachment route it uses for
+                # any file — so the row, the stored object and the state's ids all
+                # have to exist, or the presigned URL 404s and the download button
+                # looks broken. `approved` is terminal, so the recovery cron leaves
+                # the run alone.
+                await db.flush()
+                exports = {}
+                for name, state_field in (
+                    ("programme.docx", "document_attachment_id"),
+                    ("programme-slides.pptx", "slides_attachment_id"),
+                ):
+                    s3_key = get_s3_attachment_key(session_id, name)
+                    attachment = Attachment(
+                        session_id=session_id,
+                        name=name,
+                        s3_key=s3_key,
+                        ready=True,
+                    )
+                    db.add(attachment)
+                    await db.flush()
+                    async with storage.internal_client() as client:
+                        await client.put_object(
+                            Bucket="uploads",
+                            Key=s3_key,
+                            Body=f"e2e {name}".encode(),
+                        )
+                    exports[state_field] = attachment.id
+                session.program_state = {**state, "exports": exports}
         await db.commit()
         print(f"seeded {len(PROGRAMMES)} programmes for {USERNAME}")
 
