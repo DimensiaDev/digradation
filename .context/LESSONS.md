@@ -252,8 +252,8 @@ pool.get_connection()` is a `TypeError`; it must be awaited.
 - **A rate-limited backend makes an e2e suite trip its own limiter.** `chats:post` allows 5
   per minute per user for both chat creation and message sending. One run creates several
   chats as a single shared user, so the limit is reached _within_ the suite. The failure is
-  far from the cause: the chat is created (202), the send is rejected (429), and the create
-  page never navigates, so the assertion reports "expected URL to match /chats/.+".
+  far from the cause: the chat is created (202), the send is rejected (429), and the home
+  composer never navigates, so the assertion reports "expected URL to match /chats/.+".
   `workers: 1` plus clearing `ratelimit:*` in Redis before each test is the fix; parallel
   workers make per-test clearing useless because they trip each other.
 - **`docker compose exec` does not forward host env vars** into the container. Seeding a
@@ -543,7 +543,7 @@ No such file or directory`. Compose only sets two secrets that way and keeps the
   even though the backend container was healthy and correctly aliased. `--force-recreate`
   fixed it; a plain restart would not have.
 
-- **A `1fr 1fr` grid with a table inside blows out the centered container.** Grid `1fr` tracks are `minmax(auto, 1fr)`, so a wide table (unbreakable badges like `Суперпользователь`) forces the track past its share and the grid spills right past `max-width: 1200px; margin: 0 auto`, making the page look shifted versus single-column pages. Fix is `min-width: 0` on the grid children plus an `overflow-x: auto` wrapper around the table, the same pattern `history-page` already uses. No SCSS gate catches this (ESLint skips `.scss`, no stylelint).
+- **A `1fr 1fr` grid with a table inside blows out the centered container.** Grid `1fr` tracks are `minmax(auto, 1fr)`, so a wide table (unbreakable badges like `Суперпользователь`) forces the track past its share and the grid spills right past `max-width: 1200px; margin: 0 auto`, making the page look shifted versus single-column pages. Fix is `min-width: 0` on the grid children plus an `overflow-x: auto` wrapper around the table, the pattern the admin users page uses. No SCSS gate catches this (ESLint skips `.scss`, no stylelint).
 - **Garage has no default CORS policy, and the 403 it returns does not name the cause.** Every
   browser upload and download goes through a presigned URL, so each one is preflighted; with no
   `cors_config` on the bucket, `handle_options_for_bucket` finds no matching rule and answers

@@ -21,7 +21,7 @@ Everything described below is working via Docker Compose.
 | Package     | State                                                                                                                                                    |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, providers, the programme cycle, pgvector source retrieval                            |
-| `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings, programmes catalogue |
+| `frontend/` | Complete: guest mode, sign-in dialog, the home composer that starts a chat, chat with polling and the programme aside, profile, admin users, admin settings, programmes catalogue |
 | `rag/`      | Complete: chunk models, mock embeddings, in-memory and pgvector stores, indexer, retrieval policy, one-off backend CLI                                   |
 | `e2e/`      | Complete: bounded specs against the real Compose stack with the offline provider                                                                         |
 | Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup, `pgvector/pgvector:pg18` database                                        |
@@ -46,7 +46,9 @@ list. Section switches animate through the browser's View Transitions API
 examples and a composer docked to the bottom while empty. A send from `/home` starts a chat:
 an authenticated user goes straight to it, while a guest's text and files are held in
 `PendingChatDraftService`, the sign-in dialog opens, and the same chat is created and sent
-after login. The composer also dictates Russian through the Web Speech API. `/programs` is
+after login. It is the only place a chat is created — the standalone `/create` page and the
+paginated `/chats` list are gone, and the programmes catalogue carries the entry into a
+finished chat. The composer also dictates Russian through the Web Speech API. `/programs` is
 `Мои программы`: a lazy-loaded catalogue backed by `GET /chats/programmes` and
 `GET /chats/{session_id}/program`, with filtering by update month, paging, and two-second
 polling while a run is busy. Cards and the detail panel show only what those responses carry;
@@ -270,11 +272,12 @@ Ordered by value, not by commitment:
 3. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
    where per-content-type preparation belongs. The first content type that needs work is the
    first thing that goes in it, offloaded with `asyncio.to_thread`.
-4. **Extend the e2e suite.** It covers authentication (including the guest path and the
-   sign-in dialog), the chat journey, a follow-up message, attachments, the paginated history
-   list, admin roles and the admin prompt editor.
-   Not yet covered: the docx/xlsx preview, avatar upload, the theme toggle, the programs
-   catalog, and the error paths (a generation that fails, a session deleted mid-flight).
+4. **Extend the e2e suite.** It covers authentication (the guest path, the sign-in dialog and
+   the gate), the chat journey, a follow-up message, attachments, the home file preview, the
+   programmes catalogue (guest preview, paging, the detail panel), admin roles and the admin
+   prompt editor.
+   Not yet covered: the docx and xlsx preview, avatar upload, the theme toggle, and the error
+   paths (a generation that fails, a session deleted mid-flight).
 5. **Fill the placeholder sections:** profile, user settings, the admin action log
    (`Журнал действий`) and system info.
 6. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).

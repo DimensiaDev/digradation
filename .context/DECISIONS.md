@@ -2288,3 +2288,29 @@ linked, and every shared component is rendered somewhere.
   were producing `NG8113` on every build.
 - **`/programs/new` stays.** Nothing links to it, but it is the documented entry point for the
   create form and it renders the shared placeholder, so it costs a route and no code.
+
+## The chat list and the standalone create page are gone (2026-10-22)
+
+`/chats` listed the user's chats with search, sorting and pagination, and `/create` was a form
+of its own. Both predate the product that exists now: a chat is a programme workspace, `/home`
+is the only place one is started, and `/programs` is the catalogue that reaches a finished one.
+The list was the last caller of `GET /chats` and of the `Table`-in-a-card layout; the form was
+the last caller of nothing at all.
+
+- **A chat starts from `/home` and nowhere else.** The composer takes the brief, the files and
+  the guest redirect; `/create` duplicated all three, and its own `POST /chats/` plus
+  `POST /chats/{id}` handshake is what `ChatStarterService` does for the home composer too.
+  Deleting a session now returns to `/home` instead of asking for a new brief.
+- **The catalogue replaced the list.** `/programs` answers what the list answered — reach a
+  chat by name, focusing the results region — and adds the programme's own status and hours,
+  which the list could not know. The list is therefore a smaller version of a page that came
+  later, and it was the only route a regular user could not reach: its link was an admin's
+  "back to the user menu" chip.
+- **`GET /chats` keeps its endpoint, the client loses its method.** `ChatService.list`,
+  `CHATS_PAGE_SIZE`, `ChatListQuery`, `ChatSortKey` and `SortOrder` are gone with the page; the
+  backend list, the mock interceptor's handler for it and `UserChat` stay, because the endpoint
+  still exists and the mock mirrors the API rather than the client.
+- **The e2e suite creates chats through the home composer.** `createChat` fills
+  `getByLabel('Сообщение')` and clicks "Отправить", so the helper now covers the same path a
+  user takes; the guest tests that asked for `/create` or `/chats` ask for `/settings`, and the
+  card action-menu test went with the menu it asserted.

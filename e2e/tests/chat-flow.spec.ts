@@ -1,4 +1,4 @@
-import { expect, login, test } from "./helpers";
+import { createChat, expect, login, test } from "./helpers";
 
 /**
  * The full chat journey, against the real Compose stack with the offline
@@ -10,22 +10,11 @@ test.describe("chat conversation", () => {
     page,
   }) => {
     await login(page);
-    await page.goto("/create");
 
-    await expect(
-      page.getByRole("heading", { name: "Новый чат" }),
-    ).toBeVisible();
-    await page
-      .locator("#description")
-      .fill("Собери основные тезисы из приложенного документа");
-
-    await page.getByRole("button", { name: /Создать чат/ }).click();
-
-    // The create page hands the draft over and routes into the chat.
-    await expect(page).toHaveURL(/\/chats\/.+/);
-    await expect(
-      page.getByText("Собери основные тезисы из приложенного документа"),
-    ).toBeVisible();
+    // The home composer is the only way into a session now: it starts the run
+    // and routes into the chat with the draft already handed over.
+    const marker = "Собери основные тезисы из приложенного документа";
+    await createChat(page, marker);
 
     // The chat is now a programme workspace: breadcrumb, wizard and live preview.
     await expect(page.locator(".chat-page__breadcrumb")).toContainText(
@@ -55,21 +44,15 @@ test.describe("chat conversation", () => {
       page.locator(".message__author", { hasText: "Агент" }).first(),
     ).toBeVisible({ timeout: 45_000 });
 
-    // The side panel lists the session's files. Nothing generates one any more,
-    // so this is where the empty state has to be.
-    await page
-      .getByRole("button", { name: "Панель файлов", exact: true })
-      .click();
-    await expect(page.locator(".files-aside")).toBeVisible();
+    // The aside owns the session files the chat used to list in a panel of its
+    // own. Nothing generates one any more, so this is where the empty state is.
+    await page.getByRole("button", { name: "Файлы", exact: true }).click();
     await expect(page.getByText("Нет файлов в загрузке")).toBeVisible();
   });
 
   test("answers a follow-up message in the same session", async ({ page }) => {
     await login(page);
-    await page.goto("/create");
-    await page.locator("#description").fill("Что здесь нужно уточнить?");
-    await page.getByRole("button", { name: /Создать чат/ }).click();
-    await expect(page).toHaveURL(/\/chats\/.+/);
+    await createChat(page, "Что здесь нужно уточнить?");
 
     await expect(page.getByText("Что здесь нужно уточнить?")).toBeVisible();
     await expect(

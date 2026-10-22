@@ -417,7 +417,7 @@ describe('Chat behaviour', () => {
     expect(notifications.success).toHaveBeenCalledWith('Сессия удалена', {
       description: 'Чат и его сообщения удалены безвозвратно.'
     });
-    expect(navigate).toHaveBeenCalledWith(['/create']);
+    expect(navigate).toHaveBeenCalledWith(['/home']);
   });
 
   it('explains a delete failure differently for a missing session', () => {
@@ -428,14 +428,14 @@ describe('Chat behaviour', () => {
       .expectOne(SEND_URL)
       .flush({ detail: 'Invalid session' }, { status: 403, statusText: 'Forbidden' });
     expect(notifications.error).toHaveBeenCalledWith('Сессия не найдена или уже удалена', {
-      description: 'Чат не был удалён — обновите список чатов и попробуйте снова.'
+      description: 'Чат не был удалён — откройте программу и попробуйте снова.'
     });
 
     // A 5xx is normalised to a generic message by extractApiErrorMessage.
     component.deleteSession();
     http.expectOne(SEND_URL).flush({ detail: 'oops' }, { status: 500, statusText: 'Server Error' });
     expect(notifications.error).toHaveBeenCalledWith('Не удалось удалить сессию: Ошибка сервера', {
-      description: 'Чат не был удалён — обновите список чатов и попробуйте снова.'
+      description: 'Чат не был удалён — откройте программу и попробуйте снова.'
     });
   });
 

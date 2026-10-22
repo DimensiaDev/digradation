@@ -140,8 +140,8 @@ with `log = log.bind(attachment_id=...)`. Never use `print()`.
 | Folder | Holds |
 |---|---|
 | `core/` | singletons: `services/`, `guards/`, `interceptors/`, `models/` |
-| `features/` | route-level feature areas (`chat/`, `chat-create/`) |
-| `pages/` | routed pages (`login-page/`, `history-page/`, `profile-page/`, `admin/`) |
+| `features/` | route-level feature areas (`chat/`) |
+| `pages/` | routed pages (`home-page/`, `programs-page/`, `profile-page/`, `admin/`) |
 | `shared/` | reusable components and utils |
 
 ### State

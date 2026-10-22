@@ -18,7 +18,7 @@ describe('route-transition', () => {
   it('strips query strings and fragments and matches child paths', () => {
     expect(sectionIndex('/settings?tab=profile')).toBe(3);
     expect(sectionIndex('/chats/42')).toBe(-1);
-    expect(sectionIndex('/create')).toBe(-1);
+    expect(sectionIndex('/profile')).toBe(-1);
     expect(sectionIndex('/')).toBe(-1);
   });
 
@@ -26,13 +26,13 @@ describe('route-transition', () => {
     expect(sectionTransitionDirection('/home', '/settings')).toBe('forward');
     expect(sectionTransitionDirection('/library', '/home')).toBe('backward');
     expect(sectionTransitionDirection('/home', '/home')).toBe('none');
-    expect(sectionTransitionDirection('/create', '/chats')).toBe('none');
+    expect(sectionTransitionDirection('/profile', '/chats/42')).toBe('none');
     expect(sectionTransitionDirection('/home?x=1', '/settings')).toBe('forward');
   });
 
   it('skips a transition when only the query string changes', () => {
-    expect(shouldSkipRouteTransition('/chats?page=1', '/chats?page=2')).toBe(true);
-    expect(shouldSkipRouteTransition('/chats', '/home')).toBe(false);
+    expect(shouldSkipRouteTransition('/programs?page=1', '/programs?page=2')).toBe(true);
+    expect(shouldSkipRouteTransition('/programs', '/home')).toBe(false);
   });
 
   it('skips a transition when the user prefers reduced motion', () => {

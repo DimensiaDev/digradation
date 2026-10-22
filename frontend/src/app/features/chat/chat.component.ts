@@ -673,7 +673,7 @@ export class ChatComponent implements OnInit {
             detail === 'Invalid session'
               ? 'Сессия не найдена или уже удалена'
               : 'Не удалось удалить сессию: ' + detail,
-            { description: 'Чат не был удалён — обновите список чатов и попробуйте снова.' }
+            { description: 'Чат не был удалён — откройте программу и попробуйте снова.' }
           );
           return EMPTY;
         })
@@ -682,7 +682,7 @@ export class ChatComponent implements OnInit {
         this.notifications.success('Сессия удалена', {
           description: 'Чат и его сообщения удалены безвозвратно.'
         });
-        this.router.navigate(['/create']);
+        this.router.navigate(['/home']);
       });
   }
 

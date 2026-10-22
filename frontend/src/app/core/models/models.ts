@@ -54,16 +54,6 @@ export interface PaginatedResponse<T> {
   items_per_page: number;
 }
 
-export type ChatSortKey = 'date' | 'number';
-export type SortOrder = 'asc' | 'desc';
-
-export interface ChatListQuery {
-  page?: number;
-  itemsPerPage?: number;
-  sort?: ChatSortKey;
-  order?: SortOrder;
-}
-
 export interface ChatResultContent {
   type: 'error' | 'success';
   content: string;
