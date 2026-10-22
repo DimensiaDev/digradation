@@ -470,9 +470,15 @@ completeness gate that a partial state cannot pass.
 
 `app/tasks/api.py` runs one turn of a chat. The turn is a **tool loop**, not a single
 completion: the model is offered `INTAKE_TOOLS` and may call `begin_program` (which starts a
-run), `approve_program_draft` (which confirms a rendered draft), or simply answer in prose.
+run), `approve_program_draft` (which confirms a rendered draft), `revise_program` (which asks
+for one part to be redone), or simply answer in prose.
 `run_chat_turn` is the task; `process_response` publishes the answer.
 
+- **The methodist can ask for one part to be redone.** The intake offers `revise_program` with
+  the stage to redo and the notes: the stage runs again with the methodist's notes in its
+  brief, the blocks that are already committed stay, and the run goes straight back to where
+  the methodist left it instead of walking the pipeline again. A revision spends no attempt —
+  the budget of three per stage is there for the agent's own failures.
 - **The model no longer names the chat.** `HARNESS_STRUCTURED_SCHEMA` and
   `HarnessStructuredOutput` are gone: the reply is prose, and the name comes from
   `app/naming.py`, which holds the one rule — *a programme's title wins, otherwise the first

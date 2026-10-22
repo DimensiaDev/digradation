@@ -153,7 +153,13 @@ async def _run_stage(
         )
         if not ctx.saved or ctx.state is None:
             raise StageNotCompleted()
-        saved = await store.save(ctx.state.completed(stage), expected_run_id=state.run_id)
+        revision = ctx.state.revision
+        finished = ctx.state.completed(stage)
+        if revision is not None and revision.stage is stage:
+            # A revision reruns one stage and leaves the rest of the programme
+            # alone, so the run does not walk the pipeline again.
+            finished = finished.revision_completed(stage)
+        saved = await store.save(finished, expected_run_id=state.run_id)
     except (MissingChat, StageSuperseded, StaleState) as error:
         stage_log.warning("program_stage_superseded", reason=str(error))
         return

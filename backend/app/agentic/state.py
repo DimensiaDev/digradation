@@ -115,6 +115,18 @@ class ClarificationAnswer(BaseModel):
     text: str = Field(min_length=1, max_length=MAX_ANSWER_LENGTH, description="Текст ответа")
 
 
+class Revision(BaseModel):
+    """A change the methodist asked for in one part of the programme.
+
+    The revision names the stage to redo and what to change in it, so the
+    stage can be run again with the methodist's notes instead of the whole
+    programme being rebuilt.
+    """
+
+    stage: Stage = Field(description="Блок программы, который нужно переделать")
+    notes: str = Field(min_length=1, max_length=2000, description="Что именно изменить")
+
+
 class ProgramCheck(BaseModel):
     """One check of the programme and what it found."""
 
@@ -173,6 +185,8 @@ class ProgramState(BaseModel):
     #: skeleton, and they are not part of the draft they approve.
     assessment: AssessmentPlan | None = None
     materials: Materials | None = None
+    #: The change the methodist asked for, waiting to be carried out.
+    revision: Revision | None = None
 
     #: True once the draft has been rendered into the chat and may be approved.
     finalized: bool = False
@@ -263,6 +277,38 @@ class ProgramState(BaseModel):
 
     def approved(self) -> Self:
         return self._replace(status=ProgramStatus.APPROVED)
+
+    def request_revision(self, stage: Stage, notes: str) -> Self:
+        """Ask for one part of the programme to be redone.
+
+        The stage goes back to pending, the run starts working again, and the
+        draft is rendered once more when the stage is done. A revision does
+        not spend an attempt: a change the methodist asked for is not a
+        failed attempt, and the budget is there for the agent's own failures.
+        """
+        stages = self.stages.model_copy(update={stage.value: StageStatus.PENDING})
+        return self._replace(
+            revision=Revision(stage=stage, notes=notes),
+            stages=stages,
+            status=ProgramStatus.GENERATING,
+            current_stage=stage,
+            finalized=False,
+        )
+
+    def revised(self) -> Self:
+        """The revision has been carried out."""
+        return self._replace(revision=None)
+
+    def revision_completed(self, stage: Stage) -> Self:
+        """The redone stage is done; the programme is back where it was.
+
+        A revision reruns one stage and leaves the rest alone, so the run
+        does not walk the pipeline again: it goes straight back to the point
+        the methodist left it at.
+        """
+        stages = self.stages.model_copy(update={stage.value: StageStatus.COMPLETED})
+        status = ProgramStatus.APPROVED if stage in CONTENT_ORDER else ProgramStatus.PENDING_APPROVAL
+        return self._replace(stages=stages, status=status, revision=None, current_stage=stage)
 
     def with_answers(self, answers: list[ClarificationAnswer]) -> Self:
         """Take the methodist's answers and let the programme start.

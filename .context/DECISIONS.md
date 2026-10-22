@@ -1882,3 +1882,24 @@ both, and it is the corpus itself rather than a hand-written list.
   counting double, answers the agent offline and in the tests. The semantic index over the
   corpus arrives with the vector store; `search()` is the seam, and both answers are the same
   shape, so nothing above it changes.
+
+## One part of the programme can be redone on its own (2026-10-22)
+
+The criteria ask the methodist to be able to change one part — replace a topic, make a test
+harder — and to have the agent rebuild only that, without breaking the rest. A revision is
+therefore a stage that runs again, not a new run.
+
+- **The methodist asks for it in the chat.** The intake offers `revise_program` with the stage
+  to redo and the notes; the tool records the revision on the envelope and nothing else. The
+  chat is the only entry point, so the frontend needs no change to offer the capability.
+- **The revision reruns one stage and leaves the rest alone.** The stage goes back to pending,
+  the run starts working again, and the stage's brief carries the methodist's notes. The
+  blocks that are already committed stay committed, and the checks that tie the blocks
+  together are what keeps them consistent.
+- **The run does not walk the pipeline again.** A revised stage goes straight back to where the
+  methodist left the programme: the skeleton waits for the methodist again, the content is
+  complete. The stages that were already done are not run a second time.
+- **A revision is not a failed attempt.** The budget of three attempts per stage is there for
+  the agent's own failures, so a revision spends none of it.
+- **The draft is rendered again.** The revision clears the "rendered" flag, so the methodist
+  sees the changed draft and confirms it again.

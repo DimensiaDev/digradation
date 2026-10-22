@@ -35,12 +35,14 @@ MOCK_SCOPES = get_args(Scope)
 
 class Mode(StrEnum):
     """What the mock answers: ``empty`` and ``error`` drive the error paths,
-    ``stage`` scripts one valid call per programme stage."""
+    ``stage`` scripts one valid call per programme stage, ``revise`` asks for
+    one part of the programme to be redone."""
 
     OK = "ok"
     EMPTY = "empty"
     ERROR = "error"
     STAGE = "stage"
+    REVISE = "revise"
 
 
 MODES: tuple[Mode, ...] = tuple(Mode)
@@ -51,6 +53,7 @@ DEFAULT_MODE = Mode.OK
 #: Tools of the programme pipeline the ``stage`` mode reacts to.
 BEGIN_PROGRAM = "begin_program"
 SAVE_PROGRAM_DRAFT = "save_program_draft"
+REVISE_PROGRAM = "revise_program"
 
 #: The question the mock asks when the methodist named no volume.
 MOCK_QUESTION = "На сколько академических часов рассчитана программа?"
@@ -265,6 +268,9 @@ class MockProvider(AIClient):
             # treat as "Provider did not respond properly".
             return self._wrap([Message(role=Role.ASSISTANT, content=[])], fingerprint)
 
+        if mode is Mode.REVISE:
+            return self._revise(message_history, offered, fingerprint)
+
         if mode is Mode.STAGE:
             return self._stage(message_history, offered, fingerprint)
 
@@ -297,6 +303,27 @@ class MockProvider(AIClient):
                 # asks the methodist instead of inventing one.
                 arguments["questions"] = [MOCK_QUESTION]
             return self._call(BEGIN_PROGRAM, arguments, fingerprint)
+        return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=self._reply(fingerprint))])], fingerprint)
+
+    def _revise(
+        self,
+        message_history: list[Message],
+        offered: list[Tool],
+        fingerprint: str,
+    ) -> GenerationResponse:
+        """Script one turn: ask for one part of the programme to be redone."""
+        if message_history and message_history[-1].role == Role.TOOL:
+            return self._wrap(
+                [Message(role=Role.ASSISTANT, content=[Content(text="Правка принята.")])],
+                fingerprint,
+            )
+        names = {tool.function.name for tool in offered}
+        if REVISE_PROGRAM in names:
+            return self._call(
+                REVISE_PROGRAM,
+                {"stage": "hours", "notes": "замени тему 2.3"},
+                fingerprint,
+            )
         return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=self._reply(fingerprint))])], fingerprint)
 
     def _block(self, parameters: dict | None, message_history: list[Message]) -> dict:

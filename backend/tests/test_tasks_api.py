@@ -747,7 +747,7 @@ async def test_run_chat_turn_offers_the_intake_tools(task_db, rows, redis_keys, 
     await run_task(api.run_chat_turn, session.session_id)
 
     kiq_spy.assert_awaited_once()
-    assert provider_recorder.tools == [["begin_program", "approve_program_draft"]]
+    assert provider_recorder.tools == [["begin_program", "approve_program_draft", "revise_program"]]
 
 
 async def test_run_chat_turn_starts_a_programme_and_enqueues_the_first_stage(
@@ -772,6 +772,30 @@ async def test_run_chat_turn_starts_a_programme_and_enqueues_the_first_stage(
     stages.assert_awaited_once()
     assert stages.await_args.args[0] == session.session_id
     assert stages.await_args.args[1] == Stage.COMPETENCES.value
+
+
+async def test_run_chat_turn_puts_the_revised_stage_on_the_queue(task_db, rows, redis_keys, kiq_spy, mock_mode):
+    """A change the methodist asked for reruns one stage, not the whole programme."""
+    mock_mode("revise")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Замени тему 2.3 в учебном плане")
+    state = new_state(session.session_id, requested_hours=72, requirements="Программа по аналитике")
+    await rows.program_state(session.session_id, state)
+    stages = AsyncMock(name="program_stage.kiq")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(api.program_stage, "kiq", stages)
+        await run_task(api.run_chat_turn, session.session_id)
+
+    async with rows.session() as db:
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
+    saved = store.parse(stored.program_state)
+    assert saved is not None
+    assert saved.revision is not None
+    assert saved.revision.stage is Stage.HOURS
+    assert saved.status is ProgramStatus.GENERATING
+    stages.assert_awaited_once()
+    assert stages.await_args.args[1] == Stage.HOURS.value
 
 
 async def test_run_chat_turn_leaves_a_programme_waiting_for_answers(task_db, rows, redis_keys, kiq_spy, mock_mode):

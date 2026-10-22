@@ -364,6 +364,27 @@ async def test_a_stage_another_worker_holds_is_left_alone(
     assert provider.calls == []
 
 
+async def test_a_revised_stage_runs_again_and_the_run_waits_for_the_methodist(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """A change reruns one stage; the rest of the programme is not rebuilt."""
+    state = await store.save(skeleton_state(chat))
+    await store.save(state.request_revision(Stage.HOURS, "замени тему 2.3"))
+    provider.answers.extend([save_turn({"curriculum": example()["curriculum"]}), answer("готово")])
+
+    await run_task(program.program_stage, chat, Stage.HOURS.value, state.run_id)
+
+    saved = await store.load(chat)
+    assert saved is not None
+    assert provider.calls, "the stage did not run"
+    assert saved.revision is None
+    assert saved.stage_status(Stage.HOURS) is StageStatus.COMPLETED
+    assert saved.status is ProgramStatus.PENDING_APPROVAL
+    stages, finalizes = enqueued
+    stages.assert_not_awaited()
+    finalizes.assert_awaited_once_with(chat, state.run_id)
+
+
 async def test_a_completed_stage_is_not_generated_again(
     chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:

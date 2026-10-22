@@ -189,8 +189,9 @@ async def _start_with_answers(
 async def _commit_tool_state(ctx: ToolContext, previous: ProgramState | None, session: uuid.UUID) -> None:
     """Save what the tools changed, and put the next stage on the queue.
 
-    Two things start work: a programme the model has just begun, and the
-    approval of a skeleton — the second one is what releases the content.
+    Three things start work: a programme the model has just begun, the
+    approval of a skeleton — the second one is what releases the content — and
+    a change the methodist asked for, which reruns one stage.
     """
     if not ctx.dirty or ctx.state is None:
         return
@@ -202,6 +203,9 @@ async def _commit_tool_state(ctx: ToolContext, previous: ProgramState | None, se
     elif not started and saved.status is ProgramStatus.APPROVED:
         # The methodist approved the skeleton: the content may be written now.
         await program_stage.kiq(session, saved.current_stage.value, saved.run_id)
+    elif not started and saved.revision is not None:
+        # The methodist asked for a change in one part: that part is redone.
+        await program_stage.kiq(session, saved.revision.stage.value, saved.run_id)
 
 
 @broker.task(queue_name="default")

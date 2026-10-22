@@ -94,6 +94,12 @@ class ApproveProgramDraftResult(ToolResult):
     """What confirming the drafted programme tells the model."""
 
 
+class ReviseProgramResult(ToolResult):
+    """What a requested change tells the model."""
+
+    stage: Stage | None = None
+
+
 class SearchSourcesArguments(BaseModel):
     query: str = Field(
         min_length=1,
@@ -131,6 +137,22 @@ class BeginProgramArguments(BaseModel):
 
 class ApproveProgramDraftArguments(BaseModel):
     """Arguments of :func:`approve_program_draft`: the tool takes none."""
+
+
+class ReviseProgramArguments(BaseModel):
+    """What the methodist wants changed in one part of the programme."""
+
+    stage: Stage = Field(
+        description=(
+            "Какой блок переделать: competences, hours, sources, summary, assessment или materials. "
+            "Ставь тот блок, в котором нужно изменение, а не тот, который нужно закончить."
+        )
+    )
+    notes: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="Что именно изменить: например, заменить тему 2.3 или усложнить тест",
+    )
 
 
 def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
@@ -178,6 +200,17 @@ APPROVE_PROGRAM_DRAFT_SPEC = FunctionDefinition(
         "согласился с черновиком; при сомнении уточни, чего не хватает."
     ),
     parameters=_inline_refs(ApproveProgramDraftArguments.model_json_schema()),
+)
+
+REVISE_PROGRAM_SPEC = FunctionDefinition(
+    name="revise_program",
+    description=(
+        "Переделать одну часть готовой программы по просьбе методиста: например, заменить тему 2.3 "
+        "или усложнить тест. Вызывай, когда методист попросил изменить конкретную часть программы; "
+        "пересобирается только эта часть, остальное остаётся как есть. В notes напиши, что именно "
+        "изменить."
+    ),
+    parameters=_inline_refs(ReviseProgramArguments.model_json_schema()),
 )
 
 #: What each stage's save call is for, in the words the model reads.
@@ -522,6 +555,38 @@ async def approve_program_draft(
     return ApproveProgramDraftResult(note="Черновик утверждён. Скажи методисту, что программа принята.")
 
 
+async def revise_program(ctx: ToolContext, arguments: ReviseProgramArguments) -> ReviseProgramResult:
+    """Ask for one part of the programme to be redone.
+
+    The change is not a new run: the blocks that are already committed stay,
+    the named stage is run again with the methodist's notes, and the rest of
+    the programme is checked against the block that changed.
+    """
+    state = ctx.state
+    if state is None or state.failed:
+        return ReviseProgramResult(ok=False, error="В этом чате нет программы")
+    if state.status is ProgramStatus.AWAITING_ANSWERS:
+        return ReviseProgramResult(
+            ok=False,
+            error="Программа ждёт ответов методиста",
+            note="Сначала ответь на вопросы программы, потом проси переделку.",
+        )
+    ctx.state = state.request_revision(arguments.stage, arguments.notes)
+    ctx.dirty = True
+    log.info(
+        "program_revision_requested",
+        chat_session_id=str(ctx.session_id),
+        stage=arguments.stage.value,
+    )
+    return ReviseProgramResult(
+        stage=arguments.stage,
+        note=(
+            f"Блок «{arguments.stage.value}» будет переделан: {arguments.notes}. "
+            "Скажи методисту, что правка взята в работу, остальное остаётся как было."
+        ),
+    )
+
+
 #: A handler takes the context and its own arguments model, and answers a result.
 Handler = Callable[[ToolContext, Any], Awaitable[ToolResult]]
 
@@ -547,11 +612,14 @@ AGENT_TOOL_REGISTRY: dict[str, AgentTool] = {
     APPROVE_PROGRAM_DRAFT_SPEC.name: AgentTool(
         APPROVE_PROGRAM_DRAFT_SPEC, ApproveProgramDraftArguments, approve_program_draft
     ),
+    REVISE_PROGRAM_SPEC.name: AgentTool(REVISE_PROGRAM_SPEC, ReviseProgramArguments, revise_program),
     SAVE_PROGRAM_DRAFT: AgentTool(STAGE_SPECS[Stage.COMPETENCES], None, save_program_draft),
 }
 
 #: Tools offered while the methodist is still describing the programme.
-INTAKE_TOOLS: list[Tool] = [Tool(function=spec) for spec in (BEGIN_PROGRAM_SPEC, APPROVE_PROGRAM_DRAFT_SPEC)]
+INTAKE_TOOLS: list[Tool] = [
+    Tool(function=spec) for spec in (BEGIN_PROGRAM_SPEC, APPROVE_PROGRAM_DRAFT_SPEC, REVISE_PROGRAM_SPEC)
+]
 
 
 def stage_tools(stage: Stage) -> list[Tool]:

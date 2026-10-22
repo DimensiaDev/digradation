@@ -57,6 +57,16 @@ def test_the_brief_carries_the_blocks_the_earlier_stages_committed() -> None:
     assert "ro-k-01" in brief
 
 
+def test_the_brief_carries_the_methodists_change() -> None:
+    """The stage that is redone is told what the methodist wants changed."""
+    state = run_at(Stage.HOURS).request_revision(Stage.HOURS, "замени тему 2.3")
+
+    brief = stage_brief(state)
+
+    assert "замени тему 2.3" in brief
+    assert "согласованность" in brief
+
+
 def test_the_brief_names_the_job_of_the_stage() -> None:
     for stage, task in STAGE_TASKS.items():
         assert task in stage_brief(run_at(stage))

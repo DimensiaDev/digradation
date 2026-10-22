@@ -99,6 +99,12 @@ def stage_brief(state: ProgramState) -> str:
     if state.answers:
         answered = "\n".join(f"- {question.text}: {answer.text}" for question, answer in _answered_questions(state))
         parts.append(f"Ответы методиста на уточняющие вопросы:\n{answered}")
+    if state.revision is not None:
+        parts.append(
+            f"Правка от методиста к этому блоку:\n{state.revision.notes}\n"
+            "Переделай только этот блок, сохранив согласованность с остальной программой: "
+            "идентификаторы, объём часов и связи с результатами обучения не меняй без нужды."
+        )
     blocks = saved_blocks(state)
     saved = json.dumps(blocks, ensure_ascii=False, indent=2) if blocks else "пока ничего"
     parts.append(f"Уже сохранено:\n{saved}")

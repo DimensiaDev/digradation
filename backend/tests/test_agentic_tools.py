@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from app.agentic import sources, tools
-from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
+from app.agentic.models import ProgramStatus, Source, SourceKind, Stage, StageStatus
 from app.agentic.state import ClarificationQuestion, ProgramState, new_state
 from app.agentic.tools import (
     ApproveProgramDraftResult,
@@ -209,8 +209,12 @@ def catalog(monkeypatch: pytest.MonkeyPatch, kind: SourceKind = SourceKind.PROFE
 # --------------------------------------------------------------------------------------
 
 
-def test_the_intake_offers_starting_and_approving() -> None:
-    assert [tool.function.name for tool in tools.INTAKE_TOOLS] == ["begin_program", "approve_program_draft"]
+def test_the_intake_offers_starting_approving_and_revising() -> None:
+    assert [tool.function.name for tool in tools.INTAKE_TOOLS] == [
+        "begin_program",
+        "approve_program_draft",
+        "revise_program",
+    ]
 
 
 def test_a_citing_stage_offers_the_search_and_its_own_block() -> None:
@@ -727,6 +731,50 @@ async def test_a_rendered_draft_can_be_approved(context: ToolContext) -> None:
     assert context.dirty is True
     assert context.state is not None
     assert context.state.status is ProgramStatus.APPROVED
+
+
+# --------------------------------------------------------------------------------------
+# revising one part
+# --------------------------------------------------------------------------------------
+
+
+async def test_a_change_is_recorded_on_the_run(context: ToolContext) -> None:
+    """The methodist asks for one part to be redone, and only that part."""
+    context.state = at_stage(context.state, Stage.SUMMARY).completed(Stage.SUMMARY).mark_finalized()
+
+    result = await execute_tool(
+        context,
+        call("revise_program", {"stage": "hours", "notes": "замени тему 2.3"}),
+    )
+
+    assert result.ok is True
+    assert context.dirty is True
+    assert context.state is not None
+    assert context.state.revision is not None
+    assert context.state.revision.stage is Stage.HOURS
+    assert context.state.revision.notes == "замени тему 2.3"
+    assert context.state.status is ProgramStatus.GENERATING
+    assert context.state.stage_status(Stage.HOURS) is StageStatus.PENDING
+
+
+async def test_a_change_does_not_spend_an_attempt(context: ToolContext) -> None:
+    """A change the methodist asked for is not a failed attempt."""
+    context.state = at_stage(context.state, Stage.SUMMARY).completed(Stage.SUMMARY).mark_finalized()
+    before = dict(context.state.attempts)
+
+    await execute_tool(context, call("revise_program", {"stage": "hours", "notes": "замени тему 2.3"}))
+
+    assert context.state is not None
+    assert context.state.attempts == before
+
+
+async def test_there_is_nothing_to_revise_without_a_programme() -> None:
+    context = ToolContext(session_id=uuid.uuid4())
+
+    result = await execute_tool(context, call("revise_program", {"stage": "hours", "notes": "замени тему 2.3"}))
+
+    assert result.ok is False
+    assert "нет программы" in (result.error or "")
 
 
 # --------------------------------------------------------------------------------------
