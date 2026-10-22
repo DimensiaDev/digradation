@@ -3,8 +3,8 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-21** (the chat turn became a tool loop and the programme got an API;
-the home page has voice input and the guest-draft handoff)
+Last updated: **2026-10-22** (the programme is written in two halves, the sources come from
+the corpus, the programme leaves as a document and as slides, and the search reaches the web)
 
 ---
 
@@ -74,23 +74,45 @@ keyboard pattern with roving tab focus, and the detail panel remains a non-modal
 aside that fills the viewport below 980px. Program creation has no entry point yet, so the
 catalog has no create button.
 
-**The programme cycle (#3).** A chat can build one educational programme. A run is one
+**The programme cycle.** A chat can build one educational programme. A run is one
 `ProgramState` in `chat_sessions.program_state` (JSONB), mirrored to Redis for an hour, and it
 starts when a chat turn calls `begin_program`. The chat turn is a tool loop
 (`run_chat_turn`): the model is offered `INTAKE_TOOLS` and decides whether to start a
-programme, to confirm a rendered draft, or to answer in prose. One
-TaskIQ task owns one stage — competences, hours, sources, summary — and each commits its block
-before enqueueing the next, so a worker that dies leaves every finished block behind and
-`recover_stalled_programs` restarts the stage that stopped. `finalize_program_draft` renders
-the assembled draft into the chat, renames a default-named chat and waits for the methodist's
-confirmation, which the model turns into an `approve_program_draft` call. `assessment`
-and `materials` stay pending for #5; the source catalog behind `sources.py` is still empty
-until the RAG index (#11), so a draft cites no documents today.
+programme, to confirm a rendered draft, to ask for one part to be redone
+(`revise_program`), or to answer in prose. One TaskIQ task owns one stage, and each commits
+its block before enqueueing the next, so a worker that dies leaves every finished block behind
+and `recover_stalled_programs` restarts the stage that stopped.
+
+**The programme is written in two halves.** The skeleton — competences, hours, sources, the
+passport — is what the methodist approves: `finalize_program_draft` renders it into the chat
+and the run waits in `pending_approval`. The content — the assessment (questions with their
+keys, seminar tasks, the current control, the final attestation) and the materials (lecture
+plans and slide decks) — is written only after that approval, and the approval is what puts
+the first content stage on the queue. Nothing is generated from a skeleton the methodist has
+not seen. The hours add up at every level: the final attestation is counted inside the volume,
+a module declares its own hours, every outcome is taught by a topic and checked by at least two
+means, and the schedule's capacity and daily load are checked against the volume.
+
+**The sources come from the corpus.** `edu_materials/` holds the federal educational
+standards, the professional standards and the programmes of the organisation, each with a
+description; `app/agentic/sources.py` reads those descriptions into the catalogue the agent
+searches. A source is confirmed when the catalogue holds it, and the backend decides that, not
+the model: a document nobody verified is kept and marked as unconfirmed — in the chat reply,
+in the report and in the document. The online search (`app/agentic/websearch.py`) reaches the
+web as well, and what it finds is unconfirmed too.
+
+**The programme leaves the system as a document and as slides.**
+`GET /chats/{session_id}/program.docx` returns the whole programme as a DOCX by the АЦР
+template, and `GET /chats/{session_id}/program.pptx` returns its slides as a PPTX file; both
+answer 409 until the programme is complete. `GET /chats/{session_id}/program` also carries the
+self-check report: the hours, the coverage of the outcomes, the sources and the sections that
+are filled.
 
 **The programme API.** `GET /chats/{session_id}/program` reports where a programme stands
-(status, current stage, the blocks saved so far) and reads the Redis mirror before the row, so
-a client that polls it does not touch PostgreSQL; `running` comes from the stage lock, so a
-stalled programme is distinguishable from a busy one. `GET /chats/{session_id}/result` also
+(status, current stage, the blocks saved so far, the self-check report) and reads the Redis
+mirror before the row, so a client that polls it does not touch PostgreSQL; `running` comes
+from the stage lock, so a stalled programme is distinguishable from a busy one, and `busy`
+says whether the programme is being worked on at all. `GET /chats/{session_id}/result` also
 carries the questions a programme is waiting an answer to, and
 `POST /chats/{session_id}` takes those answers in an `answers` array next to `content`.
 `GET /chats/programmes` lists the user's programmes, paginated. A run may ask the methodist
@@ -146,12 +168,13 @@ silently. See the rule in `AGENTS.md`.
 
 PostgreSQL, Redis and Garage are real testcontainers in the backend suite. The LLM is faked by
 `app/providers/mock.py`, selected with `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) and
-switchable via `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`, `stage`); the real provider is
-only reachable through `@pytest.mark.live` tests, which are deselected by default. Both live
-provider suites carry a full model -> tool -> model round, because that is the one shape the
-offline suite cannot prove the real API accepts. The `stage`
+switchable via `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`, `stage`, `revise`, `approve`); the
+real provider is only reachable through `@pytest.mark.live` tests, which are deselected by
+default. Both live provider suites carry a full model -> tool -> model round, because that is
+the one shape the offline suite cannot prove the real API accepts. The `stage`
 mode scripts `begin_program` when that tool is offered and the stage's own
-`save_program_draft` block afterwards, so the stages are exercised end to end with no model.
+`save_program_draft` block afterwards, so the stages are exercised end to end with no model;
+`revise` and `approve` script the two intake calls that come after the draft is on the table.
 
 `SBER_API_SCOPE` selects the provider: `PERS` / `B2B` / `CORP` use the GigaChat client,
 `openai` the OpenAI-compatible one (`OPENAI_URL` is required in this mode, model via `OPENAI_MODEL`),
@@ -200,28 +223,33 @@ Ordered by value, not by commitment:
 0. **Decide what the application is for.** Everything else is downstream. The base system
    prompt is one paragraph and the schema carries only `{chat_name, message}`, which is
    deliberate headroom rather than an oversight.
-1. **Turn the programs catalog into a real feature.** `ProgramsService` is an in-memory mock
+1. **Build the chat-side programme flow.** The backend can now write a programme in two
+   halves, report on it, export it and redo one part of it; the client can list the
+   programmes and read the state, but it cannot yet answer the questions of a run, approve a
+   rendered draft or ask for a change from the chat. That is the gap that keeps the feature
+   out of the user's hands.
+2. **Turn the programs catalog into a real feature.** `ProgramsService` is an in-memory mock
    and the detail aside's tabs are derived demo content; replace both with API calls,
    persistence, and the create/edit form behind `/programs/new`.
-2. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
+3. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
    where per-content-type preparation belongs. The first content type that needs work is the
    first thing that goes in it, offloaded with `asyncio.to_thread`.
-3. **Extend the e2e suite.** It covers authentication (including the guest path and the
+4. **Extend the e2e suite.** It covers authentication (including the guest path and the
    sign-in dialog), the chat journey, a follow-up message, attachments, the paginated history
    list, admin roles and the admin prompt editor.
    Not yet covered: the docx/xlsx preview, avatar upload, the theme toggle, the programs
    catalog, and the error paths (a generation that fails, a session deleted mid-flight).
-4. **Fill the placeholder sections:** profile, user settings, the admin action log
+5. **Fill the placeholder sections:** profile, user settings, the admin action log
    (`Журнал действий`) and system info.
-5. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
-6. **Mirror the Garage image into a registry we control** and pin it by digest. MinIO's
+6. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
+7. **Mirror the Garage image into a registry we control** and pin it by digest. MinIO's
    deletion cost a CI outage and this migration; the same event could happen to
    `dxflrs/garage`.
-7. **Add a LICENSE file**, currently absent.
-8. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
+8. **Add a LICENSE file**, currently absent.
+9. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
    and in the code, but not in the example env file.
-9. **Add a per-test e2e user.** The suite shares one seeded user and works around the
-   5-per-minute rate limit by clearing Redis between tests.
+10. **Add a per-test e2e user.** The suite shares one seeded user and works around the
+    5-per-minute rate limit by clearing Redis between tests.
 
 ---
 
