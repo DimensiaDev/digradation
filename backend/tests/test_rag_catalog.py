@@ -25,7 +25,7 @@ def _clear_catalog_cache():
 
 def test_catalog_is_complete_and_unique() -> None:
     entries = load_catalog()
-    assert len(entries) == 14
+    assert len(entries) == 18
     assert len({entry.id for entry in entries}) == len(entries)
     assert len({entry.path for entry in entries}) == len(entries)
     assert entries[0].id == "src-01"
@@ -90,3 +90,17 @@ def test_catalog_ids_must_be_zero_padded() -> None:
             kind=SourceKind.REFERENCE,
             title="A",
         )
+
+
+def test_every_corpus_document_has_a_catalog_entry() -> None:
+    """A corpus block the catalog does not list cannot be cited as confirmed."""
+    from app.agentic.sources import clear_cache as clear_source_cache
+    from app.agentic.sources import corpus_entries
+
+    clear_source_cache()
+    try:
+        catalog_ids = {entry.id for entry in load_catalog()}
+        for entry in corpus_entries():
+            assert entry.id in catalog_ids, f"corpus document {entry.id!r} has no catalog entry"
+    finally:
+        clear_source_cache()
