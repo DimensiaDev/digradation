@@ -280,99 +280,118 @@
         }
       </span>
 
-      <section class="session-files__section">
-        <h3 class="session-files__subtitle">Файлы в сообщениях</h3>
-        @if (sessionFiles().length > 0) {
-          <ul class="session-files__files">
-            @for (file of sessionFiles(); track file.attachmentId) {
-              <li class="session-files__file">
-                <span class="session-files__file-icon" [style.color]="fileColorFor(file.name)">
-                  <svg size="18" [lucideIcon]="fileIconFor(file.name)" aria-hidden="true"></svg>
-                </span>
-                <span class="session-files__file-name">{{ file.name }}</span>
-                <button
-                  type="button"
-                  class="button button--outline button--centered"
-                  aria-label="Предпросмотр"
-                  (click)="previewFile(file)"
-                >
-                  <svg size="16" lucideEye aria-hidden="true"></svg>
-                </button>
-                <button
-                  type="button"
-                  class="button button--outline button--centered"
-                  aria-label="Скачать"
-                  (click)="downloadFile(file)"
-                >
-                  <svg size="16" lucideDownload aria-hidden="true"></svg>
-                </button>
-              </li>
+      <div class="session-files">
+        <section class="session-files__section">
+          <h4 class="session-files__subtitle">
+            Файлы в сообщениях
+            @if (sessionFiles().length) {
+              <span class="program-preview__count">{{ sessionFiles().length }}</span>
             }
-          </ul>
-        } @else {
-          <p class="session-files__files-placeholder h4">Пока нет файлов</p>
-        }
-      </section>
+          </h4>
+          @if (sessionFiles().length > 0) {
+            <ul class="session-files__files">
+              @for (file of sessionFiles(); track file.attachmentId) {
+                <li class="session-files__file">
+                  <span class="session-files__file-icon" [style.color]="fileColorFor(file.name)">
+                    <svg size="18" [lucideIcon]="fileIconFor(file.name)" aria-hidden="true"></svg>
+                  </span>
+                  <span class="session-files__file-name">{{ file.name }}</span>
+                  <button
+                    type="button"
+                    class="button button--outline button--centered"
+                    aria-label="Предпросмотр"
+                    (click)="previewFile(file)"
+                  >
+                    <svg size="16" lucideEye aria-hidden="true"></svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="button button--outline button--centered"
+                    aria-label="Скачать"
+                    (click)="downloadFile(file)"
+                  >
+                    <svg size="16" lucideDownload aria-hidden="true"></svg>
+                  </button>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="session-files__files-placeholder">Пока нет файлов</p>
+          }
+        </section>
 
-      <section class="session-files__section">
-        <h3 class="session-files__subtitle">Загруженные файлы</h3>
-        @if (pendingFiles().length > 0) {
-          <ul class="session-files__files">
-            @for (file of pendingFiles(); track file.id) {
-              <li class="session-files__file">
-                <span class="session-files__file-icon" [style.color]="fileColorFor(file.filename)">
-                  <svg size="18" [lucideIcon]="fileIconFor(file.filename)" aria-hidden="true"></svg>
-                </span>
-                <span class="session-files__file-name">{{ file.filename }}</span>
-                <span
-                  class="session-files__file-status"
-                  [class.session-files__file-status--error]="file.status === 'error'"
-                  [title]="attachmentStatusLabel(file)"
-                >
-                  {{ attachmentStatusLabel(file) }}
-                </span>
-                <button
-                  type="button"
-                  class="button button--outline button--centered"
-                  aria-label="Предпросмотр"
-                  (click)="previewFile({ name: file.filename, attachmentId: file.id })"
-                >
-                  <svg size="16" lucideEye aria-hidden="true"></svg>
-                </button>
-                <button
-                  type="button"
-                  class="button button--outline button--centered"
-                  aria-label="Скачать"
-                  (click)="downloadFile({ name: file.filename, attachmentId: file.id })"
-                >
-                  <svg size="16" lucideDownload aria-hidden="true"></svg>
-                </button>
-                <button
-                  type="button"
-                  class="button button--outline button--centered"
-                  aria-label="Удалить файл"
-                  (click)="deletePendingFile(file)"
-                >
-                  <svg size="16" lucideTrash2 aria-hidden="true"></svg>
-                </button>
-              </li>
+        <section class="session-files__section">
+          <h4 class="session-files__subtitle">
+            Загруженные файлы
+            @if (pendingFiles().length) {
+              <span class="program-preview__count">{{ pendingFiles().length }}</span>
             }
-          </ul>
-        } @else {
-          <p class="session-files__files-placeholder h4">Нет файлов в загрузке</p>
-        }
-      </section>
+          </h4>
+          @if (pendingFiles().length > 0) {
+            <ul class="session-files__files">
+              @for (file of pendingFiles(); track file.id) {
+                <li class="session-files__file">
+                  <span
+                    class="session-files__file-icon"
+                    [style.color]="fileColorFor(file.filename)"
+                  >
+                    <svg
+                      size="18"
+                      [lucideIcon]="fileIconFor(file.filename)"
+                      aria-hidden="true"
+                    ></svg>
+                  </span>
+                  <span class="session-files__file-name">{{ file.filename }}</span>
+                  <span
+                    class="session-files__file-status"
+                    [class.session-files__file-status--error]="file.status === 'error'"
+                    [title]="attachmentStatusLabel(file)"
+                  >
+                    {{ attachmentStatusLabel(file) }}
+                  </span>
+                  <button
+                    type="button"
+                    class="button button--outline button--centered"
+                    aria-label="Предпросмотр"
+                    (click)="previewFile({ name: file.filename, attachmentId: file.id })"
+                  >
+                    <svg size="16" lucideEye aria-hidden="true"></svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="button button--outline button--centered"
+                    aria-label="Скачать"
+                    (click)="downloadFile({ name: file.filename, attachmentId: file.id })"
+                  >
+                    <svg size="16" lucideDownload aria-hidden="true"></svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="button button--outline button--centered"
+                    aria-label="Удалить файл"
+                    (click)="deletePendingFile(file)"
+                  >
+                    <svg size="16" lucideTrash2 aria-hidden="true"></svg>
+                  </button>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="session-files__files-placeholder">Нет файлов в загрузке</p>
+          }
+        </section>
 
-      <footer class="session-files__actions">
-        <button
-          type="button"
-          class="button button--outline button--danger button--centered h3 button__remove-session"
-          (click)="deleteSession()"
-        >
-          <svg size="18" lucideTrash2 aria-hidden="true"></svg>
-          Удалить сессию
-        </button>
-      </footer>
+        <footer class="session-files__actions">
+          <button
+            type="button"
+            class="button button--outline button--danger button--centered"
+            (click)="deleteSession()"
+          >
+            <svg size="18" lucideTrash2 aria-hidden="true"></svg>
+            Удалить сессию
+          </button>
+        </footer>
+      </div>
     </app-accordion-section>
   </div>
 
