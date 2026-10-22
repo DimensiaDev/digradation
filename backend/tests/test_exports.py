@@ -104,11 +104,12 @@ def test_the_slides_carry_the_decks() -> None:
 
 
 def test_the_slides_of_one_module_only() -> None:
+    """Narrowing by topic is how a caller narrows by module: the module's topics."""
     raw = example()
     deck = raw["materials"]["slide_decks"][0]
 
     content = render_slides(
-        Materials.model_validate(raw["materials"]), programme_title="Программа", module_ids={deck["topic_id"]}
+        Materials.model_validate(raw["materials"]), programme_title="Программа", topic_ids={deck["topic_id"]}
     )
 
     prs = Presentation(io.BytesIO(content))

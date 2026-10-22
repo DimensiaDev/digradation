@@ -88,7 +88,7 @@ ALLOWED_CHAT_CONTENT_TYPES = [
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]
 CHAT_MAX_UPLOAD_SIZE = 30 * 1024 * 1024
-# Extensions the frontend offers (`ACCEPTED_EXTENSIONS` in models.ts), i.e. the
+# Extensions the frontend offers (`ACCEPTED_EXTENSIONS` in file-types.ts), i.e. the
 # filenames whose types the content type allowlist above already permits. The
 # suffix is copied into the S3 key and shown back to the user, so it has to be
 # one of these rather than whatever the client felt like asking for.
@@ -553,6 +553,10 @@ async def get_program(session_id: VerifiedMessageSession, db: DbSession, redis_c
     `questions` holds the questions the programme is waiting an answer to.
     Send the answers back with `POST /chats/{session_id}`.
 
+    `busy` is true while the programme is being worked on, and `report` holds
+    the self-check: the hours, the coverage of the outcomes, the sources and
+    the sections that are filled.
+
     Example response, while the programme waits for the methodist:
 
     ```json
@@ -562,12 +566,15 @@ async def get_program(session_id: VerifiedMessageSession, db: DbSession, redis_c
       "stages": {"competences": "pending", "hours": "pending", "assessment": "pending",
                  "materials": "pending", "sources": "pending", "summary": "pending"},
       "running": false,
+      "busy": false,
       "error": null,
       "updated_at": "2026-10-21T12:00:00+00:00",
       "version": 2,
       "questions": [{"id": "9f1c2b7a4d3e4f5a8b6c1d2e3f4a5b6c", "text": "Для кого программа?", "hint": null}],
       "draft": {"kind": null, "title": null, "competencies": [], "curriculum": null,
-                "sources": [], "summary": null}
+                "sources": [], "summary": null},
+      "report": {"ok": false, "checks": [{"name": "часы", "ok": false,
+                                          "problems": ["учебный план ещё не собран"], "details": {}}]}
     }
     ```
     """
@@ -600,12 +607,15 @@ async def download_program_docx(session_id: VerifiedMessageSession, db: DbSessio
     state = await store.load_from(db, session_id)
     if state is None:
         raise HTTPException(status_code=404, detail="The chat holds no programme")
+    if state.assessment is None or state.materials is None:
+        raise HTTPException(status_code=409, detail="The programme is not complete yet")
     try:
         document = state.to_document()
     except IncompleteDraft as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    content = await asyncio.to_thread(render_program_document, document)
     return Response(
-        content=render_program_document(document),
+        content=content,
         media_type=DOCX_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="programme-{session_id}.docx"'},
     )
@@ -633,8 +643,9 @@ async def download_program_pptx(session_id: VerifiedMessageSession, db: DbSessio
     if state is None or state.materials is None:
         raise HTTPException(status_code=404, detail="The chat holds no programme with slides")
     title = state.title or "Презентационные материалы программы"
+    content = await asyncio.to_thread(render_slides, state.materials, programme_title=title)
     return Response(
-        content=render_slides(state.materials, programme_title=title),
+        content=content,
         media_type=PPTX_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="programme-{session_id}.pptx"'},
     )

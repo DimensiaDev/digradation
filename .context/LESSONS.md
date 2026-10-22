@@ -1116,3 +1116,10 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   `ID:` line therefore mixes the next document's title into this document's summary, and a
   search for "ФГОС среднего общего образования" then ranks the *основного* general education
   standard first, because its summary contains the next document's heading.
+
+- A run that is `approved` is terminal, so the approval of the skeleton must not set that
+  status: the content is written after the approval, and `program_stage` refuses a terminal
+  run before it looks at the stage. The approval therefore moves the run back to `generating`,
+  and `approved` means the programme is complete — the content's last stage. A whole cycle
+  test that drives the approval into the content stages is what proves it: without it the
+  content half of the programme never runs and nothing fails.

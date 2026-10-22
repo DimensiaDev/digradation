@@ -364,6 +364,48 @@ async def test_a_stage_another_worker_holds_is_left_alone(
     assert provider.calls == []
 
 
+async def test_the_approval_releases_the_content_and_the_programme_ends_complete(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """The whole cycle: the skeleton waits, the approval writes the content.
+
+    This is the path the criteria describe — the methodist approves the goal,
+    the competences and the hours, and only then is the content written — and
+    it is the only test that proves the content stages run at all.
+    """
+    state = await store.save(skeleton_state(chat))
+    await run_task(program.finalize_program_draft, chat, state.run_id)
+
+    waiting = await store.load(chat)
+    assert waiting is not None
+    assert waiting.status is ProgramStatus.PENDING_APPROVAL
+
+    # The methodist approves the skeleton.
+    await store.save(waiting.approved())
+    raw = example()
+    provider.answers.extend(
+        [
+            save_turn({"assessment": raw["assessment"]}),
+            answer("Оценочные средства сохранены."),
+            save_turn({"materials": raw["materials"]}),
+            answer("Материалы сохранены."),
+        ]
+    )
+
+    await run_task(program.program_stage, chat, Stage.ASSESSMENT.value, state.run_id)
+    after_assessment = await store.load(chat)
+    assert after_assessment is not None
+    assert after_assessment.assessment is not None
+    assert after_assessment.status is ProgramStatus.GENERATING
+
+    await run_task(program.program_stage, chat, Stage.MATERIALS.value, state.run_id)
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.materials is not None
+    assert saved.status is ProgramStatus.APPROVED
+    assert saved.terminal
+
+
 async def test_a_revised_stage_runs_again_and_the_run_waits_for_the_methodist(
     chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:

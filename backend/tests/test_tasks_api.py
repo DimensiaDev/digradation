@@ -774,6 +774,28 @@ async def test_run_chat_turn_starts_a_programme_and_enqueues_the_first_stage(
     assert stages.await_args.args[1] == Stage.COMPETENCES.value
 
 
+async def test_run_chat_turn_releases_the_content_after_the_approval(task_db, rows, redis_keys, kiq_spy, mock_mode):
+    """The approval of the skeleton is what puts the first content stage on the queue."""
+    mock_mode("approve")
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Программа подходит, подтверждаю")
+    state = new_state(session.session_id, requested_hours=72, requirements="Программа по аналитике")
+    await rows.program_state(session.session_id, state.completed(Stage.SUMMARY).mark_finalized())
+    stages = AsyncMock(name="program_stage.kiq")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(api.program_stage, "kiq", stages)
+        await run_task(api.run_chat_turn, session.session_id)
+
+    async with rows.session() as db:
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
+    saved = store.parse(stored.program_state)
+    assert saved is not None
+    assert saved.status is ProgramStatus.GENERATING
+    stages.assert_awaited_once()
+    assert stages.await_args.args[1] == Stage.ASSESSMENT.value
+
+
 async def test_run_chat_turn_puts_the_revised_stage_on_the_queue(task_db, rows, redis_keys, kiq_spy, mock_mode):
     """A change the methodist asked for reruns one stage, not the whole programme."""
     mock_mode("revise")

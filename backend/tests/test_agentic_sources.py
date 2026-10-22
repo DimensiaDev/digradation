@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from app.agentic.models import SourceKind
-from app.agentic.sources import CatalogEntry, entries, get_source, search
+from app.agentic.sources import CatalogEntry, clear_cache, entries, get_source, search
 
 
 def test_the_catalog_holds_the_documents_of_the_corpus() -> None:
@@ -115,6 +115,6 @@ def test_a_description_without_an_id_is_no_entry() -> None:
 @pytest.fixture(autouse=True)
 def _clear_the_catalog():
     """The catalogue is read once; a test that changes the corpus clears it."""
-    entries.cache_clear()
+    clear_cache()
     yield
-    entries.cache_clear()
+    clear_cache()

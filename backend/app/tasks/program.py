@@ -342,8 +342,16 @@ async def _advance(state: ProgramState) -> None:
         # The content waits: the methodist has to approve the skeleton — the
         # goal, the competences and the hours — before anything is written
         # from it. The approval is what puts the first content stage on the
-        # queue.
-        return
+        # queue; a revision of a content stage is the other way in.
+        if state.status is not ProgramStatus.GENERATING:
+            return
+        pending = next(
+            (stage for stage in CONTENT_ORDER if state.stage_status(stage) is not StageStatus.COMPLETED),
+            None,
+        )
+        if pending is None:
+            return
+        next_stage = pending
     if state.stage_status(next_stage) in (StageStatus.IN_PROGRESS, StageStatus.COMPLETED):
         return
     if state.attempts.get(next_stage):

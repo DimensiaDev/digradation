@@ -447,9 +447,19 @@ def test_awaiting_approval_needs_a_rendered_draft(blocks: Blocks) -> None:
 
     approved = state.approved()
 
-    assert approved.status is ProgramStatus.APPROVED
-    assert approved.terminal
+    # The approval releases the content: the run keeps working rather than
+    # becoming a finished programme.
+    assert approved.status is ProgramStatus.GENERATING
+    assert not approved.terminal
     assert not approved.awaiting_approval
+
+
+def test_a_finished_programme_is_approved(blocks: Blocks) -> None:
+    """The programme is complete only when every part of the content is."""
+    state = make_state(blocks).completed(Stage.ASSESSMENT).completed(Stage.MATERIALS)
+
+    assert state.status is ProgramStatus.APPROVED
+    assert state.terminal
 
 
 def test_an_unrendered_draft_is_not_awaiting_approval(blocks: Blocks) -> None:

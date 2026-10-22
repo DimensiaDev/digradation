@@ -28,6 +28,7 @@ from app.agentic.models import (
     ProgramStatus,
     ProgramSummary,
     Source,
+    SourceKind,
     Stage,
     StageStatus,
     StageStatuses,
@@ -276,7 +277,12 @@ class ProgramState(BaseModel):
         return self._replace()
 
     def approved(self) -> Self:
-        return self._replace(status=ProgramStatus.APPROVED)
+        """The methodist approved the skeleton: the content may be written.
+
+        The run keeps working rather than becoming approved: ``approved`` is
+        the state of a finished programme, and the content is not written yet.
+        """
+        return self._replace(status=ProgramStatus.GENERATING)
 
     def request_revision(self, stage: Stage, notes: str) -> Self:
         """Ask for one part of the programme to be redone.
@@ -285,8 +291,14 @@ class ProgramState(BaseModel):
         draft is rendered once more when the stage is done. A revision does
         not spend an attempt: a change the methodist asked for is not a
         failed attempt, and the budget is there for the agent's own failures.
+
+        A revised skeleton invalidates the content: the assessment and the
+        materials are written from the hours, so they are written again rather
+        than left pointing at a topic that no longer exists.
         """
         stages = self.stages.model_copy(update={stage.value: StageStatus.PENDING})
+        if stage in SKELETON_ORDER:
+            stages = stages.model_copy(update={item.value: StageStatus.PENDING for item in CONTENT_ORDER})
         return self._replace(
             revision=Revision(stage=stage, notes=notes),
             stages=stages,
@@ -294,10 +306,6 @@ class ProgramState(BaseModel):
             current_stage=stage,
             finalized=False,
         )
-
-    def revised(self) -> Self:
-        """The revision has been carried out."""
-        return self._replace(revision=None)
 
     def revision_completed(self, stage: Stage) -> Self:
         """The redone stage is done; the programme is back where it was.
@@ -307,7 +315,12 @@ class ProgramState(BaseModel):
         the methodist left it at.
         """
         stages = self.stages.model_copy(update={stage.value: StageStatus.COMPLETED})
-        status = ProgramStatus.APPROVED if stage in CONTENT_ORDER else ProgramStatus.PENDING_APPROVAL
+        if stage in CONTENT_ORDER:
+            # The programme is complete only when every part of the content is.
+            done = all(self.stage_status(item) is StageStatus.COMPLETED for item in CONTENT_ORDER)
+            status = ProgramStatus.APPROVED if done else ProgramStatus.GENERATING
+        else:
+            status = ProgramStatus.PENDING_APPROVAL
         return self._replace(stages=stages, status=status, revision=None, current_stage=stage)
 
     def with_answers(self, answers: list[ClarificationAnswer]) -> Self:
@@ -471,11 +484,7 @@ class ProgramState(BaseModel):
             }
             covered = sum(1 for outcome in outcomes if outcome in taught)
         if self.assessment is not None and self.curriculum is not None:
-            problems += [
-                problem
-                for problem in self.assessment_problems(self.assessment, self.curriculum)
-                if "средствами" in problem
-            ]
+            problems += self.assessment_coverage_problems(self.assessment, self.curriculum)
             means = self._means_per_outcome()
             checked_by_two = sum(1 for count in means.values() if count >= 2)
         return ProgramCheck(
@@ -550,43 +559,65 @@ class ProgramState(BaseModel):
         means, and the final attestation takes the hours the plan set aside
         for it.
         """
+        problems = self.assessment_coverage_problems(assessment, curriculum)
+        problems += self.assessment_binding_problems(assessment, curriculum)
+        return problems
+
+    def assessment_binding_problems(self, assessment: AssessmentPlan, curriculum: Curriculum) -> list[str]:
+        """The means of checking that point at something the programme has not.
+
+        A question, a seminar task and a form of control have to name outcomes
+        the competences declare and topics and forms of control the programme
+        actually has. The final attestation has to name declared outcomes too,
+        but it is the programme's conclusion and not one of the means, so it
+        does not count towards the two.
+        """
         problems: list[str] = []
         declared = set(self.declared_outcomes())
         topics = {topic.id for module in curriculum.modules for topic in module.topics}
         tools = {tool.id for tool in assessment.tools}
-        checked: dict[str, int] = dict.fromkeys(declared, 0)
 
-        def note(outcome_ids: list[str], what: str) -> None:
-            unknown = [item for item in outcome_ids if item not in declared]
-            if unknown:
-                problems.append(f"{what} ссылается на необъявленные результаты обучения: {', '.join(unknown)}")
-            for outcome_id in outcome_ids:
-                if outcome_id in checked:
-                    checked[outcome_id] += 1
+        def unknown(outcome_ids: list[str], what: str) -> None:
+            missing = [item for item in outcome_ids if item not in declared]
+            if missing:
+                problems.append(f"{what} ссылается на необъявленные результаты обучения: {', '.join(missing)}")
 
         for question in assessment.questions:
             if question.tool_id not in tools:
                 problems.append(f"вопрос {question.id} ссылается на несуществующую форму контроля {question.tool_id}")
-            note(question.outcome_ids, f"вопрос {question.id}")
+            unknown(question.outcome_ids, f"вопрос {question.id}")
         for task in assessment.seminar_tasks:
             if task.tool_id not in tools:
                 problems.append(f"задание {task.id} ссылается на несуществующую форму контроля {task.tool_id}")
             if task.topic_id not in topics:
                 problems.append(f"задание {task.id} ссылается на несуществующую тему {task.topic_id}")
-            note(task.outcome_ids, f"задание {task.id}")
+            unknown(task.outcome_ids, f"задание {task.id}")
         for tool in assessment.tools:
             missing = [item for item in tool.topic_ids if item not in topics]
             if missing:
                 problems.append(f"форма контроля {tool.id} ссылается на несуществующие темы: {', '.join(missing)}")
-            note(tool.outcome_ids, f"форма контроля {tool.id}")
-        # The final attestation is the programme's conclusion, not one of the
-        # means: its outcomes have to exist, but they do not count towards the
-        # two means every outcome has to be checked by.
-        unknown = [item for item in assessment.final.outcome_ids if item not in declared]
-        if unknown:
-            problems.append(f"итоговая аттестация ссылается на необъявленные результаты обучения: {', '.join(unknown)}")
+            unknown(tool.outcome_ids, f"форма контроля {tool.id}")
+        unknown(assessment.final.outcome_ids, "итоговая аттестация")
+        return problems
 
-        problems += [
+    def assessment_coverage_problems(self, assessment: AssessmentPlan, curriculum: Curriculum) -> list[str]:
+        """The outcomes that fewer than two means of checking look at.
+
+        The means are the questions, the seminar tasks and the forms of
+        control. The final attestation is the programme's conclusion and not
+        one of them.
+        """
+        declared = set(self.declared_outcomes())
+        checked: dict[str, int] = dict.fromkeys(declared, 0)
+        for outcome_ids in (
+            [question.outcome_ids for question in assessment.questions]
+            + [task.outcome_ids for task in assessment.seminar_tasks]
+            + [tool.outcome_ids for tool in assessment.tools]
+        ):
+            for outcome_id in outcome_ids:
+                if outcome_id in checked:
+                    checked[outcome_id] += 1
+        problems = [
             f"результат обучения {outcome_id} проверяется только {count} средствами — нужно хотя бы два"
             for outcome_id, count in sorted(checked.items())
             if count < 2
@@ -715,7 +746,19 @@ def _confirmed(source: Source) -> Source:
     record = sources.get_source(source.id)
     if record is None:
         return source.model_copy(update={"confirmed": False})
-    return record.model_copy(update={"primary": source.primary, "url": source.url or record.url})
+    # The record is rebuilt rather than copied, because a copy skips validation
+    # and the literature mark only makes sense for literature.
+    return Source(
+        id=record.id,
+        kind=record.kind,
+        title=record.title,
+        identifier=record.identifier,
+        url=source.url or record.url,
+        primary=source.primary if record.kind is SourceKind.LITERATURE else None,
+        confirmed=True,
+        trust=record.trust,
+        origin=record.origin,
+    )
 
 
 def new_state(

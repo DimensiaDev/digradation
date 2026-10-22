@@ -59,7 +59,7 @@ DEFAULT_YEAR = datetime.now().year
 
 KIND_TITLES: dict[ProgramKind, str] = {
     ProgramKind.PROFESSIONAL_DEVELOPMENT: "ПРОГРАММА ПОВЫШЕНИЯ КВАЛИФИКАЦИИ",
-    ProgramKind.GENERAL_DEVELOPMENT: ("ДОПОЛНИТЕЛЬНАЯ ОБЩЕОБРАЗОВАТЕЛЬНАЯ ОБЩЕРАЗВИВАЮЩАЯ ПРОГРАММА"),
+    ProgramKind.GENERAL_DEVELOPMENT: "ДОПОЛНИТЕЛЬНАЯ ОБЩЕРАЗВИВАЮЩАЯ ПРОГРАММА",
 }
 
 
@@ -109,7 +109,7 @@ def render_program_document(
         _render_assessment(doc, document.assessment)
     if document.materials is not None:
         _render_materials(doc, document.materials)
-    _render_pending_sections(doc)
+    _render_pending_sections(doc, document)
 
     buf = BytesIO()
     doc.save(buf)
@@ -304,6 +304,21 @@ def _render_curriculum(doc: Document, draft: ProgramDraft) -> None:
             rows.append(_topic_row(topic))
 
     c = draft.curriculum
+    if c.attestation_hours:
+        # The attestation is the last row of the plan, so the rows add up to
+        # the total the plan states.
+        rows.append(
+            [
+                "",
+                "Итоговая аттестация",
+                _fmt_hours(c.attestation_hours),
+                _fmt_hours(c.attestation_hours),
+                "",
+                "",
+                "",
+                "",
+            ]
+        )
     rows.append(
         [
             "",
@@ -529,7 +544,23 @@ def _render_materials(doc: Document, materials: Materials) -> None:
 
 
 # --------------------------------------------------------------------------- pending
-def _render_pending_sections(doc: Document) -> None:
+def _render_pending_sections(doc: Document, document: ProgramDocument) -> None:
+    """The sections the document does not carry yet.
+
+    A programme that has its assessment and its materials does not say that
+    they are still to be written; only the sections nothing was written for
+    are listed.
+    """
+    missing: list[str] = []
+    if document.assessment is None:
+        missing.append("Оценочные материалы")
+    if document.materials is None:
+        missing.append("Методические материалы")
+    missing += [
+        "Условия реализации программы",
+        "Кадровое обеспечение",
+        "Приложение № 1. Перечень кейсов",
+    ]
     _page_break(doc)
     _heading(
         doc,
@@ -543,14 +574,7 @@ def _render_pending_sections(doc: Document) -> None:
         "пустыми:"
     ).italic = True
 
-    for title in (
-        "Учебно-тематический план",
-        "Оценочные материалы",
-        "Методические материалы",
-        "Условия реализации программы",
-        "Кадровое обеспечение",
-        "Приложение № 1. Перечень кейсов",
-    ):
+    for title in missing:
         doc.add_paragraph(title, style="List Bullet")
 
     doc.add_paragraph("")

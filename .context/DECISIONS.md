@@ -1779,12 +1779,13 @@ agent writes any content. The pipeline therefore has two groups of stages, not o
   materials. They are not enqueued by the stage that finished the skeleton: the approval is
   what puts the first of them on the queue, so nothing is generated from a skeleton the
   methodist has not seen.
-- **The approval is the intake's business.** `approve_program_draft` moves the run to
-  `approved`, and the intake task — which is the only place that can enqueue — starts the
-  content. The pipeline itself never enqueues a content stage: `_advance` stops there.
+- **The approval is the intake's business.** `approve_program_draft` moves the run back to
+  `generating` — the content is being written, so the run is working, not finished — and the
+  intake task, which is the only place that can enqueue, starts the content. The pipeline
+  itself never enqueues a content stage on its own: `_advance` stops there.
 - **A finished programme is `approved`.** The content's last stage completes the run; the
-  skeleton waiting for the methodist is `pending_approval`. The status vocabulary the
-  frontend knows is unchanged.
+  skeleton waiting for the methodist is `pending_approval`, and a run that is being written is
+  `generating`. The status vocabulary the frontend knows is unchanged.
 
 ## The assessment is checked, not trusted (2026-10-22)
 

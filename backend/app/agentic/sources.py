@@ -152,15 +152,20 @@ def _by_id() -> dict[str, CatalogEntry]:
     return {entry.id: entry for entry in entries()}
 
 
+def clear_cache() -> None:
+    """Forget the corpus, so a changed one is read again.
+
+    The corpus does not change while the app runs, but a test that points the
+    catalogue at another directory has to be able to make it read again.
+    """
+    entries.cache_clear()
+    _by_id.cache_clear()
+
+
 def get_source(source_id: str) -> Source | None:
     """Return the canonical source record with this id, if the catalog has one."""
     entry = _by_id().get(source_id)
     return entry.to_source() if entry is not None else None
-
-
-def get_entry(source_id: str) -> CatalogEntry | None:
-    """Return the catalogue record with this id."""
-    return _by_id().get(source_id)
 
 
 async def search(

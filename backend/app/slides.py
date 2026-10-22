@@ -16,28 +16,23 @@ from io import BytesIO
 from pptx import Presentation
 from pptx.util import Cm, Pt
 
-from app.agentic.models import Materials, ProgramKind, SlideDeck
-
-#: The title of the deck that opens the file.
-PROGRAMME_TITLES: dict[ProgramKind, str] = {
-    ProgramKind.PROFESSIONAL_DEVELOPMENT: "Программа повышения квалификации",
-    ProgramKind.GENERAL_DEVELOPMENT: "Дополнительная общеразвивающая программа",
-}
+from app.agentic.models import Materials, SlideDeck
 
 
 def render_slides(
     materials: Materials,
     *,
     programme_title: str,
-    module_ids: set[str] | None = None,
+    topic_ids: set[str] | None = None,
 ) -> bytes:
     """Return the PPTX bytes of the decks of a programme.
 
-    `module_ids` narrows the file to the modules named; every deck whose topic
-    belongs to one of them is rendered, and a file without decks is still a
-    file — it holds the title slide alone.
+    `topic_ids` narrows the file to the topics named; every deck of one of them
+    is rendered, and a file without decks is still a file — it holds the title
+    slide alone. The decks are written per topic, so narrowing by topic is
+    also how a caller narrows by module: the topics of the module.
     """
-    decks = [deck for deck in materials.slide_decks if _wanted(deck, module_ids)]
+    decks = [deck for deck in materials.slide_decks if _wanted(deck, topic_ids)]
 
     prs = Presentation()
     prs.slide_width = Cm(33.87)
@@ -56,9 +51,9 @@ def render_slides(
     return buf.getvalue()
 
 
-def _wanted(deck: SlideDeck, module_ids: set[str] | None) -> bool:
+def _wanted(deck: SlideDeck, topic_ids: set[str] | None) -> bool:
     """Whether a deck is in the file the caller asked for."""
-    return module_ids is None or deck.topic_id in module_ids
+    return topic_ids is None or deck.topic_id in topic_ids
 
 
 def _render_deck(prs: Presentation, deck: SlideDeck) -> None:

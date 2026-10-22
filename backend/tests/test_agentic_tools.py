@@ -714,7 +714,8 @@ async def test_no_programme_means_nothing_to_approve() -> None:
 
 
 async def test_an_approved_run_is_not_approved_twice(context: ToolContext) -> None:
-    context.state = context.state.mark_finalized().approved()
+    """A finished programme is not confirmed again."""
+    context.state = context.state.mark_finalized().completed(Stage.MATERIALS)
 
     result = await execute_tool(context, call("approve_program_draft", {}))
 
@@ -723,6 +724,7 @@ async def test_an_approved_run_is_not_approved_twice(context: ToolContext) -> No
 
 
 async def test_a_rendered_draft_can_be_approved(context: ToolContext) -> None:
+    """The approval releases the content; the run keeps working."""
     context.state = at_stage(context.state, Stage.SUMMARY).completed(Stage.SUMMARY).mark_finalized()
 
     result = await execute_tool(context, call("approve_program_draft", {}))
@@ -730,7 +732,8 @@ async def test_a_rendered_draft_can_be_approved(context: ToolContext) -> None:
     assert result.ok is True
     assert context.dirty is True
     assert context.state is not None
-    assert context.state.status is ProgramStatus.APPROVED
+    assert context.state.status is ProgramStatus.GENERATING
+    assert context.state.current_stage is Stage.ASSESSMENT
 
 
 # --------------------------------------------------------------------------------------

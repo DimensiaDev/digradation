@@ -43,6 +43,7 @@ class Mode(StrEnum):
     ERROR = "error"
     STAGE = "stage"
     REVISE = "revise"
+    APPROVE = "approve"
 
 
 MODES: tuple[Mode, ...] = tuple(Mode)
@@ -54,6 +55,7 @@ DEFAULT_MODE = Mode.OK
 BEGIN_PROGRAM = "begin_program"
 SAVE_PROGRAM_DRAFT = "save_program_draft"
 REVISE_PROGRAM = "revise_program"
+APPROVE_PROGRAM = "approve_program_draft"
 
 #: The question the mock asks when the methodist named no volume.
 MOCK_QUESTION = "На сколько академических часов рассчитана программа?"
@@ -160,11 +162,12 @@ def _assessment() -> dict:
         "seminar_tasks": [
             {
                 "id": "st-01",
+                "tool_id": "at-01",
                 "topic_id": "t-01.1",
-                "outcome_ids": ["ro-s-01"],
+                "outcome_ids": ["ro-s-01", "ro-e-01"],
                 "title": "Разбор типовой задачи",
                 "statement": "Решите задачу по образцу и объясните ход решения.",
-                "outcome_criteria": ["Задача решена верно, ход решения объяснён"],
+                "criteria": ["Задача решена верно, ход решения объяснён"],
             }
         ],
     }
@@ -271,6 +274,9 @@ class MockProvider(AIClient):
         if mode is Mode.REVISE:
             return self._revise(message_history, offered, fingerprint)
 
+        if mode is Mode.APPROVE:
+            return self._approve(message_history, offered, fingerprint)
+
         if mode is Mode.STAGE:
             return self._stage(message_history, offered, fingerprint)
 
@@ -303,6 +309,23 @@ class MockProvider(AIClient):
                 # asks the methodist instead of inventing one.
                 arguments["questions"] = [MOCK_QUESTION]
             return self._call(BEGIN_PROGRAM, arguments, fingerprint)
+        return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=self._reply(fingerprint))])], fingerprint)
+
+    def _approve(
+        self,
+        message_history: list[Message],
+        offered: list[Tool],
+        fingerprint: str,
+    ) -> GenerationResponse:
+        """Script one turn: confirm the drafted programme."""
+        if message_history and message_history[-1].role == Role.TOOL:
+            return self._wrap(
+                [Message(role=Role.ASSISTANT, content=[Content(text="Черновик утверждён.")])],
+                fingerprint,
+            )
+        names = {tool.function.name for tool in offered}
+        if APPROVE_PROGRAM in names:
+            return self._call(APPROVE_PROGRAM, {}, fingerprint)
         return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=self._reply(fingerprint))])], fingerprint)
 
     def _revise(

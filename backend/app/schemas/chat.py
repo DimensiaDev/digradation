@@ -225,6 +225,7 @@ class ProgramStateSchema(BaseModel):
                     "summary": "pending",
                 },
                 "running": True,
+                "busy": True,
                 "error": None,
                 "updated_at": "2026-10-21T12:00:00+00:00",
                 "version": 7,
@@ -236,6 +237,17 @@ class ProgramStateSchema(BaseModel):
                     "curriculum": None,
                     "sources": [],
                     "summary": None,
+                },
+                "report": {
+                    "ok": False,
+                    "checks": [
+                        {
+                            "name": "часы",
+                            "ok": False,
+                            "problems": ["учебный план ещё не собран"],
+                            "details": {"заявлено": 72, "всего": 0},
+                        }
+                    ],
                 },
             }
         }

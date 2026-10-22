@@ -200,12 +200,12 @@ async def _commit_tool_state(ctx: ToolContext, previous: ProgramState | None, se
     log.info("program_state_committed", session=str(session), run_id=str(saved.run_id), status=saved.status.value)
     if started and saved.status is ProgramStatus.GENERATING:
         await program_stage.kiq(session, saved.current_stage.value, saved.run_id)
-    elif not started and saved.status is ProgramStatus.APPROVED:
-        # The methodist approved the skeleton: the content may be written now.
-        await program_stage.kiq(session, saved.current_stage.value, saved.run_id)
     elif not started and saved.revision is not None:
         # The methodist asked for a change in one part: that part is redone.
         await program_stage.kiq(session, saved.revision.stage.value, saved.run_id)
+    elif not started and saved.status is ProgramStatus.GENERATING:
+        # The methodist approved the skeleton: the content may be written now.
+        await program_stage.kiq(session, saved.current_stage.value, saved.run_id)
 
 
 @broker.task(queue_name="default")
