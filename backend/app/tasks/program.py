@@ -32,7 +32,7 @@ from app.agentic.loop import run_tool_loop
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.prompts import stage_messages
 from app.agentic.render import render_draft
-from app.agentic.state import MAX_STAGE_ATTEMPTS, ProgramState
+from app.agentic.state import CONTENT_ORDER, MAX_STAGE_ATTEMPTS, ProgramState
 from app.agentic.tools import ToolContext, call_executor, stage_tools
 from app.cache import PROGRAM_STAGE_LOCK_TTL, get_program_stage_lock_key, get_redis_client
 from app.database import db_session
@@ -47,6 +47,7 @@ from app.naming import first_user_message, resolve_chat_name
 from app.providers.containers import provider
 from app.providers.models import GenerationResponse, Message, ResponseFormat
 from app.tasks.conf.broker import broker
+from app.tasks.exports import export_program
 
 log = structlog.stdlib.get_logger(__name__)
 
@@ -55,6 +56,12 @@ log = structlog.stdlib.get_logger(__name__)
 #: ``PROGRAM_STAGE_LOCK_TTL`` expires, not here; this threshold catches a run
 #: whose message was lost while no worker held the stage at all.
 STALLED_AFTER = timedelta(minutes=10)
+
+#: What the parts of the content are called in the chat.
+CONTENT_NAMES: dict[Stage, str] = {
+    Stage.ASSESSMENT: "оценочные средства",
+    Stage.MATERIALS: "материалы",
+}
 
 #: Releases a stage lock only if it still holds the token of the worker that took
 #: it, so an expired-and-retaken lock is not deleted by the previous owner.
@@ -122,11 +129,7 @@ async def _run_stage(
         stage_log.error("program_stage_no_user")
         return
     offered = stage_tools(stage)
-    ctx = ToolContext(
-        session_id=session_id,
-        state=state,
-        known_source_ids={source.id for source in state.sources},
-    )
+    ctx = ToolContext(session_id=session_id, state=state)
 
     async def keep_lock() -> None:
         if not await _refresh_lock(session_id, stage, token):
@@ -150,14 +153,20 @@ async def _run_stage(
     try:
         ctx.state = await store.save(state.started(stage), expected_run_id=state.run_id)
         await run_tool_loop(
-            stage_messages(ctx.state),
+            stage_messages(ctx.state, files=await _request_files(session_id)),
             generate=generate,
             call_tool=call_executor(ctx, offered),
             checkpoint=checkpoint,
         )
         if not ctx.saved or ctx.state is None:
             raise StageNotCompleted()
-        saved = await store.save(ctx.state.completed(stage), expected_run_id=state.run_id)
+        revision = ctx.state.revision
+        finished = ctx.state.completed(stage)
+        if revision is not None and revision.stage is stage:
+            # A revision reruns one stage and leaves the rest of the programme
+            # alone, so the run does not walk the pipeline again.
+            finished = finished.revision_completed(stage)
+        saved = await store.save(finished, expected_run_id=state.run_id)
     except (MissingChat, StageSuperseded, StaleState) as error:
         stage_log.warning("program_stage_superseded", reason=str(error))
         return
@@ -166,6 +175,13 @@ async def _run_stage(
         return
 
     stage_log.info("program_stage_completed", version=saved.version)
+    if revision is not None and revision.stage in CONTENT_ORDER:
+        # The content was redone: the methodist is told, because the chat still
+        # shows the draft they approved before the change.
+        await _notify(
+            session_id,
+            "Готово: " + CONTENT_NAMES[revision.stage] + " переработаны по вашей правке. Документ и слайды обновлены.",
+        )
     await _advance(saved)
 
 
@@ -323,6 +339,29 @@ async def _enqueue_stage(state: ProgramState, stage: Stage) -> ProgramState:
     return saved
 
 
+async def _request_files(session_id: uuid.UUID) -> list[str]:
+    """The files the methodist attached to the request.
+
+    The provider's file ids are on the messages of the chat, so a stage can
+    read the template or the approved programme the request came with. A chat
+    without attachments has none, and a message without files carries nothing.
+    """
+    async with db_session() as db:
+        rows = await db.scalars(
+            select(ChatMessage.files_str).where(
+                ChatMessage.chat_session_id == session_id,
+                ChatMessage.files_str.is_not(None),
+            )
+        )
+        found: list[str] = []
+        for row in rows:
+            for file_id in (row or "").split(","):
+                name = file_id.strip()
+                if name and name not in found:
+                    found.append(name)
+    return found
+
+
 async def _advance(state: ProgramState) -> None:
     """Enqueue what follows the stage that just completed.
 
@@ -330,12 +369,33 @@ async def _advance(state: ProgramState) -> None:
     task — and both read the state the database has, so replaying a stage task
     does not start a second copy of anything.
     """
-    if state.failed or state.terminal:
+    if state.failed:
         return
     if state.status is ProgramStatus.PENDING_APPROVAL:
         await finalize_program_draft.kiq(state.session_id, state.run_id)
         return
+    if state.status is ProgramStatus.APPROVED:
+        # The programme is complete: the document and the slides are written,
+        # and the client fetches them by their attachment ids.
+        await export_program.kiq(state.session_id, state.run_id)
+        return
+    if state.terminal:
+        return
     next_stage = state.current_stage
+    if next_stage in CONTENT_ORDER:
+        # The content waits: the methodist has to approve the skeleton — the
+        # goal, the competences and the hours — before anything is written
+        # from it. The approval is what puts the first content stage on the
+        # queue; a revision of a content stage is the other way in.
+        if state.status is not ProgramStatus.GENERATING:
+            return
+        pending = next(
+            (stage for stage in CONTENT_ORDER if state.stage_status(stage) is not StageStatus.COMPLETED),
+            None,
+        )
+        if pending is None:
+            return
+        next_stage = pending
     if state.stage_status(next_stage) in (StageStatus.IN_PROGRESS, StageStatus.COMPLETED):
         return
     if state.attempts.get(next_stage):

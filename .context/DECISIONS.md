@@ -1769,6 +1769,224 @@ catalogue does not return yet keep their elements.
   the e2e user. The list endpoint needs only title, status and `updated_at`; the detail
   endpoint accepts the model's defaults for the rest.
 
+## The programme is written in two halves (2026-10-22)
+
+The criteria ask the methodist to approve the goal, the competences and the hours *before* the
+agent writes any content. The pipeline therefore has two groups of stages, not one.
+
+- **`SKELETON_ORDER` is what the methodist approves.** Competences, hours, sources and the
+  passport: the goal, the competences and the hours. When the last of them is done the run
+  waits in `pending_approval` and `finalize_program_draft` renders it into the chat.
+- **`CONTENT_ORDER` is what is written from the approved skeleton.** The assessment and the
+  materials. They are not enqueued by the stage that finished the skeleton: the approval is
+  what puts the first of them on the queue, so nothing is generated from a skeleton the
+  methodist has not seen.
+- **The approval is the intake's business.** `approve_program_draft` moves the run back to
+  `generating` — the content is being written, so the run is working, not finished — and the
+  intake task, which is the only place that can enqueue, starts the content. The pipeline
+  itself never enqueues a content stage on its own: `_advance` stops there.
+- **A finished programme is `approved`.** The content's last stage completes the run; the
+  skeleton waiting for the methodist is `pending_approval`, and a run that is being written is
+  `generating`. The status vocabulary the frontend knows is unchanged.
+
+## The assessment is checked, not trusted (2026-10-22)
+
+The criteria ask for every learning outcome to be checked by at least two means. That is a
+check on the block, not a wish in the prompt.
+
+- **Every means names what exists.** A question, a seminar task and a form of control have to
+  name outcomes the competences declare and topics and forms of control the programme
+  actually has. The final attestation has to name declared outcomes too, but it is the
+  programme's conclusion and not one of the means, so it does not count towards the two.
+- **Every outcome is checked at least twice**, and the count is over the questions, the
+  seminar tasks and the forms of control.
+- **The attestation's hours are the plan's hours.** The plan sets them aside
+  (`Curriculum.attestation_hours`) and the assessment has to match, which is what makes a
+  256-hour internship with 254 hours of self-study add up.
+- **The materials belong to the plan.** A lecture plan or a slide deck that names a topic the
+  plan does not have is refused.
+
+## The report the methodist reads (2026-10-22)
+
+The criteria ask for a self-check report on the hours, the coverage, the sources and the
+completeness of the sections. The rules already exist — they are what the stages are held
+to — so the report is the same rules, run once and shown.
+
+- **`ProgramState.report()`** answers with the four checks and the numbers behind them:
+  the hours (asked, total, topics, attestation, contact, self-study), the coverage (how
+  many outcomes, how many are taught, how many are checked twice), the sources (how many,
+  how many confirmed) and the sections that are filled.
+- **The report works on a half-finished run.** A check that cannot be made yet says so
+  instead of raising, so a client can poll it while the programme is still being written.
+- **It is part of `GET /chats/{session_id}/program`**, next to the blocks: the client
+  reads the state and the verdict from one place.
+
+## The programme leaves the system as a document and as slides (2026-10-22)
+
+The criteria ask for the programme as a DOCX by the АЦР template and for the slides of at
+least one module as a PPTX. The renderer came from the `feat/backend-docx-gen` branch and
+now renders the whole programme rather than the skeleton alone.
+
+- **The document is the programme, not the draft.** `render_program_document` takes the
+  `ProgramDocument` — the approved draft and the content written from it — and renders the
+  assessment and the materials as real sections instead of the "to be filled in" block. The
+  draft alone still renders, for a programme that has not reached its content yet.
+- **The slides are the decks the materials stage wrote.** `render_slides` builds a PPTX with
+  a title slide and one slide per bullet. A caller can ask for one module's decks; the
+  decks are written per topic, so the whole set is what there is to hand out.
+- **The exports read the canonical row**, through the request's own session, because a
+  stale mirror would hand out a document that is not the programme.
+- **A programme that is not finished cannot be assembled**, and that is a conflict rather
+  than a missing resource: the run is still going. The endpoint says so with 409.
+- **A seminar task has criteria.** The schema had none, and the criteria ask for them, so
+  `SeminarTask.criteria` was added.
+
+## The references reach the model as files (2026-10-22)
+
+The criteria ask the agent to take a request with references in .docx, .pdf and text, and
+case 3 asks it to follow the structure of the programme that was attached — with new content
+rather than the old text.
+
+- **The references are files the model reads.** The provider accepts .docx the same way it
+  accepts a PDF, so the attachments go up with the message and the model sees them; the
+  backend does not have to extract the text to pass it on. The app accepts .docx uploads
+  for that reason.
+- **The prompt says what to do with them**: use the attached files as an example of the
+  structure and the volume, but do not carry their text over — the content has to be new.
+  That is a prohibition on the solution, so it belongs in the instructions the model
+  follows, not in a check that could only catch the obvious.
+- **The text of the request is the requirements** the run already carries, so a request in
+  plain text needs nothing else.
+
+## The catalogue is the corpus, and the corpus marks its trust (2026-10-22)
+
+The criteria ask for two things about the sources: every document a programme cites has to
+exist, and a source nobody confirmed has to be marked. The corpus in `edu_materials/` answers
+both, and it is the corpus itself rather than a hand-written list.
+
+- **The catalogue is read from the corpus descriptions.** Each corpus directory carries a
+  description of its documents — id, name, type, the order that approved it, where it came from
+  and how far it may be trusted — and `app/agentic/sources.py` parses those into the records the
+  programme cites. A document that is not in the corpus cannot be confirmed, and the corpus is
+  the only authority on whether it exists.
+- **The backend decides whether a source is confirmed, not the model.** `Source.confirmed` is
+  set when the source enters the programme: a document the catalogue holds is cited with the
+  catalogue's record, anything else keeps what the agent wrote about it and is marked as
+  unconfirmed. The mark shows in the chat reply, in the report and in the DOCX.
+- **A refusal was the wrong answer for a bibliography entry.** The stage used to refuse a
+  source the catalogue did not hold, which threw the document away and told the agent nothing
+  about it. The criteria ask for the document to be marked instead, so that the methodist sees
+  what nobody verified. A professional standard a competence rests on is still a refusal: a
+  competence has to stand on a standard that exists.
+- **The passport may only rest on documents the programme already lists.** The check moved from
+  the catalogue to the programme's own source list, because the bibliography and the passport
+  have to agree.
+- **The search is lexical for now.** A keyword match over the descriptions, with the title
+  counting double, answers the agent offline and in the tests. The semantic index over the
+  corpus arrives with the vector store; `search()` is the seam, and both answers are the same
+  shape, so nothing above it changes.
+
+## One part of the programme can be redone on its own (2026-10-22)
+
+The criteria ask the methodist to be able to change one part — replace a topic, make a test
+harder — and to have the agent rebuild only that, without breaking the rest. A revision is
+therefore a stage that runs again, not a new run.
+
+- **The methodist asks for it in the chat.** The intake offers `revise_program` with the stage
+  to redo and the notes; the tool records the revision on the envelope and nothing else. The
+  chat is the only entry point, so the frontend needs no change to offer the capability.
+- **The revision reruns one stage and leaves the rest alone.** The stage goes back to pending,
+  the run starts working again, and the stage's brief carries the methodist's notes. The
+  blocks that are already committed stay committed, and the checks that tie the blocks
+  together are what keeps them consistent.
+- **The run does not walk the pipeline again.** A revised stage goes straight back to where the
+  methodist left the programme: the skeleton waits for the methodist again, the content is
+  complete. The stages that were already done are not run a second time.
+- **A revision is not a failed attempt.** The budget of three attempts per stage is there for
+  the agent's own failures, so a revision spends none of it.
+- **The draft is rendered again.** The revision clears the "rendered" flag, so the methodist
+  sees the changed draft and confirms it again.
+
+## The online search reaches the web, and the web is not the publisher (2026-10-22)
+
+The criteria ask the agent to look for actual sources, and the corpus alone cannot answer that:
+it holds the documents the organisation already trusts, not the current versions of everything
+else. So the search has to reach outside it.
+
+- **The search has two sources and one shape.** `app/agentic/websearch.py` asks the
+  encyclopedia by default — it needs no credentials, and it covers the federal educational
+  standards and the professional standards by their names and numbers — and a deployment with
+  a search service of its own points `WEB_SEARCH_URL` at it. Both answer the same question in
+  the same shape, so nothing above the search changes.
+- **What the web finds is not what the corpus confirms.** A document the encyclopedia holds is
+  an internet resource and it is marked as unconfirmed: the encyclopedia is not the publisher of
+  an act. The catalogue alone confirms a document. That is the marking the criteria ask for,
+  and it is now reachable from outside the corpus rather than being a rule the model has to
+  remember.
+- **The search is off on the mock provider.** The stack runs on the mock, the end-to-end suite
+  among it, and a search that reached the network would make the suite depend on the internet.
+- **The GigaChat built-in search was not used.** The built-in function's result shape is not in
+  the API schema, the key that reaches `api.giga.chat` is not available on the development
+  machine, and the router in front of it exposes no built-ins. Shipping a protocol guess that
+  cannot be run would be worse than a search that is known to work.
+
+## A revision drops the parts that were written from the revised one (2026-10-22)
+
+The first version of the revision kept the dependent blocks, and that was wrong: a curriculum
+whose topics name outcomes the competences no longer declare, or an assessment whose forms of
+control name topics the hours no longer have, is a block that points at something that is
+gone. The finalisation then refuses the programme and the methodist is told that a document
+they never touched is broken.
+
+- **What a revision invalidates is written down**, in `REVISION_INVALIDATES`: the competences
+  invalidate the curriculum and the content, the hours invalidate the content, the sources
+  invalidate the passport. What was dropped is written again — the stages that write it go
+  back to pending.
+- **The run continues with what is missing.** A revision of the skeleton leaves the run
+  working on the skeleton; the content waits for the methodist's approval of the changed
+  skeleton, as it did the first time.
+- **A revision gives the stage its budget again.** The attempts of the stages that run again
+  start at zero: the budget of three is there for the agent's own failures, and a change the
+  methodist asked for is not one.
+- **The approval points at the work that is missing.** The run does not remember which part
+  of the content is still missing, and an approval that enqueued the stage the run happened
+  to be on left the content unwritten until the attempt budget was spent.
+
+## The attestation is contact time (2026-10-22)
+
+The plan has to add up. The attestation's hours were counted in the volume and left out of
+the contact hours, so the rendered table showed a column that added up to more than its own
+total, and the chat line said that 38 contact hours and 28 hours of self-study make 72. The
+attestation is now contact time — nobody sits an exam alone at home — and the totals add up
+in both the document and the chat.
+
+## The remote share and the daily cap are shown (2026-10-22)
+
+A programme that is очно-заочная says how many of its hours are remote, and a programme
+with a daily cap says what the cap is. Both were collected and checked and then appeared
+nowhere: the passport said "очно-заочная" while the plan said nothing about how the hours
+are delivered. They are in the document's schedule section and in the chat's line now.
+
+## The exports are files the client fetches by id (2026-10-22)
+
+The exports were endpoints that answered with the document itself. That is a second contract
+for the client to learn, and the client already has one: an attachment is fetched by its id
+through the attachment route, and the frontend's download service speaks exactly that.
+
+- **The exports are attachments.** A task writes the document and the slides into the
+  attachments bucket, registers them as attachments of the chat and records their ids on the
+  programme's state. `GET /chats/{session_id}/program` carries them in `exports`, and the
+  client asks the attachment route for the link — no new endpoint, no new client code.
+- **The export is written when the programme is complete,** and again whenever a revision
+  changes it: the exports are the programme, so they are as stale as the state they were made
+  from. One file per programme — a second export replaces the first rather than adding
+  another object and another row.
+- **The files reach the stages, not only the intake.** The attachments are on the chat
+  messages, so the chat turn could read them and the stages could not: a stage saw the
+  intake's description of the reference rather than the reference. The stage task now passes
+  the files of the request into the brief's message, so a stage reads the template or the
+  approved programme the request came with.
+
 ## Programme sources use the school hub and a pgvector index (2026-10-22)
 
 The programme stages need real documents behind `search_sources`, and the parser already
@@ -1812,3 +2030,54 @@ index has been built.
 - **The backend image builds from the repository root.** It needs both `backend/` and the
   sibling `rag/` package, so the Compose backend context is `.`, and the root
   `.dockerignore` keeps the frontend, e2e, parser and test trees out.
+
+## The RAG index and the corpus catalogue answer the same question (2026-10-22)
+
+The RAG integration (PR #46) and this branch both wrote the source catalogue, and they were
+merged rather than kept apart. The two catalogues describe the same ten documents, and a
+document has one id.
+
+- **The curated catalogue is the citation authority.** `backend/res/rag-sources.json` holds
+  the `src-NN` ids the programme cites and the paths the ingestion joins the parsed corpus to.
+  A source the catalogue holds is confirmed.
+- **The corpus descriptions are the offline path.** The descriptions in `edu_materials/` are
+  the same documents in prose. They need neither an index nor an embedding provider, so a
+  deployment that has not built the index, the test suite and the end-to-end stack still find
+  the documents. A corpus entry is filed under the catalogue's id, so a programme cites
+  `src-04` and not `profstd-06.001` for the same standard.
+- **A source nobody confirmed is kept and marked, not refused.** The RAG integration refused
+  an unknown citation, which is the opposite of what the criteria ask for: the methodist has to
+  see which documents nobody verified. The catalogue's record wins where there is one, and a
+  document without one keeps what the agent wrote and is marked as unconfirmed. A professional
+  standard a competence rests on is still a refusal, because a competence has to stand on a
+  standard that exists.
+- **The search asks the index first and the catalogue second.** An index that is down is a
+  note to the model, and the catalogue still answers.
+- **The score floor is 0.30, measured.** On this corpus an unrelated query scores about 0.18
+  and a related one about 0.44, and the two distributions do not overlap. The default of 0.15
+  sat below the junk the measurement excludes, so it was raised.
+
+## A revision drops what was written from the part that changed (2026-10-22)
+
+The first version of the revision kept the dependent blocks, and the programme then failed
+its own checks: the assessment still named a topic the new hours no longer had, and the
+finalisation reported a broken document over a part the methodist never touched.
+
+- **What a revision invalidates is written down**, in `REVISION_INVALIDATES`: the competences
+  invalidate the curriculum and the content, the hours invalidate the content, the sources
+  invalidate the passport. The block is dropped and the stage that writes it goes back to
+  pending, so it is written again from the part that changed.
+- **The run continues with what is missing.** A revised skeleton waits for the methodist
+  again; a revised part of the content leaves the programme complete, and the exports are
+  written again so the document and the slides match the change. The chat is told, because
+  the transcript still shows the draft the methodist approved before the change.
+- **A revision gives the stage its budget again.** The three attempts of a stage are there
+  for the agent's own failures, and a change the methodist asked for is not one.
+
+## A section is filled when it holds something (2026-10-22)
+
+The self-check asked whether a section existed, and an assessment without a question and a
+set of materials without a slide passed it. The report now looks at what a section holds,
+and the stages refuse a block that is empty: a curriculum with no lecture plan and no
+slides is a curriculum with nothing in it, and the criterion asks for the slides of at
+least one module.

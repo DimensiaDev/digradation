@@ -3,8 +3,9 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-22** (programme sources are backed by the school-hub embeddings and a
-pgvector index; the one-off indexer is in place)
+Last updated: **2026-10-22** (the programme is written in two halves; its sources come from the
+curated catalogue and the pgvector index, with the corpus descriptions answering when there is
+no index; the programme leaves as a document and as slides, and the search reaches the web)
 
 ---
 
@@ -57,28 +58,54 @@ restore / delete on the programmes page still mutate the loaded list only: no en
 `ProgramState` in `chat_sessions.program_state` (JSONB), mirrored to Redis for an hour, and it
 starts when a chat turn calls `begin_program`. The chat turn is a tool loop
 (`run_chat_turn`): the model is offered `INTAKE_TOOLS` and decides whether to start a
-programme, confirm a rendered draft, or answer in prose. One TaskIQ task owns one stage —
-competences, hours, sources, summary — and each commits its block before enqueueing the next,
-so a worker that dies leaves every finished block behind and `recover_stalled_programs`
-restarts the stage that stopped. `finalize_program_draft` renders the assembled draft into
-the chat, renames a default-named chat and waits for the methodist's confirmation, which the
-model turns into an `approve_program_draft` call. `assessment` and `materials` stay pending
-for #5.
+programme, to confirm a rendered draft, to ask for one part to be redone
+(`revise_program`), or to answer in prose. One TaskIQ task owns one stage — competences, hours,
+sources, summary, assessment, materials — and each commits its block before enqueueing the
+next, so a worker that dies leaves every finished block behind and `recover_stalled_programs`
+restarts the stage that stopped. The skeleton is rendered into the chat and waits for the
+methodist's confirmation, which the model turns into an `approve_program_draft` call; the
+content is written only after that approval, and a `revise_program` call reruns one part of
+the programme on request.
+
+**The programme is written in two halves.** The skeleton — competences, hours, sources, the
+passport — is what the methodist approves: `finalize_program_draft` renders it into the chat
+and the run waits in `pending_approval`. The content — the assessment (questions with their
+keys, seminar tasks, the current control, the final attestation) and the materials (lecture
+plans and slide decks) — is written only after that approval, and the approval is what puts
+the first content stage on the queue. Nothing is generated from a skeleton the methodist has
+not seen. The hours add up at every level: the final attestation is counted inside the volume,
+a module declares its own hours, every outcome is taught by a topic and checked by at least two
+means, and the schedule's capacity and daily load are checked against the volume.
+
+**The sources come from two catalogues and the web.** `backend/res/rag-sources.json` is the
+curated catalogue: it holds the `src-NN` ids a programme cites and the paths the ingestion
+joins the parsed corpus to. The corpus descriptions in `edu_materials/` are the same ten
+documents in prose, and `app/agentic/sources.py` reads them so that a deployment without an
+index still finds its documents. A source is confirmed when the catalogue holds it, and the
+backend decides that, not the model: a document nobody verified is kept and marked as
+unconfirmed — in the chat reply, in the report and in the document. The online search
+(`app/agentic/websearch.py`) reaches the web as well, and what it finds is unconfirmed too.
+
+**The programme leaves the system as a document and as slides.** A finished programme is
+written to the attachments bucket as a DOCX by the АЦР template and as a PPTX of its slides,
+registered as attachments of the chat, and named by id in `GET /chats/{session_id}/program`.
+The client fetches them through the attachment route it already uses for a file the methodist
+uploaded. The same response carries the self-check report: the hours, the coverage of the
+outcomes, the sources and the sections that are filled.
 
 **Source retrieval.** `search_sources` is offered by the source-citing stages only, never by
 the chat intake. It embeds the query through the school hub and searches `rag_chunks` with
 pgvector; results carry stable `src-NN` catalog ids, a section title, a page number, a trust
-score and a cosine score. The tool records the ids the model has actually seen, and a save
-refuses a citation that is unknown or was never returned. A missing index, a provider
-failure or an unreachable database becomes `RagUnavailable`, which the tool turns into a
-`found=false` note so the stage continues without citations instead of failing. With
-`RAG_ENABLED=false` (the default) search returns nothing and the pipeline behaves as it did
-before the index existed.
+score and a cosine score. A missing index, a provider failure or an unreachable database
+becomes `RagUnavailable`, which the tool turns into a `found=false` note so the stage
+continues without citations instead of failing. With `RAG_ENABLED=false` (the default) the
+index is not consulted and the corpus descriptions answer instead.
 
 **The programme API.** `GET /chats/{session_id}/program` reports where a programme stands
-(status, current stage, the blocks saved so far) and reads the Redis mirror before the row, so
-a client that polls it does not touch PostgreSQL; `running` comes from the stage lock, so a
-stalled programme is distinguishable from a busy one. `GET /chats/{session_id}/result` also
+(status, current stage, the blocks saved so far, the self-check report) and reads the Redis
+mirror before the row, so a client that polls it does not touch PostgreSQL; `running` comes
+from the stage lock, so a stalled programme is distinguishable from a busy one, and `busy`
+says whether the programme is being worked on at all. `GET /chats/{session_id}/result` also
 carries the questions a programme is waiting an answer to, and
 `POST /chats/{session_id}` takes those answers in an `answers` array next to `content`.
 `GET /chats/programmes` lists the user's programmes, paginated. A run may ask the methodist
@@ -151,6 +178,16 @@ Test counts and coverage percentages are deliberately not recorded here: they ar
 deterministic, the commands above print them in seconds, and a recorded copy goes stale
 silently. See the rule in `AGENTS.md`.
 
+PostgreSQL, Redis and Garage are real testcontainers in the backend suite. The LLM is faked by
+`app/providers/mock.py`, selected with `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) and
+switchable via `MOCK_PROVIDER_MODE` (`ok`, `empty`, `error`, `stage`, `revise`, `approve`); the
+real provider is only reachable through `@pytest.mark.live` tests, which are deselected by
+default. Both live provider suites carry a full model -> tool -> model round, because that is
+the one shape the offline suite cannot prove the real API accepts. The `stage`
+mode scripts `begin_program` when that tool is offered and the stage's own
+`save_program_draft` block afterwards, so the stages are exercised end to end with no model;
+`revise` and `approve` script the two intake calls that come after the draft is on the table.
+
 PostgreSQL, Redis and Garage are real testcontainers in the backend suite; the PostgreSQL
 image is `pgvector/pgvector:pg18` and the fixture installs the `vector` extension before
 `create_all`. The LLM is faked by `app/providers/mock.py`, selected with `SBER_API_KEY=mock`
@@ -205,6 +242,36 @@ future rename has to move all of them together. The PostgreSQL role and database
 ## Roadmap
 
 Ordered by value, not by commitment:
+
+0. **Decide what the application is for.** Everything else is downstream. The base system
+   prompt is one paragraph and the schema carries only `{chat_name, message}`, which is
+   deliberate headroom rather than an oversight.
+1. **Build the chat-side programme flow.** The backend can now write a programme in two
+   halves, report on it, export it and redo one part of it; the client can list the
+   programmes and read the state, but it cannot yet answer the questions of a run, approve a
+   rendered draft or ask for a change from the chat. That is the gap that keeps the feature
+   out of the user's hands.
+2. **Turn the programs catalog into a real feature.** `ProgramsService` is an in-memory mock
+   and the detail aside's tabs are derived demo content; replace both with API calls,
+   persistence, and the create/edit form behind `/programs/new`.
+3. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
+   where per-content-type preparation belongs. The first content type that needs work is the
+   first thing that goes in it, offloaded with `asyncio.to_thread`.
+4. **Extend the e2e suite.** It covers authentication (including the guest path and the
+   sign-in dialog), the chat journey, a follow-up message, attachments, the paginated history
+   list, admin roles and the admin prompt editor.
+   Not yet covered: the docx/xlsx preview, avatar upload, the theme toggle, the programs
+   catalog, and the error paths (a generation that fails, a session deleted mid-flight).
+5. **Fill the placeholder sections:** profile, user settings, the admin action log
+   (`Журнал действий`) and system info.
+6. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
+7. **Mirror the Garage image into a registry we control** and pin it by digest. MinIO's
+   deletion cost a CI outage and this migration; the same event could happen to
+   `dxflrs/garage`.
+8. **Add a LICENSE file**, currently absent.
+9. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
+   and in the code, but not in the example env file.
+10. **Add a per-test e2e user.** The suite shares one seeded user and works around the
 
 1. **Build a real index and turn RAG on.** Run the parser over the corpus, then
    `index_rag.py`, then set `RAG_ENABLED=true`. The blocker is data, not code:

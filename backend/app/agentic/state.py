@@ -16,23 +16,51 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.agentic import sources
 from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
 from app.agentic.models import (
+    AssessmentPlan,
     Competence,
     Curriculum,
+    Materials,
     ProgramDraft,
     ProgramKind,
     ProgramStatus,
     ProgramSummary,
     Source,
+    SourceKind,
     Stage,
     StageStatus,
     StageStatuses,
 )
 
-#: Stages that produce a block of the draft, in the order they run. ``assessment``
-#: and ``materials`` belong to the full document (#5) and stay pending.
-STAGE_ORDER: tuple[Stage, ...] = (Stage.COMPETENCES, Stage.HOURS, Stage.SOURCES, Stage.SUMMARY)
+#: The stages the methodist approves before the content is written: the goal, the
+#: competences and the hours are the skeleton of the programme, and nothing is
+#: generated from it until the methodist has said yes.
+SKELETON_ORDER: tuple[Stage, ...] = (Stage.COMPETENCES, Stage.HOURS, Stage.SOURCES, Stage.SUMMARY)
+
+#: The stages that fill the programme in once the skeleton is approved.
+CONTENT_ORDER: tuple[Stage, ...] = (Stage.ASSESSMENT, Stage.MATERIALS)
+
+#: The stage whose completion means the skeleton is ready for the methodist.
+SKELETON_LAST = SKELETON_ORDER[-1]
+
+#: What a revision of a stage invalidates: the block that is dropped and the
+#: stage that writes it. A block that is written from another one may not
+#: outlive it — the curriculum names the outcomes the competences declare,
+#: the content is written from the hours, and the passport rests on the
+#: sources.
+REVISION_INVALIDATES: dict[Stage, tuple[tuple[str, Stage], ...]] = {
+    Stage.COMPETENCES: (("curriculum", Stage.HOURS), ("assessment", Stage.ASSESSMENT), ("materials", Stage.MATERIALS)),
+    Stage.HOURS: (("assessment", Stage.ASSESSMENT), ("materials", Stage.MATERIALS)),
+    Stage.SOURCES: (("summary", Stage.SUMMARY),),
+    Stage.SUMMARY: (),
+    Stage.ASSESSMENT: (),
+    Stage.MATERIALS: (),
+}
+
+#: Stages that produce a block of the document, in the order they run.
+STAGE_ORDER: tuple[Stage, ...] = SKELETON_ORDER + CONTENT_ORDER
 
 #: Enqueues a stage may spend before the run is given up on. The counter moves
 #: when a stage is put on the queue, not when a worker picks it up.
@@ -71,6 +99,18 @@ class SummaryBlock(BaseModel):
     summary: ProgramSummary = Field(description="Паспорт программы: цель, аудитория, форма обучения")
 
 
+class AssessmentBlock(BaseModel):
+    """What the assessment stage saves: the means of checking the outcomes."""
+
+    assessment: AssessmentPlan = Field(description="Оценочные средства: тесты, задания, текущий контроль, аттестация")
+
+
+class MaterialsBlock(BaseModel):
+    """What the materials stage saves: the lecture plans and the slides."""
+
+    materials: Materials = Field(description="Планы лекций и слайды")
+
+
 class ClarificationQuestion(BaseModel):
     """One question the methodist has to answer before the programme can start.
 
@@ -88,6 +128,62 @@ class ClarificationAnswer(BaseModel):
 
     question_id: str = Field(description="Идентификатор вопроса, на который дан ответ")
     text: str = Field(min_length=1, max_length=MAX_ANSWER_LENGTH, description="Текст ответа")
+
+
+class Revision(BaseModel):
+    """A change the methodist asked for in one part of the programme.
+
+    The revision names the stage to redo and what to change in it, so the
+    stage can be run again with the methodist's notes instead of the whole
+    programme being rebuilt.
+    """
+
+    stage: Stage = Field(description="Блок программы, который нужно переделать")
+    notes: str = Field(min_length=1, max_length=2000, description="Что именно изменить")
+
+
+class ProgramCheck(BaseModel):
+    """One check of the programme and what it found."""
+
+    name: str = Field(description="Что проверялось")
+    ok: bool = Field(description="Проверка пройдена")
+    problems: list[str] = Field(default_factory=list, description="Что не сошлось")
+    details: dict[str, Any] = Field(default_factory=dict, description="Числа проверки")
+
+
+class ProgramExports(BaseModel):
+    """The files the programme was exported to.
+
+    The exports are attachments of the chat, so the client fetches them with
+    the attachment route it already uses for a file the methodist uploaded.
+    """
+
+    document_attachment_id: int | None = Field(default=None, description="Вложение с документом программы")
+    slides_attachment_id: int | None = Field(default=None, description="Вложение со слайдами программы")
+
+
+class ProgramReport(BaseModel):
+    """The checks the programme passed, for the methodist to read.
+
+    The same rules the stages are held to, reported once: the hours, the
+    coverage of the outcomes, the sources and the completeness of the sections.
+    """
+
+    ok: bool = Field(default=True, description="Все проверки пройдены")
+    checks: list[ProgramCheck] = Field(default_factory=list, description="Проверки по порядку")
+
+
+class ProgramDocument(BaseModel):
+    """The whole programme: the draft the methodist approved and the content.
+
+    The draft is the skeleton — the goal, the competences and the hours — and
+    the content is what was written from it once it was approved. The export
+    takes the document, so a document without a content is still a document.
+    """
+
+    draft: ProgramDraft
+    assessment: AssessmentPlan | None = None
+    materials: Materials | None = None
 
 
 class ProgramState(BaseModel):
@@ -110,6 +206,15 @@ class ProgramState(BaseModel):
     curriculum: Curriculum | None = None
     sources: list[Source] = Field(default_factory=list)
     summary: ProgramSummary | None = None
+    #: The content of the programme: the means of checking the outcomes and the
+    #: lecture material. They are written after the methodist has approved the
+    #: skeleton, and they are not part of the draft they approve.
+    assessment: AssessmentPlan | None = None
+    materials: Materials | None = None
+    #: The change the methodist asked for, waiting to be carried out.
+    revision: Revision | None = None
+    #: The files the programme was exported to, once it was complete.
+    exports: ProgramExports | None = None
 
     #: True once the draft has been rendered into the chat and may be approved.
     finalized: bool = False
@@ -160,10 +265,21 @@ class ProgramState(BaseModel):
         return self._replace(status=ProgramStatus.GENERATING, current_stage=stage, stages=stages)
 
     def completed(self, stage: Stage) -> Self:
-        """Mark the stage done and point the state at its successor."""
+        """Mark the stage done and point the state at its successor.
+
+        The skeleton ends with a programme that waits for the methodist, and
+        the content ends with a programme that is complete.
+        """
         stages = self.stages.model_copy(update={stage.value: StageStatus.COMPLETED})
         successor = self._successor(stage)
-        status = ProgramStatus.GENERATING if successor is not None else ProgramStatus.PENDING_APPROVAL
+        if stage == SKELETON_LAST:
+            # The skeleton is ready. The content is written from it only after
+            # the methodist has approved it, so the run waits here.
+            status = ProgramStatus.PENDING_APPROVAL
+        elif successor is not None:
+            status = ProgramStatus.GENERATING
+        else:
+            status = ProgramStatus.APPROVED
         return self._replace(stages=stages, current_stage=successor or stage, status=status)
 
     def failed_stage(self, stage: Stage, error: str) -> Self:
@@ -188,7 +304,74 @@ class ProgramState(BaseModel):
         return self._replace()
 
     def approved(self) -> Self:
-        return self._replace(status=ProgramStatus.APPROVED)
+        """The methodist approved the skeleton: the content may be written.
+
+        The run keeps working rather than becoming approved: ``approved`` is
+        the state of a finished programme, and the content is not written yet.
+        The run points at the first part of the content that is still missing.
+        """
+        pending = next(
+            (item for item in CONTENT_ORDER if self.stage_status(item) is not StageStatus.COMPLETED),
+            None,
+        )
+        return self._replace(status=ProgramStatus.GENERATING, current_stage=pending or self.current_stage)
+
+    def request_revision(self, stage: Stage, notes: str) -> Self:
+        """Ask for one part of the programme to be redone.
+
+        The stage goes back to pending, the run starts working again, and the
+        draft is rendered once more when the stage is done. A revision does
+        not spend an attempt: a change the methodist asked for is not a
+        failed attempt, and the budget is there for the agent's own failures.
+
+        The parts that are written from the revised one are dropped, because a
+        block that stays while its foundation moves is a block that points at
+        something that is no longer there: the curriculum names the outcomes
+        the competences declare, the content is written from the hours, and
+        the passport rests on the sources. What was dropped is written again.
+        """
+        stages = self.stages.model_copy(update={stage.value: StageStatus.PENDING})
+        changes: dict[str, Any] = {}
+        attempts = dict(self.attempts)
+        attempts[stage] = 0
+        for block, written_by in REVISION_INVALIDATES.get(stage, ()):
+            changes[block] = None
+            stages = stages.model_copy(update={written_by.value: StageStatus.PENDING})
+            attempts[written_by] = 0
+        return self._replace(
+            revision=Revision(stage=stage, notes=notes),
+            stages=stages,
+            attempts=attempts,
+            status=ProgramStatus.GENERATING,
+            current_stage=stage,
+            finalized=False,
+            **changes,
+        )
+
+    def with_exports(self, exports: ProgramExports) -> Self:
+        """The files the programme was exported to."""
+        return self._replace(exports=exports)
+
+    def revision_completed(self, stage: Stage) -> Self:
+        """The redone stage is done; the programme is back where it was.
+
+        A revision reruns one stage and drops the parts that were written
+        from it. A redone skeleton waits for the methodist again; a redone part
+        of the content leaves the programme complete, and the exports are
+        written again.
+        """
+        stages = self.stages.model_copy(update={stage.value: StageStatus.COMPLETED})
+        pending = [item for item in STAGE_ORDER if getattr(stages, item.value) is not StageStatus.COMPLETED]
+        if stage in CONTENT_ORDER:
+            # The content was redone: the programme is complete when nothing of
+            # it is missing, and its exports are written again.
+            status = ProgramStatus.APPROVED if not pending else ProgramStatus.GENERATING
+            current = pending[0] if pending else stage
+        else:
+            # The skeleton was redone; the methodist has to see it again.
+            status = ProgramStatus.PENDING_APPROVAL
+            current = stage
+        return self._replace(stages=stages, status=status, current_stage=current, revision=None)
 
     def with_answers(self, answers: list[ClarificationAnswer]) -> Self:
         """Take the methodist's answers and let the programme start.
@@ -217,11 +400,19 @@ class ProgramState(BaseModel):
 
     def with_sources(self, block: SourcesBlock) -> Self:
         """Add the stage's sources to the ones the earlier stages already cite."""
-        return self._replace(sources=self._merged_sources(block.sources))
+        return self._replace(sources=self._merged_sources([_confirmed(source) for source in block.sources]))
 
     def with_summary(self, block: SummaryBlock, sources: list[Source]) -> Self:
         """Save the passport and the documents it is based on."""
         return self._replace(summary=block.summary, sources=self._merged_sources(sources))
+
+    def with_assessment(self, block: AssessmentBlock) -> Self:
+        """Save the means of checking the outcomes."""
+        return self._replace(assessment=block.assessment)
+
+    def with_materials(self, block: MaterialsBlock) -> Self:
+        """Save the lecture plans and the slides."""
+        return self._replace(materials=block.materials)
 
     def _merged_sources(self, sources: list[Source]) -> list[Source]:
         """Union of the cited sources: first position, latest record."""
@@ -260,11 +451,7 @@ class ProgramState(BaseModel):
 
     def _consistency_problems(self, draft: ProgramDraft) -> list[str]:
         """The checks that need the assembled document rather than one block."""
-        outcomes = [
-            outcome.id
-            for competence in draft.competencies
-            for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
-        ]
+        outcomes = self.declared_outcomes()
         standards = [item.standard_source_id for item in draft.competencies if item.standard_source_id]
         problems = [
             f"компетенция {item} объявлена дважды"
@@ -272,8 +459,232 @@ class ProgramState(BaseModel):
         ]
         problems += [f"результат обучения {item} объявлен дважды" for item in _duplicates(outcomes)]
         problems += self.topic_problems(draft.curriculum, set(outcomes))
+        problems += self.uncovered_outcome_problems(draft.curriculum, set(outcomes))
         problems += self.curriculum_problems(draft.curriculum)
         problems += self.citation_problems([*draft.summary.basis_source_ids, *standards])
+        if self.assessment is not None:
+            problems += self.assessment_problems(self.assessment, draft.curriculum)
+        return problems
+
+    def declared_outcomes(self) -> list[str]:
+        """Every learning outcome the competences declare."""
+        return [
+            outcome.id
+            for competence in self.competencies
+            for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
+        ]
+
+    def to_document(self) -> ProgramDocument:
+        """The whole programme: the approved draft and the content written from it."""
+        return ProgramDocument(
+            draft=self.to_draft(),
+            assessment=self.assessment,
+            materials=self.materials,
+        )
+
+    def report(self) -> ProgramReport:
+        """The checks of the programme, for the methodist to read.
+
+        The same rules the stages are held to, reported once and in one place:
+        the hours, the coverage of the outcomes, the sources and the sections
+        that are filled. It works on a half-finished run — the checks that
+        cannot be made yet are simply not reported.
+        """
+        checks = [
+            self._hours_check(),
+            self._coverage_check(),
+            self._sources_check(),
+            self._sections_check(),
+        ]
+        return ProgramReport(ok=all(check.ok for check in checks), checks=checks)
+
+    def _hours_check(self) -> ProgramCheck:
+        """The hours add up to the volume that was asked for."""
+        if self.curriculum is None:
+            return ProgramCheck(name="часы", ok=False, problems=["учебный план ещё не собран"])
+        curriculum = self.curriculum
+        problems = self.curriculum_problems(curriculum)
+        return ProgramCheck(
+            name="часы",
+            ok=not problems,
+            problems=problems,
+            details={
+                "заявлено": self.requested_hours,
+                "всего": curriculum.total_hours,
+                "темы": curriculum.topic_hours,
+                "итоговая аттестация": curriculum.attestation_hours,
+                "аудиторных": curriculum.contact_hours,
+                "самостоятельной работы": curriculum.self_study_hours,
+            },
+        )
+
+    def _coverage_check(self) -> ProgramCheck:
+        """Every outcome is taught by a topic and checked by two means."""
+        problems: list[str] = []
+        outcomes = self.declared_outcomes()
+        covered = 0
+        checked_by_two = 0
+        if self.curriculum is not None:
+            problems += self.uncovered_outcome_problems(self.curriculum, set(outcomes))
+            taught = {
+                outcome_id
+                for module in self.curriculum.modules
+                for topic in module.topics
+                for outcome_id in topic.outcome_ids
+            }
+            covered = sum(1 for outcome in outcomes if outcome in taught)
+        if self.assessment is not None and self.curriculum is not None:
+            problems += self.assessment_coverage_problems(self.assessment, self.curriculum)
+            means = self._means_per_outcome()
+            checked_by_two = sum(1 for count in means.values() if count >= 2)
+        return ProgramCheck(
+            name="покрытие",
+            ok=not problems,
+            problems=problems,
+            details={
+                "результатов обучения": len(outcomes),
+                "раскрыто в темах": covered,
+                "проверяется двумя средствами": checked_by_two,
+            },
+        )
+
+    def _means_per_outcome(self) -> dict[str, int]:
+        """How many means of checking each outcome has."""
+        counts: dict[str, int] = dict.fromkeys(self.declared_outcomes(), 0)
+        assessment = self.assessment
+        if assessment is None:
+            return counts
+        for outcome_ids in (
+            [question.outcome_ids for question in assessment.questions]
+            + [task.outcome_ids for task in assessment.seminar_tasks]
+            + [tool.outcome_ids for tool in assessment.tools]
+        ):
+            for outcome_id in outcome_ids:
+                if outcome_id in counts:
+                    counts[outcome_id] += 1
+        return counts
+
+    def _sources_check(self) -> ProgramCheck:
+        """The documents the programme cites exist, and the rest are marked."""
+        cited = {item.standard_source_id for item in self.competencies if item.standard_source_id}
+        if self.summary is not None:
+            cited |= set(self.summary.basis_source_ids)
+        problems = self.citation_problems(cited)
+        unconfirmed = [source for source in self.sources if not source.confirmed]
+        problems += [f"источник {source.id} не подтверждён каталогом — его нужно проверить" for source in unconfirmed]
+        return ProgramCheck(
+            name="источники",
+            ok=not problems,
+            problems=problems,
+            details={
+                "всего источников": len(self.sources),
+                "подтверждено": len(self.sources) - len(unconfirmed),
+                "не подтверждено": len(unconfirmed),
+            },
+        )
+
+    def _sections_check(self) -> ProgramCheck:
+        """Every section of the programme is filled.
+
+        A section counts as filled when it holds something, not when it exists:
+        an assessment without a question and a set of materials without a
+        slide are empty sections that a report would otherwise call filled.
+        """
+        assessment = self.assessment
+        materials = self.materials
+        sections = {
+            "компетенции": bool(self.competencies),
+            "учебный план": self.curriculum is not None and bool(self.curriculum.modules),
+            "паспорт": self.summary is not None and bool(self.summary.goal),
+            "источники": bool(self.sources),
+            "оценочные средства": assessment is not None
+            and bool(assessment.questions or assessment.seminar_tasks or assessment.tools),
+            "материалы": materials is not None and bool(materials.lecture_plans or materials.slide_decks),
+        }
+        problems = [f"раздел «{name}» не заполнен" for name, filled in sections.items() if not filled]
+        return ProgramCheck(
+            name="разделы",
+            ok=not problems,
+            problems=problems,
+            details=dict(sections),
+        )
+
+    def assessment_problems(self, assessment: AssessmentPlan, curriculum: Curriculum) -> list[str]:
+        """The assessment has to check the programme, and only the programme.
+
+        Every means of checking names outcomes that exist and a form of control
+        that exists, every outcome of the programme is checked by at least two
+        means, and the final attestation takes the hours the plan set aside
+        for it.
+        """
+        problems = self.assessment_coverage_problems(assessment, curriculum)
+        problems += self.assessment_binding_problems(assessment, curriculum)
+        return problems
+
+    def assessment_binding_problems(self, assessment: AssessmentPlan, curriculum: Curriculum) -> list[str]:
+        """The means of checking that point at something the programme has not.
+
+        A question, a seminar task and a form of control have to name outcomes
+        the competences declare and topics and forms of control the programme
+        actually has. The final attestation has to name declared outcomes too,
+        but it is the programme's conclusion and not one of the means, so it
+        does not count towards the two.
+        """
+        problems: list[str] = []
+        declared = set(self.declared_outcomes())
+        topics = {topic.id for module in curriculum.modules for topic in module.topics}
+        tools = {tool.id for tool in assessment.tools}
+
+        def unknown(outcome_ids: list[str], what: str) -> None:
+            missing = [item for item in outcome_ids if item not in declared]
+            if missing:
+                problems.append(f"{what} ссылается на необъявленные результаты обучения: {', '.join(missing)}")
+
+        for question in assessment.questions:
+            if question.tool_id not in tools:
+                problems.append(f"вопрос {question.id} ссылается на несуществующую форму контроля {question.tool_id}")
+            unknown(question.outcome_ids, f"вопрос {question.id}")
+        for task in assessment.seminar_tasks:
+            if task.tool_id not in tools:
+                problems.append(f"задание {task.id} ссылается на несуществующую форму контроля {task.tool_id}")
+            if task.topic_id not in topics:
+                problems.append(f"задание {task.id} ссылается на несуществующую тему {task.topic_id}")
+            unknown(task.outcome_ids, f"задание {task.id}")
+        for tool in assessment.tools:
+            missing = [item for item in tool.topic_ids if item not in topics]
+            if missing:
+                problems.append(f"форма контроля {tool.id} ссылается на несуществующие темы: {', '.join(missing)}")
+            unknown(tool.outcome_ids, f"форма контроля {tool.id}")
+        unknown(assessment.final.outcome_ids, "итоговая аттестация")
+        return problems
+
+    def assessment_coverage_problems(self, assessment: AssessmentPlan, curriculum: Curriculum) -> list[str]:
+        """The outcomes that fewer than two means of checking look at.
+
+        The means are the questions, the seminar tasks and the forms of
+        control. The final attestation is the programme's conclusion and not
+        one of them.
+        """
+        declared = set(self.declared_outcomes())
+        checked: dict[str, int] = dict.fromkeys(declared, 0)
+        for outcome_ids in (
+            [question.outcome_ids for question in assessment.questions]
+            + [task.outcome_ids for task in assessment.seminar_tasks]
+            + [tool.outcome_ids for tool in assessment.tools]
+        ):
+            for outcome_id in outcome_ids:
+                if outcome_id in checked:
+                    checked[outcome_id] += 1
+        problems = [
+            f"результат обучения {outcome_id} проверяется только {count} средствами — нужно хотя бы два"
+            for outcome_id, count in sorted(checked.items())
+            if count < 2
+        ]
+        if not math.isclose(assessment.final.hours, curriculum.attestation_hours, abs_tol=1e-6):
+            problems.append(
+                f"итоговая аттестация занимает {assessment.final.hours:g} ч, "
+                f"а в учебном плане на неё отведено {curriculum.attestation_hours:g} ч"
+            )
         return problems
 
     def topic_problems(self, curriculum: Curriculum, declared: set[str]) -> list[str]:
@@ -292,14 +703,48 @@ class ProgramState(BaseModel):
                     )
         return problems
 
+    def uncovered_outcome_problems(self, curriculum: Curriculum, declared: set[str]) -> list[str]:
+        """Declared outcomes that no topic of the plan reveals.
+
+        The other direction of the same rule: a topic may not name an outcome
+        that does not exist, and an outcome nobody teaches is not a result of
+        the programme. Public so the hours stage can refuse the plan in the
+        reply that produced it.
+        """
+        covered = {
+            outcome_id for module in curriculum.modules for topic in module.topics for outcome_id in topic.outcome_ids
+        }
+        return [
+            f"результат обучения {outcome_id} не раскрыт ни в одной теме" for outcome_id in sorted(declared - covered)
+        ]
+
     def curriculum_problems(self, curriculum: Curriculum) -> list[str]:
         """The hour totals against the requested volume and the schedule."""
         problems: list[str] = []
         total = curriculum.total_hours
         if self.requested_hours is not None and not math.isclose(total, self.requested_hours, abs_tol=1e-6):
             problems.append(
-                f"сумма часов тем {total:g} не совпадает с заявленным объёмом программы {self.requested_hours:g}"
+                f"объём программы {total:g} ч (темы {curriculum.topic_hours:g} ч "
+                f"+ итоговая аттестация {curriculum.attestation_hours:g} ч) "
+                f"не совпадает с заявленным объёмом {self.requested_hours:g} ч"
             )
+        problems += self.module_hours_problems(curriculum)
+        problems += self.schedule_problems(curriculum)
+        problems += self.delivery_problems(curriculum)
+        return problems
+
+    def module_hours_problems(self, curriculum: Curriculum) -> list[str]:
+        """A module states its own volume, and it has to add up."""
+        return [
+            f"модуль {module.id} заявлен на {module.hours:g} ч, а его темы дают {module.topic_hours:g} ч"
+            for module in curriculum.modules
+            if not math.isclose(module.hours, module.topic_hours, abs_tol=1e-6)
+        ]
+
+    def schedule_problems(self, curriculum: Curriculum) -> list[str]:
+        """The schedule has to hold the volume it is given."""
+        problems: list[str] = []
+        total = curriculum.total_hours
         schedule = curriculum.schedule
         if schedule.days is not None and schedule.hours_per_day is not None:
             capacity = schedule.days * schedule.hours_per_day
@@ -308,7 +753,25 @@ class ProgramState(BaseModel):
                     f"расписание {schedule.days}×{schedule.hours_per_day:g} = {capacity:g} ч "
                     f"меньше объёма программы {total:g} ч"
                 )
+        if (
+            schedule.max_hours_per_day is not None
+            and schedule.hours_per_day is not None
+            and schedule.hours_per_day > schedule.max_hours_per_day + 1e-6
+        ):
+            problems.append(
+                f"дневная нагрузка {schedule.hours_per_day:g} ч превышает "
+                f"заявленный предел {schedule.max_hours_per_day:g} ч в день"
+            )
         return problems
+
+    def delivery_problems(self, curriculum: Curriculum) -> list[str]:
+        """The remote share of the hours has to be a share of the volume."""
+        if curriculum.distance_hours is None:
+            return []
+        total = curriculum.total_hours
+        if curriculum.distance_hours > total + 1e-6:
+            return [f"дистанционных часов {curriculum.distance_hours:g} больше, " f"чем объём программы {total:g} ч"]
+        return []
 
     def citation_problems(self, source_ids: Iterable[str]) -> list[str]:
         """Ids the run cites that are not among the sources it committed."""
@@ -329,6 +792,31 @@ class ProgramState(BaseModel):
         changes.setdefault("version", self.version + 1)
         changes.setdefault("updated_at", datetime.now(UTC))
         return self.model_copy(update=changes)
+
+
+def _confirmed(source: Source) -> Source:
+    """The catalog decides whether a source is confirmed, not the model.
+
+    A document the catalog holds is cited with the catalog's record. Any other
+    keeps what the agent wrote about it and is marked as unconfirmed, because
+    nobody verified the document and the methodist has to see that.
+    """
+    record = sources.get_source(source.id)
+    if record is None:
+        return source.model_copy(update={"confirmed": False})
+    # The record is rebuilt rather than copied, because a copy skips validation
+    # and the literature mark only makes sense for literature.
+    return Source(
+        id=record.id,
+        kind=record.kind,
+        title=record.title,
+        identifier=record.identifier,
+        url=source.url or record.url,
+        primary=source.primary if record.kind is SourceKind.LITERATURE else None,
+        confirmed=True,
+        trust=record.trust,
+        origin=record.origin,
+    )
 
 
 def new_state(

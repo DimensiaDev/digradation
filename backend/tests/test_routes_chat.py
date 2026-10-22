@@ -14,6 +14,7 @@ tests spend deliberately.
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -32,7 +33,13 @@ from app.agentic.models import (
     ProgramStatus,
     Stage,
 )
-from app.agentic.state import ClarificationQuestion, CompetencesBlock, ProgramState, new_state
+from app.agentic.state import (
+    ClarificationQuestion,
+    CompetencesBlock,
+    ProgramExports,
+    ProgramState,
+    new_state,
+)
 from app.cache import (
     get_attachment_ownership_key,
     get_attachment_status_key,
@@ -55,6 +62,9 @@ from app.models.chat import (
 )
 from app.models.settings import SETTINGS_ROW_ID, Settings
 from app.routes.chat import delete_chat
+
+#: The canonical programme the export tests render.
+EXAMPLE_PATH = Path(__file__).resolve().parents[1] / "examples" / "document_state_example.json"
 
 #: Fixed base so message ordering in the list endpoint is deterministic.
 BASE_TIME = datetime(2024, 1, 1, tzinfo=UTC)
@@ -785,6 +795,27 @@ async def test_get_result_carries_the_open_questions(
 
 
 # ---------------------------------------------------------------------------
+# the exports
+# ---------------------------------------------------------------------------
+
+
+async def test_the_programme_response_names_the_exports(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+):
+    """The client fetches the files with the attachment route it already uses."""
+    state = new_state(chat.session_id, requested_hours=72, requirements="Программа")
+    state = state.with_exports(ProgramExports(document_attachment_id=12, slides_attachment_id=13))
+    await put_programme(db_session, chat, state)
+
+    response = await auth_client.get(f"/chats/{chat.session_id}/program")
+
+    assert response.status_code == 200
+    exports = response.json()["exports"]
+    assert exports["document_attachment_id"] == 12
+    assert exports["slides_attachment_id"] == 13
+
+
+# ---------------------------------------------------------------------------
 # GET /chats/programmes
 # ---------------------------------------------------------------------------
 
@@ -1071,6 +1102,27 @@ async def test_upload_file_rejects_content_type(auth_client: AsyncClient, chat, 
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Content type not allowed"
+
+
+async def test_a_docx_reference_can_be_uploaded(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None, s3: None
+):
+    """The template or an approved programme arrives as a .docx."""
+    response = await auth_client.post(
+        f"/chats/{chat.session_id}/uploads",
+        json={
+            "filename": "programme-template.docx",
+            "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "file_size": 2048,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["params"]["fields"]["key"].endswith(".docx")
+    attachment = await db_session.get(Attachment, data["attachment_id"])
+    assert attachment is not None
+    assert attachment.name == "programme-template.docx"
 
 
 async def test_upload_file_rejects_oversize(auth_client: AsyncClient, chat, redis_session: None, s3: None):

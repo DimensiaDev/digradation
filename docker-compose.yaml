@@ -39,8 +39,14 @@ x-backend-env: &backend-env
   # defaults below are the retrieval policy, not corpus settings.
   RAG_ENABLED: ${RAG_ENABLED:-false}
   RAG_OVERSAMPLE: ${RAG_OVERSAMPLE:-4}
-  RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.15}
+  # The floor is measured, not guessed: on this corpus an unrelated query scores
+  # about 0.18 and a related one about 0.44, so 0.30 keeps the two apart.
+  RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.30}
   RAG_MAX_PER_SOURCE: ${RAG_MAX_PER_SOURCE:-3}
+  # Search service of the deployment, for the agent's online search. Without it
+  # the encyclopedia answers; the service answers the same request and the same
+  # response, so the backend does not change with it.
+  WEB_SEARCH_URL: ${WEB_SEARCH_URL:-}
   SBER_API_KEY: ${SBER_API_KEY:?}
   SBER_API_SCOPE: ${SBER_API_SCOPE:?}
 

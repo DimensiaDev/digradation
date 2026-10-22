@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 from collections.abc import AsyncGenerator, Generator
 
 # These must be set before anything under `app` is imported. `app.storage` builds
@@ -14,24 +15,27 @@ _S3_SECRET_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
 _GARAGE_RPC_SECRET = _S3_SECRET_KEY
 _GARAGE_ADMIN_TOKEN = _S3_SECRET_KEY
 
-os.environ.setdefault("SBER_API_KEY", "mock")
-os.environ.setdefault("SBER_API_SCOPE", "PERS")
+#: Provider variables as the process received them, captured before the mock
+#: values are forced below. Live tests restore these through
+#: :func:`real_provider_env` and reload ``app.providers.containers``.
+REAL_ENV = {name: os.environ.get(name) for name in ("SBER_API_KEY", "SBER_API_SCOPE", "OPENAI_URL", "OPENAI_MODEL")}
+
+# Force the mock. ``setdefault`` is not enough: with credentials exported (as
+# when the app is run from the same shell) ``app.providers.containers`` would
+# build a real provider at collection time, and every worker test would hit
+# the network. Overwritten unconditionally; live tests opt back in.
+os.environ["SBER_API_KEY"] = "mock"
+os.environ["SBER_API_SCOPE"] = "PERS"
+
 os.environ.setdefault("RABBITMQ_USER", "jut")
 os.environ.setdefault("RABBITMQ_PASS", "jut")
 os.environ.setdefault("TASKIQ_API_TOKEN", "jut")
 os.environ.setdefault("S3_ACCESS_KEY", _S3_ACCESS_KEY)
 os.environ.setdefault("S3_SECRET_KEY", _S3_SECRET_KEY)
-# `app.main` reads these at import time to configure CORS, and raises when they
-# are missing outside debug mode. Individual tests may still override them.
 os.environ.setdefault("DEBUG", "1")
 os.environ.setdefault("FRONTEND_URL", "http://frontend.test")
 os.environ.setdefault("BACKEND_URL", "http://backend.test")
 os.environ.setdefault("RAG_ENABLED", "false")
-
-#: Provider variables as the process received them, captured before the autouse
-#: ``env`` fixture overwrites ``SBER_API_KEY``/``SBER_API_SCOPE`` with mock values.
-#: Live tests restore these through :func:`real_provider_env`.
-REAL_ENV = {name: os.environ.get(name) for name in ("SBER_API_KEY", "SBER_API_SCOPE", "OPENAI_URL", "OPENAI_MODEL")}
 
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
@@ -306,6 +310,34 @@ async def task_db(monkeypatch, engine: AsyncEngine):
     monkeypatch.setattr(database, "get_session_maker", lambda: maker)
     yield
     cached_session_maker.cache_clear()
+
+
+@pytest_asyncio.fixture()
+async def chat(engine: AsyncEngine) -> AsyncGenerator[uuid.UUID]:
+    """A committed chat, because the tasks open their own connections."""
+    from sqlalchemy import delete
+
+    from app.auth import hash_password
+    from app.models.auth import User
+    from app.models.chat import ChatSession
+
+    maker = async_sessionmaker(bind=engine, expire_on_commit=False)
+    async with maker() as db:
+        user = User(username=f"chat-{uuid.uuid4().hex[:8]}", password_hash=hash_password("password1234"))
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        row = ChatSession(session_id=uuid.uuid4(), user_id=user.id)
+        db.add(row)
+        await db.commit()
+        session_id, user_id = row.session_id, user.id
+    try:
+        yield session_id
+    finally:
+        async with maker() as db:
+            await db.execute(delete(ChatSession).where(ChatSession.session_id == session_id))
+            await db.execute(delete(User).where(User.id == user_id))
+            await db.commit()
 
 
 @pytest_asyncio.fixture()

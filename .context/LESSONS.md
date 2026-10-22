@@ -1110,6 +1110,35 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   field as if the list had it, and do not open a detail request for every card to fill one.
   The optional fields in `ProgramApiItem` are the seam for the catalogue contract growing.
   Found 2026-10-21.
+
+- A corpus description puts the heading of the next document on the line **before** its `ID:`
+  line, so an entry's extract ends where that heading starts. Reading the body up to the next
+  `ID:` line therefore mixes the next document's title into this document's summary, and a
+  search for "ФГОС среднего общего образования" then ranks the *основного* general education
+  standard first, because its summary contains the next document's heading.
+
+- A run that is `approved` is terminal, so the approval of the skeleton must not set that
+  status: the content is written after the approval, and `program_stage` refuses a terminal
+  run before it looks at the stage. The approval therefore moves the run back to `generating`,
+  and `approved` means the programme is complete — the content's last stage. A whole cycle
+  test that drives the approval into the content stages is what proves it: without it the
+  content half of the programme never runs and nothing fails.
+
+- The Wikipedia API refuses a request without a `User-Agent`, and it refuses a generic one as
+  well: it wants a descriptive agent with a contact in it, and it says so in the body of the
+  403. A request that fails with "Please set a user-agent" is answered by sending one, not by
+  giving up on the search.
+
+- The repository-level `.dockerignore` decides what the backend image holds, and it excluded
+  `edu_materials/`: the image built fine until a `COPY` of the corpus failed with a path
+  that looked like it did not exist. The corpus has to be copied out of the exclusion list
+  when the backend starts to read it.
+- A block the offline mock fabricates has to be pushed through the same schema and the same
+  checks as a real one. The mock's assessment went unchecked for a long time, so a missing
+  `tool_id` in a fabricated question survived: the stage refused the block, the run died
+  after three attempts, and nothing in the suite failed because the mock's content stages
+  were never reached.
+
 - **HNSW refuses a `vector` column above 2000 dimensions.** `vector(2048)` with
   `vector_cosine_ops` fails during `create_all`/migration with `column cannot have more than
   2000 dimensions for hnsw index`. Use `HALFVEC(2048)` and `halfvec_cosine_ops`; pgvector

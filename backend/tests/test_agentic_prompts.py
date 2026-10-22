@@ -57,6 +57,30 @@ def test_the_brief_carries_the_blocks_the_earlier_stages_committed() -> None:
     assert "ro-k-01" in brief
 
 
+def test_the_brief_carries_the_methodists_change() -> None:
+    """The stage that is redone is told what the methodist wants changed."""
+    state = run_at(Stage.HOURS).request_revision(Stage.HOURS, "замени тему 2.3")
+
+    brief = stage_brief(state)
+
+    assert "замени тему 2.3" in brief
+    assert "согласованность" in brief
+
+
+def test_the_stage_sees_the_files_the_methodist_attached() -> None:
+    """The reference reaches the stage, not only the description of it."""
+    messages = stage_messages(run_at(Stage.HOURS), files=["giga-file-1", "giga-file-2"])
+
+    files = messages[1].content[0].files
+    assert [file.id for file in files] == ["giga-file-1", "giga-file-2"]
+
+
+def test_a_stage_without_files_sends_none() -> None:
+    messages = stage_messages(run_at(Stage.HOURS))
+
+    assert messages[1].content[0].files == []
+
+
 def test_the_brief_names_the_job_of_the_stage() -> None:
     for stage, task in STAGE_TASKS.items():
         assert task in stage_brief(run_at(stage))

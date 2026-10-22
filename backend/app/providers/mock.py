@@ -35,12 +35,15 @@ MOCK_SCOPES = get_args(Scope)
 
 class Mode(StrEnum):
     """What the mock answers: ``empty`` and ``error`` drive the error paths,
-    ``stage`` scripts one valid call per programme stage."""
+    ``stage`` scripts one valid call per programme stage, ``revise`` asks for
+    one part of the programme to be redone."""
 
     OK = "ok"
     EMPTY = "empty"
     ERROR = "error"
     STAGE = "stage"
+    REVISE = "revise"
+    APPROVE = "approve"
 
 
 MODES: tuple[Mode, ...] = tuple(Mode)
@@ -51,6 +54,8 @@ DEFAULT_MODE = Mode.OK
 #: Tools of the programme pipeline the ``stage`` mode reacts to.
 BEGIN_PROGRAM = "begin_program"
 SAVE_PROGRAM_DRAFT = "save_program_draft"
+REVISE_PROGRAM = "revise_program"
+APPROVE_PROGRAM = "approve_program_draft"
 
 #: The question the mock asks when the methodist named no volume.
 MOCK_QUESTION = "На сколько академических часов рассчитана программа?"
@@ -106,6 +111,7 @@ def _curriculum(total: float) -> dict:
             {
                 "id": "m-01",
                 "title": "Содержание программы",
+                "hours": total,
                 "topics": [
                     {
                         "id": "t-01.1",
@@ -117,6 +123,90 @@ def _curriculum(total: float) -> dict:
             }
         ],
         "schedule": {"days": days, "hours_per_day": float(DAILY_HOURS)},
+        "attestation_hours": 0.0,
+    }
+
+
+def _catalog_source() -> dict:
+    """A document of the corpus, the way the agent would cite it."""
+    return {
+        "id": "src-04",
+        "kind": "professional_standard",
+        "title": "Профессиональный стандарт «Программист»",
+        "identifier": "Приказ Минтруда России от 20.07.2022 № 424н",
+    }
+
+
+def _assessment() -> dict:
+    """Assessment means that check every outcome of the mock programme twice."""
+    outcomes = ["ro-k-01", "ro-s-01", "ro-e-01"]
+    return {
+        "tools": [
+            {
+                "id": "at-01",
+                "kind": "test",
+                "title": "Тест по итогам модуля",
+                "topic_ids": ["t-01.1"],
+                "outcome_ids": outcomes,
+                "criteria": ["Верно отвечает не менее чем на 70% вопросов"],
+                "materials": ["Банк вопросов с ключами"],
+            }
+        ],
+        "final": {
+            "form": "защита проекта",
+            "hours": 0,
+            "outcome_ids": outcomes,
+            "criteria": ["Проект решает поставленную задачу и защищён перед комиссией"],
+            "materials": ["Требования к проекту"],
+        },
+        "questions": [
+            {
+                "id": "q-01-01",
+                "tool_id": "at-01",
+                "topic_ids": ["t-01.1"],
+                "outcome_ids": ["ro-k-01"],
+                "text": "Что такое основное понятие программы?",
+                "options": ["Определение", "Пример", "Процедура"],
+                "answers": ["Определение"],
+            }
+        ],
+        "seminar_tasks": [
+            {
+                "id": "st-01",
+                "tool_id": "at-01",
+                "topic_id": "t-01.1",
+                "outcome_ids": ["ro-s-01", "ro-e-01"],
+                "title": "Разбор типовой задачи",
+                "statement": "Решите задачу по образцу и объясните ход решения.",
+                "criteria": ["Задача решена верно, ход решения объяснён"],
+            }
+        ],
+    }
+
+
+def _materials() -> dict:
+    """A lecture plan and a slide deck for the only topic of the mock programme."""
+    return {
+        "lecture_plans": [
+            {
+                "id": "lp-01",
+                "topic_id": "t-01.1",
+                "title": "Основное содержание программы",
+                "plan": ["Понятие и область применения", "Типовые задачи", "Разбор примера"],
+                "summary": "Лекция о том, что составляет основу программы.",
+            }
+        ],
+        "slide_decks": [
+            {
+                "id": "sd-01",
+                "topic_id": "t-01.1",
+                "title": "Основное содержание программы",
+                "slides": [
+                    {"title": "О чём лекция", "bullets": ["Область применения", "Ключевые понятия"]},
+                    {"title": "Пример", "bullets": ["Разбор типовой задачи"]},
+                ],
+            }
+        ],
     }
 
 
@@ -192,6 +282,12 @@ class MockProvider(AIClient):
             # treat as "Provider did not respond properly".
             return self._wrap([Message(role=Role.ASSISTANT, content=[])], fingerprint)
 
+        if mode is Mode.REVISE:
+            return self._revise(message_history, offered, fingerprint)
+
+        if mode is Mode.APPROVE:
+            return self._approve(message_history, offered, fingerprint)
+
         if mode is Mode.STAGE:
             return self._stage(message_history, offered, fingerprint)
 
@@ -226,6 +322,44 @@ class MockProvider(AIClient):
             return self._call(BEGIN_PROGRAM, arguments, fingerprint)
         return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=self._reply(fingerprint))])], fingerprint)
 
+    def _approve(
+        self,
+        message_history: list[Message],
+        offered: list[Tool],
+        fingerprint: str,
+    ) -> GenerationResponse:
+        """Script one turn: confirm the drafted programme."""
+        if message_history and message_history[-1].role == Role.TOOL:
+            return self._wrap(
+                [Message(role=Role.ASSISTANT, content=[Content(text="Черновик утверждён.")])],
+                fingerprint,
+            )
+        names = {tool.function.name for tool in offered}
+        if APPROVE_PROGRAM in names:
+            return self._call(APPROVE_PROGRAM, {}, fingerprint)
+        return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=self._reply(fingerprint))])], fingerprint)
+
+    def _revise(
+        self,
+        message_history: list[Message],
+        offered: list[Tool],
+        fingerprint: str,
+    ) -> GenerationResponse:
+        """Script one turn: ask for one part of the programme to be redone."""
+        if message_history and message_history[-1].role == Role.TOOL:
+            return self._wrap(
+                [Message(role=Role.ASSISTANT, content=[Content(text="Правка принята.")])],
+                fingerprint,
+            )
+        names = {tool.function.name for tool in offered}
+        if REVISE_PROGRAM in names:
+            return self._call(
+                REVISE_PROGRAM,
+                {"stage": "hours", "notes": "замени тему 2.3"},
+                fingerprint,
+            )
+        return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=self._reply(fingerprint))])], fingerprint)
+
     def _block(self, parameters: dict | None, message_history: list[Message]) -> dict:
         """The block of the stage, told apart by the fields its spec requires."""
         properties = (parameters or {}).get("properties", {})
@@ -247,8 +381,13 @@ class MockProvider(AIClient):
             total = _requested_hours(_last_text(message_history)) or DEFAULT_PROGRAMME_HOURS
             return {"curriculum": _curriculum(total)}
         if "sources" in properties:
-            # The catalog is empty until the RAG index (#11), so nothing may be cited.
-            return {"sources": []}
+            # The catalogue holds the documents of the corpus, and the mock
+            # cites one of them the way the agent would.
+            return {"sources": [_catalog_source()]}
+        if "assessment" in properties:
+            return {"assessment": _assessment()}
+        if "materials" in properties:
+            return {"materials": _materials()}
         return {
             "summary": {
                 "goal": "Сформировать у слушателей практические знания и умения по теме программы.",

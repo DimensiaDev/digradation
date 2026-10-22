@@ -12,7 +12,7 @@ from typing import Any
 
 from app.agentic.models import Stage
 from app.agentic.state import ClarificationAnswer, ClarificationQuestion, ProgramState
-from app.providers.models import Content, Message
+from app.providers.models import Content, FileSchema, Message
 
 #: What every stage is told about its job, in the same words each time.
 STAGE_SYSTEM_PROMPT = """\
@@ -37,14 +37,31 @@ STAGE_TASKS: dict[Stage, str] = {
     ),
     Stage.HOURS: (
         "Составь учебный план: модули (m-01, m-02, …) и темы (t-01.1 внутри модуля m-01) с часами "
-        "по видам занятий и график обучения. Темы ссылаются на уже сохранённые результаты освоения "
-        "через outcome_ids. Сохрани блок вызовом save_program_draft."
+        "по видам занятий и график обучения. У каждого модуля укажи его собственные часы — они должны "
+        "равняться сумме часов его тем. Укажи часы итоговой аттестации: они входят в общий объём "
+        "программы, а не сверх него. Если программа очно-заочная, укажи, сколько часов проходит "
+        "дистанционно. Темы ссылаются на уже сохранённые результаты освоения через outcome_ids, "
+        "и каждый результат обучения должен быть раскрыт хотя бы в одной теме. "
+        "Сохрани блок вызовом save_program_draft."
+    ),
+    Stage.ASSESSMENT: (
+        "Составь оценочные средства программы: тестовые вопросы с ключами, задания для семинаров "
+        "с критериями оценки, формы текущего контроля по темам и итоговую аттестацию. Каждый "
+        "результат обучения проверяй хотя бы двумя средствами, а вопросы и задания привязывай к "
+        "темам учебного плана через topic_ids. Часы итоговой аттестации должны совпадать с "
+        "часами, отведёнными на неё в учебном плане. Сохрани блок вызовом save_program_draft."
+    ),
+    Stage.MATERIALS: (
+        "Подготовь материалы к занятиям: план лекции со слайдами для каждой темы учебного плана. "
+        "Планы лекций и слайды готовятся хотя бы для одного модуля, но лучше для всех тем, "
+        "у которых есть часы лекций. Сохрани блок вызовом save_program_draft."
     ),
     Stage.SOURCES: (
         "Подбери источники программы: нормативные акты, профессиональные стандарты, литературу. "
         "Ищи через search_sources и сохраняй только то, что вернул поиск, с теми же id. Если поиск "
-        "ничего не нашёл, сохрани пустой список — выдумывать документы запрещено. Сохрани блок "
-        "вызовом save_program_draft."
+        "ничего не нашёл, сохрани пустой список — выдумывать документы запрещено. Документ, которого "
+        "нет в каталоге, всё равно можно указать: он попадёт в программу помеченным как "
+        "неподтверждённый, и методист его проверит. Сохрани блок вызовом save_program_draft."
     ),
     Stage.SUMMARY: (
         "Составь паспорт программы: цель, задачи, целевую аудиторию, требования к слушателям, "
@@ -81,6 +98,12 @@ def stage_brief(state: ProgramState) -> str:
     if state.answers:
         answered = "\n".join(f"- {question.text}: {answer.text}" for question, answer in _answered_questions(state))
         parts.append(f"Ответы методиста на уточняющие вопросы:\n{answered}")
+    if state.revision is not None:
+        parts.append(
+            f"Правка от методиста к этому блоку:\n{state.revision.notes}\n"
+            "Переделай только этот блок, сохранив согласованность с остальной программой: "
+            "идентификаторы, объём часов и связи с результатами обучения не меняй без нужды."
+        )
     blocks = saved_blocks(state)
     saved = json.dumps(blocks, ensure_ascii=False, indent=2) if blocks else "пока ничего"
     parts.append(f"Уже сохранено:\n{saved}")
@@ -94,9 +117,16 @@ def _answered_questions(state: ProgramState) -> list[tuple[ClarificationQuestion
     return [(question, by_id[question.id]) for question in state.questions if question.id in by_id]
 
 
-def stage_messages(state: ProgramState) -> list[Message]:
-    """The conversation of one stage: the standing rules and the brief."""
+def stage_messages(state: ProgramState, files: list[str] | None = None) -> list[Message]:
+    """The conversation of one stage: the standing rules and the brief.
+
+    The files are the ones the methodist attached to the request. The provider
+    reads them the way it reads a message, so a stage sees the template or the
+    approved programme the request came with, and not only the description of
+    it that the intake wrote down.
+    """
+    attachments = [FileSchema(id=file_id) for file_id in files or []]
     return [
         Message(role="system", content=[Content(text=STAGE_SYSTEM_PROMPT)]),
-        Message(role="user", content=[Content(text=stage_brief(state))]),
+        Message(role="user", content=[Content(text=stage_brief(state), files=attachments)]),
     ]

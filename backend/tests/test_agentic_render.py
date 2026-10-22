@@ -61,8 +61,10 @@ def test_the_curriculum_is_rendered_with_its_hour_totals(draft: ProgramDraft) ->
     text = render_draft(draft)
 
     assert draft.curriculum.modules[0].title in text
-    assert "**Итого:** 66 ч" in text
-    assert "аудиторных 38 ч" in text
+    assert "**Итого:** 72 ч" in text
+    assert "темы 66 ч" in text
+    assert "итоговая аттестация 6 ч" in text
+    assert "аудиторных 44 ч" in text
     assert "самостоятельной работы 28 ч" in text
 
 
