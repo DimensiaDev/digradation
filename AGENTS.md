@@ -599,6 +599,15 @@ rule that will drift. Both endpoints answer with the programme's state, in the s
 `GET /program` answers with, and refuse what the tools refuse — 404 when the chat holds no
 programme, 409 when the decision is not allowed right now.
 
+**The methodist takes the decision in the chat.** While `status` is `pending_approval` and
+`busy` is false, `app-program-decision` replaces the composer the way the question form does,
+and offers an approval and a revision whose picker lists the stages whose status is
+`completed`. The blocks come from `programDecision` in `features/chat/program-view.ts`, and
+the two requests are `ChatService.approveProgram` / `reviseProgram`. A 409 is a rule of the
+programme, not a bug: show `detail` as it is and refresh the programme. Only the approval gate
+asks anything — a finished programme keeps the composer, and a content revision after the
+approval goes through the model's `revise_program`, which the methodist reaches by asking.
+
 `GET /program` reads the Redis mirror first and falls back to the row, so a client that
 polls it does not touch PostgreSQL; the fallback re-mirrors the state. The response carries
 the state's `updated_at` and `version`, so a client can see that it is looking at an older

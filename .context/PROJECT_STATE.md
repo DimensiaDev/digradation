@@ -3,9 +3,8 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-22** (the programmes catalogue shows only backend-backed data; the
-local-only duplicate/archive/delete actions, unsupported type/tag filters and the fabricated
-materials tab are gone, and the chat preview's blocks are an accordion with pinned downloads)
+Last updated: **2026-10-22** (the methodist approves a draft and asks for a revision from the
+chat, so the two programme endpoints are reachable without the model)
 
 ---
 
@@ -21,7 +20,7 @@ Everything described below is working via Docker Compose.
 | Package     | State                                                                                                                                                                             |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, providers, the programme cycle, pgvector source retrieval                                                     |
-| `frontend/` | Complete: guest mode, sign-in dialog, the home composer that starts a chat, chat with polling and the programme aside, profile, admin users, admin settings, programmes catalogue |
+| `frontend/` | Complete: guest mode, sign-in dialog, the home composer that starts a chat, chat with polling and the programme aside, profile, admin users, admin settings, programmes catalogue, the approve/revision decision panel |
 | `rag/`      | Complete: chunk models, mock embeddings, in-memory and pgvector stores, indexer, retrieval policy, one-off backend CLI                                                            |
 | `e2e/`      | Complete: bounded specs against the real Compose stack with the offline provider                                                                                                  |
 | Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup, `pgvector/pgvector:pg18` database                                                                 |
@@ -131,15 +130,19 @@ the open questions while a run is `awaiting_answers`; the workspace reads them f
 questions: `begin_program` takes them, the run waits in `awaiting_answers`, and the answers
 move it on.
 
-**The methodist decides through endpoints.** `POST /chats/{session_id}/program/approve` is
+**The methodist decides through endpoints and from the chat.** `POST /chats/{session_id}/program/approve` is
 the approval of a rendered draft: it releases the content stages, spends the attempt of the
 first one and records who approved and when. `POST /chats/{session_id}/program/revision` asks
 for one part to be redone: the stage runs again with the methodist's notes, the parts that
 were written from it are written again, and the stage starts a fresh budget of three. Both
 answer with the programme's state in the shape `GET /program` answers with, and both refuse
 what the model's own tools refuse — the rules live in `app/agentic/actions.py` and are shared.
-The client-side flow (the buttons, the answer form and the five-minute poll surviving a slow
-run) is still not built.
+The client reaches both from the chat: while a rendered draft waits (`status` is
+`pending_approval`, `busy` is false) a decision panel takes the composer's place, the way the
+question form does, and offers an approval and a revision. The revision form lists the blocks
+already saved and sends the chosen stage with the notes. If the finalisation has not run yet
+the approval is refused with 409; the panel re-reads the programme and the methodist presses
+it again.
 
 **RAG ingestion.** `backend/index_rag.py` is a one-off operator CLI, not an HTTP endpoint. It
 joins parser output under `edu_materials/parsed` to `backend/res/rag-sources.json` by
@@ -279,9 +282,10 @@ Ordered by value, not by commitment:
    deliberate headroom rather than an oversight.
 1. **Build the chat-side programme flow.** The backend can now write a programme in two
    halves, report on it, export it and redo one part of it; the client can list the
-   programmes, read the state, answer the questions of a run, show the self-check report and
-   download the DOCX/PPTX exports, but it cannot yet approve a rendered draft or ask for a
-   change. That is the gap that keeps the feature out of the user's hands.
+   programmes, read the state, answer the questions of a run, show the self-check report,
+   download the DOCX/PPTX exports, approve a rendered draft and ask for one part to be redone.
+   What is left is the run surviving a slow five-minute poll and the content revision after the
+   approval, which the methodist still reaches by asking the agent in prose.
 2. **Finish the programs catalog.** It is API-backed and shows only real programme state, but
    it is still read-only: add the mutation endpoints and the create/edit form behind
    `/programs/new`.
@@ -314,8 +318,9 @@ Ordered by value, not by commitment:
     deliberately has none of that.
 13. **OCR for the scanned FGO PDFs.** The catalog already marks them `allow_empty`, so the
     rest of the corpus can be indexed first; OCR is a parser change, not an ingestion change.
-14. **Finish the chat-side programme flow:** approve a rendered draft, ask for one part to be
-    redone, and make the five-minute poll survive a slow run.
+14. **Finish the chat-side programme flow:** make the five-minute poll survive a slow run, and
+    give the methodist a way to revise the content after the approval without phrasing it as a
+    chat message.
 15. **Make `/programs` writable.** There are no endpoints yet for duplicate, archive, restore or
     delete, so the page deliberately offers no such actions.
 16. **Fill the placeholder sections:** profile, user settings, the admin action log

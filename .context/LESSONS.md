@@ -1239,3 +1239,16 @@ to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALF
   Found 2026-10-22.
 - A programme block is not a pipeline stage. The preview placeholders said «Паспорт программы», «Учебный план» and «Источники» as if they were stages the client shows; the wizard names only five steps, so placeholders must point at «Каркас программы» or describe the agent's action, never invent a stage name.
 - `angular.json` caps a single component's stylesheet at 10 kB (`anyComponentStyle`, error) and warns from 6. The programme preview's 700 lines sit close to it, so adding a shared utility to that file pushed the build over by 24 bytes. The fix is a global partial under `src/app/` `@use`d from `styles.scss` — the pattern `_skeletons.scss` already sets — not a raised budget. Found 2026-10-22.
+- **`status: pending_approval` and `busy: false` arrive before the draft is finalized.** The
+  `completed()` transition sets the status, and `finalize_program_draft` runs as a *separate*
+  task that only writes the chat message and flips the private `finalized` flag. `busy` is
+  `status is GENERATING`, so it is false throughout, and the state does not expose `finalized`
+  at all: the client cannot tell that the draft was never rendered. `approve` then answers 409
+  `DraftNotReady` and the programme has to be re-read. A decision panel must therefore treat a
+  409 as a legitimate answer rather than a bug, and refresh. The window is short (the finalize
+  is enqueued in the same turn), but the state machine leaves it open. Found 2026-10-22.
+- A decision that is a gate has to replace the composer, not sit beside it. The questions form
+  and the approval panel are the same kind of moment — the run cannot move without the
+  methodist — so they share one slot; a control placed anywhere else leaves the methodist able
+  to type a message while the run is blocked, and the model answers it in prose. Found
+  2026-10-22.

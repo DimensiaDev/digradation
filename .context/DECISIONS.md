@@ -2427,3 +2427,43 @@ numbers, so a wrong volume is still a refusal the model can act on.
 
 The report still checks the volumes of a state stored before this change; only new saves are
 normalised. Found 2026-10-22 on a live programme.
+
+## The methodist's decision is taken from the chat, not from the aside
+
+The approval and the revision were reachable only through the model (`approve_program_draft`,
+`revise_program`), which is a guess: the methodist has to phrase a decision as a message and
+hope the model calls the right tool. The endpoints made the decision a request of its own, and
+the client needs a control that takes it.
+
+**The panel takes the composer's place, exactly as the question form does.** While `status` is
+`pending_approval` and `busy` is false the footer shows the decision instead of the message
+box. The two are the same kind of thing — a moment when the run cannot move without the
+methodist — so they use the same slot and the methodist learns one pattern. It also means the
+decision cannot be missed: it is where the eye already is while typing. The alternative, a
+button in the programme aside, would have left the methodist free to type a message that the
+model might answer with prose while the run stays blocked.
+
+**Only `pending_approval` asks anything, and only then.** The approval gate is the one place
+the pipeline is stopped without a way forward; after the approval the content stages run on
+their own and the programme finishes. Replacing the composer once the programme is complete
+would be permanent and would take the chat away for good, so a content revision after the
+approval is left to the model's `revise_program` tool, which the methodist already reaches by
+asking. The gate is a decision the client owes; a completed programme is not.
+
+**The revision lists the blocks that already exist.** `programDecision` builds the picker from
+`stages` where the stage is `completed`, in pipeline order, rather than naming all six stages.
+A stage that was not written has no block to redo, and the backend refuses that revision with
+409 `StageNotReady` — so the client offers only what the rules accept, instead of offering a
+choice that fails on submit. The picker therefore holds the skeleton at the approval gate and
+would hold the whole programme if the panel ever opened after it.
+
+**The refused decision is shown with the backend's own words.** The backend's `reason`
+sentences (in `app/agentic/errors.py`) are written for the methodist, so the failure path
+passes `detail` through unchanged and re-reads the programme, rather than inventing a message.
+A decision is a rule of the programme, not a broken request.
+
+The decision lives on `ChatComponent` because it makes its own request, next to `sendAnswers`,
+and `ChatPage` derives it from the programme state it already polls. The `revision` and
+`last_revision` records the backend added are carried in `ProgramStateApi`; the panel shows
+the last one so a methodist who asked for a change can see that it was taken and by whom.
+Added 2026-10-22.
