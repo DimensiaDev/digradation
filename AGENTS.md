@@ -421,6 +421,11 @@ organisation — and turns each corpus description into a record the programme c
 - **The search is lexical** — a keyword match over the descriptions, with the title counting
   double. The semantic index over the corpus arrives with the vector store; the seam is
   `search()`, and both answers are the same shape.
+- **The online search is `app/agentic/websearch.py`.** The corpus search is lexical and offline;
+  the web search asks the encyclopedia by default (`WEB_SEARCH_URL` points it at a search
+  service of the deployment's own). It is off on the mock provider, so the end-to-end suite
+  never needs the internet. What it finds is marked as unconfirmed: the corpus alone confirms
+  a document.
 
 ### The programme pipeline
 

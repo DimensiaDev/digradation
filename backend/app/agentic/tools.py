@@ -20,7 +20,7 @@ from typing import Annotated, Any
 import structlog.stdlib
 from pydantic import BaseModel, Field, ValidationError
 
-from app.agentic import sources
+from app.agentic import sources, websearch
 from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
 from app.agentic.state import (
     MAX_QUESTION_LENGTH,
@@ -176,8 +176,10 @@ SEARCH_SOURCES_SPEC = FunctionDefinition(
     name="search_sources",
     description=(
         "Найти релевантные фрагменты в базе источников: ФГОС, профессиональные стандарты, "
-        "примеры образовательных программ. Возвращает фрагменты с идентификаторами документов; "
-        "ссылаться в программе можно только на документы из результата поиска."
+        "примеры образовательных программ, а также в интернете. Возвращает фрагменты с "
+        "идентификаторами документов; ссылаться в программе можно только на документы из "
+        "результата поиска. Документ, которого нет в базе источников, попадёт в программу "
+        "помеченным как неподтверждённый."
     ),
     parameters=_inline_refs(SearchSourcesArguments.model_json_schema()),
 )
@@ -248,8 +250,17 @@ STAGE_SPECS: dict[Stage, FunctionDefinition] = {
 
 
 async def search_sources(_ctx: ToolContext, arguments: SearchSourcesArguments) -> SearchSourcesResult:
-    """Search the catalog and remember the ids the model may now cite."""
+    """Search the catalog and the web, and remember the documents the model may cite."""
     fragments = await sources.search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
+    for document in await websearch.search_web(arguments.query, limit=arguments.limit):
+        fragments.append(
+            sources.SourceFragment(
+                fragment_id=document.url,
+                source=document.as_source(),
+                section=document.title,
+                text=document.snippet,
+            )
+        )
     if not fragments:
         return SearchSourcesResult(
             query=arguments.query,

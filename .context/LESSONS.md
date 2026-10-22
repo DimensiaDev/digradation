@@ -1123,3 +1123,8 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   and `approved` means the programme is complete — the content's last stage. A whole cycle
   test that drives the approval into the content stages is what proves it: without it the
   content half of the programme never runs and nothing fails.
+
+- The Wikipedia API refuses a request without a `User-Agent`, and it refuses a generic one as
+  well: it wants a descriptive agent with a contact in it, and it says so in the body of the
+  403. A request that fails with "Please set a user-agent" is answered by sending one, not by
+  giving up on the search.

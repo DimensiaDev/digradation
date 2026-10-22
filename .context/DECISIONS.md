@@ -1904,3 +1904,26 @@ therefore a stage that runs again, not a new run.
   the agent's own failures, so a revision spends none of it.
 - **The draft is rendered again.** The revision clears the "rendered" flag, so the methodist
   sees the changed draft and confirms it again.
+
+## The online search reaches the web, and the web is not the publisher (2026-10-22)
+
+The criteria ask the agent to look for actual sources, and the corpus alone cannot answer that:
+it holds the documents the organisation already trusts, not the current versions of everything
+else. So the search has to reach outside it.
+
+- **The search has two sources and one shape.** `app/agentic/websearch.py` asks the
+  encyclopedia by default — it needs no credentials, and it covers the federal educational
+  standards and the professional standards by their names and numbers — and a deployment with
+  a search service of its own points `WEB_SEARCH_URL` at it. Both answer the same question in
+  the same shape, so nothing above the search changes.
+- **What the web finds is not what the corpus confirms.** A document the encyclopedia holds is
+  an internet resource and it is marked as unconfirmed: the encyclopedia is not the publisher of
+  an act. The catalogue alone confirms a document. That is the marking the criteria ask for,
+  and it is now reachable from outside the corpus rather than being a rule the model has to
+  remember.
+- **The search is off on the mock provider.** The stack runs on the mock, the end-to-end suite
+  among it, and a search that reached the network would make the suite depend on the internet.
+- **The GigaChat built-in search was not used.** The built-in function's result shape is not in
+  the API schema, the key that reaches `api.giga.chat` is not available on the development
+  machine, and the router in front of it exposes no built-ins. Shipping a protocol guess that
+  cannot be run would be worse than a search that is known to work.

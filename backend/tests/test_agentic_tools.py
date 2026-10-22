@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from app.agentic import sources, tools
+from app.agentic import sources, tools, websearch
 from app.agentic.models import ProgramStatus, Source, SourceKind, Stage, StageStatus
 from app.agentic.state import ClarificationQuestion, ProgramState, new_state
 from app.agentic.tools import (
@@ -264,6 +264,27 @@ async def test_search_returns_the_documents_it_found(context: ToolContext, monke
 
     assert result.ok is True
     assert [fragment.source.id for fragment in result.fragments] == [STANDARD_ID]
+
+
+async def test_the_search_reaches_the_corpus_and_the_web(context: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The agent finds the documents of the corpus and the documents of the web."""
+
+    async def corpus(query: str, *, kinds: Any = None, limit: int = 5):
+        source = Source(id=STANDARD_ID, kind=SourceKind.PROFESSIONAL_STANDARD, title="П")
+        return [sources.SourceFragment(fragment_id="frag-01", source=source, section="1", text="Текст")]
+
+    async def web(query: str, *, limit: int = 5):
+        return [websearch.WebDocument(title="ФГОС НОО", url="https://ru.wikipedia.org/wiki/ФГОС", snippet="Текст")]
+
+    monkeypatch.setattr(sources, "search", corpus)
+    monkeypatch.setattr(websearch, "search_web", web)
+
+    result = await execute_tool(context, call("search_sources", {"query": "ФГОС НОО"}))
+
+    assert result.ok is True
+    assert result.fragments[0].source.id == STANDARD_ID
+    assert result.fragments[-1].source.url == "https://ru.wikipedia.org/wiki/ФГОС"
+    assert result.fragments[-1].source.confirmed is False
 
 
 # --------------------------------------------------------------------------------------
