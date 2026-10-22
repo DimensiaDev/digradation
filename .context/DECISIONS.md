@@ -2466,4 +2466,20 @@ The decision lives on `ChatComponent` because it makes its own request, next to 
 and `ChatPage` derives it from the programme state it already polls. The `revision` and
 `last_revision` records the backend added are carried in `ProgramStateApi`; the panel shows
 the last one so a methodist who asked for a change can see that it was taken and by whom.
+
+**The panel shows one card at a time.** Picking either action hides the other card, so opening
+the revision does not leave the approval stranded above it, and confirming hides the revision.
+This is deliberate, not a rendering bug: the panel is one decision, and both cards at once
+invite a second click on an action that is already being taken. A refused approval is the
+exception — when the request settles without the programme moving, the choice comes back,
+because the methodist still owes the programme a decision and the only card left would be the
+one that just failed.
+
+**The panel is not closed by the click.** A revision or an approval disappears from the panel
+only once the programme is re-read: a revision moves the run to `generating`, an approval
+leaves `pending_approval`, and a decision is due in neither. Hiding the panel optimistically
+would destroy the component and the methodist's typed notes with it, and a refusal — the
+backend refuses a revision for five separate reasons — would then have to be re-entered by
+hand. The cost is one round trip during which the action is clickable again, and a second
+click is answered with 409 `RevisionPending`.
 Added 2026-10-22.
