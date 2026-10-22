@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from app.agentic import tools
+from app.agentic import sources, tools
 from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
 from app.agentic.state import ClarificationQuestion, ProgramState, new_state
 from app.agentic.tools import (
@@ -201,7 +201,7 @@ def catalog(monkeypatch: pytest.MonkeyPatch, kind: SourceKind = SourceKind.PROFE
             return None
         return Source(id=source_id, kind=kind, title=STANDARD_TITLE)
 
-    monkeypatch.setattr(tools, "get_source", get_source)
+    monkeypatch.setattr(sources, "get_source", get_source)
 
 
 # --------------------------------------------------------------------------------------
@@ -241,26 +241,25 @@ def test_every_stage_has_a_block_and_a_specification() -> None:
 # --------------------------------------------------------------------------------------
 
 
-async def test_search_reports_an_empty_catalog(context: ToolContext) -> None:
-    """The catalog is empty until RAG (#11) lands, and the model is told so."""
-    result = await execute_tool(context, call("search_sources", {"query": "образование"}))
+async def test_search_reports_what_the_catalog_does_not_hold(context: ToolContext) -> None:
+    """A query the corpus does not cover is answered with nothing, and the model is told so."""
+    result = await execute_tool(context, call("search_sources", {"query": "квантовая хромодинамика"}))
 
     assert result.ok is True
     assert "ничего не найдено" in (result.note or "")
-    assert context.known_source_ids == set()
 
 
-async def test_search_remembers_the_documents_it_showed(context: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_search_returns_the_documents_it_found(context: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     async def search(query: str, *, kinds: Any = None, limit: int = 5):
         source = Source(id=STANDARD_ID, kind=SourceKind.PROFESSIONAL_STANDARD, title="П")
-        return [tools.SourceFragment(fragment_id="frag-01", source=source, section="1", text="Текст")]
+        return [sources.SourceFragment(fragment_id="frag-01", source=source, section="1", text="Текст")]
 
-    monkeypatch.setattr(tools, "search", search)
+    monkeypatch.setattr(sources, "search", search)
 
     result = await execute_tool(context, call("search_sources", {"query": "аналитик"}))
 
     assert result.ok is True
-    assert context.known_source_ids == {STANDARD_ID}
+    assert [fragment.source.id for fragment in result.fragments] == [STANDARD_ID]
 
 
 # --------------------------------------------------------------------------------------
@@ -581,26 +580,26 @@ async def test_a_plan_pointing_at_an_unknown_topic_is_refused(context: ToolConte
 # --------------------------------------------------------------------------------------
 
 
-async def test_a_competence_cannot_cite_a_document_the_run_has_not_seen(
+async def test_a_competence_cannot_cite_a_standard_the_catalog_does_not_hold(
     context: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A competence has to stand on a professional standard that exists."""
     catalog(monkeypatch)
     block = competences_block()
-    block["competencies"][0]["standard_source_id"] = STANDARD_ID
+    block["competencies"][0]["standard_source_id"] = "src-99"
 
     result = await execute_tool(context, save(block))
 
     assert result.ok is False
-    assert "Не подтверждённые поиском источники" in (result.error or "")
+    assert "которых нет в каталоге" in (result.error or "")
     assert context.state is not None
     assert context.state.competencies == []
 
 
-async def test_a_seen_standard_is_kept_with_the_catalog_record(
+async def test_a_catalog_standard_is_kept_with_the_catalog_record(
     context: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     catalog(monkeypatch)
-    context.known_source_ids.add(STANDARD_ID)
     block = competences_block()
     block["competencies"][0]["standard_source_id"] = STANDARD_ID
 
@@ -610,13 +609,13 @@ async def test_a_seen_standard_is_kept_with_the_catalog_record(
     assert context.state is not None
     assert context.state.competencies[0].standard_source_id == STANDARD_ID
     assert [source.title for source in context.state.sources] == [STANDARD_TITLE]
+    assert [source.confirmed for source in context.state.sources] == [True]
 
 
 async def test_a_standard_must_be_a_professional_standard(
     context: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     catalog(monkeypatch, kind=SourceKind.NORMATIVE_ACT)
-    context.known_source_ids.add(STANDARD_ID)
     block = competences_block()
     block["competencies"][0]["standard_source_id"] = STANDARD_ID
 
@@ -626,29 +625,30 @@ async def test_a_standard_must_be_a_professional_standard(
     assert "Не профессиональные стандарты" in (result.error or "")
 
 
-async def test_an_unknown_source_is_refused(context: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_an_unknown_source_is_kept_and_marked(context: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nobody verified the document, so the programme says so instead of dropping it."""
     catalog(monkeypatch)
     context.state = at_stage(context.state, Stage.SOURCES)
 
     result = await execute_tool(context, save(sources_block("src-99")))
 
-    assert result.ok is False
-    assert "Неизвестные источники: src-99" in (result.error or "")
-    assert "оставь ссылки пустыми" in " ".join(result.details or [])
+    assert result.ok is True
+    assert "неподтверждённые" in (result.note or "")
+    assert context.state is not None
+    assert [source.id for source in context.state.sources] == ["src-99"]
+    assert [source.confirmed for source in context.state.sources] == [False]
 
 
 async def test_the_sources_stage_adds_to_what_earlier_stages_cited(
     context: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     catalog(monkeypatch)
-    context.known_source_ids.add(STANDARD_ID)
     standard = competences_block()
     standard["competencies"][0]["standard_source_id"] = STANDARD_ID
     await execute_tool(context, save(standard))
     context.state = at_stage(context.state, Stage.SOURCES)
-    context.known_source_ids.add("src-07")
     monkeypatch.setattr(
-        tools, "get_source", lambda source_id: Source(id=source_id, kind=SourceKind.LITERATURE, title=source_id)
+        sources, "get_source", lambda source_id: Source(id=source_id, kind=SourceKind.LITERATURE, title=source_id)
     )
 
     result = await execute_tool(context, save(sources_block("src-07")))
@@ -667,14 +667,16 @@ async def test_the_summary_may_only_cite_documents_the_run_already_has(
     result = await execute_tool(context, save(summary_block("src-04")))
 
     assert result.ok is False
-    assert "Неизвестные источники: src-04" in (result.error or "")
+    assert "не входит в список источников" in " ".join(result.details or [])
 
 
 async def test_the_summary_citation_joins_the_source_list(
     context: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The passport rests on the documents the programme already lists."""
     catalog(monkeypatch)
-    context.known_source_ids.add(STANDARD_ID)
+    context.state = at_stage(context.state, Stage.SOURCES)
+    await execute_tool(context, save(sources_block(STANDARD_ID)))
     context.state = at_stage(context.state, Stage.SUMMARY)
 
     result = await execute_tool(context, save(summary_block(STANDARD_ID)))

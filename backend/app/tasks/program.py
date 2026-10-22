@@ -122,11 +122,7 @@ async def _run_stage(
         stage_log.error("program_stage_no_user")
         return
     offered = stage_tools(stage)
-    ctx = ToolContext(
-        session_id=session_id,
-        state=state,
-        known_source_ids={source.id for source in state.sources},
-    )
+    ctx = ToolContext(session_id=session_id, state=state)
 
     async def keep_lock() -> None:
         if not await _refresh_lock(session_id, stage, token):

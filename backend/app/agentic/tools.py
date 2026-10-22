@@ -14,14 +14,14 @@ import copy
 import json
 import uuid
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Annotated, Any
 
 import structlog.stdlib
 from pydantic import BaseModel, Field, ValidationError
 
+from app.agentic import sources
 from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
-from app.agentic.sources import SourceFragment, get_source, search
 from app.agentic.state import (
     MAX_QUESTION_LENGTH,
     STAGE_ORDER,
@@ -62,9 +62,6 @@ class ToolContext:
 
     session_id: uuid.UUID
     state: ProgramState | None = None
-    #: Documents the model has actually seen, through ``search_sources`` or an
-    #: earlier block. Only these may be cited.
-    known_source_ids: set[str] = field(default_factory=set)
     dirty: bool = False
     #: Whether the stage's block was accepted in this turn.
     saved: bool = False
@@ -81,7 +78,7 @@ class ToolResult(BaseModel):
 
 class SearchSourcesResult(ToolResult):
     query: str
-    fragments: list[SourceFragment] = Field(default_factory=list)
+    fragments: list[sources.SourceFragment] = Field(default_factory=list)
 
 
 class SaveProgramDraftResult(ToolResult):
@@ -217,10 +214,9 @@ STAGE_SPECS: dict[Stage, FunctionDefinition] = {
 }
 
 
-async def search_sources(ctx: ToolContext, arguments: SearchSourcesArguments) -> SearchSourcesResult:
+async def search_sources(_ctx: ToolContext, arguments: SearchSourcesArguments) -> SearchSourcesResult:
     """Search the catalog and remember the ids the model may now cite."""
-    fragments = await search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
-    ctx.known_source_ids.update(fragment.source.id for fragment in fragments)
+    fragments = await sources.search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
     if not fragments:
         return SearchSourcesResult(
             query=arguments.query,
@@ -236,47 +232,49 @@ async def search_sources(ctx: ToolContext, arguments: SearchSourcesArguments) ->
 class _Citations:
     """What resolving a set of citations against the catalog found."""
 
+    #: The records the catalog holds for the cited ids.
     sources: list[Source]
+    #: Cited ids the catalog does not hold: kept, but marked as unconfirmed.
     unknown: list[str]
-    unsearched: list[str]
+    #: Professional standards a competence cites that the catalog does not hold.
+    unknown_standards: list[str]
+    #: Cited ids that are in the catalog but are not professional standards.
     not_standards: list[str]
 
 
-def _resolve_sources(ctx: ToolContext, source_ids: Iterable[str], *, standards: Iterable[str] = ()) -> _Citations:
-    """Replace the cited ids with their catalog records, collecting every refusal."""
-    standard_ids = set(standards)
-    citations = _Citations(sources=[], unknown=[], unsearched=[], not_standards=[])
+def _resolve_sources(source_ids: Iterable[str], *, standards: Iterable[str] = ()) -> _Citations:
+    """Bind the cited ids to the catalog, collecting what could not be bound.
+
+    A source the catalog does not hold is not a refusal: the programme keeps it
+    and marks it as unconfirmed, because the methodist has to see that nobody
+    verified the document. A professional standard a competence rests on is a
+    refusal, because a competence has to stand on a standard that exists.
+    """
+    citations = _Citations(sources=[], unknown=[], unknown_standards=[], not_standards=[])
     for source_id in dict.fromkeys(source_ids):
-        source = get_source(source_id)
-        if source is None:
+        record = sources.get_source(source_id)
+        if record is None:
             citations.unknown.append(source_id)
-        elif source_id not in ctx.known_source_ids:
-            citations.unsearched.append(source_id)
-        elif source_id in standard_ids and source.kind is not SourceKind.PROFESSIONAL_STANDARD:
-            citations.not_standards.append(source_id)
         else:
-            citations.sources.append(source)
+            citations.sources.append(record)
+    for source_id in dict.fromkeys(standards):
+        record = sources.get_source(source_id)
+        if record is None:
+            citations.unknown_standards.append(source_id)
+        elif record.kind is not SourceKind.PROFESSIONAL_STANDARD:
+            citations.not_standards.append(source_id)
     return citations
 
 
 def _citation_error(citations: _Citations) -> SaveProgramDraftResult | None:
     """The refusal a bad citation earns, or ``None`` when every one resolved."""
-    if citations.unknown:
+    if citations.unknown_standards:
         return SaveProgramDraftResult(
             ok=False,
-            error="Неизвестные источники: " + ", ".join(citations.unknown),
+            error="Профессиональные стандарты, которых нет в каталоге: " + ", ".join(citations.unknown_standards),
             details=[
-                "Используй только источники из результатов search_sources; выдуманные документы запрещены. "
-                "Если поиск ничего не нашёл, оставь ссылки пустыми."
-            ],
-        )
-    if citations.unsearched:
-        return SaveProgramDraftResult(
-            ok=False,
-            error="Не подтверждённые поиском источники: " + ", ".join(citations.unsearched),
-            details=[
-                "Сначала найди документ вызовом search_sources и ссылайся только на то, что вернул поиск. "
-                "Если поиск ничего не нашёл, оставь ссылки пустыми."
+                "Найди профессиональный стандарт вызовом search_sources и укажи его id: "
+                "компетенция должна опираться на стандарт, который существует."
             ],
         )
     if citations.not_standards:
@@ -306,6 +304,16 @@ def _source_ids(block: SourcesBlock) -> Iterable[str]:
 
 def _basis_ids(block: SummaryBlock) -> Iterable[str]:
     return block.summary.basis_source_ids
+
+
+def _basis_problems(state: ProgramState, block: SummaryBlock) -> list[str]:
+    """The passport may only rest on sources the programme already lists."""
+    known = {source.id for source in state.sources}
+    return [
+        f"источник {source_id} упомянут в паспорте, но не входит в список источников"
+        for source_id in block.summary.basis_source_ids
+        if source_id not in known
+    ]
 
 
 def _hours_problems(state: ProgramState, block: HoursBlock) -> list[str]:
@@ -378,6 +386,9 @@ _SAVERS: dict[type[BaseModel], _Save] = {
     SummaryBlock: _Save(
         apply=lambda state, block, sources: state.with_summary(block, sources),
         cited=_basis_ids,
+        problems=_basis_problems,
+        rejected="Паспорт программы не принят",
+        retry="Укажи в списке источников те документы, на которые опирается программа, и сохрани блок снова.",
         note="Паспорт программы сохранён. Черновик собирается, подтверждение попросит методист.",
     ),
     AssessmentBlock: _Save(
@@ -408,12 +419,32 @@ async def save_program_draft(ctx: ToolContext, arguments: BaseModel) -> SaveProg
         return SaveProgramDraftResult(ok=False, error="Неизвестный блок программы")
     if problems := rule.problems(state, arguments):
         return SaveProgramDraftResult(ok=False, error=rule.rejected, details=problems, note=rule.retry)
-    citations = _resolve_sources(ctx, rule.cited(arguments), standards=rule.standards(arguments))
+    citations = _resolve_sources(rule.cited(arguments), standards=rule.standards(arguments))
     if error := _citation_error(citations):
         return error
     ctx.state = rule.apply(state, arguments, citations.sources)
     ctx.dirty = ctx.saved = True
-    return SaveProgramDraftResult(status=ctx.state.status, stage=ctx.state.current_stage, note=rule.note)
+    return SaveProgramDraftResult(
+        status=ctx.state.status,
+        stage=ctx.state.current_stage,
+        note=_note(rule, citations),
+    )
+
+
+def _note(rule: _Save, citations: _Citations) -> str:
+    """What the stage is told after its block was accepted.
+
+    A source the catalog does not hold is not refused, but the model has to
+    hear about it: the programme will mark the source as unconfirmed, and the
+    methodist has to know that nobody verified the document.
+    """
+    if not citations.unknown:
+        return rule.note
+    listed = ", ".join(citations.unknown)
+    return (
+        f"{rule.note} Каталог не подтвердил: {listed} — в программе они помечены как "
+        "неподтверждённые, скажи об этом методисту."
+    )
 
 
 async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> BeginProgramResult:

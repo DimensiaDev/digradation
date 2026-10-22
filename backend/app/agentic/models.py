@@ -34,7 +34,13 @@ QuestionId = Annotated[str, StringConstraints(pattern=r"^q-\d{1,3}-\d{1,3}$")]
 SeminarTaskId = Annotated[str, StringConstraints(pattern=r"^st-\d{1,3}$")]
 LecturePlanId = Annotated[str, StringConstraints(pattern=r"^lp-\d{1,3}$")]
 SlideDeckId = Annotated[str, StringConstraints(pattern=r"^sd-\d{1,3}$")]
-SourceId = Annotated[str, StringConstraints(pattern=r"^src-\d{1,3}$")]
+#: A source is either one the run made up (``src-01``) or one of the corpus
+#: documents, whose ids are stable codes like ``profstd-06.017`` or
+#: ``fgos-soo-2026``.
+SourceId = Annotated[
+    str,
+    StringConstraints(pattern=r"^(src-\d{1,3}|[a-z][a-z0-9]*(?:[-.][a-z0-9]+){0,4})$", max_length=64),
+]
 StaffSlotId = Annotated[str, StringConstraints(pattern=r"^ts-\d{1,3}$")]
 
 
@@ -343,6 +349,13 @@ class Source(SchemaModel):
     )
     url: str | None = Field(default=None, max_length=2000, description="URL of an internet resource")
     primary: bool | None = Field(default=None, description="Literature only: True is основная, False is дополнительная")
+    #: Whether the catalogue holds this document. The backend sets it, not the
+    #: model: a source the catalogue does not know is kept and marked.
+    confirmed: bool = Field(default=True, description="Подтверждён каталогом источников")
+    #: How far the document may be trusted, as the catalogue describes it.
+    trust: str | None = Field(default=None, max_length=500, description="Статус доверия документа")
+    #: Where the document comes from.
+    origin: str | None = Field(default=None, max_length=500, description="Происхождение документа")
 
     @model_validator(mode="after")
     def _require_literature_for_primary(self) -> Self:

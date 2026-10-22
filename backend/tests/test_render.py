@@ -284,6 +284,16 @@ def test_render_no_sources_skips_section():
     assert "Литература и источники" not in text
 
 
+def test_render_marks_a_source_nobody_confirmed():
+    """A document the catalog does not hold is marked in the document too."""
+    draft = _minimal_draft(sources=[Source(id="src-1", kind=SourceKind.NORMATIVE_ACT, title="ФЗ-273", confirmed=False)])
+
+    text = _docx_text(render_program_draft(draft))
+
+    assert "ФЗ-273" in text
+    assert "не подтверждён каталогом источников" in text
+
+
 # --------------------------------------------------------------------------- pending
 def test_render_has_pending_sections_note():
     text = _docx_text(render_program_draft(_minimal_draft()))

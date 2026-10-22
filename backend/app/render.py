@@ -449,7 +449,11 @@ def _format_source(source: Source) -> str:
         parts.append(source.identifier)
     if source.url:
         parts.append(source.url)
-    return " — ".join(parts)
+    text = " — ".join(parts)
+    if not source.confirmed:
+        # Nobody verified the document, so the document says so too.
+        text += " (не подтверждён каталогом источников)"
+    return text
 
 
 # --------------------------------------------------------------------------- content

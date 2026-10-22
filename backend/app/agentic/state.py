@@ -16,6 +16,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.agentic import sources
 from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
 from app.agentic.models import (
     AssessmentPlan,
@@ -290,7 +291,7 @@ class ProgramState(BaseModel):
 
     def with_sources(self, block: SourcesBlock) -> Self:
         """Add the stage's sources to the ones the earlier stages already cite."""
-        return self._replace(sources=self._merged_sources(block.sources))
+        return self._replace(sources=self._merged_sources([_confirmed(source) for source in block.sources]))
 
     def with_summary(self, block: SummaryBlock, sources: list[Source]) -> Self:
         """Save the passport and the documents it is based on."""
@@ -464,14 +465,16 @@ class ProgramState(BaseModel):
         if self.summary is not None:
             cited |= set(self.summary.basis_source_ids)
         problems = self.citation_problems(cited)
+        unconfirmed = [source for source in self.sources if not source.confirmed]
+        problems += [f"источник {source.id} не подтверждён каталогом — его нужно проверить" for source in unconfirmed]
         return ProgramCheck(
             name="источники",
             ok=not problems,
             problems=problems,
             details={
                 "всего источников": len(self.sources),
-                "подтверждено": len(self.sources),
-                "не подтверждено": len(problems),
+                "подтверждено": len(self.sources) - len(unconfirmed),
+                "не подтверждено": len(unconfirmed),
             },
         )
 
@@ -654,6 +657,19 @@ class ProgramState(BaseModel):
         changes.setdefault("version", self.version + 1)
         changes.setdefault("updated_at", datetime.now(UTC))
         return self.model_copy(update=changes)
+
+
+def _confirmed(source: Source) -> Source:
+    """The catalog decides whether a source is confirmed, not the model.
+
+    A document the catalog holds is cited with the catalog's record. Any other
+    keeps what the agent wrote about it and is marked as unconfirmed, because
+    nobody verified the document and the methodist has to see that.
+    """
+    record = sources.get_source(source.id)
+    if record is None:
+        return source.model_copy(update={"confirmed": False})
+    return record.model_copy(update={"primary": source.primary, "url": source.url or record.url})
 
 
 def new_state(

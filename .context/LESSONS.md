@@ -1110,3 +1110,9 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   field as if the list had it, and do not open a detail request for every card to fill one.
   The optional fields in `ProgramApiItem` are the seam for the catalogue contract growing.
   Found 2026-10-21.
+
+- A corpus description puts the heading of the next document on the line **before** its `ID:`
+  line, so an entry's extract ends where that heading starts. Reading the body up to the next
+  `ID:` line therefore mixes the next document's title into this document's summary, and a
+  search for "ФГОС среднего общего образования" then ranks the *основного* general education
+  standard first, because its summary contains the next document's heading.

@@ -23,6 +23,7 @@ from app.agentic.state import (
     STAGE_ORDER,
     ClarificationAnswer,
     ProgramState,
+    SourcesBlock,
     apply_answers,
     new_state,
 )
@@ -179,6 +180,21 @@ def test_the_report_names_what_is_missing(blocks: Blocks) -> None:
 
     assert report.ok is False
     assert "модуль m-1 заявлен на 99 ч" in " ".join(report.checks[0].problems)
+
+
+def test_the_report_names_the_sources_nobody_confirmed(blocks: Blocks) -> None:
+    """A source the catalog does not hold is a finding, not a silent gap."""
+    state = make_state(blocks).with_sources(SourcesBlock(sources=blocks["sources"]))
+
+    report = state.report()
+
+    sources = report.checks[2]
+    assert sources.name == "источники"
+    assert sources.details["всего источников"] == 6
+    assert sources.details["не подтверждено"] == 4
+    assert sources.details["подтверждено"] == 2
+    assert "src-01" in " ".join(sources.problems)
+    assert "profstd-06.001" not in " ".join(sources.problems)
 
 
 def test_the_report_says_which_sections_are_empty(blocks: Blocks) -> None:

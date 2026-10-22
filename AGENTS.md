@@ -400,6 +400,28 @@ input always yields the same text. The `stage` mode's fabricated programme is on
 document sized to the volume the brief names, because the pipeline validates the blocks
 against each other and a block that disagrees fails the run.
 
+### The sources a programme may cite
+
+`app/agentic/sources.py` is the catalogue: it reads the corpus in `edu_materials/` — the
+federal educational standards, the professional standards and the programmes of the
+organisation — and turns each corpus description into a record the programme can cite.
+
+| What | Where |
+|---|---|
+| The corpus | `edu_materials/<corpus>/` — the documents and the description of each |
+| The catalogue | `app/agentic/sources.py` — `entries()`, `get_source()`, `search()` |
+| The path | `EDU_MATERIALS_PATH`, defaulting to the checkout's `edu_materials` |
+| The image | `backend/Dockerfile` copies the corpus to `/edu_materials` |
+
+- **A source is confirmed when the catalogue holds it, and only then.** The backend sets
+  `Source.confirmed`, not the model: a document the catalogue does not know is kept in the
+  programme and marked as unconfirmed, in the report, in the chat reply and in the DOCX.
+- **A professional standard a competence rests on is a refusal**, because a competence has to
+  stand on a standard that exists. A bibliography entry may be unconfirmed.
+- **The search is lexical** — a keyword match over the descriptions, with the title counting
+  double. The semantic index over the corpus arrives with the vector store; the seam is
+  `search()`, and both answers are the same shape.
+
 ### The programme pipeline
 
 The sequential educational-programme cycle is the reference implementation for any future

@@ -1854,3 +1854,31 @@ rather than the old text.
   follows, not in a check that could only catch the obvious.
 - **The text of the request is the requirements** the run already carries, so a request in
   plain text needs nothing else.
+
+## The catalogue is the corpus, and the corpus marks its trust (2026-10-22)
+
+The criteria ask for two things about the sources: every document a programme cites has to
+exist, and a source nobody confirmed has to be marked. The corpus in `edu_materials/` answers
+both, and it is the corpus itself rather than a hand-written list.
+
+- **The catalogue is read from the corpus descriptions.** Each corpus directory carries a
+  description of its documents — id, name, type, the order that approved it, where it came from
+  and how far it may be trusted — and `app/agentic/sources.py` parses those into the records the
+  programme cites. A document that is not in the corpus cannot be confirmed, and the corpus is
+  the only authority on whether it exists.
+- **The backend decides whether a source is confirmed, not the model.** `Source.confirmed` is
+  set when the source enters the programme: a document the catalogue holds is cited with the
+  catalogue's record, anything else keeps what the agent wrote about it and is marked as
+  unconfirmed. The mark shows in the chat reply, in the report and in the DOCX.
+- **A refusal was the wrong answer for a bibliography entry.** The stage used to refuse a
+  source the catalogue did not hold, which threw the document away and told the agent nothing
+  about it. The criteria ask for the document to be marked instead, so that the methodist sees
+  what nobody verified. A professional standard a competence rests on is still a refusal: a
+  competence has to stand on a standard that exists.
+- **The passport may only rest on documents the programme already lists.** The check moved from
+  the catalogue to the programme's own source list, because the bibliography and the passport
+  have to agree.
+- **The search is lexical for now.** A keyword match over the descriptions, with the title
+  counting double, answers the agent offline and in the tests. The semantic index over the
+  corpus arrives with the vector store; `search()` is the seam, and both answers are the same
+  shape, so nothing above it changes.
