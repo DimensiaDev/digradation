@@ -2081,3 +2081,26 @@ set of materials without a slide passed it. The report now looks at what a secti
 and the stages refuse a block that is empty: a curriculum with no lecture plan and no
 slides is a curriculum with nothing in it, and the criterion asks for the slides of at
 least one module.
+
+## The methodist's decisions are endpoints, and the rules are shared (2026-10-22)
+
+The frontend asked for endpoints to approve a draft and to ask for a revision, because the
+model's tool calls are a guess: the methodist has to be able to press a button.
+
+- **The two surfaces share one set of rules.** `app/agentic/actions.py` holds the conditions
+  under which a decision is allowed, and both the model's tool and the HTTP endpoint call
+  it. A rule written twice is a rule that will drift, and the two surfaces have to refuse
+  the same programmes for the same reasons.
+- **The approval is the methodist's own decision, so it is recorded.** The state keeps who
+  approved and when, and the revision keeps who asked for it and when. Without the record an
+  explicit approval endpoint is indistinguishable from the model confirming the methodist's
+  words, and nobody can say who let the programme be finished.
+- **The endpoint answers with the programme's state,** in the shape `GET /program` answers
+  with, so a client renders the answer without a second request. The pending revision comes
+  with it, because the methodist's own notes are otherwise nowhere to be seen.
+- **An approval spends an attempt and a revision spends none,** exactly as the model's path
+  does: the release of the content is a stage like any other, and a change the methodist
+  asked for is not a failed attempt.
+- **The endpoint writes the state through `app.agentic.store`,** on its own connection, so
+  the state is committed before the stage is enqueued. A worker that picks the task up
+  immediately therefore reads a state that already says what it is doing.

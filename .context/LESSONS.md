@@ -1159,3 +1159,15 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   is `lru_cache`d, but tests that replace it with a plain fake leave no `cache_clear`
   attribute. `clear_retriever_cache` has to use `getattr(get_retriever, "cache_clear", None)`
   rather than calling the attribute directly. Found 2026-10-22.
+
+- **A login inside a test's transaction holds a lock the cleanup waits for.** The foreign
+  key of `sessions.user_id` makes the insert take a `FOR KEY SHARE` lock on the user row,
+  and the test's transaction keeps it until it rolls back, which happens after the
+  fixture's teardown. A fixture that deletes the user in its teardown then waits for a lock
+  nobody will release, and the suite hangs after the test has already passed — the symptom
+  is a run that never exits, not a failure. Create the session row in the fixture's own
+  committed transaction instead. Found 2026-10-22.
+- **A route that writes through `app.agentic.store` needs a committed chat row.**
+  `store.save` opens its own connection and takes the chat row's lock, so a chat that only
+  the test's transaction can see is invisible to it, and the write fails with `MissingChat`.
+  The fixture has to commit the chat on a connection of its own. Found 2026-10-22.

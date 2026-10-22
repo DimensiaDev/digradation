@@ -5,7 +5,8 @@ in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
 Last updated: **2026-10-22** (the programme is written in two halves; its sources come from the
 curated catalogue and the pgvector index, with the corpus descriptions answering when there is
-no index; the programme leaves as a document and as slides, and the search reaches the web)
+no index; the programme leaves as a document and as slides, and the search reaches the web;
+the methodist approves a draft and asks for a change through endpoints of their own)
 
 ---
 
@@ -110,9 +111,17 @@ carries the questions a programme is waiting an answer to, and
 `POST /chats/{session_id}` takes those answers in an `answers` array next to `content`.
 `GET /chats/programmes` lists the user's programmes, paginated. A run may ask the methodist
 questions: `begin_program` takes them, the run waits in `awaiting_answers`, and the answers
-move it on. The chat-side programme flow (answering the run's questions and approving a
-rendered draft in the chat UI) is still not built, and the chat's five-minute poll can time
-out before a slow run finishes.
+move it on.
+
+**The methodist decides through endpoints.** `POST /chats/{session_id}/program/approve` is
+the approval of a rendered draft: it releases the content stages, spends the attempt of the
+first one and records who approved and when. `POST /chats/{session_id}/program/revision` asks
+for one part to be redone: the stage runs again with the methodist's notes, the parts that
+were written from it are written again, and the revision spends no attempt. Both answer with
+the programme's state in the shape `GET /program` answers with, and both refuse what the
+model's own tools refuse — the rules live in `app/agentic/actions.py` and are shared. The
+client-side flow (the buttons, the answer form and the five-minute poll surviving a slow
+run) is still not built.
 
 **RAG ingestion.** `backend/index_rag.py` is a one-off operator CLI, not an HTTP endpoint. It
 joins parser output under `edu_materials/parsed` to `backend/res/rag-sources.json` by

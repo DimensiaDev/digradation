@@ -570,9 +570,18 @@ The endpoints the client uses:
 | `POST /chats/{session_id}` | sends a message, and optionally the answers to the open questions |
 | `GET /chats/{session_id}/result` | the last turn's reply, and the open questions |
 | `GET /chats/{session_id}/program` | where the programme stands: status, stage, the blocks saved so far, the self-check report |
+| `POST /chats/{session_id}/program/approve` | approves a rendered draft: releases the content stages and records who approved |
+| `POST /chats/{session_id}/program/revision` | asks for one part of the programme to be redone, with the notes |
 | `GET /chats/programmes` | the user's programmes, paginated with `page` and `items_per_page` |
 | `GET /chats/{session_id}/program.docx` | the programme as a DOCX document |
 | `GET /chats/{session_id}/program.pptx` | the slides of the programme as a PPTX file |
+
+The approval and the revision are the methodist's own decisions, and the model can reach the
+same two through its intake tools. The rules that decide whether a decision is allowed live
+once, in `app/agentic/actions.py`, and both surfaces call them: a rule written twice is a
+rule that will drift. Both endpoints answer with the programme's state, in the shape
+`GET /program` answers with, and refuse what the tools refuse — 404 when the chat holds no
+programme, 409 when the decision is not allowed right now.
 
 `GET /program` reads the Redis mirror first and falls back to the row, so a client that
 polls it does not touch PostgreSQL; the fallback re-mirrors the state. The response carries
