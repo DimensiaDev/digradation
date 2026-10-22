@@ -13,6 +13,7 @@ implements the same contract on its own wire format.
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -39,6 +40,12 @@ from app.providers.models import (
 #: ``ai-sage/GigaChat3.5-432B-A28B-Reasoning`` and
 #: ``ai-sage/Giga-Embeddings-instruct-3B`` (embeddings, not chat).
 DEFAULT_OPENAI_MODEL = "GigaChat/GigaChat-3-Pro"
+
+#: The marker GigaChat writes when it answers with a function call as text.
+#: The hub relays it verbatim in ``content``, with no structured ``tool_calls``
+#: beside it, so a call the model made would otherwise read as prose and the
+#: stage would fail with "the model saved no block".
+INLINE_CALL = "<|function_call|>"
 
 
 class OpenAIProvider(AIClient):
@@ -180,11 +187,58 @@ class OpenAIProvider(AIClient):
             total_tokens=usage.total_tokens,
         )
 
+    @staticmethod
+    def _inline_call(payload: object) -> ToolCall | None:
+        """One call out of the JSON the model wrote after the marker."""
+        if not isinstance(payload, dict):
+            return None
+        name = payload.get("name")
+        if not isinstance(name, str) or not name:
+            return None
+        arguments = payload.get("arguments", {})
+        raw = arguments if isinstance(arguments, str) else json.dumps(arguments, ensure_ascii=False)
+        return ToolCall(id=f"call_{uuid.uuid4().hex}", function=FunctionCall(name=name, arguments=raw))
+
+    @classmethod
+    def _inline_calls(cls, text: str) -> tuple[list[ToolCall], str]:
+        """Calls the endpoint wrote into the text, and the prose around them.
+
+        GigaChat's native answer is the marker followed by a JSON object. The
+        decoder takes the first complete value and leaves the rest, so a marker
+        whose payload runs into the next token still yields the call. What the
+        model wrote before the first marker is kept as its prose; the fragments
+        after it belong to the marker, not to an answer, and are dropped. A
+        marker that holds no call is left in the text untouched.
+        """
+        if INLINE_CALL not in text:
+            return [], text
+        decoder = json.JSONDecoder()
+        calls: list[ToolCall] = []
+        prose = ""
+        cursor = 0
+        while (index := text.find(INLINE_CALL, cursor)) >= 0:
+            if not calls:
+                prose = text[:index]
+            start = index + len(INLINE_CALL)
+            while start < len(text) and text[start].isspace():
+                start += 1
+            try:
+                payload, cursor = decoder.raw_decode(text, start)
+            except json.JSONDecodeError:
+                break
+            for item in payload if isinstance(payload, list) else [payload]:
+                call = cls._inline_call(item)
+                if call is not None:
+                    calls.append(call)
+        if not calls:
+            return [], text
+        return calls, prose.strip()
+
     @classmethod
     def _map_completion(cls, completion: ChatCompletion) -> GenerationResponse:
         choice = completion.choices[0]
         message = choice.message
-        content = [Content(text=message.content)] if message.content else []
+        text = message.content or ""
         tool_calls = [
             ToolCall(
                 id=call.id,
@@ -193,6 +247,9 @@ class OpenAIProvider(AIClient):
             for call in message.tool_calls or []
             if call.type == "function"
         ]
+        if not tool_calls:
+            tool_calls, text = cls._inline_calls(text)
+        content = [Content(text=text)] if text else []
 
         return GenerationResponse(
             messages=[Message(role="assistant", content=content)],

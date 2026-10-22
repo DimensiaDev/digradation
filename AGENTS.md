@@ -385,6 +385,12 @@ request and maps the model's requests onto `GenerationResponse.tool_calls`. A pr
 constructed with a default set, and a caller narrows it per turn with `generate(..., tools=)`.
 `mock` accepts `tools=` and scripts a call from it only in `stage` mode.
 
+The hub can deliver GigaChat's native call as message text — `content='<|function_call|>{...}'`
+with `tool_calls=None` — so `OpenAIProvider` normalises that marker into a `ToolCall` before
+anything above it sees the reply. The payload may carry junk after the JSON object, so the
+first complete value is decoded and the tail is dropped; a marker that yields no call stays
+text. `SberProvider` talks to the v2 wire shape directly and needs none of this.
+
 The two real providers use different wire shapes, and the internal model hides the difference:
 
 - **OpenAI**: `tools[].function` with `arguments` as a JSON *string*.
@@ -496,6 +502,12 @@ completeness gate that a partial state cannot pass.
   The admin `prompt_extension` from `harness.build_system_prompt` does not reach programme
   stages; carrying it there would mean storing it in `ProgramState` from the chat worker's
   intake turn. That is a deliberate decision, recorded in `.context/DECISIONS.md`.
+- **A stage does not take prose for a block it has not saved.** `run_tool_loop` accepts a
+  `complete` callback, and `program_stage` passes `lambda: ctx.saved`. While it says no, a text
+  answer is kept as the model's turn and followed by a user nudge instead of ending the stage,
+  because a refused call is otherwise answered with "I fixed it" and no second call. The intake
+  passes nothing: a refused intake call is a legitimate answer to the methodist. A truncated
+  reply (`finish_reason=length`) is still refused before the nudge.
 
 ### Source retrieval (RAG)
 

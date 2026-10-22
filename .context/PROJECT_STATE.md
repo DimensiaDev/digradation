@@ -3,10 +3,11 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-22** (the programme is written in two halves; its sources come from the
-curated catalogue and the pgvector index, with the corpus descriptions answering when there is
-no index; the programme leaves as a document and as slides, and the search reaches the web;
-the methodist approves a draft and asks for a change through endpoints of their own)
+Last updated: **2026-10-22** (a stage no longer ends on a prose answer while its block is
+unsaved, and the OpenAI-compatible provider recovers GigaChat's inline function call from the
+message text; the programme is written in two halves, its sources come from the curated
+catalogue and the pgvector index, the programme leaves as a document and as slides, and the
+methodist approves a draft and asks for a change through endpoints of their own)
 
 ---
 
@@ -63,7 +64,10 @@ programme, to confirm a rendered draft, to ask for one part to be redone
 (`revise_program`), or to answer in prose. One TaskIQ task owns one stage — competences, hours,
 sources, summary, assessment, materials — and each commits its block before enqueueing the
 next, so a worker that dies leaves every finished block behind and `recover_stalled_programs`
-restarts the stage that stopped. The skeleton is rendered into the chat and waits for the
+restarts the stage that stopped. A stage does not take a text answer for a saved block: the
+tool loop is told whether the block is committed and sends the model back to the tool while it
+is not, because a refused call is often answered with "I fixed it" and no second call. The
+skeleton is rendered into the chat and waits for the
 methodist's confirmation, which the model turns into an `approve_program_draft` call; the
 content is written only after that approval, and a `revise_program` call reruns one part of
 the programme on request.
@@ -214,7 +218,9 @@ shape without a socket.
 `OPENAI_MODEL`), `mock` the offline stand-in. Tool calling is implemented for both the
 OpenAI-compatible and the GigaChat v2 clients, and each turn names the tools it offers — the
 provider's own default list is empty on purpose, so a stage cannot offer the intake tools and
-vice versa. The OpenAI live tests carry an extra `openai` marker and are selected with
+vice versa. The OpenAI-compatible client also recovers GigaChat's native
+`<|function_call|>` payload when the hub delivers it as message text instead of `tool_calls`.
+The OpenAI live tests carry an extra `openai` marker and are selected with
 `-m 'live and openai'`; the GigaChat tool test shares `-m live` with the rest of
 `test_live_gigachat.py`.
 

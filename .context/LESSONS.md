@@ -1185,3 +1185,19 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   assembled by completing the stages and setting `skeleton_approved` never happened, so a
   content revision made against it is refused and the failure looks like a broken rule
   rather than a lying fixture. Found in review, 2026-10-22.
+
+- **The school hub returns GigaChat's function call as text, not as `tool_calls`.** The reply
+  is `content='<|function_call|>{"name": ..., "arguments": {...}}'` with `tool_calls=None` and
+  `finish_reason='stop'`, so a provider that reads only `message.tool_calls` gives the stage a
+  prose answer and the run dies with "модель не сохранила блок этапа" — after three identical
+  attempts, because the retry prompt is unchanged. `OpenAIProvider` parses the marker out of
+  the content. The payload can run into junk after the object (`}}, "visible": false}`), so
+  decode the first complete value and drop the rest; a marker that yields no call stays text.
+  Found 2026-10-22 on a live `hours` stage.
+- **GigaChat answers a refused tool call with prose.** After `save_program_draft` returned
+  `ok=false` for a bad `outcome_ids`, the model wrote "Я исправил ссылки…" and never called
+  again, and the loop took that as the stage's answer. A weak model needs to be told that the
+  block is still unsaved; `run_tool_loop(complete=...)` now sends that nudge instead of ending
+  the turn. The same model may also omit a required field (`curriculum.schedule`) for six
+  rounds in a row, so the round bound is what ends that attempt, not the model. Found
+  2026-10-22.

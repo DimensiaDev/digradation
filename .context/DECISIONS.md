@@ -2146,3 +2146,25 @@ programme, decides, writes, and in between a worker or another decision may have
   only means the skeleton reached the chat. The scan skips it for a run waiting for the
   methodist, not for one that is still writing its content, so an approval whose queue entry
   was lost is recovered instead of staying stuck until somebody notices.
+
+## A stage does not accept prose for a block it has not saved (2026-10-22)
+
+`run_tool_loop` ended the turn on the first text answer, which is right for the chat intake and
+wrong for a stage. A live `hours` run showed the shape: the model called `save_program_draft`,
+the tool refused the block, and the model answered "Я исправил ссылки…" instead of calling
+again. The attempt was thrown away with `StageNotCompleted`, the retry sent the same brief, and
+the run died after three attempts.
+
+- **The loop takes a `complete` callback.** `program_stage` passes `lambda: ctx.saved`, which is
+  the only truthful signal that the block is committed. While it says no, the model's prose is
+  kept in the history as its own turn, a user nudge follows, and the model gets another round
+  within `MAX_TOOL_ROUNDS`.
+- **The intake passes nothing.** A refused intake call is a legitimate answer to the methodist
+  ("a run already exists"), so nudging there would produce a pointless second call.
+- **A truncated answer is refused before the nudge.** `finish_reason=length` means the model did
+  not finish writing, so there is nothing to act on; `AnswerTruncated` still sends the stage to
+  its retry.
+- **The reply is normalised in the provider, not in the loop.** GigaChat behind the hub emits
+  its native `<|function_call|>` payload inside `content`; that is a wire-format quirk of one
+  endpoint, so `OpenAIProvider` turns it into a `ToolCall` and everything above it sees the
+  normal shape.

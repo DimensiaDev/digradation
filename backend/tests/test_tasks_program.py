@@ -324,6 +324,24 @@ async def test_a_stage_that_saves_nothing_is_retried(
     stages.assert_awaited_once_with(chat, Stage.COMPETENCES.value, state.run_id)
 
 
+async def test_a_refused_block_is_asked_for_again_before_the_attempt_is_spent(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """A model that answers "I fixed it" after a refusal is sent back to the tool."""
+    state = await store.save(new_state(chat, requested_hours=None, requirements=None))
+    broken = {"kind": "professional_development", "title": "", "competencies": []}
+    provider.answers.extend([save_turn(broken), answer("исправил"), save_turn(COMPETENCES_BLOCK), answer("готово")])
+
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
+
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.stage_status(Stage.COMPETENCES) is StageStatus.COMPLETED
+    # The refusal was answered inside the attempt, not by spending another one.
+    assert saved.attempts[Stage.COMPETENCES.value] == 1
+    assert len(provider.calls) == 4
+
+
 async def test_the_last_attempt_ends_the_run_and_tells_the_methodist(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:

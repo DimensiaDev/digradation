@@ -157,6 +157,7 @@ async def _run_stage(
             generate=generate,
             call_tool=call_executor(ctx, offered),
             checkpoint=checkpoint,
+            complete=lambda: ctx.saved,
         )
         if not ctx.saved or ctx.state is None:
             raise StageNotCompleted()
