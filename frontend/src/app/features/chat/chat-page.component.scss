@@ -54,6 +54,8 @@
     color: var(--color-gray);
     text-decoration: none;
 
+    transition: color 0.15s ease;
+
     @include focus-ring;
 
     &:hover {
@@ -62,6 +64,12 @@
 
     & > svg {
       flex-shrink: 0;
+
+      transition: transform 0.15s ease;
+    }
+
+    &:hover > svg {
+      transform: translateX(-2px);
     }
   }
 
@@ -206,5 +214,12 @@
     &__title {
       font-size: 19px;
     }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-page__breadcrumb,
+  .chat-page__breadcrumb > svg {
+    transition: none;
   }
 }
