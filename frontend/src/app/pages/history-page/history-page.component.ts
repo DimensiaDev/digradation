@@ -25,7 +25,6 @@ import {
   selector: 'app-history-page',
   imports: [
     LucideChevronRight,
-    LucideSearch,
     SkeletonUsersTableComponent,
     RouterLink,
     InputComponent,

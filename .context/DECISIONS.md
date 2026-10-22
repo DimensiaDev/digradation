@@ -2267,3 +2267,24 @@ says that something moved, never what.
 - **The stepper spins on `busy`, not on `running`.** `busy` survives the finalisation, which
   holds no stage lock, and turns false exactly while the run waits for the methodist, so the
   ring means "the run is working" and its absence means "it is your turn".
+
+## Dead code leaves the frontend (2026-10-22)
+
+A sweep from `main.ts` along the import graph, plus a template check for every selector and a
+token check for every stylesheet, found the frontend otherwise clean: every page is routed and
+linked, and every shared component is rendered somewhere.
+
+- **`app-check-control` is gone, with its spec.** The control was already unused when it was
+  built — its own decision entry says so — and after the admin forms moved to `app-input` and
+  `app-select` nothing imported it at all.
+- **`shared/utils/menu-keyboard.ts` is gone, with its spec.** It implemented the arrow-key
+  pattern of the programme action menus, and the menus themselves were removed when the
+  catalogue went read-only, so the helper outlived its only caller.
+- **`_menu.scss` and its `@use` are gone.** The popover styles were extracted there for the same
+  action menus; `header__dropdown` replaced them, and no template ever carried `popover-menu`.
+- **Unused fragments went with them:** the `circle` mixin, `skeleton-item--static`, the
+  `programs-page__filter--type` and `--tag` widths, `file-preview__spinner`, and the two Lucide
+  imports (`LucideSearch`, `LucideArrowLeft`) that only exist to be passed as icon *data* and
+  were producing `NG8113` on every build.
+- **`/programs/new` stays.** Nothing links to it, but it is the documented entry point for the
+  create form and it renders the shared placeholder, so it costs a route and no code.

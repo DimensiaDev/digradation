@@ -1062,10 +1062,11 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   the hit first; give the content `pointer-events: none` and opt the context menu back in
   with `pointer-events: auto`. Found 2026-10-21 on `feat/my-programs-page`.
 - **A component stylesheet over the 10 kB `anyComponentStyle` error budget fails `ng build`,
-  even if the repeated rules could live globally.** Moving the shared popover block to
-  `_menu.scss` took the panel from a 12.01 kB error to 9.51 kB (a warning), because global
-  styles do not count against the component budget. Found 2026-10-21 on
-  `feat/my-programs-page`.
+  even if the repeated rules could live globally.** Global styles — a partial `@use`d from
+  `styles.scss` — do not count against the component budget, so that is where a utility shared
+  by several components belongs. Measured twice: a popover block moved to a partial took the
+  panel from a 12.01 kB error to 9.51 kB (2026-10-21), and the update backdrop moved to
+  `_flash.scss` took the programme preview back under the budget (2026-10-22).
 - **`@HostListener('document:keydown.tab')` types `$event` as `Event`, not `KeyboardEvent`.**
   Strict template checking rejects reading `event.key`; listen on `document:keydown` and
   branch on `event.key === 'Tab'` instead. Found 2026-10-21 on `feat/my-programs-page`.

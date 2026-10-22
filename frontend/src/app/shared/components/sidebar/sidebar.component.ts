@@ -21,7 +21,6 @@ import type { NavItem, Role } from '../../navigation/navigation.config';
     LucideDynamicIcon,
     RouterLink,
     RouterLinkActive,
-    LucideArrowLeft,
     LucidePanelLeftClose,
     LucidePanelLeftOpen,
     LucideMoon,
