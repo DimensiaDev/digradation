@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.agentic import actions, sources, websearch
 from app.agentic.errors import ProgramError
-from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
+from app.agentic.models import ProgramFormat, ProgramKind, ProgramStatus, Source, SourceKind, Stage
 from app.agentic.sources import RagUnavailable
 from app.agentic.state import (
     MAX_QUESTION_LENGTH,
@@ -135,12 +135,32 @@ class BeginProgramArguments(BaseModel):
         le=1000,
         description="Объём программы в академических часах, если методист его назвал",
     )
+    kind: ProgramKind | None = Field(
+        default=None,
+        description="Шаблон программы: general_development или professional_development",
+    )
+    format: ProgramFormat | None = Field(
+        default=None,
+        description="Формат: course или internship. Заполняется только для professional_development",
+    )
+    expected_test_questions: int | None = Field(
+        default=None,
+        gt=0,
+        le=200,
+        description="Сколько вопросов в итоговом тесте попросил методист, если он это назвал",
+    )
+    min_practice_share: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="Минимальная доля практических часов от общего объёма, если методист её назвал",
+    )
     questions: list[Annotated[str, Field(max_length=MAX_QUESTION_LENGTH)]] = Field(
         default_factory=list,
-        max_length=10,
+        max_length=5,
         description=(
-            "Вопросы методисту, без которых программу начать нельзя. Если список непуст, "
-            "программа не формируется, пока методист на них не ответит."
+            "Вопросы методисту, без которых программу начать нельзя — не больше пяти. Если список "
+            "непуст, программа не формируется, пока методист на них не ответит."
         ),
     )
 
@@ -592,6 +612,10 @@ async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> B
 
     A run with questions does not generate yet. It waits for the methodist's
     answers, and the questions are what the client shows one by one.
+
+    A run without a volume and without questions is refused. A month is not a
+    volume, and a programme that starts without one writes a curriculum no
+    check can compare it to. The model is told to ask, not to guess.
     """
     if ctx.state is not None and not ctx.state.failed:
         waiting = ctx.state.pending_questions
@@ -613,17 +637,32 @@ async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> B
                 "или идёт генерация, и предложи продолжить в нём."
             ),
         )
+    if arguments.requested_hours is None and not arguments.questions:
+        return BeginProgramResult(
+            ok=False,
+            error="не указан объём программы",
+            note=(
+                "Спроси у методиста объём в академических часах: без него программу не начать. "
+                "Срок вроде «месяц» — это не объём. Задай вопрос и дождись ответа."
+            ),
+        )
     ctx.state = new_state(
         ctx.session_id,
         requested_hours=arguments.requested_hours,
         requirements=arguments.requirements,
         questions=arguments.questions,
+        kind=arguments.kind,
+        format=arguments.format or ProgramFormat.COURSE,
+        expected_test_questions=arguments.expected_test_questions,
+        min_practice_share=arguments.min_practice_share,
     )
     ctx.dirty = True
     log.info(
         "program_started",
         chat_session_id=str(ctx.session_id),
         requested_hours=arguments.requested_hours,
+        kind=arguments.kind.value if arguments.kind else None,
+        format=arguments.format.value if arguments.format else None,
         questions=len(ctx.state.pending_questions),
     )
     if ctx.state.awaiting_answers:

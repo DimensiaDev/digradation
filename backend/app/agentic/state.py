@@ -19,11 +19,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.agentic import sources
 from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
 from app.agentic.models import (
+    ApprovalInfo,
     AssessmentPlan,
     Competence,
     Curriculum,
     Materials,
     ProgramDraft,
+    ProgramFormat,
     ProgramKind,
     ProgramStatus,
     ProgramSummary,
@@ -77,6 +79,10 @@ class CompetencesBlock(BaseModel):
     """What the competences stage saves: the programme identity and its outcomes."""
 
     kind: ProgramKind = Field(description="Тип программы: повышение квалификации или общеразвивающая")
+    format: ProgramFormat = Field(
+        default=ProgramFormat.COURSE,
+        description="Формат: обычный курс или профессиональная программа в форме стажировки",
+    )
     title: str = Field(min_length=1, max_length=500, description="Название программы")
     competencies: list[Competence] = Field(min_length=1, description="Компетенции с результатами освоения")
 
@@ -182,11 +188,17 @@ class ProgramDocument(BaseModel):
     The draft is the skeleton — the goal, the competences and the hours — and
     the content is what was written from it once it was approved. The export
     takes the document, so a document without a content is still a document.
+
+    The approval and the report travel with it: the approval names who signed
+    the order and the report is the self-check the methodist reads before
+    signing.
     """
 
     draft: ProgramDraft
     assessment: AssessmentPlan | None = None
     materials: Materials | None = None
+    approval: ApprovalInfo = Field(default_factory=ApprovalInfo, description="Реквизиты приказа и подписант")
+    report: ProgramReport | None = Field(default=None, description="Отчёт автопроверки")
 
 
 class ProgramState(BaseModel):
@@ -232,6 +244,30 @@ class ProgramState(BaseModel):
     #: skeleton.
     skeleton_approved: bool = False
 
+    #: Формат программы: обычный курс или профессиональная стажировка.
+    format: ProgramFormat = ProgramFormat.COURSE
+    #: Реквизиты приказа и подписант, которые методист заполняет вручную.
+    approval: ApprovalInfo = Field(default_factory=ApprovalInfo)
+    #: Ограничения из запроса методиста, если он их назвал.
+    expected_test_questions: int | None = Field(
+        default=None, gt=0, description="Сколько вопросов в тесте просил методист"
+    )
+    min_practice_share: float | None = Field(
+        default=None, ge=0, le=1, description="Минимальная доля практических часов из общего объёма"
+    )
+    #: Расхождение между пожеланием заказчика и реальным результатом.
+    expectations: str | None = Field(
+        default=None, max_length=4000, description="Что заказчик попросил сверх того, что даёт объём"
+    )
+    #: Несогласованности в приложенном образце, найденные при разборе.
+    sample_issues: list[str] = Field(default_factory=list, description="Ошибки в образце программы")
+    #: Тайминги прогона: когда он начался и когда закончился, сколько шла каждая стадия.
+    started_at: datetime | None = Field(default=None, description="Когда прогон начался")
+    finished_at: datetime | None = Field(default=None, description="Когда прогон завершился")
+    stage_durations: dict[Stage, float] = Field(
+        default_factory=dict, description="Секунды по каждой стадии, когда она завершилась"
+    )
+
     #: True once the draft has been rendered into the chat and may be approved.
     finalized: bool = False
     failed: bool = False
@@ -276,9 +312,18 @@ class ProgramState(BaseModel):
         return self._replace(status=ProgramStatus.GENERATING, current_stage=stage, stages=stages, attempts=attempts)
 
     def started(self, stage: Stage) -> Self:
-        """Mark the stage as running; its attempt was counted when it was enqueued."""
+        """Mark the stage as running; its attempt was counted when it was enqueued.
+
+        The moment the run first starts is kept with it: a programme that was
+        never started has no ``started_at``, and a retried stage does not reset it.
+        """
         stages = self.stages.model_copy(update={stage.value: StageStatus.IN_PROGRESS})
-        return self._replace(status=ProgramStatus.GENERATING, current_stage=stage, stages=stages)
+        return self._replace(
+            status=ProgramStatus.GENERATING,
+            current_stage=stage,
+            stages=stages,
+            started_at=self.started_at or datetime.now(UTC),
+        )
 
     def completed(self, stage: Stage) -> Self:
         """Mark the stage done and point the state at its successor.
@@ -287,18 +332,31 @@ class ProgramState(BaseModel):
         the content ends with a programme that is complete. The reason a
         previous attempt gave is cleared with it: a run that recovered is not
         a run that failed.
+
+        The duration of the stage is measured from the moment it was started:
+        ``updated_at`` is the last write, and ``started`` is the write that
+        made the stage in progress, so the difference is the stage's own time.
         """
         stages = self.stages.model_copy(update={stage.value: StageStatus.COMPLETED})
         successor = self._successor(stage)
         if stage == SKELETON_LAST:
-            # The skeleton is ready. The content is written from it only after
-            # the methodist has approved it, so the run waits here.
             status = ProgramStatus.PENDING_APPROVAL
         elif successor is not None:
             status = ProgramStatus.GENERATING
         else:
             status = ProgramStatus.APPROVED
-        return self._replace(stages=stages, current_stage=successor or stage, status=status, error=None)
+        now = datetime.now(UTC)
+        duration = max(0.0, (now - self.updated_at).total_seconds())
+        durations = {**self.stage_durations, stage: self.stage_durations.get(stage, 0.0) + duration}
+        finished_at = self.finished_at if self.finished_at else (now if status is ProgramStatus.APPROVED else None)
+        return self._replace(
+            stages=stages,
+            current_stage=successor or stage,
+            status=status,
+            error=None,
+            stage_durations=durations,
+            finished_at=finished_at,
+        )
 
     def failed_stage(self, stage: Stage, error: str) -> Self:
         """Record a stage failure; the run ends once the stage's budget is spent."""
@@ -455,12 +513,14 @@ class ProgramState(BaseModel):
             status=ProgramStatus.GENERATING,
             current_stage=Stage.COMPETENCES,
             attempts={**self.attempts, Stage.COMPETENCES: self.attempts.get(Stage.COMPETENCES, 0) + 1},
+            started_at=self.started_at or datetime.now(UTC),
         )
 
     def with_competences(self, block: CompetencesBlock, sources: list[Source]) -> Self:
         """Save the competence block and the standards its competencies cite."""
         return self._replace(
             kind=block.kind,
+            format=block.format,
             title=block.title,
             competencies=block.competencies,
             sources=self._merged_sources(sources),
@@ -509,6 +569,7 @@ class ProgramState(BaseModel):
 
         draft = ProgramDraft(
             kind=self.kind,
+            format=self.format,
             title=self.title,
             summary=self.summary,
             competencies=self.competencies,
@@ -533,8 +594,28 @@ class ProgramState(BaseModel):
         problems += self.uncovered_outcome_problems(draft.curriculum, set(outcomes))
         problems += self.curriculum_problems(draft.curriculum)
         problems += self.citation_problems([*draft.summary.basis_source_ids, *standards])
+        problems += self._issued_document_problems(draft.summary)
         if self.assessment is not None:
             problems += self.assessment_problems(self.assessment, draft.curriculum)
+        return problems
+
+    def _issued_document_problems(self, summary: ProgramSummary) -> list[str]:
+        """The document the programme issues, against the programme's kind.
+
+        A professional programme issues an удостоверение and a general one a
+        сертификат; a document that says the other thing would be signed and
+        handed out, so it is refused where the draft is assembled.
+        """
+        issued = summary.issued_document.lower()
+        problems: list[str] = []
+        if self.kind is ProgramKind.PROFESSIONAL_DEVELOPMENT and "удостоверение" not in issued:
+            problems.append(
+                f"повышение квалификации выдаёт удостоверение, " f"а в паспорте указано «{summary.issued_document}»"
+            )
+        if self.kind is ProgramKind.GENERAL_DEVELOPMENT and "сертификат" not in issued:
+            problems.append(
+                f"общеразвивающая программа выдаёт сертификат, " f"а в паспорте указано «{summary.issued_document}»"
+            )
         return problems
 
     def declared_outcomes(self) -> list[str]:
@@ -546,19 +627,27 @@ class ProgramState(BaseModel):
         ]
 
     def to_document(self) -> ProgramDocument:
-        """The whole programme: the approved draft and the content written from it."""
+        """The whole programme: the approved draft and the content written from it.
+
+        The approval and the report travel with it: the first names who signed
+        the order and the second is the self-check the methodist reads before
+        signing.
+        """
         return ProgramDocument(
             draft=self.to_draft(),
             assessment=self.assessment,
             materials=self.materials,
+            approval=self.approval,
+            report=self.report(),
         )
 
     def report(self) -> ProgramReport:
         """The checks of the programme, for the methodist to read.
 
         The same rules the stages are held to, reported once and in one place:
-        the hours, the coverage of the outcomes, the sources and the sections
-        that are filled. It works on a half-finished run — the checks that
+        the hours, the coverage of the outcomes, the sources, the sections that
+        are filled, the limits the methodist named and the materials that cover
+        at least one module. It works on a half-finished run — the checks that
         cannot be made yet are simply not reported.
         """
         checks = [
@@ -566,6 +655,8 @@ class ProgramState(BaseModel):
             self._coverage_check(),
             self._sources_check(),
             self._sections_check(),
+            self._request_constraints_check(),
+            self._materials_check(),
         ]
         return ProgramReport(ok=all(check.ok for check in checks), checks=checks)
 
@@ -660,6 +751,11 @@ class ProgramState(BaseModel):
         A section counts as filled when it holds something, not when it exists:
         an assessment without a question and a set of materials without a
         slide are empty sections that a report would otherwise call filled.
+
+        A professional programme additionally needs a professional standard a
+        competence rests on, and an internship needs the staff that runs it:
+        the standard is what makes the programme professional and the
+        supervisor is what makes an internship an internship.
         """
         assessment = self.assessment
         materials = self.materials
@@ -672,6 +768,12 @@ class ProgramState(BaseModel):
             and bool(assessment.questions or assessment.seminar_tasks or assessment.tools),
             "материалы": materials is not None and bool(materials.lecture_plans or materials.slide_decks),
         }
+        if self.kind is ProgramKind.PROFESSIONAL_DEVELOPMENT:
+            sections["профессиональный стандарт"] = any(
+                competence.standard_source_id for competence in self.competencies
+            )
+        if self.format is ProgramFormat.INTERNSHIP:
+            sections["кадровое обеспечение"] = materials is not None and bool(materials.staffing)
         problems = [f"раздел «{name}» не заполнен" for name, filled in sections.items() if not filled]
         return ProgramCheck(
             name="разделы",
@@ -679,6 +781,71 @@ class ProgramState(BaseModel):
             problems=problems,
             details=dict(sections),
         )
+
+    def _request_constraints_check(self) -> ProgramCheck:
+        """The limits the methodist named when the programme was started.
+
+        A test that was asked for with ten questions and comes with five, or a
+        programme that asked for half its hours as practice and has a quarter,
+        is a programme that does not do what it was asked to. The check reports
+        both, so a methodist sees what to ask for and a reviewer sees what was
+        promised and what was written.
+        """
+        problems: list[str] = []
+        details: dict[str, Any] = {}
+
+        if self.expected_test_questions is not None:
+            actual = len(self.assessment.questions) if self.assessment is not None else 0
+            details["вопросов в тесте"] = actual
+            details["заявлено вопросов"] = self.expected_test_questions
+            if actual != self.expected_test_questions:
+                problems.append(f"в тесте {actual} вопросов, а методист просил {self.expected_test_questions}")
+
+        if self.min_practice_share is not None and self.curriculum is not None:
+            total = self.curriculum.total_hours
+            practice = sum(topic.hours.practice for module in self.curriculum.modules for topic in module.topics)
+            share = practice / total if total else 0.0
+            details["доля практики"] = round(share, 2)
+            details["заявлено минимум"] = self.min_practice_share
+            if share + 1e-6 < self.min_practice_share:
+                problems.append(f"доля практики {share:.0%} меньше заявленных {self.min_practice_share:.0%}")
+
+        return ProgramCheck(name="требования", ok=not problems, problems=problems, details=details)
+
+    def _materials_check(self) -> ProgramCheck:
+        """At least one module is fully covered by lecture plans and slides.
+
+        The criterion asks for the slides of at least one module, not one deck
+        somewhere in the programme: every lecture of the module needs both its
+        plan and its deck, or the module is not complete.
+        """
+        if self.curriculum is None or self.materials is None:
+            return ProgramCheck(
+                name="материалы",
+                ok=False,
+                problems=["учебный план или материалы ещё не собраны"],
+            )
+        plans = {plan.topic_id for plan in self.materials.lecture_plans}
+        decks = {deck.topic_id for deck in self.materials.slide_decks}
+        covered: list[str] = []
+        for module in self.curriculum.modules:
+            lecture_topics = [topic.id for topic in module.topics if topic.hours.lecture > 0]
+            if not lecture_topics:
+                continue
+            if all(topic_id in plans and topic_id in decks for topic_id in lecture_topics):
+                covered.append(module.id)
+        modules_with_lectures = sum(
+            1 for module in self.curriculum.modules if any(topic.hours.lecture > 0 for topic in module.topics)
+        )
+        details = {"модулей покрыто": len(covered), "модулей с лекциями": modules_with_lectures}
+        if not covered and modules_with_lectures > 0:
+            return ProgramCheck(
+                name="материалы",
+                ok=False,
+                problems=["ни один модуль не покрыт планами лекций и слайдами полностью"],
+                details=details,
+            )
+        return ProgramCheck(name="материалы", ok=True, problems=[], details=details)
 
     def assessment_problems(self, assessment: AssessmentPlan, curriculum: Curriculum) -> list[str]:
         """The assessment has to check the programme, and only the programme.
@@ -896,6 +1063,10 @@ def new_state(
     requested_hours: float | None,
     requirements: str | None,
     questions: Iterable[str] = (),
+    kind: ProgramKind | None = None,
+    format: ProgramFormat = ProgramFormat.COURSE,
+    expected_test_questions: int | None = None,
+    min_practice_share: float | None = None,
 ) -> ProgramState:
     """Start a run: either generating, or waiting for the methodist's answers.
 
@@ -903,6 +1074,11 @@ def new_state(
     message. A run that has them does not generate yet: it waits, and the first
     stage is enqueued only once the answers arrive. A run without them starts
     at once, with the competence stage already on the queue.
+
+    ``kind`` and ``format`` may come from the intake turn; a run that was not
+    told them leaves both to the competence stage, which writes them from what
+    the model chose. The limits from the request are kept with the run, so a
+    later stage can be held to them.
     """
     pending = [ClarificationQuestion(id=uuid.uuid4().hex, text=text.strip()) for text in questions if text.strip()]
     if pending:
@@ -915,6 +1091,10 @@ def new_state(
             requested_hours=requested_hours,
             requirements=requirements,
             questions=pending,
+            kind=kind,
+            format=format,
+            expected_test_questions=expected_test_questions,
+            min_practice_share=min_practice_share,
         )
     return ProgramState(
         session_id=session_id,
@@ -924,6 +1104,11 @@ def new_state(
         attempts={Stage.COMPETENCES: 1},
         requested_hours=requested_hours,
         requirements=requirements,
+        kind=kind,
+        format=format,
+        expected_test_questions=expected_test_questions,
+        min_practice_share=min_practice_share,
+        started_at=datetime.now(UTC),
     )
 
 

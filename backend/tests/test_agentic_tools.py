@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from app.agentic import sources, tools, websearch
-from app.agentic.models import ProgramStatus, Source, SourceKind, Stage, StageStatus
+from app.agentic.models import ProgramFormat, ProgramKind, ProgramStatus, Source, SourceKind, Stage, StageStatus
 from app.agentic.state import ClarificationQuestion, ProgramState, new_state
 from app.agentic.tools import (
     ApproveProgramDraftResult,
@@ -996,3 +996,42 @@ async def test_a_topic_that_names_an_undeclared_outcome_is_refused(context: Tool
 
     assert result.ok is False
     assert any("ro-k-09" in line for line in (result.details or []))
+
+
+async def test_begin_program_without_a_volume_is_refused(context: ToolContext) -> None:
+    """A month is not a volume: the model has to ask, not guess."""
+    fresh = ToolContext(session_id=context.session_id)
+
+    result = await execute_tool(fresh, call("begin_program", {"requirements": "Курс примерно на месяц"}))
+
+    assert result.ok is False
+    assert "не указан объём" in (result.error or "")
+    assert "Срок" in (result.note or "")
+    assert fresh.state is None
+
+
+async def test_begin_program_carries_the_request_constraints(context: ToolContext) -> None:
+    """The limits the methodist named travel with the run."""
+    fresh = ToolContext(session_id=context.session_id)
+
+    result = await execute_tool(
+        fresh,
+        call(
+            "begin_program",
+            {
+                "requirements": "Курс по аналитике",
+                "requested_hours": 72,
+                "kind": "professional_development",
+                "format": "internship",
+                "expected_test_questions": 10,
+                "min_practice_share": 0.5,
+            },
+        ),
+    )
+
+    assert result.ok is True
+    assert fresh.state is not None
+    assert fresh.state.kind is ProgramKind.PROFESSIONAL_DEVELOPMENT
+    assert fresh.state.format is ProgramFormat.INTERNSHIP
+    assert fresh.state.expected_test_questions == 10
+    assert fresh.state.min_practice_share == 0.5

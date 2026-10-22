@@ -165,7 +165,14 @@ def test_the_report_covers_the_hours_the_coverage_the_sources_and_the_sections(b
 
     report = state.report()
 
-    assert [check.name for check in report.checks] == ["часы", "покрытие", "источники", "разделы"]
+    assert [check.name for check in report.checks] == [
+        "часы",
+        "покрытие",
+        "источники",
+        "разделы",
+        "требования",
+        "материалы",
+    ]
     hours = report.checks[0]
     assert hours.ok is True
     assert hours.details["всего"] == 72
