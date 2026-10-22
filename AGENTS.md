@@ -165,6 +165,18 @@ no longer matches, rather than assuming responses arrive in order.
 - BEM-ish modifiers: `.button--main`, `.card--shadow`, `.input--error`.
 - `@use '...' as *` with relative paths and **no file extension**.
 
+### Rendering HTML
+
+- **`[innerHTML]` is the only way to put HTML in the DOM, and it is the safe one** because
+  Angular sanitizes the binding. `bypassSecurityTrust*` is used nowhere; do not introduce it.
+- **Call `DomSanitizer.sanitize(SecurityContext.HTML, …)` explicitly** at the boundary where
+  untrusted text becomes markup — the message bubble does, and the spreadsheet preview sanitizes
+  before it builds nodes. It is a second pass over the same sanitizer, so it changes nothing at
+  runtime; it exists so the sanitization is visible in the source, because a reviewer reading
+  `innerHTML` cannot tell an Angular binding from a raw assignment.
+- The text is untrusted twice over: the model writes the assistant's half, and the methodist's
+  own half is echoed back from the API.
+
 ### API layer
 
 Interceptor order is load-bearing: `credentialsInterceptor`, `errorInterceptor`, then

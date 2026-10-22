@@ -2483,3 +2483,27 @@ backend refuses a revision for five separate reasons — would then have to be r
 hand. The cost is one round trip during which the action is clickable again, and a second
 click is answered with 409 `RevisionPending`.
 Added 2026-10-22.
+
+## The message is the only HTML the client renders, and it is sanitized at the boundary
+
+A review flagged "`innerHTML` without explicit sanitization" as an XSS risk. The audit says the
+risk was already closed, but the finding is fair about the *source*: a grep cannot tell an
+Angular binding from a raw assignment.
+
+- **There is one HTML sink in the whole application**, `[innerHTML]="renderedText()"` in
+  `chat-message.component.html`, and **no `bypassSecurityTrust*` call exists anywhere**. Angular
+  sanitizes an `[innerHTML]` binding on its own, so the sink was never unsanitized.
+- **The spreadsheet preview does not assign HTML at all.** `file-preview.component.ts` calls
+  `DomSanitizer.sanitize(SecurityContext.HTML, …)` and then builds nodes with `DOMParser`, so a
+  cell whose text looks like markup cannot become markup.
+- **The message text is untrusted twice over**, which is why the step is now named in the
+  component instead of being left to the binding: the model wrote the assistant's half, and the
+  methodist's half is echoed back from the API, and `marked` turns either into HTML. The explicit
+  `sanitize` is therefore a second pass over the same sanitizer — a no-op on the output, and the
+  thing a reviewer can point at. `AGENTS.md` names the same rule for new code.
+
+Two tests hold it: a message carrying `<script>` never reaches the document, and an `onerror`
+handler and a `javascript:` link are stripped while markdown and highlighted code survive.
+Verified in a browser too, on the mock stack: a message with an `img onerror` and a script tag
+rendered with the handler gone, the script dropped, `window.__xss` unset, and `<strong>` plus a
+highlighted `pre code` intact. Added 2026-10-23.
