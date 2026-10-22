@@ -33,6 +33,8 @@ function state(overrides: Partial<ProgramStateApi> = {}): ProgramStateApi {
       sources: [],
       summary: null
     },
+    report: null,
+    exports: null,
     ...overrides
   };
 }
@@ -135,6 +137,7 @@ describe('program-view', () => {
   it('sums curriculum hours and exposes modules', () => {
     expect(programHours(undefined)).toBe(0);
     expect(programHours(CURRICULUM)).toBe(18);
+    expect(programHours({ ...CURRICULUM, attestation_hours: 2 })).toBe(20);
     expect(programHoursLabel(0)).toBe('—');
     expect(programHoursLabel(18)).toBe('18 часов');
     expect(programTopicCountLabel(1)).toBe('1 тема');

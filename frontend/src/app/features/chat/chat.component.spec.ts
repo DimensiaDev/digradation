@@ -609,6 +609,42 @@ describe('Chat behaviour', () => {
     });
   });
 
+  it('keeps programme exports out of the staged files and refuses to delete them', () => {
+    openSession();
+    fixture.componentRef.setInput('exportAttachmentIds', [8]);
+    fixture.detectChanges();
+
+    component.handleFilesOpen();
+    http.expectOne(ATTACHMENTS_URL).flush([
+      {
+        id: 7,
+        filename: 'деталь.pdf',
+        status: 'completed',
+        ready: true,
+        chat_message_id: null,
+        timestamp: '2026-09-12T12:18:35.689095Z'
+      },
+      {
+        id: 8,
+        filename: 'programme.docx',
+        status: 'unknown',
+        ready: true,
+        chat_message_id: null,
+        timestamp: '2026-09-12T12:20:00.000000Z'
+      }
+    ]);
+    fixture.detectChanges();
+
+    expect(component.visiblePendingAttachments().map((file) => file.filename)).toEqual([
+      'деталь.pdf'
+    ]);
+    expect(fixture.nativeElement.textContent).not.toContain('programme.docx');
+
+    component.deletePendingAttachment(component.pendingAttachments()[1]);
+    expect(http.match((request) => request.method === 'DELETE')).toEqual([]);
+    expect(component.pendingAttachments().length).toBe(2);
+  });
+
   it('reloads the staged files once an upload batch finishes', () => {
     openSession();
 

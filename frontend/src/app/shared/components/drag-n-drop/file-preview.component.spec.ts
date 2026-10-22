@@ -270,6 +270,10 @@ describe('DragNDropComponent preview integration', () => {
     expect(fixture.debugElement.query(By.css('app-file-preview'))).toBeNull();
   });
 
+  it('accepts exactly the formats the backend takes, including docx', () => {
+    expect(ACCEPTED_EXTENSIONS).toEqual(['.pdf', '.png', '.jpeg', '.jpg', '.docx']);
+  });
+
   it('offers a preview for every accepted upload type', () => {
     // The eye button is rendered conditionally on `previewKindFor`. While every
     // accepted extension has a preview kind that branch is unreachable, so there

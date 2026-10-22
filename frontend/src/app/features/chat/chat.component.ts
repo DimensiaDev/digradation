@@ -90,6 +90,8 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 export class ChatComponent implements OnInit {
   readonly id = input.required<string>();
   readonly questions = input<readonly ProgramQuestionApi[]>([]);
+  /** Attachments the programme produced; they are results, not staged uploads. */
+  readonly exportAttachmentIds = input<readonly number[]>([]);
   readonly turnStarted = output<void>();
   readonly turnFinished = output<void>();
   readonly refreshProgram = output<void>();
@@ -110,6 +112,11 @@ export class ChatComponent implements OnInit {
    * the same list.
    */
   readonly pendingAttachments = signal<ChatSessionAttachment[]>([]);
+  /** Staged uploads only: an export is a result of the programme, never a pending file. */
+  readonly visiblePendingAttachments = computed(() => {
+    const exports = new Set(this.exportAttachmentIds());
+    return this.pendingAttachments().filter((attachment) => !exports.has(attachment.id));
+  });
   readonly answersSubmitting = signal(false);
   readonly answersSubmitted = signal(false);
   readonly isStoppingSpeech = signal(false);
@@ -161,6 +168,9 @@ export class ChatComponent implements OnInit {
   }
 
   deletePendingAttachment(attachment: ChatSessionAttachment): void {
+    if (this.exportAttachmentIds().includes(attachment.id)) {
+      return;
+    }
     this.chatService
       .deleteAttachment(this.id(), attachment.id)
       .pipe(

@@ -71,9 +71,11 @@ function curriculumHours(curriculum: ProgramCurriculumApi | null): number {
   if (!curriculum) {
     return 0;
   }
-  return curriculum.modules.reduce(
-    (total, module) => total + module.topics.reduce((sum, topic) => sum + topicHours(topic), 0),
-    0
+  return (
+    curriculum.modules.reduce(
+      (total, module) => total + module.topics.reduce((sum, topic) => sum + topicHours(topic), 0),
+      0
+    ) + (curriculum.attestation_hours ?? 0)
   );
 }
 

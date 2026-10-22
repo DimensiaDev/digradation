@@ -163,9 +163,9 @@
 
   <section class="session-files__section">
     <h3 class="session-files__subtitle">Загруженные файлы</h3>
-    @if (pendingAttachments().length > 0) {
+    @if (visiblePendingAttachments().length > 0) {
       <ul class="session-files__files">
-        @for (file of pendingAttachments(); track file.id) {
+        @for (file of visiblePendingAttachments(); track file.id) {
           <li class="session-files__file">
             <span class="session-files__file-icon" [style.color]="fileColorFor(file.filename)">
               <svg size="18" [lucideIcon]="fileIconFor(file.filename)" aria-hidden="true"></svg>

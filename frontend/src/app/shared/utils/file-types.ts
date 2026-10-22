@@ -89,7 +89,7 @@ export const FILE_TYPES: Record<string, FileTypeMeta> = {
 };
 
 // Extensions a user may attach. The list an admin edits first.
-export const ACCEPTED_EXTENSIONS: readonly string[] = ['.pdf', '.png', '.jpeg', '.jpg'];
+export const ACCEPTED_EXTENSIONS: readonly string[] = ['.pdf', '.png', '.jpeg', '.jpg', '.docx'];
 
 const UNKNOWN_FILE_TYPE_STYLE: FileTypeStyle = {
   icon: FILE_TYPE_GENERIC,

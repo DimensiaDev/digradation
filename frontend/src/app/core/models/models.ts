@@ -260,6 +260,10 @@ export interface ProgramModuleApi {
 
 export interface ProgramCurriculumApi {
   modules: readonly ProgramModuleApi[];
+  /** Hours of the final attestation, counted into the programme's volume. */
+  attestation_hours?: number;
+  /** Hours delivered remotely; absent when the programme is fully in person. */
+  distance_hours?: number | null;
 }
 
 export interface ProgramCompetenceApi {
@@ -281,12 +285,44 @@ export interface ProgramSummaryApi {
   level?: string | null;
 }
 
+export type ProgramSourceKind =
+  'normative_act' | 'professional_standard' | 'literature' | 'internet_resource' | 'reference';
+
+export interface ProgramSourceApi {
+  id: string;
+  kind: ProgramSourceKind;
+  title: string;
+  identifier?: string | null;
+  url?: string | null;
+  primary?: boolean | null;
+  confirmed: boolean;
+  trust?: string | null;
+  origin?: string | null;
+}
+
+export interface ProgramCheckApi {
+  name: string;
+  ok: boolean;
+  problems: readonly string[];
+  details: Record<string, unknown>;
+}
+
+export interface ProgramReportApi {
+  ok: boolean;
+  checks: readonly ProgramCheckApi[];
+}
+
+export interface ProgramExportsApi {
+  document_attachment_id: number | null;
+  slides_attachment_id: number | null;
+}
+
 export interface ProgramBlocksApi {
   kind: ProgramKind | null;
   title: string | null;
   competencies: readonly ProgramCompetenceApi[];
   curriculum: ProgramCurriculumApi | null;
-  sources: readonly unknown[];
+  sources: readonly ProgramSourceApi[];
   summary: ProgramSummaryApi | null;
 }
 
@@ -311,6 +347,8 @@ export interface ProgramStateApi {
   version: number;
   questions: readonly ProgramQuestionApi[];
   draft: ProgramBlocksApi;
+  report: ProgramReportApi | null;
+  exports: ProgramExportsApi | null;
 }
 
 export type ProgramAction = 'duplicate' | 'archive' | 'unarchive' | 'delete';

@@ -50,6 +50,13 @@ export class ChatPage {
     this.turnInFlight() ? [] : (this.program()?.questions ?? [])
   );
 
+  readonly exportAttachmentIds = computed(() => {
+    const exports = this.program()?.exports;
+    return [exports?.document_attachment_id, exports?.slides_attachment_id].filter(
+      (id): id is number => typeof id === 'number'
+    );
+  });
+
   private readonly chatService = inject(ChatService);
   private readonly destroyRef = inject(DestroyRef);
 

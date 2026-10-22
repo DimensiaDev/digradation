@@ -37,6 +37,8 @@ const state = (overrides: Partial<ProgramStateApi> = {}): ProgramStateApi => ({
   version: 1,
   questions: [],
   draft: BLOCKS,
+  report: null,
+  exports: null,
   ...overrides
 });
 
@@ -52,6 +54,7 @@ const question = (id: string, text = 'Сколько часов?'): ProgramQuest
 class ChatStub {
   readonly id = input.required<string>();
   readonly questions = input<readonly ProgramQuestionApi[]>([]);
+  readonly exportAttachmentIds = input<readonly number[]>([]);
   readonly turnStarted = output<void>();
   readonly turnFinished = output<void>();
   readonly refreshProgram = output<void>();
@@ -113,6 +116,19 @@ describe('ChatPage', () => {
     expect(fixture.nativeElement.textContent).toContain('Создание образовательной программы');
     expect(fixture.nativeElement.textContent).toContain('Проверка');
     expect(chat.questions()).toEqual([question('q1')]);
+  });
+
+  it('passes the programme export ids to the chat', () => {
+    create(
+      SESSION_ID,
+      state({
+        busy: false,
+        running: false,
+        exports: { document_attachment_id: 12, slides_attachment_id: 13 }
+      })
+    );
+
+    expect(chat.exportAttachmentIds()).toEqual([12, 13]);
   });
 
   it('polls the programme while it is busy and stops once it settles', async () => {

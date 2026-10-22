@@ -22,6 +22,8 @@ const state = (overrides: Partial<ProgramStateApi> = {}): ProgramStateApi => ({
   version: 1,
   questions: [],
   draft: BLOCKS,
+  report: null,
+  exports: null,
   ...overrides
 });
 

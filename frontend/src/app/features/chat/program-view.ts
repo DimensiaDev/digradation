@@ -142,9 +142,11 @@ export function programHours(curriculum: ProgramCurriculumApi | null | undefined
   if (!curriculum) {
     return 0;
   }
-  return curriculum.modules.reduce(
-    (total, module) => total + module.topics.reduce((sum, topic) => sum + topicHours(topic), 0),
-    0
+  return (
+    curriculum.modules.reduce(
+      (total, module) => total + module.topics.reduce((sum, topic) => sum + topicHours(topic), 0),
+      0
+    ) + (curriculum.attestation_hours ?? 0)
   );
 }
 

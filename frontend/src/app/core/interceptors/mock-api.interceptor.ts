@@ -210,7 +210,9 @@ const programmeState = (programme: ProgramApiItem): ProgramStateApi => {
       curriculum: null,
       sources: [],
       summary: programmeSummary(programme)
-    }
+    },
+    report: null,
+    exports: null
   };
 };
 
@@ -231,7 +233,9 @@ const emptyProgramState = (): ProgramStateApi => ({
     curriculum: null,
     sources: [],
     summary: null
-  }
+  },
+  report: null,
+  exports: null
 });
 
 const CHAT_NAMES = [

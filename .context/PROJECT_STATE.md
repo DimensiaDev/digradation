@@ -37,8 +37,10 @@ session is resolved by a `provideAppInitializer`, `/home` and `/help` are public
 route renders behind an `AuthGate` prompt, and `/login` is gone in favour of a shared
 `AuthModalService` dialog. Reactive forms, cookie auth, 2-second polling for generation
 results, inline preview for PDF, image, docx and xlsx, light/dark theme, admin user
-management, admin prompt-extension editor. Section switches animate through the browser's
-View Transitions API (`withViewTransitions`), direction derived from the sidebar order.
+management, admin prompt-extension editor. Chat uploads accept exactly the backend's
+formats — PDF, PNG/JPEG and DOCX — and programme exports are excluded from the staged-files
+list. Section switches animate through the browser's View Transitions API
+(`withViewTransitions`), direction derived from the sidebar order.
 
 `/home` is a single-column programme-creation landing with an animated brand mark, prompt
 examples and a composer docked to the bottom while empty. A send from `/home` starts a chat:
@@ -111,9 +113,9 @@ the open questions while a run is `awaiting_answers`; the workspace reads them f
 `answers` array next to `content`.
 `GET /chats/programmes` lists the user's programmes, paginated. A run may ask the methodist
 questions: `begin_program` takes them, the run waits in `awaiting_answers`, and the answers
-move it on. The chat-side programme flow (answering the run's questions and approving a
-rendered draft in the chat UI) is still not built, and the chat's five-minute poll can time
-out before a slow run finishes.
+move it on. The chat can answer the run's questions; approving a rendered draft, asking
+for one part to be redone, and showing the report and exports are still not built, and the
+chat's five-minute poll can time out before a slow run finishes.
 
 **RAG ingestion.** `backend/index_rag.py` is a one-off operator CLI, not an HTTP endpoint. It
 joins parser output under `edu_materials/parsed` to `backend/res/rag-sources.json` by
@@ -249,9 +251,9 @@ Ordered by value, not by commitment:
    deliberate headroom rather than an oversight.
 1. **Build the chat-side programme flow.** The backend can now write a programme in two
    halves, report on it, export it and redo one part of it; the client can list the
-   programmes and read the state, but it cannot yet answer the questions of a run, approve a
-   rendered draft or ask for a change from the chat. That is the gap that keeps the feature
-   out of the user's hands.
+   programmes, read the state and answer the questions of a run, but it cannot yet approve a
+   rendered draft, ask for a change or show the report and exports. That is the gap that
+   keeps the feature out of the user's hands.
 2. **Turn the programs catalog into a real feature.** `ProgramsService` is an in-memory mock
    and the detail aside's tabs are derived demo content; replace both with API calls,
    persistence, and the create/edit form behind `/programs/new`.
@@ -283,8 +285,8 @@ Ordered by value, not by commitment:
     deliberately has none of that.
 13. **OCR for the scanned FGO PDFs.** The catalog already marks them `allow_empty`, so the
     rest of the corpus can be indexed first; OCR is a parser change, not an ingestion change.
-14. **Finish the chat-side programme flow:** answer a run's questions and approve a rendered
-    draft from the chat UI, and make the five-minute poll survive a slow run.
+14. **Finish the chat-side programme flow:** approve a rendered draft, ask for one part to be
+    redone, show the report and exports, and make the five-minute poll survive a slow run.
 15. **Make `/programs` writable.** Duplicate, archive, restore and delete are still local; add
     the endpoints and persist the actions.
 16. **Fill the placeholder sections:** profile, user settings, the admin action log

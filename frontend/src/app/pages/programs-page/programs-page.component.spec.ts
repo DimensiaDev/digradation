@@ -129,7 +129,9 @@ const PROGRAM_STATE: ProgramStateApi = {
     curriculum: null,
     sources: [],
     summary: null
-  }
+  },
+  report: null,
+  exports: null
 };
 
 const USER = signal<User | null>({

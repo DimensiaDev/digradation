@@ -1181,3 +1181,9 @@ to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALF
   is `lru_cache`d, but tests that replace it with a plain fake leave no `cache_clear`
   attribute. `clear_retriever_cache` has to use `getattr(get_retriever, "cache_clear", None)`
   rather than calling the attribute directly. Found 2026-10-22.
+
+- **A programme export is an attachment with `chat_message_id = null`.** `GET
+  /chats/{id}/attachments` returns it beside the methodist's staged uploads, so a client that
+  renders that list must subtract the ids in `program.exports`; otherwise `programme.docx`
+  looks like a pending upload and can be deleted, leaving the programme state pointing at a
+  missing file. Found 2026-10-22.

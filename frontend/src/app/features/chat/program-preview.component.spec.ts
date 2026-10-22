@@ -21,6 +21,8 @@ function state(overrides: Partial<ProgramStateApi> = {}): ProgramStateApi {
       sources: [],
       summary: null
     },
+    report: null,
+    exports: null,
     ...overrides
   };
 }

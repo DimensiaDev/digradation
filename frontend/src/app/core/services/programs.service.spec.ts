@@ -116,6 +116,8 @@ const PROGRAM_STATE: ProgramStateApi = {
   updated_at: '2025-10-13T10:00:00Z',
   version: 3,
   questions: [],
+  report: null,
+  exports: null,
   draft: {
     kind: 'professional_development',
     title: 'Python для анализа данных',
@@ -133,7 +135,8 @@ const PROGRAM_STATE: ProgramStateApi = {
             }
           ]
         }
-      ]
+      ],
+      attestation_hours: 2
     },
     sources: [],
     summary: {
@@ -274,7 +277,7 @@ describe('ProgramsService', () => {
     const program = service.programs().find((item) => item.id === 'it-python');
     expect(program?.status).toBe('pending_approval');
     expect(program?.updatedAt).toBe('2025-10-13T10:00:00Z');
-    expect(program?.hours).toBe(22);
+    expect(program?.hours).toBe(24);
     expect(program?.description).toBe('Практический курс по анализу данных.');
     expect(program?.goals).toEqual(['Освоить Python.', 'Научиться визуализировать данные.']);
     expect(program?.competencyStatements).toEqual(['Анализировать данные на Python.']);
