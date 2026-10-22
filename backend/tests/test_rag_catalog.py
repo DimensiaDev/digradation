@@ -25,7 +25,7 @@ def _clear_catalog_cache():
 
 def test_catalog_is_complete_and_unique() -> None:
     entries = load_catalog()
-    assert len(entries) == 10
+    assert len(entries) == 14
     assert len({entry.id for entry in entries}) == len(entries)
     assert len({entry.path for entry in entries}) == len(entries)
     assert entries[0].id == "src-01"

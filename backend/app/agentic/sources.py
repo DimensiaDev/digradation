@@ -422,7 +422,9 @@ async def search_corpus(
         score = _score(entry, words)
         if score:
             scored.append((score, entry))
-    scored.sort(key=lambda item: (-item[0], item[1].id))
+    # Tie goes to the curated document: `src-NN` is vetted by the catalog, a
+    # corpus-only id is not. Both are relevant, curated one is citable.
+    scored.sort(key=lambda item: (-item[0], 0 if item[1].id.startswith("src-") else 1, item[1].id))
     return [
         SourceFragment(
             fragment_id=entry.id,

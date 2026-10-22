@@ -81,5 +81,37 @@
     "kind": "reference",
     "title": "Программа стажировки «Бизнес-аналитик», 248 часов",
     "trust": 0.6
+  },
+  {
+    "id": "src-11",
+    "path": "fgos/act-273-fz.txt",
+    "kind": "normative_act",
+    "title": "Федеральный закон от 29.12.2012 № 273-ФЗ «Об образовании в Российской Федерации»",
+    "identifier": "273-ФЗ",
+    "trust": 1.0
+  },
+  {
+    "id": "src-12",
+    "path": "fgos/act-499.txt",
+    "kind": "normative_act",
+    "title": "Приказ Минобрнауки России от 01.07.2013 № 499",
+    "identifier": "№ 499",
+    "trust": 1.0
+  },
+  {
+    "id": "src-13",
+    "path": "fgos/act-629.txt",
+    "kind": "normative_act",
+    "title": "Приказ Минпросвещения России от 27.07.2022 № 629",
+    "identifier": "№ 629",
+    "trust": 1.0
+  },
+  {
+    "id": "src-14",
+    "path": "fgos/act-1678.txt",
+    "kind": "normative_act",
+    "title": "Постановление Правительства РФ от 11.10.2023 № 1678",
+    "identifier": "№ 1678",
+    "trust": 1.0
   }
 ]
