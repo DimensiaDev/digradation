@@ -165,6 +165,9 @@ async def process_attachment(attachment_id: int):
             # programme as the example, and the provider reads a .docx the way
             # it reads a PDF.
             | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            # A plain-text reference is handed on as-is; the provider reads it
+            # the same way it reads a PDF.
+            | "text/plain"
         ):
             await process_document.kiq(attachment_id)
         case _:

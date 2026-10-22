@@ -74,6 +74,11 @@ MAX_QUESTION_LENGTH = 1000
 #: How long an answer to a question may be.
 MAX_ANSWER_LENGTH = 4000
 
+#: The budget of a run, in seconds. The model may be slow; the product is not a
+#: failed run for it, so the budget is reported and not enforced.
+SKELETON_BUDGET_SECONDS = 180
+RUN_BUDGET_SECONDS = 1200
+
 
 class CompetencesBlock(BaseModel):
     """What the competences stage saves: the programme identity and its outcomes."""
@@ -181,6 +186,7 @@ class ProgramReport(BaseModel):
 
     ok: bool = Field(default=True, description="Все проверки пройдены")
     checks: list[ProgramCheck] = Field(default_factory=list, description="Проверки по порядку")
+    notes: list[str] = Field(default_factory=list, description="Замечания, не влияющие на итог")
 
 
 class ProgramDocument(BaseModel):
@@ -659,7 +665,7 @@ class ProgramState(BaseModel):
             self._request_constraints_check(),
             self._materials_check(),
         ]
-        return ProgramReport(ok=all(check.ok for check in checks), checks=checks)
+        return ProgramReport(ok=all(check.ok for check in checks), checks=checks, notes=self._timing_notes())
 
     def _hours_check(self) -> ProgramCheck:
         """The hours add up to the volume that was asked for."""
@@ -847,6 +853,26 @@ class ProgramState(BaseModel):
                 details=details,
             )
         return ProgramCheck(name="материалы", ok=True, problems=[], details=details)
+
+    def _timing_notes(self) -> list[str]:
+        """The budgets the run went over, if it did.
+
+        A slow run is not a failed one: a document that arrives after the
+        budget is still a document. The note says so, and the check stays
+        green, because a failure would be worse than the delay.
+        """
+        if self.started_at is None or self.finished_at is None:
+            return []
+        notes: list[str] = []
+        total = (self.finished_at - self.started_at).total_seconds()
+        if total > RUN_BUDGET_SECONDS:
+            notes.append(
+                f"прогон занял {total:.0f} с, бюджет {RUN_BUDGET_SECONDS} с — документ готов, но медленнее цели"
+            )
+        skeleton = sum(self.stage_durations.get(stage, 0.0) for stage in SKELETON_ORDER)
+        if skeleton > SKELETON_BUDGET_SECONDS:
+            notes.append(f"скелет собран за {skeleton:.0f} с, бюджет {SKELETON_BUDGET_SECONDS} с")
+        return notes
 
     def assessment_problems(self, assessment: AssessmentPlan, curriculum: Curriculum) -> list[str]:
         """The assessment has to check the programme, and only the programme.

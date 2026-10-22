@@ -198,6 +198,7 @@ class ProgramReportSchema(BaseModel):
 
     ok: bool = Field(default=True, description="Все проверки пройдены")
     checks: list[ProgramCheckSchema] = Field(default_factory=list, description="Проверки по порядку")
+    notes: list[str] = Field(default_factory=list, description="Замечания, не влияющие на итог")
 
     model_config = ConfigDict(
         json_schema_extra={

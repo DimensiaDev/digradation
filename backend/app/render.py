@@ -727,6 +727,9 @@ def _render_report(doc: DocxDocument, report: ProgramReport) -> None:
         if check.details:
             for key, value in check.details.items():
                 _labeled(doc, f"{key}:", str(value))
+    if report.notes:
+        _heading(doc, "Замечания", level=2)
+        _bullets(doc, report.notes)
 
 
 # --------------------------------------------------------------------------- pending

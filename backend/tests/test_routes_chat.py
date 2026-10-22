@@ -1450,7 +1450,7 @@ async def test_upload_file(
 async def test_upload_file_rejects_content_type(auth_client: AsyncClient, chat, redis_session: None, s3: None):
     response = await auth_client.post(
         f"/chats/{chat.session_id}/uploads",
-        json={"filename": "notes.txt", "content_type": "text/plain", "file_size": 10},
+        json={"filename": "archive.zip", "content_type": "application/zip", "file_size": 10},
     )
 
     assert response.status_code == 400
@@ -1476,6 +1476,23 @@ async def test_a_docx_reference_can_be_uploaded(
     attachment = await db_session.get(Attachment, data["attachment_id"])
     assert attachment is not None
     assert attachment.name == "programme-template.docx"
+
+
+async def test_a_txt_reference_can_be_uploaded(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None, s3: None
+):
+    """A copied act or a checklist arrives as a plain-text reference."""
+    response = await auth_client.post(
+        f"/chats/{chat.session_id}/uploads",
+        json={"filename": "act-273-fz.txt", "content_type": "text/plain", "file_size": 1024},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["params"]["fields"]["key"].endswith(".txt")
+    attachment = await db_session.get(Attachment, data["attachment_id"])
+    assert attachment is not None
+    assert attachment.name == "act-273-fz.txt"
 
 
 async def test_upload_file_rejects_oversize(auth_client: AsyncClient, chat, redis_session: None, s3: None):
@@ -1535,6 +1552,7 @@ async def test_upload_file_rejects_names_that_are_not_bare(
         ("photo.jpg", "image/jpeg", ".jpg"),
         ("photo.JPEG", "image/jpeg", ".jpeg"),
         ("Чертёж 2 (1).PDF", "application/pdf", ".pdf"),
+        ("notes.txt", "text/plain", ".txt"),
     ],
 )
 async def test_upload_file_accepts_every_allowed_extension(
