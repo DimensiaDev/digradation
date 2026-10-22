@@ -102,7 +102,11 @@ const PROGRAM_STATE: ProgramStateApi = {
     }
   },
   report: null,
-  exports: null
+  exports: null,
+  revision: null,
+  last_revision: null,
+  approved_by: null,
+  approved_at: null
 };
 
 const USER = signal<User | null>({

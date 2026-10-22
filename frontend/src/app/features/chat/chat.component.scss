@@ -83,7 +83,8 @@
 
   line-height: 1.5;
 
-  & > app-chat-question-form {
+  & > app-chat-question-form,
+  & > app-program-decision {
     width: 100%;
   }
 

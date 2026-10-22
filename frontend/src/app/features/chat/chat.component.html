@@ -31,6 +31,14 @@
           [submitting]="answersSubmitting()"
           (answersSubmitted)="sendAnswers($event)"
         />
+      } @else if (decision(); as decision) {
+        <app-program-decision
+          [blocks]="decision.blocks"
+          [lastRevision]="decision.lastRevision"
+          [submitting]="decisionSubmitting()"
+          (approved)="approveProgramme()"
+          (revised)="reviseProgramme($event)"
+        />
       } @else {
         <form class="chat-input-panel__form" (submit)="sendMessage($event)">
           <app-drag-n-drop

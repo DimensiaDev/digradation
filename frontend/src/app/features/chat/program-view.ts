@@ -2,7 +2,9 @@ import {
   PROGRAM_STATUS_LABELS,
   ProgramBlocksApi,
   ProgramCurriculumApi,
+  ProgramRevisionApi,
   ProgramSourceKind,
+  ProgramStage,
   ProgramStateApi
 } from '../../core/models/models';
 import { formatProgramHours } from '../../shared/utils/program-detail-content';
@@ -112,6 +114,81 @@ export const PROGRAM_WIZARD_STEPS: readonly ProgramWizardStepView[] = [
 
 const SKELETON_STAGES = new Set(['competences', 'hours', 'sources', 'summary']);
 const CONTENT_STAGES = new Set(['assessment', 'materials']);
+
+/** The skeleton the methodist approves, in the order the pipeline writes it. */
+export const PROGRAM_SKELETON_STAGE_ORDER: readonly ProgramStage[] = [
+  'competences',
+  'hours',
+  'sources',
+  'summary'
+];
+
+/** The content written from an approved skeleton. */
+export const PROGRAM_CONTENT_STAGE_ORDER: readonly ProgramStage[] = ['assessment', 'materials'];
+
+export const PROGRAM_STAGE_ORDER: readonly ProgramStage[] = [
+  ...PROGRAM_SKELETON_STAGE_ORDER,
+  ...PROGRAM_CONTENT_STAGE_ORDER
+];
+
+export const PROGRAM_STAGE_LABELS: Record<ProgramStage, string> = {
+  competences: 'Компетенции',
+  hours: 'Учебный план и часы',
+  assessment: 'Оценочные средства',
+  materials: 'Материалы',
+  sources: 'Источники',
+  summary: 'Паспорт программы'
+};
+
+export interface ProgramDecisionBlock {
+  readonly id: ProgramStage;
+  readonly label: string;
+}
+
+export interface ProgramRevisionView {
+  readonly stageLabel: string;
+  readonly notes: string;
+}
+
+/** The decision the methodist owes the programme, when one is due. */
+export interface ProgramDecisionView {
+  /** The blocks that already exist and may be asked to be redone. */
+  readonly blocks: readonly ProgramDecisionBlock[];
+  /** The last change that was carried out, if there was one. */
+  readonly lastRevision: ProgramRevisionView | null;
+}
+
+export function programStageLabel(stage: ProgramStage): string {
+  return PROGRAM_STAGE_LABELS[stage] ?? stage;
+}
+
+export function programRevisionView(
+  revision: ProgramRevisionApi | null | undefined
+): ProgramRevisionView | null {
+  if (!revision) {
+    return null;
+  }
+  return { stageLabel: programStageLabel(revision.stage), notes: revision.notes };
+}
+
+/**
+ * The decision a programme is waiting for, or null when none is due.
+ *
+ * Only a programme whose skeleton is rendered and which is not being worked on
+ * asks the methodist anything: `busy` is false once the run stops to wait, and
+ * the content cannot be released until the draft has been approved.
+ */
+export function programDecision(state: ProgramStateApi | null): ProgramDecisionView | null {
+  if (!state || state.status !== 'pending_approval' || state.busy) {
+    return null;
+  }
+
+  const blocks = PROGRAM_STAGE_ORDER.filter((stage) => state.stages[stage] === 'completed').map(
+    (stage) => ({ id: stage, label: programStageLabel(stage) })
+  );
+
+  return { blocks, lastRevision: programRevisionView(state.last_revision) };
+}
 
 function hasDraftData(blocks: ProgramBlocksApi | null | undefined): boolean {
   return Boolean(

@@ -32,7 +32,8 @@ import {
   ChatMessageApi,
   ChatSessionAttachment,
   ProgramAnswerApi,
-  ProgramQuestionApi
+  ProgramQuestionApi,
+  ProgramRevisionRequest
 } from '../../core/models/models';
 import { ChatService } from '../../core/services/chat.service';
 import { AttachmentDownloadService } from '../../core/services/attachment-download.service';
@@ -42,6 +43,8 @@ import { speechErrorNotice } from '../../shared/utils/speech-error';
 import { Router } from '@angular/router';
 import { DragOverlayComponent } from '../../shared/components/drag-n-drop/drag-overlay.component';
 import { ChatQuestionFormComponent } from './chat-question-form.component';
+import { ProgramDecisionComponent } from './program-decision.component';
+import { ProgramDecisionView } from './program-view';
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
@@ -56,7 +59,8 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
     LucideMic,
     ChatMessageComponent,
     AgentStatusComponent,
-    ChatQuestionFormComponent
+    ChatQuestionFormComponent,
+    ProgramDecisionComponent
   ],
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -66,6 +70,11 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 export class ChatComponent implements OnInit {
   readonly id = input.required<string>();
   readonly questions = input<readonly ProgramQuestionApi[]>([]);
+  /**
+   * The decision the programme is waiting for, if one is due. When it is set the
+   * decision panel takes the composer's place, the way the question form does.
+   */
+  readonly decision = input<ProgramDecisionView | null>(null);
   /** Attachments the programme produced; they are results, not staged uploads. */
   readonly exportAttachmentIds = input<readonly number[]>([]);
   readonly turnStarted = output<void>();
@@ -94,6 +103,7 @@ export class ChatComponent implements OnInit {
   });
   readonly answersSubmitting = signal(false);
   readonly answersSubmitted = signal(false);
+  readonly decisionSubmitting = signal(false);
   readonly isStoppingSpeech = signal(false);
 
   readonly isSpeechSupported = this.speech.isSupported;
@@ -542,6 +552,69 @@ export class ChatComponent implements OnInit {
         this.answersSubmitted.set(true);
         this.startReplyPolling();
       });
+  }
+
+  /**
+   * Approve the rendered draft. The decision is the methodist's own, so it is
+   * taken against the programme directly rather than through a chat turn.
+   */
+  approveProgramme(): void {
+    if (this.decisionSubmitting() || this.decision() === null) {
+      return;
+    }
+
+    this.decisionSubmitting.set(true);
+    this.chatService
+      .approveProgram(this.id())
+      .pipe(
+        finalize(() => this.decisionSubmitting.set(false)),
+        catchError((err: HttpErrorResponse) => {
+          this.reportDecisionFailure('Не удалось утвердить каркас', err);
+          return EMPTY;
+        })
+      )
+      .subscribe(() => {
+        this.notifications.success('Каркас утверждён', {
+          description: 'Агент пишет оценочные средства и материалы.'
+        });
+        this.refreshProgram.emit();
+      });
+  }
+
+  /** Ask for one block of the programme to be redone with the methodist's notes. */
+  reviseProgramme(request: ProgramRevisionRequest): void {
+    if (this.decisionSubmitting() || this.decision() === null) {
+      return;
+    }
+
+    this.decisionSubmitting.set(true);
+    this.chatService
+      .reviseProgram(this.id(), request)
+      .pipe(
+        finalize(() => this.decisionSubmitting.set(false)),
+        catchError((err: HttpErrorResponse) => {
+          this.reportDecisionFailure('Не удалось отправить программу на доработку', err);
+          return EMPTY;
+        })
+      )
+      .subscribe(() => {
+        this.notifications.success('Программа отправлена на доработку', {
+          description: 'Агент переделает выбранный блок и обновит документ.'
+        });
+        this.refreshProgram.emit();
+      });
+  }
+
+  /**
+   * A refused decision is a rule of the programme, not a broken request: the
+   * message is passed through as it is, and the programme is re-read so the
+   * panel shows the state the refusal was made against.
+   */
+  private reportDecisionFailure(prefix: string, err: HttpErrorResponse): void {
+    this.notifications.error(prefix + ': ' + extractApiErrorMessage(err), {
+      description: 'Состояние программы обновлено — проверьте его и повторите решение.'
+    });
+    this.refreshProgram.emit();
   }
 
   toggleSpeech(): void {

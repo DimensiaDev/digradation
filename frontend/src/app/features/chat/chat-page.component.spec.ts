@@ -12,6 +12,7 @@ import { ProgramQuestionApi, ProgramStateApi } from '../../core/models/models';
 import { ChatService } from '../../core/services/chat.service';
 import { ChatPage } from './chat-page.component';
 import { ChatComponent } from './chat.component';
+import { ProgramDecisionView } from './program-view';
 
 const SESSION_ID = 'd0a3f1e2-0000-4000-8000-123456789abc';
 const SECOND_SESSION_ID = 'b1c2d3e4-0000-4000-8000-000000000001';
@@ -39,6 +40,10 @@ const state = (overrides: Partial<ProgramStateApi> = {}): ProgramStateApi => ({
   draft: BLOCKS,
   report: null,
   exports: null,
+  revision: null,
+  last_revision: null,
+  approved_by: null,
+  approved_at: null,
   ...overrides
 });
 
@@ -54,6 +59,7 @@ const question = (id: string, text = 'Сколько часов?'): ProgramQuest
 class ChatStub {
   readonly id = input.required<string>();
   readonly questions = input<readonly ProgramQuestionApi[]>([]);
+  readonly decision = input<ProgramDecisionView | null>(null);
   readonly exportAttachmentIds = input<readonly number[]>([]);
   readonly turnStarted = output<void>();
   readonly turnFinished = output<void>();

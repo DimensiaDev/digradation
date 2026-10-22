@@ -153,6 +153,9 @@ export const MAX_MESSAGE_LENGTH = 5000;
 
 export const MAX_ANSWER_LENGTH = 4000;
 
+/** The backend caps the notes of a revision request at 2000 characters. */
+export const MAX_REVISION_NOTES_LENGTH = 2000;
+
 export const VISIBLE_FILES_LIMIT = 5;
 
 export type ProgramViewStatus =
@@ -299,6 +302,9 @@ export interface ProgramBlocksApi {
   summary: ProgramSummaryApi | null;
 }
 
+export type ProgramStage =
+  'competences' | 'hours' | 'assessment' | 'materials' | 'sources' | 'summary';
+
 export interface ProgramQuestionApi {
   id: string;
   text: string;
@@ -307,6 +313,20 @@ export interface ProgramQuestionApi {
 export interface ProgramAnswerApi {
   question_id: string;
   text: string;
+}
+
+/** A change the methodist asked for in one part of the programme. */
+export interface ProgramRevisionApi {
+  stage: ProgramStage;
+  notes: string;
+  requested_by: string | null;
+  requested_at: string | null;
+}
+
+/** The body of `POST /chats/{session_id}/program/revision`. */
+export interface ProgramRevisionRequest {
+  stage: ProgramStage;
+  notes: string;
 }
 
 export interface ProgramStateApi {
@@ -322,6 +342,12 @@ export interface ProgramStateApi {
   draft: ProgramBlocksApi;
   report: ProgramReportApi | null;
   exports: ProgramExportsApi | null;
+  /** The change being carried out right now, while one is pending. */
+  revision: ProgramRevisionApi | null;
+  /** The last change that was carried out, so the methodist can see who asked. */
+  last_revision: ProgramRevisionApi | null;
+  approved_by: string | null;
+  approved_at: string | null;
 }
 
 export const PROGRAM_STATUS_LABELS: Record<ProgramStatus, string> = {

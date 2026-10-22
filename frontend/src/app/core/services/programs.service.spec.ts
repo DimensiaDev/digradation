@@ -75,6 +75,10 @@ const PROGRAM_STATE: ProgramStateApi = {
   questions: [],
   report: null,
   exports: null,
+  revision: null,
+  last_revision: null,
+  approved_by: null,
+  approved_at: null,
   draft: {
     kind: 'professional_development',
     title: 'Python для анализа данных',

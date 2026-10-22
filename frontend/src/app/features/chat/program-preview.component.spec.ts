@@ -27,6 +27,10 @@ function state(overrides: Partial<ProgramStateApi> = {}): ProgramStateApi {
     },
     report: null,
     exports: null,
+    revision: null,
+    last_revision: null,
+    approved_by: null,
+    approved_at: null,
     ...overrides
   };
 }

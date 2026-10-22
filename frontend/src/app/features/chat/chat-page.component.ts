@@ -20,6 +20,7 @@ import { ChatMessageAttachment } from './chat-message.model';
 import { ChatComponent } from './chat.component';
 import { ProgramPreviewComponent } from './program-preview.component';
 import { ProgramStepperComponent } from './program-stepper.component';
+import { ProgramDecisionView, programDecision } from './program-view';
 
 const PROGRAM_POLL_INTERVAL_MS = 2_000;
 
@@ -53,6 +54,15 @@ export class ChatPage {
 
   readonly questions = computed(() =>
     this.turnInFlight() ? [] : (this.program()?.questions ?? [])
+  );
+
+  /**
+   * The decision the programme owes the methodist, if any. Hidden while a chat
+   * turn runs, the way the questions are: the run is moving and the state the
+   * decision would be taken against is about to change.
+   */
+  readonly decision = computed<ProgramDecisionView | null>(() =>
+    this.turnInFlight() ? null : programDecision(this.program())
   );
 
   readonly exportAttachmentIds = computed(() => {

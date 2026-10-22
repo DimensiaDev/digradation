@@ -12,6 +12,7 @@ import {
   ChatUploadParams,
   MessageResponse,
   ProgramAnswerApi,
+  ProgramRevisionRequest,
   ProgramStateApi
 } from '../models/models';
 
@@ -36,6 +37,19 @@ export class ChatService {
 
   program(sessionId: string): Observable<ProgramStateApi> {
     return this.http.get<ProgramStateApi>(`${this.baseUrl}/${sessionId}/program`);
+  }
+
+  /** Approve the rendered draft, releasing the content stages. */
+  approveProgram(sessionId: string): Observable<ProgramStateApi> {
+    return this.http.post<ProgramStateApi>(`${this.baseUrl}/${sessionId}/program/approve`, {});
+  }
+
+  /** Ask for one block of the programme to be redone, with the methodist's notes. */
+  reviseProgram(sessionId: string, request: ProgramRevisionRequest): Observable<ProgramStateApi> {
+    return this.http.post<ProgramStateApi>(
+      `${this.baseUrl}/${sessionId}/program/revision`,
+      request
+    );
   }
 
   send(

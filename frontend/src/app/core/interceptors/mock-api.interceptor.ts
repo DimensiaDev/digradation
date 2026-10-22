@@ -14,11 +14,23 @@ import {
   ProgramApiItem,
   ProgramBlocksApi,
   ProgramQuestionApi,
+  ProgramRevisionApi,
+  ProgramStage,
   ProgramStateApi,
   User,
   UserChat,
   UserRole
 } from '../models/models';
+
+/** The stages of the pipeline, in the order the backend runs them. */
+const ALL_PROGRAM_STAGES: readonly ProgramStage[] = [
+  'competences',
+  'hours',
+  'sources',
+  'summary',
+  'assessment',
+  'materials'
+];
 
 const MOCK_USERNAME = 'admin';
 const MOCK_PASSWORD = 'admin123';
@@ -240,6 +252,7 @@ const SOFT_SKILLS_REPORT: NonNullable<ProgramStateApi['report']> = {
 interface ProgrammeRuntime {
   status: ProgramApiItem['status'];
   questions: ProgramQuestionApi[];
+  lastRevision?: ProgramRevisionApi | null;
 }
 
 const programmeRuntime = new Map<string, ProgrammeRuntime>();
@@ -330,15 +343,34 @@ const programmeReport = (
   };
 };
 
+const programmeStages = (status: ProgramApiItem['status']): Record<string, string> => {
+  const completed = (done: readonly ProgramStage[]) =>
+    Object.fromEntries(
+      ALL_PROGRAM_STAGES.map((stage) => [stage, done.includes(stage) ? 'completed' : 'pending'])
+    );
+
+  switch (status) {
+    case 'approved':
+    case 'verified':
+      return completed(ALL_PROGRAM_STAGES);
+    case 'pending_approval':
+      return completed(['competences', 'hours', 'sources', 'summary']);
+    case 'generating':
+      return { ...completed(['competences']), hours: 'in_progress' };
+    default:
+      return completed([]);
+  }
+};
+
 const programmeState = (programme: ProgramApiItem): ProgramStateApi => {
   const runtime = programmeRuntime.get(programme.session_id);
   const status = runtime?.status ?? programme.status;
   return {
     status,
-    current_stage: null,
-    stages: {},
+    current_stage: status === 'generating' ? 'hours' : null,
+    stages: programmeStages(status),
     running: false,
-    busy: false,
+    busy: status === 'generating',
     error: null,
     updated_at: programme.updated_at,
     version: 1,
@@ -355,7 +387,11 @@ const programmeState = (programme: ProgramApiItem): ProgramStateApi => {
             summary: programmeSummary(programme)
           },
     report: programmeReport(programme, status),
-    exports: PROGRAMME_EXPORTS[programme.session_id] ?? null
+    exports: PROGRAMME_EXPORTS[programme.session_id] ?? null,
+    revision: null,
+    last_revision: runtime?.lastRevision ?? null,
+    approved_by: null,
+    approved_at: null
   };
 };
 
@@ -378,7 +414,11 @@ const emptyProgramState = (): ProgramStateApi => ({
     summary: null
   },
   report: null,
-  exports: null
+  exports: null,
+  revision: null,
+  last_revision: null,
+  approved_by: null,
+  approved_at: null
 });
 
 const CHAT_NAMES = [
@@ -561,6 +601,42 @@ export const mockApiInterceptor: HttpInterceptorFn = (req, next) => {
       const sessionId = `mock-chat-${nextChatNumber++}`;
       chatMessages.set(sessionId, []);
       return ok({ session_id: sessionId });
+    }
+
+    const approveMatch = path.match(/^\/chats\/([^/]+)\/program\/approve$/);
+    if (approveMatch && req.method === 'POST') {
+      const programme = PROGRAMMES.find((candidate) => candidate.session_id === approveMatch[1]);
+      if (!programme) {
+        return fail(404, 'В этом чате нет программы');
+      }
+      programme.status = 'approved';
+      const runtime = programmeRuntime.get(programme.session_id);
+      if (runtime) {
+        runtime.status = 'approved';
+      }
+      return ok(programmeState(programme));
+    }
+
+    const revisionMatch = path.match(/^\/chats\/([^/]+)\/program\/revision$/);
+    if (revisionMatch && req.method === 'POST') {
+      const programme = PROGRAMMES.find((candidate) => candidate.session_id === revisionMatch[1]);
+      if (!programme) {
+        return fail(404, 'В этом чате нет программы');
+      }
+      programme.status = 'pending_approval';
+      const runtime: ProgrammeRuntime = programmeRuntime.get(programme.session_id) ?? {
+        status: programme.status,
+        questions: []
+      };
+      runtime.status = 'pending_approval';
+      runtime.lastRevision = {
+        stage: String(body?.['stage'] ?? '') as ProgramStage,
+        notes: String(body?.['notes'] ?? ''),
+        requested_by: null,
+        requested_at: new Date().toISOString()
+      };
+      programmeRuntime.set(programme.session_id, runtime);
+      return ok(programmeState(programme));
     }
 
     const programMatch = path.match(/^\/chats\/([^/]+)\/program$/);
