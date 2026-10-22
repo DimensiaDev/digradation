@@ -3,7 +3,6 @@ import { signal } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
-import { By } from '@angular/platform-browser';
 import { vi } from 'vitest';
 
 import { ChatComponent } from './chat.component';
@@ -440,23 +439,12 @@ describe('Chat behaviour', () => {
     });
   });
 
-  it('toggles the files panel', () => {
-    openSession();
-    expect(fixture.nativeElement.classList.contains('files-open')).toBe(false);
-    component.handleFilesOpen();
-    fixture.detectChanges();
-    expect(component.isFilesOpen()).toBe(true);
-    expect(fixture.nativeElement.classList.contains('files-open')).toBe(true);
-    component.handleFilesOpen();
-    expect(component.isFilesOpen()).toBe(false);
-  });
-
   // --- files being uploaded -------------------------------------------------
 
   it('loads the files still being uploaded when the files panel opens', () => {
     openSession();
 
-    component.handleFilesOpen();
+    component.loadPendingFiles();
     const req = http.expectOne(ATTACHMENTS_URL);
     expect(req.request.method).toBe('GET');
     req.flush([
@@ -481,16 +469,12 @@ describe('Chat behaviour', () => {
 
     // Only the staged file belongs in this list; the other is already in the log.
     expect(component.pendingAttachments().map((a) => a.filename)).toEqual(['деталь.pdf']);
-    expect(component.attachmentStatusLabel(component.pendingAttachments()[0])).toBe('Загружается');
-    expect(fixture.nativeElement.textContent).toContain('Загруженные файлы');
-    const pendingRows = fixture.debugElement.queryAll(By.css('.session-files__file'));
-    expect(pendingRows.length).toBe(1);
-    expect(pendingRows[0].nativeElement.textContent).toContain('деталь.pdf');
+    expect(component.visiblePendingAttachments().map((a) => a.filename)).toEqual(['деталь.pdf']);
   });
 
   it('previews and downloads a staged file through the same actions', () => {
     openSession();
-    component.handleFilesOpen();
+    component.loadPendingFiles();
     http.expectOne(ATTACHMENTS_URL).flush([
       {
         id: 7,
@@ -509,104 +493,12 @@ describe('Chat behaviour', () => {
       component as unknown as { attachmentDownload: { fetchFile: typeof fetchFile } }
     ).attachmentDownload.fetchFile = fetchFile;
 
-    const row = fixture.debugElement.queryAll(By.css('.session-files__file'))[0];
-    row.query(By.css('[aria-label="Предпросмотр"]')).nativeElement.click();
-    row.query(By.css('[aria-label="Скачать"]')).nativeElement.click();
+    const attachment = { name: 'деталь.pdf', attachmentId: 7 };
+    component.openAttachmentPreview(attachment);
+    component.downloadAttachment(attachment);
 
     expect(fetchFile).toHaveBeenCalledTimes(2);
     expect(fetchFile).toHaveBeenCalledWith(SESSION_ID, 7);
-  });
-
-  it('does not re-fetch when the files panel is closed again', () => {
-    openSession();
-
-    component.handleFilesOpen();
-    http.expectOne(ATTACHMENTS_URL).flush([]);
-    component.handleFilesOpen();
-
-    expect(http.match((r) => r.url === ATTACHMENTS_URL)).toEqual([]);
-  });
-
-  it('maps every upload state to a label', () => {
-    openSession();
-    const attachment = {
-      id: 1,
-      filename: 'a.pdf',
-      ready: false,
-      chat_message_id: null,
-      timestamp: '2026-09-12T12:18:35.689095Z'
-    };
-
-    expect(component.attachmentStatusLabel({ ...attachment, status: 'uploading' })).toBe(
-      'Загружается'
-    );
-    expect(component.attachmentStatusLabel({ ...attachment, status: 'processing' })).toBe(
-      'Обрабатывается'
-    );
-    expect(component.attachmentStatusLabel({ ...attachment, status: 'error' })).toBe('Ошибка');
-    expect(component.attachmentStatusLabel({ ...attachment, status: 'completed' })).toBe('Готово');
-    // The Redis status key has a TTL; `ready` is what survives it.
-    expect(component.attachmentStatusLabel({ ...attachment, status: 'unknown' })).toBe(
-      'Статус неизвестен'
-    );
-    expect(component.attachmentStatusLabel({ ...attachment, status: 'unknown', ready: true })).toBe(
-      'Готово'
-    );
-  });
-
-  it('deletes a staged file from the panel', () => {
-    openSession();
-    component.handleFilesOpen();
-    http.expectOne(ATTACHMENTS_URL).flush([
-      {
-        id: 7,
-        filename: 'деталь.pdf',
-        status: 'completed',
-        ready: true,
-        chat_message_id: null,
-        timestamp: '2026-09-12T12:18:35.689095Z'
-      }
-    ]);
-    fixture.detectChanges();
-
-    const button = fixture.debugElement.query(By.css('[aria-label="Удалить файл"]'));
-    button.nativeElement.click();
-    const req = http.expectOne(`${ATTACHMENTS_URL}/7`);
-    expect(req.request.method).toBe('DELETE');
-    req.flush({ deleted: true });
-    fixture.detectChanges();
-
-    expect(component.pendingAttachments()).toEqual([]);
-    expect(notifications.success).toHaveBeenCalledWith('Файл «деталь.pdf» удалён', {
-      description: 'Файл убран из списка вложений.'
-    });
-    expect(fixture.debugElement.query(By.css('[aria-label="Удалить файл"]'))).toBeNull();
-  });
-
-  it('keeps the row and reports a failed delete', () => {
-    openSession();
-    component.handleFilesOpen();
-    http.expectOne(ATTACHMENTS_URL).flush([
-      {
-        id: 7,
-        filename: 'деталь.pdf',
-        status: 'uploading',
-        ready: false,
-        chat_message_id: null,
-        timestamp: '2026-09-12T12:18:35.689095Z'
-      }
-    ]);
-    fixture.detectChanges();
-
-    fixture.debugElement.query(By.css('[aria-label="Удалить файл"]')).nativeElement.click();
-    http
-      .expectOne(`${ATTACHMENTS_URL}/7`)
-      .flush({ detail: 'nope' }, { status: 500, statusText: 'Server Error' });
-
-    expect(component.pendingAttachments().length).toBe(1);
-    expect(notifications.error).toHaveBeenCalledWith('Не удалось удалить файл: Ошибка сервера', {
-      description: 'Файл остался в чате — попробуйте ещё раз.'
-    });
   });
 
   it('keeps programme exports out of the staged files and refuses to delete them', () => {
@@ -614,7 +506,7 @@ describe('Chat behaviour', () => {
     fixture.componentRef.setInput('exportAttachmentIds', [8]);
     fixture.detectChanges();
 
-    component.handleFilesOpen();
+    component.loadPendingFiles();
     http.expectOne(ATTACHMENTS_URL).flush([
       {
         id: 7,
@@ -638,8 +530,6 @@ describe('Chat behaviour', () => {
     expect(component.visiblePendingAttachments().map((file) => file.filename)).toEqual([
       'деталь.pdf'
     ]);
-    expect(fixture.nativeElement.textContent).not.toContain('programme.docx');
-
     component.deletePendingAttachment(component.pendingAttachments()[1]);
     expect(http.match((request) => request.method === 'DELETE')).toEqual([]);
     expect(component.pendingAttachments().length).toBe(2);
@@ -662,7 +552,7 @@ describe('Chat behaviour', () => {
   it('reports a failed request for the staged files', () => {
     openSession();
 
-    component.handleFilesOpen();
+    component.loadPendingFiles();
     http
       .expectOne(ATTACHMENTS_URL)
       .flush({ detail: 'nope' }, { status: 500, statusText: 'Server Error' });
@@ -701,18 +591,14 @@ describe('Chat behaviour', () => {
 
   // --- attachments --------------------------------------------------------
 
-  it('describes a file by type', () => {
-    openSession();
-    expect(component.fileIconFor('drawing.pdf')).toBeTruthy();
-    expect(component.fileColorFor('drawing.pdf')).toBeTruthy();
-  });
-
   it('previews and downloads a local file without a request', () => {
     openSession();
     const file = new File(['x'], 'a.pdf', { type: 'application/pdf' });
 
+    const preview = vi.fn();
+    component.previewFile.subscribe(preview);
     component.openAttachmentPreview({ name: 'a.pdf', attachmentId: 1, file });
-    expect(component.previewedFile()).toBe(file);
+    expect(preview).toHaveBeenCalledWith(file);
 
     const save = vi.fn();
     (
@@ -725,6 +611,8 @@ describe('Chat behaviour', () => {
   it('fetches a server-side attachment before previewing it', () => {
     openSession();
     const fetched = new File(['x'], 'server.pdf', { type: 'application/pdf' });
+    const preview = vi.fn();
+    component.previewFile.subscribe(preview);
     const fetchFile = vi
       .fn()
       .mockReturnValue({ subscribe: (o: { next: (f: File) => void }) => o.next(fetched) });
@@ -734,7 +622,7 @@ describe('Chat behaviour', () => {
 
     component.openAttachmentPreview({ name: 'server.pdf', attachmentId: 5 });
     expect(fetchFile).toHaveBeenCalledWith(SESSION_ID, 5);
-    expect(component.previewedFile()).toBe(fetched);
+    expect(preview).toHaveBeenCalledWith(fetched);
   });
 
   it('does nothing for an attachment without an id', () => {

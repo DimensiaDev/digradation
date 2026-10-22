@@ -62,14 +62,6 @@
     }
   }
 
-  &__kind {
-    margin-top: 3px;
-
-    font-size: 12px;
-    line-height: 1.4;
-    color: var(--color-gray);
-  }
-
   &__badge {
     display: inline-flex;
     align-items: center;
@@ -229,6 +221,12 @@
     gap: 8px;
 
     margin-top: 18px;
+  }
+
+  &__files-section {
+    display: block;
+
+    margin-top: 8px;
   }
 
   &__section--focused {
@@ -587,5 +585,82 @@
     &__footer {
       padding: 12px 16px;
     }
+  }
+}
+
+.session-files {
+  &__section {
+    display: grid;
+    gap: 16px;
+
+    margin-top: 24px;
+  }
+
+  &__files {
+    display: grid;
+    gap: 10px;
+
+    padding: 0;
+    margin: 0;
+
+    list-style: none;
+  }
+
+  &__file {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    padding: 12px 14px;
+
+    background: var(--color-secondary);
+    border-radius: 8px;
+  }
+
+  &__file-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    width: 20px;
+    height: 20px;
+  }
+
+  &__file-name {
+    flex: 1;
+
+    min-width: 0;
+
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__files-placeholder {
+    margin: 0;
+
+    color: var(--color-gray);
+  }
+
+  &__file-status {
+    flex-shrink: 0;
+
+    color: var(--color-gray);
+
+    font-size: 12px;
+
+    &--error {
+      color: var(--color-danger);
+    }
+  }
+
+  &__actions {
+    display: grid;
+    gap: 20px;
+
+    width: 100%;
+    margin-top: auto;
+    padding-top: 24px;
   }
 }

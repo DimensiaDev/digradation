@@ -19,21 +19,29 @@ import {
   LucideClipboardCheck,
   LucideClock,
   LucideDownload,
+  LucideDynamicIcon,
+  LucideEye,
   LucideFileText,
   LucideLaptop,
   LucideLayers,
   LucideLayoutTemplate,
+  LucidePaperclip,
   LucidePresentation,
   LucideRefreshCw,
   LucideTags,
   LucideTarget,
+  LucideTrash2,
   LucideTriangleAlert
 } from '@lucide/angular';
-import { ProgramStateApi } from '../../core/models/models';
+import type { LucideIconData } from '@lucide/angular';
+import { ChatSessionAttachment, ProgramStateApi } from '../../core/models/models';
 import { AttachmentDownloadService } from '../../core/services/attachment-download.service';
 import { NotificationService } from '../../core/services/notification.service';
 import { AccordionSectionComponent } from '../../shared/components/accordion-section/accordion-section.component';
 import { extractApiErrorMessage } from '../../shared/utils/api-error';
+import { fileTypeStyleFor } from '../../shared/utils/file-types';
+import { getFileExtension } from '../../shared/utils/upload-format';
+import { ChatMessageAttachment } from './chat-message.model';
 import { ProgramReportComponent } from './program-report.component';
 import {
   ProgramPreviewSection,
@@ -43,7 +51,6 @@ import {
   programGoal,
   programHours,
   programHoursLabel,
-  programKindLabel,
   programModules,
   programReport,
   programSources,
@@ -64,14 +71,18 @@ export type ProgramAccordionSection = Exclude<ProgramPreviewSection, 'results'>;
     LucideClipboardCheck,
     LucideClock,
     LucideDownload,
+    LucideDynamicIcon,
+    LucideEye,
     LucideFileText,
     LucideLaptop,
     LucideLayers,
     LucideLayoutTemplate,
+    LucidePaperclip,
     LucidePresentation,
     LucideRefreshCw,
     LucideTags,
     LucideTarget,
+    LucideTrash2,
     LucideTriangleAlert
   ],
   templateUrl: './program-preview.component.html',
@@ -83,11 +94,17 @@ export class ProgramPreviewComponent {
   readonly state = input<ProgramStateApi | null>(null);
   readonly loading = input(false);
   readonly error = input<string | null>(null);
+  readonly sessionFiles = input<readonly ChatMessageAttachment[]>([]);
+  readonly pendingFiles = input<readonly ChatSessionAttachment[]>([]);
   readonly reload = output<void>();
+  readonly filesOpened = output<void>();
+  readonly previewRequested = output<ChatMessageAttachment>();
+  readonly downloadRequested = output<ChatMessageAttachment>();
+  readonly deletePendingRequested = output<ChatSessionAttachment>();
+  readonly deleteSessionRequested = output<void>();
 
   readonly badge = computed(() => programBadge(this.state()));
   readonly title = computed(() => this.state()?.draft.title?.trim() || null);
-  readonly kind = computed(() => programKindLabel(this.state()));
   readonly hours = computed(() => programHours(this.state()?.draft.curriculum));
   readonly hoursLabel = computed(() => programHoursLabel(this.hours()));
   readonly formLabel = computed(() => programFormLabel(this.state()));
@@ -148,6 +165,47 @@ export class ProgramPreviewComponent {
     return programHoursLabel(hours);
   }
 
+  fileIconFor(name: string): LucideIconData {
+    return fileTypeStyleFor(getFileExtension(name)).icon;
+  }
+
+  fileColorFor(name: string): string {
+    return fileTypeStyleFor(getFileExtension(name)).color;
+  }
+
+  attachmentStatusLabel(attachment: ChatSessionAttachment): string {
+    switch (attachment.status) {
+      case 'uploading':
+        return 'Загружается';
+      case 'processing':
+        return 'Обрабатывается';
+      case 'error':
+        return 'Ошибка';
+      case 'completed':
+        return 'Готово';
+      default:
+        // The status key has a TTL, so an uploaded file can outlive it. The
+        // durable `ready` flag still says whether the file may be sent.
+        return attachment.ready ? 'Готово' : 'Статус неизвестен';
+    }
+  }
+
+  previewFile(attachment: ChatMessageAttachment): void {
+    this.previewRequested.emit(attachment);
+  }
+
+  downloadFile(attachment: ChatMessageAttachment): void {
+    this.downloadRequested.emit(attachment);
+  }
+
+  deletePendingFile(attachment: ChatSessionAttachment): void {
+    this.deletePendingRequested.emit(attachment);
+  }
+
+  deleteSession(): void {
+    this.deleteSessionRequested.emit();
+  }
+
   topicCountLabel(count: number): string {
     return programTopicCountLabel(count);
   }
@@ -186,7 +244,11 @@ export class ProgramPreviewComponent {
   }
 
   toggleSection(section: ProgramAccordionSection): void {
-    this.expandedSection.update((current) => (current === section ? null : section));
+    const opening = this.expandedSection() !== section;
+    this.expandedSection.set(opening ? section : null);
+    if (section === 'files' && opening) {
+      this.filesOpened.emit();
+    }
   }
 
   focusSection(section: ProgramPreviewSection): void {

@@ -6,14 +6,17 @@ import {
   effect,
   inject,
   input,
-  signal
+  signal,
+  viewChild
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { LucideArrowLeft, LucideLayoutTemplate, LucideMessageSquareText } from '@lucide/angular';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ChatService } from '../../core/services/chat.service';
-import { ProgramStateApi } from '../../core/models/models';
+import { ChatSessionAttachment, ProgramStateApi } from '../../core/models/models';
+import { FilePreviewComponent } from '../../shared/components/drag-n-drop/file-preview.component';
 import { extractApiErrorMessage } from '../../shared/utils/api-error';
+import { ChatMessageAttachment } from './chat-message.model';
 import { ChatComponent } from './chat.component';
 import { ProgramPreviewComponent } from './program-preview.component';
 import { ProgramStepperComponent } from './program-stepper.component';
@@ -28,6 +31,7 @@ type MobileView = 'chat' | 'preview';
     ChatComponent,
     ProgramPreviewComponent,
     ProgramStepperComponent,
+    FilePreviewComponent,
     RouterLink,
     LucideArrowLeft,
     LucideLayoutTemplate,
@@ -45,6 +49,7 @@ export class ChatPage {
   readonly programError = signal<string | null>(null);
   readonly turnInFlight = signal(false);
   readonly mobileView = signal<MobileView>('chat');
+  readonly previewedFile = signal<File | null>(null);
 
   readonly questions = computed(() =>
     this.turnInFlight() ? [] : (this.program()?.questions ?? [])
@@ -57,6 +62,10 @@ export class ChatPage {
     );
   });
 
+  readonly sessionFiles = computed(() => this.chatView()?.sessionFiles() ?? []);
+  readonly pendingFiles = computed(() => this.chatView()?.visiblePendingAttachments() ?? []);
+
+  private readonly chatView = viewChild(ChatComponent);
   private readonly chatService = inject(ChatService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -109,6 +118,26 @@ export class ChatPage {
 
   showPreview(): void {
     this.mobileView.set('preview');
+  }
+
+  loadFiles(): void {
+    this.chatView()?.loadPendingFiles();
+  }
+
+  previewFile(file: ChatMessageAttachment): void {
+    this.chatView()?.openAttachmentPreview(file);
+  }
+
+  downloadFile(file: ChatMessageAttachment): void {
+    this.chatView()?.downloadAttachment(file);
+  }
+
+  deletePendingFile(file: ChatSessionAttachment): void {
+    this.chatView()?.deletePendingAttachment(file);
+  }
+
+  deleteSession(): void {
+    this.chatView()?.deleteSession();
   }
 
   private fetchProgram(sessionId: string): void {

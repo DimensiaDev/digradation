@@ -53,8 +53,9 @@ polling while a run is busy. Cards and the detail panel show only what those res
 the catalogue is read-only until the programme-mutation endpoints exist. The chat workspace's
 aside shows the saved blocks, the cited sources with their catalogue confirmation, and the
 self-check in a single-open accordion; the report opens with a score and a progress bar, then
-lists failures first and passed checks second. The finished programme's DOCX and PPTX downloads
-stay pinned to the aside footer, outside the collapsible content. Program creation has no entry
+lists failures first and passed checks second. Session files and staged uploads are a `Файлы`
+accordion in the same aside, and the chat has no separate files panel. The finished programme's
+DOCX and PPTX downloads stay pinned to the aside footer, outside the collapsible content. Program creation has no entry
 point yet.
 
 **Not started or placeholder.** The profile page body, user settings, and two admin sections

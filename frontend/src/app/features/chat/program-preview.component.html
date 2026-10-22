@@ -7,9 +7,6 @@
       } @else {
         <p class="program-preview__name program-preview__name--muted">Собирается по ходу диалога</p>
       }
-      @if (kind()) {
-        <p class="program-preview__kind">{{ kind() }}</p>
-      }
     </div>
 
     <span class="program-preview__badge" role="status" [attr.data-tone]="badge().tone">
@@ -256,6 +253,121 @@
         </p>
       </div>
     }
+
+    <app-accordion-section
+      class="program-preview__section program-preview__files-section"
+      data-section="files"
+      sectionId="program-preview-files"
+      [expanded]="isExpanded('files')"
+      [class.program-preview__section--focused]="focused() === 'files'"
+      (toggled)="toggleSection('files')"
+    >
+      <span accordionTitle class="program-preview__section-title">
+        <svg size="16" lucidePaperclip aria-hidden="true"></svg>
+        Файлы
+      </span>
+      <span accordionMeta>
+        @if (sessionFiles().length + pendingFiles().length) {
+          <span class="program-preview__count">{{
+            sessionFiles().length + pendingFiles().length
+          }}</span>
+        }
+      </span>
+
+      <section class="session-files__section">
+        <h3 class="session-files__subtitle">Файлы в сообщениях</h3>
+        @if (sessionFiles().length > 0) {
+          <ul class="session-files__files">
+            @for (file of sessionFiles(); track file.attachmentId) {
+              <li class="session-files__file">
+                <span class="session-files__file-icon" [style.color]="fileColorFor(file.name)">
+                  <svg size="18" [lucideIcon]="fileIconFor(file.name)" aria-hidden="true"></svg>
+                </span>
+                <span class="session-files__file-name">{{ file.name }}</span>
+                <button
+                  type="button"
+                  class="button button--outline button--centered"
+                  aria-label="Предпросмотр"
+                  (click)="previewFile(file)"
+                >
+                  <svg size="16" lucideEye aria-hidden="true"></svg>
+                </button>
+                <button
+                  type="button"
+                  class="button button--outline button--centered"
+                  aria-label="Скачать"
+                  (click)="downloadFile(file)"
+                >
+                  <svg size="16" lucideDownload aria-hidden="true"></svg>
+                </button>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="session-files__files-placeholder h4">Пока нет файлов</p>
+        }
+      </section>
+
+      <section class="session-files__section">
+        <h3 class="session-files__subtitle">Загруженные файлы</h3>
+        @if (pendingFiles().length > 0) {
+          <ul class="session-files__files">
+            @for (file of pendingFiles(); track file.id) {
+              <li class="session-files__file">
+                <span class="session-files__file-icon" [style.color]="fileColorFor(file.filename)">
+                  <svg size="18" [lucideIcon]="fileIconFor(file.filename)" aria-hidden="true"></svg>
+                </span>
+                <span class="session-files__file-name">{{ file.filename }}</span>
+                <span
+                  class="session-files__file-status"
+                  [class.session-files__file-status--error]="file.status === 'error'"
+                  [title]="attachmentStatusLabel(file)"
+                >
+                  {{ attachmentStatusLabel(file) }}
+                </span>
+                <button
+                  type="button"
+                  class="button button--outline button--centered"
+                  aria-label="Предпросмотр"
+                  (click)="previewFile({ name: file.filename, attachmentId: file.id })"
+                >
+                  <svg size="16" lucideEye aria-hidden="true"></svg>
+                </button>
+                <button
+                  type="button"
+                  class="button button--outline button--centered"
+                  aria-label="Скачать"
+                  (click)="downloadFile({ name: file.filename, attachmentId: file.id })"
+                >
+                  <svg size="16" lucideDownload aria-hidden="true"></svg>
+                </button>
+                <button
+                  type="button"
+                  class="button button--outline button--centered"
+                  aria-label="Удалить файл"
+                  (click)="deletePendingFile(file)"
+                >
+                  <svg size="16" lucideTrash2 aria-hidden="true"></svg>
+                </button>
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="session-files__files-placeholder h4">Нет файлов в загрузке</p>
+        }
+      </section>
+
+      <footer class="session-files__actions">
+        <button
+          type="button"
+          class="button button--outline button--danger button--centered h3 button__remove-session"
+          (click)="deleteSession()"
+        >
+          <svg size="18" lucideTrash2 aria-hidden="true"></svg>
+          Удалить сессию
+        </button>
+      </footer>
+    </app-accordion-section>
   </div>
 
   @if (documentExportId() !== null || slidesExportId() !== null) {

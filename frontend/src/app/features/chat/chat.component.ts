@@ -14,18 +14,7 @@ import {
   untracked,
   viewChild
 } from '@angular/core';
-import {
-  LucideArrowUp,
-  LucideDownload,
-  LucideDynamicIcon,
-  LucideEye,
-  LucideMic,
-  LucidePanelRightClose,
-  LucidePanelRightOpen,
-  LucidePaperclip,
-  LucideTrash2
-} from '@lucide/angular';
-import type { LucideIconData } from '@lucide/angular';
+import { LucideArrowUp, LucideMic, LucidePaperclip } from '@lucide/angular';
 import { HttpErrorResponse } from '@angular/common/http';
 import { EMPTY, catchError, finalize } from 'rxjs';
 import { DragNDropComponent } from '../../shared/components/drag-n-drop/drag-n-drop.component';
@@ -37,7 +26,6 @@ import {
   ChatMessageStatus
 } from './chat-message.model';
 import { AgentStatusComponent } from './agent-status.component';
-import { FilePreviewComponent } from '../../shared/components/drag-n-drop/file-preview.component';
 import { NotificationService } from '../../core/services/notification.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
 import {
@@ -52,8 +40,6 @@ import { SpeechRecognitionService } from '../../core/services/speech-recognition
 import { extractApiErrorMessage } from '../../shared/utils/api-error';
 import { speechErrorNotice } from '../../shared/utils/speech-error';
 import { Router } from '@angular/router';
-import { fileTypeStyleFor } from '../../shared/utils/file-types';
-import { getFileExtension } from '../../shared/utils/upload-format';
 import { DragOverlayComponent } from '../../shared/components/drag-n-drop/drag-overlay.component';
 import { ChatQuestionFormComponent } from './chat-question-form.component';
 
@@ -63,27 +49,17 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 @Component({
   selector: 'app-chat',
   imports: [
-    LucidePanelRightClose,
-    LucidePanelRightOpen,
     LucidePaperclip,
-    LucideDownload,
-    LucideEye,
-    LucideDynamicIcon,
     DragNDropComponent,
     DragOverlayComponent,
-    LucideTrash2,
     LucideArrowUp,
     LucideMic,
     ChatMessageComponent,
     AgentStatusComponent,
-    FilePreviewComponent,
     ChatQuestionFormComponent
   ],
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: {
-    '[class.files-open]': 'isFilesOpen()'
-  },
   templateUrl: './chat.component.html',
   styleUrl: './chat.component.scss'
 })
@@ -95,16 +71,15 @@ export class ChatComponent implements OnInit {
   readonly turnStarted = output<void>();
   readonly turnFinished = output<void>();
   readonly refreshProgram = output<void>();
+  readonly previewFile = output<File>();
 
   private readonly speech = inject(SpeechRecognitionService);
 
-  readonly isFilesOpen = signal<boolean>(false);
   readonly agentStatus = signal<'thinking' | null>(null);
   readonly attachedFiles = signal<File[]>([]);
   readonly isUploading = signal(false);
   readonly isSending = signal(false);
   readonly lastMessageFailed = signal(false);
-  readonly previewedFile = signal<File | null>(null);
   /**
    * Files the session is holding that no message references yet, which is what
    * "still uploading" means from the user's side. Fetched from the backend rather
@@ -142,31 +117,6 @@ export class ChatComponent implements OnInit {
     return files;
   });
 
-  fileIconFor(name: string): LucideIconData {
-    return fileTypeStyleFor(getFileExtension(name)).icon;
-  }
-
-  fileColorFor(name: string): string {
-    return fileTypeStyleFor(getFileExtension(name)).color;
-  }
-
-  attachmentStatusLabel(attachment: ChatSessionAttachment): string {
-    switch (attachment.status) {
-      case 'uploading':
-        return 'Загружается';
-      case 'processing':
-        return 'Обрабатывается';
-      case 'error':
-        return 'Ошибка';
-      case 'completed':
-        return 'Готово';
-      default:
-        // The status key has a TTL, so an uploaded file can outlive it. The
-        // durable `ready` flag still says whether the file may be sent.
-        return attachment.ready ? 'Готово' : 'Статус неизвестен';
-    }
-  }
-
   deletePendingAttachment(attachment: ChatSessionAttachment): void {
     if (this.exportAttachmentIds().includes(attachment.id)) {
       return;
@@ -189,7 +139,8 @@ export class ChatComponent implements OnInit {
       });
   }
 
-  private loadPendingAttachments(sessionId: string): void {
+  loadPendingFiles(): void {
+    const sessionId = this.id();
     this.chatService
       .attachments(sessionId)
       .pipe(
@@ -213,10 +164,10 @@ export class ChatComponent implements OnInit {
 
   openAttachmentPreview(attachment: ChatMessageAttachment) {
     if (attachment.file) {
-      this.previewedFile.set(attachment.file);
+      this.previewFile.emit(attachment.file);
       return;
     }
-    this.fetchServerAttachment(attachment, (file) => this.previewedFile.set(file));
+    this.fetchServerAttachment(attachment, (file) => this.previewFile.emit(file));
   }
 
   downloadAttachment(attachment: ChatMessageAttachment) {
@@ -448,18 +399,11 @@ export class ChatComponent implements OnInit {
 
   readonly messageInputValue = signal('');
 
-  handleFilesOpen() {
-    this.isFilesOpen.set(!this.isFilesOpen());
-    if (this.isFilesOpen()) {
-      this.loadPendingAttachments(this.id());
-    }
-  }
-
   onUploadingChange(uploading: boolean) {
     this.isUploading.set(uploading);
     if (!uploading) {
       // A finished batch changes what the session is holding.
-      this.loadPendingAttachments(this.id());
+      this.loadPendingFiles();
     }
   }
 

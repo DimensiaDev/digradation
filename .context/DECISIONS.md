@@ -2233,3 +2233,17 @@ failed check was hard to spot.
 - **Only the conflicting sentence is red.** The check row stays neutral; each problem message
   is its own tinted callout, because the backend names the mismatch but not which detail value
   is wrong.
+
+## Files live in the programme aside (2026-10-22)
+
+The chat had a second right-hand panel for files, opened by its own header button, while the
+programme aside already owned the right column. Two panels competed for the same edge and the
+file button duplicated navigation.
+
+- **The files list is a `Файлы` accordion in the programme aside**, below the draft blocks,
+  and the chat header no longer has a panel toggle.
+- **The chat still owns the file state.** The page passes the chat's session files and pending
+  uploads into the aside and routes preview, download, delete and session deletion back to the
+  chat, so the attachment API is loaded once and the two panes see the same upload state.
+- **Opening the section reloads pending uploads.** A file can be uploaded while the accordion
+  is closed, and the chat reloads the list when a batch finishes, so stale rows are not kept.

@@ -224,7 +224,6 @@ describe('ProgramPreviewComponent', () => {
 
     let text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Аналитика данных');
-    expect(text).toContain('Повышение квалификации');
     expect(text).toContain('Черновик обновлён');
     expect(text).toContain('18 часов');
     expect(text).toContain('Очно-заочная');
@@ -451,6 +450,106 @@ describe('ProgramPreviewComponent', () => {
     button.click();
 
     expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it('opens the files section and asks the chat to reload uploads', () => {
+    const filesOpened = vi.fn();
+    component.filesOpened.subscribe(filesOpened);
+    fixture.componentRef.setInput('state', state());
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Файлы');
+
+    expandSection('files');
+
+    expect(filesOpened).toHaveBeenCalledOnce();
+    expect(fixture.nativeElement.querySelector('.session-files__section')).not.toBeNull();
+  });
+
+  it('renders session and pending files and forwards their actions', () => {
+    const preview = vi.fn();
+    const download = vi.fn();
+    const remove = vi.fn();
+    const removeSession = vi.fn();
+    component.previewRequested.subscribe(preview);
+    component.downloadRequested.subscribe(download);
+    component.deletePendingRequested.subscribe(remove);
+    component.deleteSessionRequested.subscribe(removeSession);
+
+    fixture.componentRef.setInput('state', state());
+    fixture.componentRef.setInput('sessionFiles', [{ name: 'итог.pdf', attachmentId: 3 }]);
+    fixture.componentRef.setInput('pendingFiles', [
+      {
+        id: 7,
+        filename: 'деталь.pdf',
+        status: 'uploading',
+        ready: false,
+        chat_message_id: null,
+        timestamp: '2026-09-12T12:18:35.689095Z'
+      }
+    ]);
+    fixture.detectChanges();
+    expandSection('files');
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Файлы в сообщениях');
+    expect(text).toContain('итог.pdf');
+    expect(text).toContain('Загруженные файлы');
+    expect(text).toContain('деталь.pdf');
+    expect(text).toContain('Загружается');
+
+    const rows = fixture.nativeElement.querySelectorAll(
+      '.session-files__file'
+    ) as NodeListOf<HTMLElement>;
+    (rows[0].querySelector('[aria-label="Предпросмотр"]') as HTMLButtonElement).click();
+    (rows[0].querySelector('[aria-label="Скачать"]') as HTMLButtonElement).click();
+    (rows[1].querySelector('[aria-label="Удалить файл"]') as HTMLButtonElement).click();
+    (
+      fixture.nativeElement.querySelector('.session-files__actions button') as HTMLButtonElement
+    ).click();
+
+    expect(preview).toHaveBeenCalledWith({ name: 'итог.pdf', attachmentId: 3 });
+    expect(download).toHaveBeenCalledWith({ name: 'итог.pdf', attachmentId: 3 });
+    expect(remove).toHaveBeenCalledWith(expect.objectContaining({ id: 7, filename: 'деталь.pdf' }));
+    expect(removeSession).toHaveBeenCalledOnce();
+  });
+
+  it('describes a file by type', () => {
+    expect(component.fileIconFor('drawing.pdf')).toBeTruthy();
+    expect(component.fileColorFor('drawing.pdf')).toBeTruthy();
+  });
+
+  it('tells every upload state apart', () => {
+    const labels = [
+      ['uploading', 'Загружается'],
+      ['processing', 'Обрабатывается'],
+      ['error', 'Ошибка'],
+      ['completed', 'Готово']
+    ] as const;
+
+    for (const [status, label] of labels) {
+      expect(
+        component.attachmentStatusLabel({
+          id: 1,
+          filename: 'a.pdf',
+          status,
+          ready: false,
+          chat_message_id: null,
+          timestamp: ''
+        })
+      ).toBe(label);
+    }
+
+    expect(
+      component.attachmentStatusLabel({
+        id: 2,
+        filename: 'b.pdf',
+        status: 'unknown',
+        ready: true,
+        chat_message_id: null,
+        timestamp: ''
+      })
+    ).toBe('Готово');
   });
 
   it('scrolls to and highlights a section on request', () => {

@@ -49,6 +49,7 @@
         (turnStarted)="onTurnStarted()"
         (turnFinished)="onTurnFinished()"
         (refreshProgram)="refreshProgram()"
+        (previewFile)="previewedFile.set($event)"
       />
     </div>
 
@@ -61,8 +62,19 @@
         [state]="program()"
         [loading]="programLoading()"
         [error]="programError()"
+        [sessionFiles]="sessionFiles()"
+        [pendingFiles]="pendingFiles()"
         (reload)="refreshProgram()"
+        (filesOpened)="loadFiles()"
+        (previewRequested)="previewFile($event)"
+        (downloadRequested)="downloadFile($event)"
+        (deletePendingRequested)="deletePendingFile($event)"
+        (deleteSessionRequested)="deleteSession()"
       />
     </div>
   </div>
+
+  @if (previewedFile(); as file) {
+    <app-file-preview [file]="file" (closed)="previewedFile.set(null)" />
+  }
 </section>
