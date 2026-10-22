@@ -1183,8 +1183,52 @@ to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALF
   attribute. `clear_retriever_cache` has to use `getattr(get_retriever, "cache_clear", None)`
   rather than calling the attribute directly. Found 2026-10-22.
 
+- **A login inside a test's transaction holds a lock the cleanup waits for.** The foreign
+  key of `sessions.user_id` makes the insert take a `FOR KEY SHARE` lock on the user row,
+  and the test's transaction keeps it until it rolls back, which happens after the
+  fixture's teardown. A fixture that deletes the user in its teardown then waits for a lock
+  nobody will release, and the suite hangs after the test has already passed — the symptom
+  is a run that never exits, not a failure. Create the session row in the fixture's own
+  committed transaction instead. Found 2026-10-22.
+- **A route that writes through `app.agentic.store` needs a committed chat row.**
+  `store.save` opens its own connection and takes the chat row's lock, so a chat that only
+  the test's transaction can see is invisible to it, and the write fails with `MissingChat`.
+  The fixture has to commit the chat on a connection of its own. Found 2026-10-22.
+- **The row lock serializes writes, not read-modify-writes.** `store.save` locks the row
+  while it writes, but the state the caller passes was built from a copy it read earlier, so
+  a worker or a decision can land in between. Pass `expected_version` whenever the write is
+  a decision made about what was read; a save that only moves the run forward does not need
+  it. Found in review, 2026-10-22.
+- **`finalized` means the skeleton reached the chat, not that the run is finished.** A run
+  writing its content is `finalized=True` as well, and the recovery scan skipped every
+  finalized run, so an approved programme whose queue entry was lost stayed generating for
+  ever while the scan walked past it. The skip belongs to a run waiting for the methodist.
+  Found in review, 2026-10-22.
+- **A test helper that builds a complete programme has to go through the approval.** A state
+  assembled by completing the stages and setting `skeleton_approved` never happened, so a
+  content revision made against it is refused and the failure looks like a broken rule
+  rather than a lying fixture. Found in review, 2026-10-22.
+
+- **The school hub returns GigaChat's function call as text, not as `tool_calls`.** The reply
+  is `content='<|function_call|>{"name": ..., "arguments": {...}}'` with `tool_calls=None` and
+  `finish_reason='stop'`, so a provider that reads only `message.tool_calls` gives the stage a
+  prose answer and the run dies with "модель не сохранила блок этапа" — after three identical
+  attempts, because the retry prompt is unchanged. `OpenAIProvider` parses the marker out of
+  the content. The payload can run into junk after the object (`}}, "visible": false}`), so
+  decode the first complete value and drop the rest. Nothing from the marker on may be sent
+  back, even when the payload does not parse: the hub refuses that request with
+  `400 Raw model control token in input`, and the loop's own nudge then spends the attempt.
+  Found 2026-10-22 on a live `hours` stage.
+- **GigaChat answers a refused tool call with prose.** After `save_program_draft` returned
+  `ok=false` for a bad `outcome_ids`, the model wrote "Я исправил ссылки…" and never called
+  again, and the loop took that as the stage's answer. A weak model needs to be told that the
+  block is still unsaved; `run_tool_loop(complete=...)` now sends that nudge instead of ending
+  the turn. The same model may also omit a required field (`curriculum.schedule`) for six
+  rounds in a row, so the round bound is what ends that attempt, not the model. Found
+  2026-10-22.
+
 - **A programme export is an attachment with `chat_message_id = null`.** `GET
-  /chats/{id}/attachments` returns it beside the methodist's staged uploads, so a client that
+/chats/{id}/attachments` returns it beside the methodist's staged uploads, so a client that
   renders that list must subtract the ids in `program.exports`; otherwise `programme.docx`
   looks like a pending upload and can be deleted, leaving the programme state pointing at a
   missing file. Found 2026-10-22.

@@ -135,11 +135,14 @@ class Revision(BaseModel):
 
     The revision names the stage to redo and what to change in it, so the
     stage can be run again with the methodist's notes instead of the whole
-    programme being rebuilt.
+    programme being rebuilt. It also names who asked for it: a change is a
+    decision of a person, and the record is what makes it one.
     """
 
     stage: Stage = Field(description="Блок программы, который нужно переделать")
     notes: str = Field(min_length=1, max_length=2000, description="Что именно изменить")
+    requested_by: uuid.UUID | None = Field(default=None, description="Кто попросил переделку")
+    requested_at: datetime | None = Field(default=None, description="Когда попросили переделку")
 
 
 class ProgramCheck(BaseModel):
@@ -213,8 +216,21 @@ class ProgramState(BaseModel):
     materials: Materials | None = None
     #: The change the methodist asked for, waiting to be carried out.
     revision: Revision | None = None
+    #: The last change the methodist asked for, kept after it was carried out:
+    #: the pending field is cleared when the work is done, and the record of
+    #: who asked for it has to outlive the request.
+    last_revision: Revision | None = None
     #: The files the programme was exported to, once it was complete.
     exports: ProgramExports | None = None
+    #: Who approved the skeleton and when. The approval is the methodist's own
+    #: decision, so the record names the person who made it.
+    approved_by: uuid.UUID | None = None
+    approved_at: datetime | None = None
+    #: Whether the methodist has approved the skeleton that is on the table.
+    #: The content is written from an approved skeleton and from nothing else,
+    #: so this is what tells a revision of the content from a revision of the
+    #: skeleton.
+    skeleton_approved: bool = False
 
     #: True once the draft has been rendered into the chat and may be approved.
     finalized: bool = False
@@ -268,7 +284,9 @@ class ProgramState(BaseModel):
         """Mark the stage done and point the state at its successor.
 
         The skeleton ends with a programme that waits for the methodist, and
-        the content ends with a programme that is complete.
+        the content ends with a programme that is complete. The reason a
+        previous attempt gave is cleared with it: a run that recovered is not
+        a run that failed.
         """
         stages = self.stages.model_copy(update={stage.value: StageStatus.COMPLETED})
         successor = self._successor(stage)
@@ -280,7 +298,7 @@ class ProgramState(BaseModel):
             status = ProgramStatus.GENERATING
         else:
             status = ProgramStatus.APPROVED
-        return self._replace(stages=stages, current_stage=successor or stage, status=status)
+        return self._replace(stages=stages, current_stage=successor or stage, status=status, error=None)
 
     def failed_stage(self, stage: Stage, error: str) -> Self:
         """Record a stage failure; the run ends once the stage's budget is spent."""
@@ -303,20 +321,39 @@ class ProgramState(BaseModel):
         """
         return self._replace()
 
-    def approved(self) -> Self:
+    def approved(self, by: uuid.UUID | None = None) -> Self:
         """The methodist approved the skeleton: the content may be written.
 
         The run keeps working rather than becoming approved: ``approved`` is
         the state of a finished programme, and the content is not written yet.
         The run points at the first part of the content that is still missing.
+
+        ``by`` is the person who made the decision. It is recorded with the
+        moment of the approval, because the approval is the one step of the
+        pipeline nobody but the methodist may take.
         """
         pending = next(
             (item for item in CONTENT_ORDER if self.stage_status(item) is not StageStatus.COMPLETED),
             None,
         )
-        return self._replace(status=ProgramStatus.GENERATING, current_stage=pending or self.current_stage)
+        if pending is None:
+            # Nothing of the content is missing: the skeleton that was revised
+            # was the only thing left, and the programme is complete again.
+            return self._replace(
+                status=ProgramStatus.APPROVED,
+                approved_by=by,
+                approved_at=datetime.now(UTC),
+                skeleton_approved=True,
+            )
+        return self._replace(
+            status=ProgramStatus.GENERATING,
+            current_stage=pending,
+            approved_by=by,
+            approved_at=datetime.now(UTC),
+            skeleton_approved=True,
+        )
 
-    def request_revision(self, stage: Stage, notes: str) -> Self:
+    def request_revision(self, stage: Stage, notes: str, by: uuid.UUID | None = None) -> Self:
         """Ask for one part of the programme to be redone.
 
         The stage goes back to pending, the run starts working again, and the
@@ -329,6 +366,13 @@ class ProgramState(BaseModel):
         something that is no longer there: the curriculum names the outcomes
         the competences declare, the content is written from the hours, and
         the passport rests on the sources. What was dropped is written again.
+
+        The exports go with the block they were written from: they describe a
+        programme that is no longer the one on the table, and a client that
+        fetches them would download the old document and the old slides.
+
+        A revised skeleton is not approved any more, so the approval that
+        released the content is withdrawn with it.
         """
         stages = self.stages.model_copy(update={stage.value: StageStatus.PENDING})
         changes: dict[str, Any] = {}
@@ -338,14 +382,21 @@ class ProgramState(BaseModel):
             changes[block] = None
             stages = stages.model_copy(update={written_by.value: StageStatus.PENDING})
             attempts[written_by] = 0
+        withdrawn: dict[str, Any] = {}
+        if stage in SKELETON_ORDER:
+            # The skeleton is being rewritten, so the methodist has to see it
+            # again, and the approval that released the content is withdrawn.
+            withdrawn = {"approved_by": None, "approved_at": None, "skeleton_approved": False}
         return self._replace(
-            revision=Revision(stage=stage, notes=notes),
+            revision=Revision(stage=stage, notes=notes, requested_by=by, requested_at=datetime.now(UTC)),
             stages=stages,
             attempts=attempts,
             status=ProgramStatus.GENERATING,
             current_stage=stage,
             finalized=False,
+            exports=None,
             **changes,
+            **withdrawn,
         )
 
     def with_exports(self, exports: ProgramExports) -> Self:
@@ -359,6 +410,16 @@ class ProgramState(BaseModel):
         from it. A redone skeleton waits for the methodist again; a redone part
         of the content leaves the programme complete, and the exports are
         written again.
+
+        The skeleton is only shown to the methodist when it is whole. A
+        revision of the competences resets the hours, and a revision of the
+        sources resets the passport, so the draft the methodist approves has to
+        be the one that follows those stages again — otherwise the approval
+        releases the content of a programme whose skeleton has a hole in it.
+
+        The completed revision is kept as the last one, because the pending
+        field is cleared when the work is done and the record of who asked
+        for it has to outlive the request.
         """
         stages = self.stages.model_copy(update={stage.value: StageStatus.COMPLETED})
         pending = [item for item in STAGE_ORDER if getattr(stages, item.value) is not StageStatus.COMPLETED]
@@ -368,10 +429,20 @@ class ProgramState(BaseModel):
             status = ProgramStatus.APPROVED if not pending else ProgramStatus.GENERATING
             current = pending[0] if pending else stage
         else:
-            # The skeleton was redone; the methodist has to see it again.
-            status = ProgramStatus.PENDING_APPROVAL
-            current = stage
-        return self._replace(stages=stages, status=status, current_stage=current, revision=None)
+            # The skeleton was redone. The parts that were written from it are
+            # written again first, and the methodist sees the whole draft.
+            skeleton_pending = [
+                item for item in SKELETON_ORDER if getattr(stages, item.value) is not StageStatus.COMPLETED
+            ]
+            status = ProgramStatus.PENDING_APPROVAL if not skeleton_pending else ProgramStatus.GENERATING
+            current = skeleton_pending[0] if skeleton_pending else stage
+        return self._replace(
+            stages=stages,
+            status=status,
+            current_stage=current,
+            revision=None,
+            last_revision=self.revision,
+        )
 
     def with_answers(self, answers: list[ClarificationAnswer]) -> Self:
         """Take the methodist's answers and let the programme start.

@@ -152,10 +152,25 @@ async def load_cached(db: AsyncSession, session_id: uuid.UUID) -> ProgramState |
     return state
 
 
-async def save(state: ProgramState, *, expected_run_id: uuid.UUID | None = None) -> ProgramState:
-    """Write the state, refusing one that is stale against the row."""
+async def save(
+    state: ProgramState,
+    *,
+    expected_run_id: uuid.UUID | None = None,
+    expected_version: int | None = None,
+) -> ProgramState:
+    """Write the state, refusing one that is stale against the row.
+
+    ``expected_version`` is the version the caller read. A caller that acts on
+    what it read — a decision of the methodist, say — names it, and the save is
+    refused when the row has moved on: the caller's copy describes a programme
+    that is no longer the one on the table, and writing it would drop whatever
+    happened in between.
+    """
     async with locked(state.session_id) as (_, row):
-        if not writable(parse(row.program_state), state, expected_run_id):
+        current = parse(row.program_state)
+        if expected_version is not None and (current is None or current.version != expected_version):
+            raise StaleState(f"run {state.run_id} at version {expected_version}")
+        if not writable(current, state, expected_run_id):
             raise StaleState(f"run {state.run_id} at version {state.version}")
         row.program_state = dump(state)
     await mirror(state)

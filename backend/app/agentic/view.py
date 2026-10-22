@@ -16,6 +16,7 @@ from app.schemas.chat import (
     ProgramBlocksSchema,
     ProgramExportsSchema,
     ProgramReportSchema,
+    ProgramRevisionSchema,
     ProgramStateSchema,
     ProgramViewStatus,
 )
@@ -90,4 +91,12 @@ def programme_state(state: ProgramState | None, *, running: bool = False) -> Pro
         draft=programme_blocks(state),
         report=ProgramReportSchema.model_validate(state.report(), from_attributes=True),
         exports=ProgramExportsSchema.model_validate(state.exports, from_attributes=True) if state.exports else None,
+        revision=ProgramRevisionSchema.model_validate(state.revision, from_attributes=True) if state.revision else None,
+        last_revision=(
+            ProgramRevisionSchema.model_validate(state.last_revision, from_attributes=True)
+            if state.last_revision
+            else None
+        ),
+        approved_by=state.approved_by,
+        approved_at=state.approved_at,
     )

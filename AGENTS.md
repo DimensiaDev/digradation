@@ -385,6 +385,15 @@ request and maps the model's requests onto `GenerationResponse.tool_calls`. A pr
 constructed with a default set, and a caller narrows it per turn with `generate(..., tools=)`.
 `mock` accepts `tools=` and scripts a call from it only in `stage` mode.
 
+The hub can deliver GigaChat's native call as message text — `content='<|function_call|>{...}'`
+with `tool_calls=None` — so `OpenAIProvider` normalises that marker into a `ToolCall` before
+anything above it sees the reply. The payload may carry junk after the JSON object, so the
+first complete value is decoded and the tail is dropped. Nothing from the marker on ever
+leaves the provider, even when the payload does not parse: the token is a control token, and
+the hub answers a request that carries one with `400 Raw model control token in input`, which
+would otherwise turn a nudge into a failed attempt. `SberProvider` talks to the v2 wire shape
+directly and needs none of this.
+
 The two real providers use different wire shapes, and the internal model hides the difference:
 
 - **OpenAI**: `tools[].function` with `arguments` as a JSON *string*.
@@ -496,6 +505,12 @@ completeness gate that a partial state cannot pass.
   The admin `prompt_extension` from `harness.build_system_prompt` does not reach programme
   stages; carrying it there would mean storing it in `ProgramState` from the chat worker's
   intake turn. That is a deliberate decision, recorded in `.context/DECISIONS.md`.
+- **A stage does not take prose for a block it has not saved.** `run_tool_loop` accepts a
+  `complete` callback, and `program_stage` passes `lambda: ctx.saved`. While it says no, a text
+  answer is kept as the model's turn and followed by a user nudge instead of ending the stage,
+  because a refused call is otherwise answered with "I fixed it" and no second call. The intake
+  passes nothing: a refused intake call is a legitimate answer to the methodist. A truncated
+  reply (`finish_reason=length`) is still refused before the nudge.
 
 ### Source retrieval (RAG)
 
@@ -549,8 +564,9 @@ for one part to be redone), or simply answer in prose.
 - **The methodist can ask for one part to be redone.** The intake offers `revise_program` with
   the stage to redo and the notes: the stage runs again with the methodist's notes in its
   brief, the blocks that are already committed stay, and the run goes straight back to where
-  the methodist left it instead of walking the pipeline again. A revision spends no attempt —
-  the budget of three per stage is there for the agent's own failures.
+  the methodist left it instead of walking the pipeline again. The revision resets the stage's
+  budget, and the run it queues is the first of the three attempts: a change is not a failure,
+  but a stage that keeps failing while it is redone still has a limit.
 - **The model no longer names the chat.** `HARNESS_STRUCTURED_SCHEMA` and
   `HarnessStructuredOutput` are gone: the reply is prose, and the name comes from
   `app/naming.py`, which holds the one rule — *a programme's title wins, otherwise the first
@@ -570,9 +586,18 @@ The endpoints the client uses:
 | `POST /chats/{session_id}` | sends a message, and optionally the answers to the open questions |
 | `GET /chats/{session_id}/result` | the last turn's reply, and the open questions |
 | `GET /chats/{session_id}/program` | where the programme stands: status, stage, the blocks saved so far, the self-check report |
+| `POST /chats/{session_id}/program/approve` | approves a rendered draft: releases the content stages and records who approved |
+| `POST /chats/{session_id}/program/revision` | asks for one part of the programme to be redone, with the notes |
 | `GET /chats/programmes` | the user's programmes, paginated with `page` and `items_per_page` |
 | `GET /chats/{session_id}/program.docx` | the programme as a DOCX document |
 | `GET /chats/{session_id}/program.pptx` | the slides of the programme as a PPTX file |
+
+The approval and the revision are the methodist's own decisions, and the model can reach the
+same two through its intake tools. The rules that decide whether a decision is allowed live
+once, in `app/agentic/actions.py`, and both surfaces call them: a rule written twice is a
+rule that will drift. Both endpoints answer with the programme's state, in the shape
+`GET /program` answers with, and refuse what the tools refuse — 404 when the chat holds no
+programme, 409 when the decision is not allowed right now.
 
 `GET /program` reads the Redis mirror first and falls back to the row, so a client that
 polls it does not touch PostgreSQL; the fallback re-mirrors the state. The response carries

@@ -18,13 +18,13 @@ attachments and the admin tooling remain part of the application.
 
 Everything described below is working via Docker Compose.
 
-| Package     | State                                                                                                                                                    |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, providers, the programme cycle, pgvector source retrieval                            |
+| Package     | State                                                                                                                                                                             |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, providers, the programme cycle, pgvector source retrieval                                                     |
 | `frontend/` | Complete: guest mode, sign-in dialog, the home composer that starts a chat, chat with polling and the programme aside, profile, admin users, admin settings, programmes catalogue |
-| `rag/`      | Complete: chunk models, mock embeddings, in-memory and pgvector stores, indexer, retrieval policy, one-off backend CLI                                   |
-| `e2e/`      | Complete: bounded specs against the real Compose stack with the offline provider                                                                         |
-| Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup, `pgvector/pgvector:pg18` database                                        |
+| `rag/`      | Complete: chunk models, mock embeddings, in-memory and pgvector stores, indexer, retrieval policy, one-off backend CLI                                                            |
+| `e2e/`      | Complete: bounded specs against the real Compose stack with the offline provider                                                                                                  |
+| Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup, `pgvector/pgvector:pg18` database                                                                 |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
 sessions with async generation, attachment upload / list / delete, presigned S3 results.
@@ -75,8 +75,12 @@ programme, to confirm a rendered draft, to ask for one part to be redone
 (`revise_program`), or to answer in prose. One TaskIQ task owns one stage — competences, hours,
 sources, summary, assessment, materials — and each commits its block before enqueueing the
 next, so a worker that dies leaves every finished block behind and `recover_stalled_programs`
-restarts the stage that stopped. The skeleton is rendered into the chat and waits for the
-methodist's confirmation, which the model turns into an `approve_program_draft` call; the
+restarts the stage that stopped. A stage does not take a text answer for a saved block: the
+tool loop is told whether the block is committed and sends the model back to the tool while it
+is not, because a refused call is often answered with "I fixed it" and no second call. A retry
+is told what the last refused call asked to fix, because the pipeline keeps no transcript and
+would otherwise start from the same plan. The skeleton is rendered into the chat and waits for
+the methodist's confirmation, which the model turns into an `approve_program_draft` call; the
 content is written only after that approval, and a `revise_program` call reruns one part of
 the programme on request.
 
@@ -87,8 +91,9 @@ keys, seminar tasks, the current control, the final attestation) and the materia
 plans and slide decks) — is written only after that approval, and the approval is what puts
 the first content stage on the queue. Nothing is generated from a skeleton the methodist has
 not seen. The hours add up at every level: the final attestation is counted inside the volume,
-a module declares its own hours, every outcome is taught by a topic and checked by at least two
-means, and the schedule's capacity and daily load are checked against the volume.
+a module's volume is the sum of its topics rather than a number of its own, every outcome is
+taught by a topic and checked by at least two means, and the schedule's capacity and daily load
+are checked against the volume.
 
 **The sources come from two catalogues and the web.** `backend/res/rag-sources.json` is the
 curated catalogue: it holds the `src-NN` ids a programme cites and the paths the ingestion
@@ -124,10 +129,17 @@ the open questions while a run is `awaiting_answers`; the workspace reads them f
 `answers` array next to `content`.
 `GET /chats/programmes` lists the user's programmes, paginated. A run may ask the methodist
 questions: `begin_program` takes them, the run waits in `awaiting_answers`, and the answers
-move it on. The chat can answer the run's questions and the aside shows the self-check
-report. The client can download the finished DOCX and PPTX through the attachment route;
-approving a rendered draft and asking for one part to be redone are still not built, and the
-chat's five-minute poll can time out before a slow run finishes.
+move it on.
+
+**The methodist decides through endpoints.** `POST /chats/{session_id}/program/approve` is
+the approval of a rendered draft: it releases the content stages, spends the attempt of the
+first one and records who approved and when. `POST /chats/{session_id}/program/revision` asks
+for one part to be redone: the stage runs again with the methodist's notes, the parts that
+were written from it are written again, and the stage starts a fresh budget of three. Both
+answer with the programme's state in the shape `GET /program` answers with, and both refuse
+what the model's own tools refuse — the rules live in `app/agentic/actions.py` and are shared.
+The client-side flow (the buttons, the answer form and the five-minute poll surviving a slow
+run) is still not built.
 
 **RAG ingestion.** `backend/index_rag.py` is a one-off operator CLI, not an HTTP endpoint. It
 joins parser output under `edu_materials/parsed` to `backend/res/rag-sources.json` by
@@ -217,10 +229,14 @@ shape without a socket.
 
 `SBER_API_SCOPE` selects the provider: `PERS` / `B2B` / `CORP` use the GigaChat client,
 `openai` the OpenAI-compatible one (`OPENAI_URL` is required in this mode, model via
-`OPENAI_MODEL`), `mock` the offline stand-in. Tool calling is implemented for both the
-OpenAI-compatible and the GigaChat v2 clients, and each turn names the tools it offers — the
-provider's own default list is empty on purpose, so a stage cannot offer the intake tools and
-vice versa. The OpenAI live tests carry an extra `openai` marker and are selected with
+`OPENAI_MODEL`), `mock` the offline stand-in. The hub's plain chat model is the default and is
+enough for the easier stages; `OPENAI_MODEL=ai-sage/GigaChat3.5-432B-A28B-Reasoning` is the
+smarter, more expensive choice for a run whose arithmetic keeps being refused. Tool calling is
+implemented for both the OpenAI-compatible and the GigaChat v2 clients, and each turn names the
+tools it offers — the provider's own default list is empty on purpose, so a stage cannot offer
+the intake tools and vice versa. The OpenAI-compatible client also recovers GigaChat's native
+`<|function_call|>` payload when the hub delivers it as message text instead of `tool_calls`.
+The OpenAI live tests carry an extra `openai` marker and are selected with
 `-m 'live and openai'`; the GigaChat tool test shares `-m live` with the rest of
 `test_live_gigachat.py`.
 

@@ -781,7 +781,9 @@ async def test_run_chat_turn_releases_the_content_after_the_approval(task_db, ro
     session = await rows.chat_session(user)
     await rows.message(session.session_id, "Программа подходит, подтверждаю")
     state = new_state(session.session_id, requested_hours=72, requirements="Программа по аналитике")
-    await rows.program_state(session.session_id, state.completed(Stage.SUMMARY).mark_finalized())
+    for stage in (Stage.COMPETENCES, Stage.HOURS, Stage.SOURCES, Stage.SUMMARY):
+        state = state.completed(stage)
+    await rows.program_state(session.session_id, state.mark_finalized())
     stages = AsyncMock(name="program_stage.kiq")
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(api.program_stage, "kiq", stages)
@@ -803,6 +805,7 @@ async def test_run_chat_turn_puts_the_revised_stage_on_the_queue(task_db, rows, 
     session = await rows.chat_session(user)
     await rows.message(session.session_id, "Замени тему 2.3 в учебном плане")
     state = new_state(session.session_id, requested_hours=72, requirements="Программа по аналитике")
+    state = state.completed(Stage.COMPETENCES).completed(Stage.HOURS)
     await rows.program_state(session.session_id, state)
     stages = AsyncMock(name="program_stage.kiq")
     with pytest.MonkeyPatch.context() as patch:

@@ -457,6 +457,25 @@ async def test_a_schedule_with_weeks_only_is_accepted(context: ToolContext) -> N
     assert result.ok is True
 
 
+async def test_a_declared_module_volume_is_replaced_by_its_topics(context: ToolContext) -> None:
+    """The topics are the plan; a number the model states cannot contradict them.
+
+    The attestation module is the usual case: its hours are in
+    ``attestation_hours``, so its topics hold none, and a declared volume would
+    otherwise be refused for ever.
+    """
+    await execute_tool(context, save(competences_block()))
+    context.state = at_stage(context.state, Stage.HOURS)
+    block = hours_block()
+    block["curriculum"]["modules"][0]["hours"] = 5
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is True
+    assert context.state is not None and context.state.curriculum is not None
+    assert context.state.curriculum.modules[0].hours == 2
+
+
 async def test_the_arguments_follow_the_stage_the_run_is_on(context: ToolContext) -> None:
     """The same tool takes the curriculum once the run reached the hours stage."""
     await execute_tool(context, save(competences_block()))
@@ -785,6 +804,20 @@ async def test_a_rendered_draft_can_be_approved(context: ToolContext) -> None:
     assert context.state is not None
     assert context.state.status is ProgramStatus.GENERATING
     assert context.state.current_stage is Stage.ASSESSMENT
+
+
+async def test_the_approval_names_the_methodist_who_took_it(context: ToolContext) -> None:
+    """The approval is the methodist's own decision, so it says who took it."""
+    methodist = uuid.uuid4()
+    context.user_id = methodist
+    context.state = at_stage(context.state, Stage.SUMMARY).completed(Stage.SUMMARY).mark_finalized()
+
+    result = await execute_tool(context, call("approve_program_draft", {}))
+
+    assert result.ok is True
+    assert context.state is not None
+    assert context.state.approved_by == methodist
+    assert context.state.approved_at is not None
 
 
 # --------------------------------------------------------------------------------------

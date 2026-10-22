@@ -63,6 +63,13 @@ PDF_BYTES = (
     b"2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
 )
 
+#: The bytes of a DOCX: a zip archive. Nothing parses it either — the worker
+#: hands them straight to the provider — so the archive is a stub.
+DOCX_BYTES = b"PK\x03\x04" + b"\x00" * 32
+
+#: The media type a DOCX is uploaded under.
+DOCX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
 #: Well past the one-hour cutoff both cleanup tasks use.
 STALE = datetime.now(tz=UTC) - timedelta(hours=3)
 
@@ -450,7 +457,12 @@ async def test_process_attachment_missing_object_sets_error(world, task_db, s3, 
 
 @pytest.mark.parametrize(
     "content_type",
-    ["application/pdf", "image/png", "image/jpeg"],
+    [
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ],
 )
 async def test_process_attachment_accepts_every_allowed_content_type(
     world, task_db, s3, s3_put, redis_session, rconn, monkeypatch, content_type
@@ -520,6 +532,27 @@ async def test_process_document_uploads_an_image_unchanged(world, task_db, s3, s
     chat = await world.chat(user)
     attachment = await world.attachment(chat, name="photo.png", s3_key=f"images/{uuid.uuid4().hex}.png")
     await s3_put(png_bytes(), attachment.s3_key, content_type="image/png")
+
+    await run_task(process_document, attachment.id)
+
+    rows = await world.uploadables_of(attachment.id)
+    assert len(rows) == 1
+    assert rows[0].s3_key == attachment.s3_key
+    assert rows[0].sber_id.startswith("mock-file-")
+    assert (await world.fresh_get(Attachment, attachment.id)).ready is True
+    assert await rconn.get(get_attachment_status_key(attachment.id)) == "completed"
+
+
+async def test_process_document_uploads_a_docx_unchanged(world, task_db, s3, s3_put, redis_session, rconn):
+    """A DOCX goes to the provider as the bytes that were uploaded.
+
+    The document is not converted: the provider reads a .docx the way it reads
+    a PDF, and the file is attached to the message as it is.
+    """
+    user = await world.user()
+    chat = await world.chat(user)
+    attachment = await world.attachment(chat, name="template.docx", s3_key=f"docs/{uuid.uuid4().hex}.docx")
+    await s3_put(DOCX_BYTES, attachment.s3_key, content_type=DOCX_CONTENT_TYPE)
 
     await run_task(process_document, attachment.id)
 
