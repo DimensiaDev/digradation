@@ -3,11 +3,9 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-22** (the programme is written in two halves, the sources come from
-the corpus, the programme leaves as a document and as slides, and the search reaches the web)
-
-Last updated: **2026-10-22** (programme sources are backed by the school-hub embeddings and a
-pgvector index; the one-off indexer is in place)
+Last updated: **2026-10-22** (the programme is written in two halves; its sources come from the
+curated catalogue and the pgvector index, with the corpus descriptions answering when there is
+no index; the programme leaves as a document and as slides, and the search reaches the web)
 
 ---
 
@@ -61,9 +59,13 @@ restore / delete on the programmes page still mutate the loaded list only: no en
 starts when a chat turn calls `begin_program`. The chat turn is a tool loop
 (`run_chat_turn`): the model is offered `INTAKE_TOOLS` and decides whether to start a
 programme, to confirm a rendered draft, to ask for one part to be redone
-(`revise_program`), or to answer in prose. One TaskIQ task owns one stage, and each commits
-its block before enqueueing the next, so a worker that dies leaves every finished block behind
-and `recover_stalled_programs` restarts the stage that stopped.
+(`revise_program`), or to answer in prose. One TaskIQ task owns one stage — competences, hours,
+sources, summary, assessment, materials — and each commits its block before enqueueing the
+next, so a worker that dies leaves every finished block behind and `recover_stalled_programs`
+restarts the stage that stopped. The skeleton is rendered into the chat and waits for the
+methodist's confirmation, which the model turns into an `approve_program_draft` call; the
+content is written only after that approval, and a `revise_program` call reruns one part of
+the programme on request.
 
 **The programme is written in two halves.** The skeleton — competences, hours, sources, the
 passport — is what the methodist approves: `finalize_program_draft` renders it into the chat
@@ -75,39 +77,29 @@ not seen. The hours add up at every level: the final attestation is counted insi
 a module declares its own hours, every outcome is taught by a topic and checked by at least two
 means, and the schedule's capacity and daily load are checked against the volume.
 
-**The sources come from the corpus.** `edu_materials/` holds the federal educational
-standards, the professional standards and the programmes of the organisation, each with a
-description; `app/agentic/sources.py` reads those descriptions into the catalogue the agent
-searches. A source is confirmed when the catalogue holds it, and the backend decides that, not
-the model: a document nobody verified is kept and marked as unconfirmed — in the chat reply,
-in the report and in the document. The online search (`app/agentic/websearch.py`) reaches the
-web as well, and what it finds is unconfirmed too.
+**The sources come from two catalogues and the web.** `backend/res/rag-sources.json` is the
+curated catalogue: it holds the `src-NN` ids a programme cites and the paths the ingestion
+joins the parsed corpus to. The corpus descriptions in `edu_materials/` are the same ten
+documents in prose, and `app/agentic/sources.py` reads them so that a deployment without an
+index still finds its documents. A source is confirmed when the catalogue holds it, and the
+backend decides that, not the model: a document nobody verified is kept and marked as
+unconfirmed — in the chat reply, in the report and in the document. The online search
+(`app/agentic/websearch.py`) reaches the web as well, and what it finds is unconfirmed too.
 
-**The programme leaves the system as a document and as slides.**
-`GET /chats/{session_id}/program.docx` returns the whole programme as a DOCX by the АЦР
-template, and `GET /chats/{session_id}/program.pptx` returns its slides as a PPTX file. The
-document answers 409 until the programme is complete, and the slides answer 404 while the
-programme has none. `GET /chats/{session_id}/program` also carries the
-self-check report: the hours, the coverage of the outcomes, the sources and the sections that
-are filled.
-
-programme, confirm a rendered draft, or answer in prose. One TaskIQ task owns one stage —
-competences, hours, sources, summary — and each commits its block before enqueueing the next,
-so a worker that dies leaves every finished block behind and `recover_stalled_programs`
-restarts the stage that stopped. `finalize_program_draft` renders the assembled draft into
-the chat, renames a default-named chat and waits for the methodist's confirmation, which the
-model turns into an `approve_program_draft` call. `assessment` and `materials` stay pending
-for #5.
+**The programme leaves the system as a document and as slides.** A finished programme is
+written to the attachments bucket as a DOCX by the АЦР template and as a PPTX of its slides,
+registered as attachments of the chat, and named by id in `GET /chats/{session_id}/program`.
+The client fetches them through the attachment route it already uses for a file the methodist
+uploaded. The same response carries the self-check report: the hours, the coverage of the
+outcomes, the sources and the sections that are filled.
 
 **Source retrieval.** `search_sources` is offered by the source-citing stages only, never by
 the chat intake. It embeds the query through the school hub and searches `rag_chunks` with
 pgvector; results carry stable `src-NN` catalog ids, a section title, a page number, a trust
-score and a cosine score. The tool records the ids the model has actually seen, and a save
-refuses a citation that is unknown or was never returned. A missing index, a provider
-failure or an unreachable database becomes `RagUnavailable`, which the tool turns into a
-`found=false` note so the stage continues without citations instead of failing. With
-`RAG_ENABLED=false` (the default) search returns nothing and the pipeline behaves as it did
-before the index existed.
+score and a cosine score. A missing index, a provider failure or an unreachable database
+becomes `RagUnavailable`, which the tool turns into a `found=false` note so the stage
+continues without citations instead of failing. With `RAG_ENABLED=false` (the default) the
+index is not consulted and the corpus descriptions answer instead.
 
 **The programme API.** `GET /chats/{session_id}/program` reports where a programme stands
 (status, current stage, the blocks saved so far, the self-check report) and reads the Redis
