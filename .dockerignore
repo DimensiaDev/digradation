@@ -1,4 +1,5 @@
-# Repository-level exclusions. The backend image only needs backend/ and rag/.
+# Repository-level exclusions. The backend image only needs backend/, rag/ and
+# the corpus of documents a programme may cite.
 .git
 .github
 .agents
@@ -23,10 +24,10 @@ docker-compose.build-cache.yml
 package.json
 package-lock.json
 
-# Packages and folders not needed by the backend image.
+# Packages and folders not needed by the backend image. The corpus of
+# documents (edu_materials/) is the exception: the agent searches it.
 frontend/
 e2e/
-edu_materials/
 parser/
 conf/
 scripts/

@@ -57,6 +57,40 @@ def test_provider_selection(monkeypatch):
     assert isinstance(build("mock"), MockProvider)
 
 
+def test_embedding_provider_requires_the_index_dimension(monkeypatch):
+    import asyncio
+    import importlib
+
+    import pytest
+
+    module = importlib.import_module("app.providers.containers")
+    monkeypatch.setenv("SBER_API_KEY", "mock")
+    monkeypatch.setenv("SBER_API_SCOPE", "PERS")
+    module = importlib.reload(module)
+    mock = module.get_embedding_provider()
+    assert mock.dimension == 2048
+
+    monkeypatch.setenv("SBER_API_KEY", "real-key")
+    monkeypatch.setenv("SBER_API_SCOPE", "openai")
+    monkeypatch.setenv("OPENAI_URL", "https://hub.example.test/api/v1/llm/v1")
+    monkeypatch.setenv("OPENAI_EMBEDDING_MODEL", "ai-sage/Giga-Embeddings-instruct-3B")
+    monkeypatch.setenv("OPENAI_EMBEDDING_DIMENSION", "1024")
+    module = importlib.reload(module)
+    with pytest.raises(RuntimeError, match="2048"):
+        module.get_embedding_provider()
+
+    monkeypatch.setenv("OPENAI_EMBEDDING_DIMENSION", "2048")
+    module = importlib.reload(module)
+    provider = module.get_embedding_provider()
+    assert provider.dimension == 2048
+    asyncio.run(provider.close())
+
+    # Leave the module holding the offline provider for the tests that follow.
+    monkeypatch.setenv("SBER_API_KEY", "mock")
+    monkeypatch.setenv("SBER_API_SCOPE", "PERS")
+    importlib.reload(module)
+
+
 def test_s3_key_builders_are_namespaced():
     import uuid as _uuid
 

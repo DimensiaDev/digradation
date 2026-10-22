@@ -25,8 +25,8 @@ def _h(content: str) -> str:
 # -------------------------------------------------------------- config
 def test_embedding_config_defaults():
     cfg = EmbeddingConfig()
-    assert cfg.model == "Embeddings"
-    assert cfg.dimension == 1024
+    assert cfg.model == "ai-sage/Giga-Embeddings-instruct-3B"
+    assert cfg.dimension == 2048
     assert cfg.batch_size == 20
 
 

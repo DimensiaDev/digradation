@@ -157,7 +157,15 @@ async def process_attachment(attachment_id: int):
 
     content_type = resp["ContentType"]
     match content_type:
-        case "application/pdf" | "image/png" | "image/jpeg":
+        case (
+            "application/pdf"
+            | "image/png"
+            | "image/jpeg"
+            # A programme request arrives with its template or an approved
+            # programme as the example, and the provider reads a .docx the way
+            # it reads a PDF.
+            | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ):
             await process_document.kiq(attachment_id)
         case _:
             _log.error("s3_bad_content_type", key=attachment.s3_key, content_type=content_type)

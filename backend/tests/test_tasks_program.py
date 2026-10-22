@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -18,7 +17,6 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-import pytest_asyncio
 from redis.asyncio import Redis
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
@@ -27,17 +25,20 @@ from app.agentic import store
 from app.agentic.errors import MissingChat, StaleState
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.state import (
+    CONTENT_ORDER,
+    SKELETON_ORDER,
     STAGE_ORDER,
+    AssessmentBlock,
     CompetencesBlock,
     HoursBlock,
+    MaterialsBlock,
     ProgramState,
     SourcesBlock,
     SummaryBlock,
     new_state,
 )
-from app.auth import hash_password
 from app.cache import get_program_stage_lock_key
-from app.models.auth import User
+from app.database import db_session
 from app.models.chat import (
     MAX_CHAT_NAME_LENGTH,
     ChatMessage,
@@ -139,11 +140,20 @@ class FakeProvider:
         return self.answers.pop(0) if self.answers else None
 
 
-def complete_state(session_id: uuid.UUID) -> ProgramState:
-    """A run that committed every block of the example document."""
-    raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
-    state = new_state(session_id, requested_hours=66, requirements="Курс по анализу данных")
-    for stage in STAGE_ORDER:
+def example() -> dict:
+    """The documented example programme, as raw blocks."""
+    return json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
+
+
+def skeleton_state(session_id: uuid.UUID) -> ProgramState:
+    """A run that committed the skeleton and waits for the methodist.
+
+    The skeleton is what the methodist approves: the goal, the competences
+    and the hours. The content is written only after that.
+    """
+    raw = example()
+    state = new_state(session_id, requested_hours=72, requirements="Курс по анализу данных")
+    for stage in SKELETON_ORDER:
         state = state.started(stage)
         if stage is Stage.COMPETENCES:
             block = CompetencesBlock(
@@ -162,31 +172,23 @@ def complete_state(session_id: uuid.UUID) -> ProgramState:
     return state
 
 
+def complete_state(session_id: uuid.UUID) -> ProgramState:
+    """A run that committed every block of the example document."""
+    raw = example()
+    state = skeleton_state(session_id)
+    for stage in CONTENT_ORDER:
+        state = state.started(stage)
+        if stage is Stage.ASSESSMENT:
+            state = state.with_assessment(AssessmentBlock(assessment=raw["assessment"]))
+        else:
+            state = state.with_materials(MaterialsBlock(materials=raw["materials"]))
+        state = state.completed(stage)
+    return state
+
+
 def aged(state: ProgramState, delta: timedelta = timedelta(hours=1)) -> ProgramState:
     """The same state, untouched for ``delta``."""
     return state.model_copy(update={"updated_at": datetime.now(UTC) - delta})
-
-
-@pytest_asyncio.fixture()
-async def chat(engine: AsyncEngine) -> AsyncGenerator[uuid.UUID]:
-    """A committed chat, because the tasks open their own connections."""
-    maker = async_sessionmaker(bind=engine, expire_on_commit=False)
-    async with maker() as db:
-        user = User(username=f"program-{uuid.uuid4().hex[:8]}", password_hash=hash_password("password1234"))
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
-        row = ChatSession(session_id=uuid.uuid4(), user_id=user.id)
-        db.add(row)
-        await db.commit()
-        session_id, user_id = row.session_id, user.id
-    try:
-        yield session_id
-    finally:
-        async with maker() as db:
-            await db.execute(delete(ChatSession).where(ChatSession.session_id == session_id))
-            await db.execute(delete(User).where(User.id == user_id))
-            await db.commit()
 
 
 @pytest.fixture()
@@ -197,13 +199,15 @@ def provider(monkeypatch: pytest.MonkeyPatch) -> FakeProvider:
 
 
 @pytest.fixture()
-def enqueued(monkeypatch: pytest.MonkeyPatch) -> tuple[AsyncMock, AsyncMock]:
-    """Capture the two enqueues instead of publishing to RabbitMQ."""
+def enqueued(monkeypatch: pytest.MonkeyPatch) -> tuple[AsyncMock, AsyncMock, AsyncMock]:
+    """Capture the three enqueues instead of publishing to RabbitMQ."""
     stages = AsyncMock(name="program_stage.kiq")
     finalizes = AsyncMock(name="finalize_program_draft.kiq")
+    exports = AsyncMock(name="export_program.kiq")
     monkeypatch.setattr(program.program_stage, "kiq", stages)
     monkeypatch.setattr(program.finalize_program_draft, "kiq", finalizes)
-    return stages, finalizes
+    monkeypatch.setattr(program.export_program, "kiq", exports)
+    return stages, finalizes, exports
 
 
 async def read_result(engine: AsyncEngine, session_id: uuid.UUID) -> GenerationResult | None:
@@ -244,8 +248,37 @@ async def test_a_saved_block_completes_the_stage_and_enqueues_the_next(
     assert saved.current_stage is Stage.HOURS
     assert saved.stage_status(Stage.HOURS) is StageStatus.PENDING
     assert saved.attempts[Stage.HOURS.value] == 1
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_awaited_once_with(chat, Stage.HOURS.value, state.run_id)
+
+
+async def test_the_stage_receives_the_files_of_the_request(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """The template the methodist attached is readable by the stage that writes the plan."""
+    async with db_session() as db:
+        db.add(
+            ChatMessage(
+                chat_session_id=chat,
+                role=UserRole.USER,
+                content="Программа по такому образцу",
+                files_str="giga-file-1,giga-file-2",
+            )
+        )
+        await db.commit()
+    state = await store.save(new_state(chat, requested_hours=None, requirements=None))
+    provider.answers.extend([save_turn(COMPETENCES_BLOCK), answer("готово")])
+
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
+
+    assert provider.calls, "the stage did not call the provider"
+    sent = [
+        [file.id for file in (part.files or [])]
+        for message in provider.calls[0]["messages"]
+        if message.role == "user"
+        for part in message.content
+    ]
+    assert sent == [["giga-file-1", "giga-file-2"]]
 
 
 async def test_a_citing_stage_is_offered_the_search_and_its_own_block(
@@ -287,7 +320,7 @@ async def test_a_stage_that_saves_nothing_is_retried(
     assert not saved.failed
     assert saved.stage_status(Stage.COMPETENCES) is StageStatus.PENDING
     assert saved.attempts[Stage.COMPETENCES.value] == 2
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_awaited_once_with(chat, Stage.COMPETENCES.value, state.run_id)
 
 
@@ -303,7 +336,7 @@ async def test_the_last_attempt_ends_the_run_and_tells_the_methodist(
     saved = await store.load(chat)
     assert saved is not None
     assert saved.failed
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
     result = await read_result(engine, chat)
     assert result is not None
@@ -337,6 +370,145 @@ async def test_a_stage_another_worker_holds_is_left_alone(
     assert provider.calls == []
 
 
+async def test_the_approval_releases_the_content_and_the_programme_ends_complete(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """The whole cycle: the skeleton waits, the approval writes the content.
+
+    This is the path the criteria describe — the methodist approves the goal,
+    the competences and the hours, and only then is the content written — and
+    it is the only test that proves the content stages run at all.
+    """
+    state = await store.save(skeleton_state(chat))
+    await run_task(program.finalize_program_draft, chat, state.run_id)
+
+    waiting = await store.load(chat)
+    assert waiting is not None
+    assert waiting.status is ProgramStatus.PENDING_APPROVAL
+
+    # The methodist approves the skeleton.
+    await store.save(waiting.approved())
+    raw = example()
+    provider.answers.extend(
+        [
+            save_turn({"assessment": raw["assessment"]}),
+            answer("Оценочные средства сохранены."),
+            save_turn({"materials": raw["materials"]}),
+            answer("Материалы сохранены."),
+        ]
+    )
+
+    await run_task(program.program_stage, chat, Stage.ASSESSMENT.value, state.run_id)
+    after_assessment = await store.load(chat)
+    assert after_assessment is not None
+    assert after_assessment.assessment is not None
+    assert after_assessment.status is ProgramStatus.GENERATING
+
+    await run_task(program.program_stage, chat, Stage.MATERIALS.value, state.run_id)
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.materials is not None
+    assert saved.status is ProgramStatus.APPROVED
+    assert saved.terminal
+
+
+async def test_a_revision_of_the_content_after_the_approval_refreshes_the_export(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """A change to the content of a finished programme is written and exported again.
+
+    The content is already complete here, so the revision must not re-run a
+    finished stage and must not leave the run working with nothing to do.
+    """
+    state = await store.save(complete_state(chat))
+    assert state.status is ProgramStatus.APPROVED
+
+    await store.save(state.request_revision(Stage.ASSESSMENT, "усложни тест"))
+    raw = example()
+    provider.answers.extend([save_turn({"assessment": raw["assessment"]}), answer("готово")])
+
+    await run_task(program.program_stage, chat, Stage.ASSESSMENT.value, state.run_id)
+
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.revision is None
+    assert saved.status is ProgramStatus.APPROVED
+    assert saved.assessment is not None
+    _, _, exports = enqueued
+    exports.assert_awaited_once_with(chat, state.run_id)
+
+
+async def test_a_revision_of_the_skeleton_leads_to_the_content_being_written(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """A change to the skeleton, the approval of the changed skeleton, the content.
+
+    This is the whole cycle with a change in it: the methodist asks for one
+    part to be redone, the part is redone, the content that was written from
+    the old part is written again, and the programme ends complete.
+    """
+    state = await store.save(skeleton_state(chat))
+    await run_task(program.finalize_program_draft, chat, state.run_id)
+    waiting = await store.load(chat)
+    assert waiting is not None
+
+    # The methodist asks for the hours to be redone.
+    await store.save(waiting.request_revision(Stage.HOURS, "замени тему 2.3"))
+    provider.answers.extend([save_turn({"curriculum": example()["curriculum"]}), answer("готово")])
+
+    await run_task(program.program_stage, chat, Stage.HOURS.value, state.run_id)
+
+    revised = await store.load(chat)
+    assert revised is not None
+    assert revised.revision is None
+    assert revised.status is ProgramStatus.PENDING_APPROVAL
+    # The content was written from the old hours, so it is written again.
+    assert revised.assessment is None
+    assert revised.materials is None
+
+    # The methodist approves the changed skeleton.
+    await store.save(revised.approved())
+    raw = example()
+    provider.answers.extend(
+        [
+            save_turn({"assessment": raw["assessment"]}),
+            answer("Оценочные средства сохранены."),
+            save_turn({"materials": raw["materials"]}),
+            answer("Материалы сохранены."),
+        ]
+    )
+
+    await run_task(program.program_stage, chat, Stage.ASSESSMENT.value, state.run_id)
+    await run_task(program.program_stage, chat, Stage.MATERIALS.value, state.run_id)
+
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.assessment is not None
+    assert saved.materials is not None
+    assert saved.status is ProgramStatus.APPROVED
+
+
+async def test_a_revised_stage_runs_again_and_the_run_waits_for_the_methodist(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """A change reruns one stage; the rest of the programme is not rebuilt."""
+    state = await store.save(skeleton_state(chat))
+    await store.save(state.request_revision(Stage.HOURS, "замени тему 2.3"))
+    provider.answers.extend([save_turn({"curriculum": example()["curriculum"]}), answer("готово")])
+
+    await run_task(program.program_stage, chat, Stage.HOURS.value, state.run_id)
+
+    saved = await store.load(chat)
+    assert saved is not None
+    assert provider.calls, "the stage did not run"
+    assert saved.revision is None
+    assert saved.stage_status(Stage.HOURS) is StageStatus.COMPLETED
+    assert saved.status is ProgramStatus.PENDING_APPROVAL
+    stages, finalizes, _ = enqueued
+    stages.assert_not_awaited()
+    finalizes.assert_awaited_once_with(chat, state.run_id)
+
+
 async def test_a_completed_stage_is_not_generated_again(
     chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:
@@ -349,7 +521,7 @@ async def test_a_completed_stage_is_not_generated_again(
     saved = await store.load(chat)
     assert saved is not None
     assert saved.attempts[Stage.HOURS.value] == 1
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_awaited_once_with(chat, Stage.HOURS.value, state.run_id)
 
 
@@ -361,7 +533,7 @@ async def test_a_completed_stage_is_not_generated_again(
 async def test_finalising_renders_the_draft_and_asks_for_confirmation(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, enqueued
 ) -> None:
-    state = await store.save(complete_state(chat))
+    state = await store.save(skeleton_state(chat))
 
     await run_task(program.finalize_program_draft, chat, state.run_id)
 
@@ -382,7 +554,7 @@ async def test_finalising_renders_the_draft_and_asks_for_confirmation(
 async def test_finalising_twice_renders_one_message(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, enqueued
 ) -> None:
-    state = await store.save(complete_state(chat))
+    state = await store.save(skeleton_state(chat))
 
     await run_task(program.finalize_program_draft, chat, state.run_id)
     await run_task(program.finalize_program_draft, chat, state.run_id)
@@ -398,7 +570,7 @@ async def test_finalising_stops_when_another_writer_finalized_first(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The row can move between the load and the lock; the lock's copy wins."""
-    state = await store.save(complete_state(chat))
+    state = await store.save(skeleton_state(chat))
     real_parse = store.parse
     calls = 0
 
@@ -451,7 +623,7 @@ async def test_an_incomplete_draft_ends_the_run(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, enqueued
 ) -> None:
     state = new_state(chat, requested_hours=None, requirements=None)
-    for stage in STAGE_ORDER:
+    for stage in SKELETON_ORDER:
         state = state.completed(stage)
     await store.save(state)
 
@@ -478,7 +650,7 @@ async def test_recovery_requeues_the_stage_of_a_stalled_run(
 
     await run_task(program.recover_stalled_programs)
 
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_awaited_once_with(chat, Stage.COMPETENCES.value, state.run_id)
     saved = await store.load(chat)
     assert saved is not None
@@ -490,7 +662,7 @@ async def test_recovery_leaves_a_fresh_run_alone(chat: uuid.UUID, task_db: None,
 
     await run_task(program.recover_stalled_programs)
 
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
 
 
@@ -504,7 +676,7 @@ async def test_recovery_ignores_a_run_that_is_not_generating(
 
     await run_task(program.recover_stalled_programs)
 
-    stages, finalizes = enqueued
+    stages, finalizes, _ = enqueued
     stages.assert_not_awaited()
     finalizes.assert_not_awaited()
 
@@ -518,7 +690,7 @@ async def test_recovery_leaves_a_stage_whose_worker_is_alive(
 
     await run_task(program.recover_stalled_programs)
 
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
 
 
@@ -534,18 +706,18 @@ async def test_recovery_gives_up_when_the_attempts_are_spent(
     saved = await store.load(chat)
     assert saved is not None
     assert saved.failed
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
 
 
 async def test_recovery_renders_a_draft_that_was_never_rendered(
     chat: uuid.UUID, task_db: None, redis_client: Redis, enqueued
 ) -> None:
-    state = await store.save(aged(complete_state(chat)))
+    state = await store.save(aged(skeleton_state(chat)))
 
     await run_task(program.recover_stalled_programs)
 
-    _, finalizes = enqueued
+    _, finalizes, _ = enqueued
     finalizes.assert_awaited_once_with(chat, state.run_id)
 
 
@@ -557,7 +729,7 @@ async def test_a_stage_of_a_closed_run_does_nothing(
     await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
 
     assert provider.calls == []
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
 
 
@@ -569,7 +741,7 @@ async def test_a_stage_of_a_run_that_is_not_generating_does_nothing(
     await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
 
     assert provider.calls == []
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
 
 
@@ -636,7 +808,7 @@ async def test_a_stage_superseded_mid_flight_does_not_overwrite_the_row(
     saved = await store.load(chat)
     assert saved is not None
     assert saved.title is None
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
 
 
@@ -675,7 +847,7 @@ async def test_a_state_that_moved_before_the_stage_started_is_left_alone(
     assert not saved.failed
     assert saved.attempts[Stage.COMPETENCES.value] == 1
     assert provider.calls == []
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
 
 
@@ -717,7 +889,7 @@ async def test_a_failure_that_loses_the_row_stops_quietly(
     assert saved.stage_status(Stage.COMPETENCES) is StageStatus.IN_PROGRESS
     assert not saved.failed
     assert saved.attempts[Stage.COMPETENCES.value] == 1
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
 
 
@@ -740,7 +912,7 @@ async def test_a_stage_that_lost_its_lock_stops_before_the_next_turn(
     assert saved.title == "Анализ данных"
     assert saved.stage_status(Stage.COMPETENCES) is StageStatus.IN_PROGRESS
     assert len(provider.calls) == 1
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
 
 
@@ -840,7 +1012,7 @@ async def test_a_stage_stops_when_the_chat_is_deleted_under_it(
 
     await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
 
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
 
 
@@ -863,7 +1035,7 @@ async def test_a_stage_stops_when_the_chat_has_no_user(
     await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
 
     assert provider.calls == []
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
     saved = await store.load(chat)
     assert saved is not None
@@ -880,7 +1052,7 @@ async def test_a_completed_stage_does_not_enqueue_a_successor_that_is_running(
     await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
 
     assert provider.calls == []
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
 
 
@@ -903,7 +1075,7 @@ async def test_recovery_leaves_a_finished_run_alone(
 
     await run_task(program.recover_stalled_programs)
 
-    stages, finalizes = enqueued
+    stages, finalizes, _ = enqueued
     stages.assert_not_awaited()
     finalizes.assert_not_awaited()
 
@@ -921,7 +1093,7 @@ async def test_recovery_does_not_stampede_when_redis_is_unreadable(
 
     await run_task(program.recover_stalled_programs)
 
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
 
 
@@ -953,12 +1125,12 @@ async def test_a_failure_replaces_the_result_the_intake_left(
 async def test_a_replay_of_the_last_stage_enqueues_the_finalize(
     chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:
-    state = await store.save(complete_state(chat))
+    state = await store.save(skeleton_state(chat))
 
     await run_task(program.program_stage, chat, Stage.SUMMARY.value, state.run_id)
 
     assert provider.calls == []
-    stages, finalizes = enqueued
+    stages, finalizes, _ = enqueued
     stages.assert_not_awaited()
     finalizes.assert_awaited_once_with(chat, state.run_id)
 
@@ -991,7 +1163,7 @@ async def test_the_offline_mock_carries_a_run_through_every_stage(
     assert saved is not None
     assert saved.status is ProgramStatus.PENDING_APPROVAL
     assert not saved.finalized
-    _, finalizes = enqueued
+    _, finalizes, _ = enqueued
     finalizes.assert_awaited()
 
     await run_task(program.finalize_program_draft, chat, saved.run_id)
@@ -1013,7 +1185,7 @@ async def test_finalising_replaces_the_result_the_intake_left(
     The draft has to replace that row: inserting a second one fails on the primary
     key, and the message the methodist is waiting for is never written.
     """
-    state = await store.save(complete_state(chat))
+    state = await store.save(skeleton_state(chat))
     async with async_sessionmaker(bind=engine, expire_on_commit=False)() as db:
         db.add(
             GenerationResult(
@@ -1048,7 +1220,7 @@ async def test_a_replayed_stage_does_not_spend_an_attempt_on_its_successor(
     await run_task(program.program_stage, chat, Stage.COMPETENCES.value, queued.run_id)
 
     assert provider.calls == []
-    stages, _ = enqueued
+    stages, _, _ = enqueued
     stages.assert_not_awaited()
     saved = await store.load(chat)
     assert saved is not None
@@ -1057,7 +1229,7 @@ async def test_a_replayed_stage_does_not_spend_an_attempt_on_its_successor(
 
 @pytest.mark.parametrize(
     "closed",
-    [lambda state: state.failed_run("не вышло"), lambda state: state.approved()],
+    [lambda state: state.failed_run("не вышло"), lambda state: state.completed(Stage.MATERIALS)],
     ids=["failed", "approved"],
 )
 async def test_advancing_a_closed_run_enqueues_nothing(enqueued, closed) -> None:
@@ -1066,7 +1238,7 @@ async def test_advancing_a_closed_run_enqueues_nothing(enqueued, closed) -> None
 
     await program._advance(state)
 
-    stages, finalizes = enqueued
+    stages, finalizes, _ = enqueued
     stages.assert_not_awaited()
     finalizes.assert_not_awaited()
 
@@ -1099,7 +1271,7 @@ async def test_recovery_keeps_going_when_one_row_moved_under_it(
 
         await run_task(program.recover_stalled_programs)
 
-        stages, _ = enqueued
+        stages, _, _ = enqueued
         stages.assert_awaited_once_with(other_id, Stage.COMPETENCES.value, live.run_id)
     finally:
         async with maker() as db:
@@ -1110,7 +1282,7 @@ async def test_recovery_keeps_going_when_one_row_moved_under_it(
 async def test_finalising_keeps_a_chat_name_the_intake_already_set(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, enqueued
 ) -> None:
-    state = await store.save(complete_state(chat))
+    state = await store.save(skeleton_state(chat))
     maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with maker() as db:
         row = await db.get(ChatSession, chat)

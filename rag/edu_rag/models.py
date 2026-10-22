@@ -17,6 +17,8 @@ class ChunkRecord(BaseModel):
     doc_id: str
     ordinal: int
     kind: str
+    source_id: str | None = None
+    source_kind: str | None = None
     section_title: str | None = None
     page_number: int | None = None
     content: str
@@ -41,6 +43,8 @@ class ChunkRecord(BaseModel):
         payload = json.dumps(
             {
                 "content_hash": self.content_hash,
+                "source_id": self.source_id,
+                "source_kind": self.source_kind,
                 "section_title": self.section_title,
                 "page_number": self.page_number,
                 "metadata": self.metadata,
@@ -59,6 +63,8 @@ class SearchHit(BaseModel):
     doc_id: str
     ordinal: int
     kind: str
+    source_id: str | None = None
+    source_kind: str | None = None
     section_title: str | None
     page_number: int | None
     content: str

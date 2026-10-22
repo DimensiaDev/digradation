@@ -22,11 +22,15 @@ def _chunk(
     section_title: str | None = None,
     page_number: int | None = None,
     metadata: dict | None = None,
+    source_id: str | None = None,
+    source_kind: str | None = None,
 ) -> ChunkRecord:
     return ChunkRecord(
         doc_id=doc_id,
         ordinal=ordinal,
         kind=kind,
+        source_id=source_id,
+        source_kind=source_kind,
         content=content,
         content_hash=_h(content),
         section_title=section_title,
@@ -251,6 +255,16 @@ async def test_search_across_docs(store):
     await store.upsert_chunks("d2", [b], [_unit(0, 1, 0)], _fps([b]))
     hits = await store.search(_unit(1, 0, 0), top_k=10)
     assert {h.doc_id for h in hits} == {"d1", "d2"}
+
+
+async def test_search_filters_by_catalog_source_kind(store):
+    standard = _chunk(0, content="standard", doc_id="d1", source_id="src-01", source_kind="normative_act")
+    reference = _chunk(0, content="reference", doc_id="d2", source_id="src-08", source_kind="reference")
+    await store.upsert_chunks("d1", [standard], [_unit(1, 0, 0)], _fps([standard]))
+    await store.upsert_chunks("d2", [reference], [_unit(1, 0, 0)], _fps([reference]))
+
+    hits = await store.search(_unit(1, 0, 0), top_k=10, kinds={"normative_act"})
+    assert [hit.source_id for hit in hits] == ["src-01"]
 
 
 # ----------------------------------------------------------- list_docs

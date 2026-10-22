@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agentic import store
 from app.agentic.errors import AnswersDoNotMatch
 from app.agentic.loop import run_tool_loop
-from app.agentic.models import ProgramStatus
+from app.agentic.models import ProgramStatus, StageStatus
 from app.agentic.state import ClarificationAnswer, ProgramState, apply_answers
 from app.agentic.tools import INTAKE_TOOLS, ToolContext, call_executor
 from app.cache import get_deletion_key, get_generation_key, get_redis_client
@@ -187,7 +187,12 @@ async def _start_with_answers(
 
 
 async def _commit_tool_state(ctx: ToolContext, previous: ProgramState | None, session: uuid.UUID) -> None:
-    """Save what the tools changed, and start the programme if one was started."""
+    """Save what the tools changed, and put the next stage on the queue.
+
+    Three things start work: a programme the model has just begun, the
+    approval of a skeleton — the second one is what releases the content — and
+    a change the methodist asked for, which reruns one stage.
+    """
     if not ctx.dirty or ctx.state is None:
         return
     started = previous is None or ctx.state.run_id != previous.run_id
@@ -195,6 +200,18 @@ async def _commit_tool_state(ctx: ToolContext, previous: ProgramState | None, se
     log.info("program_state_committed", session=str(session), run_id=str(saved.run_id), status=saved.status.value)
     if started and saved.status is ProgramStatus.GENERATING:
         await program_stage.kiq(session, saved.current_stage.value, saved.run_id)
+    elif not started and saved.revision is not None:
+        # The methodist asked for a change in one part: that part is redone.
+        await program_stage.kiq(session, saved.revision.stage.value, saved.run_id)
+    elif not started and saved.status is ProgramStatus.GENERATING:
+        # The methodist approved the skeleton: the content may be written now.
+        # The attempt is spent here, so the stage has the same budget as every
+        # other one, and a stage that is already complete is not run again.
+        stage = saved.current_stage
+        if saved.stage_status(stage) is StageStatus.COMPLETED:
+            return
+        queued = await store.save(saved.enqueued(stage), expected_run_id=saved.run_id)
+        await program_stage.kiq(session, queued.current_stage.value, queued.run_id)
 
 
 @broker.task(queue_name="default")

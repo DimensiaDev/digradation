@@ -30,7 +30,8 @@ class S3UploadParams(BaseModel):
 
 
 class S3UploadRequest(BaseModel):
-    content_type: str = Field(max_length=64)
+    # The office formats have long media types: the .docx one is 67 characters.
+    content_type: str = Field(max_length=128)
     file_size: int = Field(description="File size in bytes")
 
 
@@ -87,3 +88,15 @@ class S3AttachmentSchema(BaseModel):
 
     attachment_url: str
     filename: str
+
+
+class ProgramExportSchema(BaseModel):
+    """A saved export of the programme: where to get it and what it is called.
+
+    The export is an attachment of the chat, so the id is the one the
+    attachment route takes and the link is the one it would hand out.
+    """
+
+    attachment_id: int = Field(description="Идентификатор вложения с выгрузкой")
+    attachment_url: str = Field(description="Подписанная ссылка на скачивание")
+    filename: str = Field(description="Имя файла")

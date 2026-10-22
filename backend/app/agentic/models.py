@@ -34,7 +34,13 @@ QuestionId = Annotated[str, StringConstraints(pattern=r"^q-\d{1,3}-\d{1,3}$")]
 SeminarTaskId = Annotated[str, StringConstraints(pattern=r"^st-\d{1,3}$")]
 LecturePlanId = Annotated[str, StringConstraints(pattern=r"^lp-\d{1,3}$")]
 SlideDeckId = Annotated[str, StringConstraints(pattern=r"^sd-\d{1,3}$")]
-SourceId = Annotated[str, StringConstraints(pattern=r"^src-\d{1,3}$")]
+#: A source is either one the run made up (``src-01``) or one of the corpus
+#: documents, whose ids are stable codes like ``profstd-06.017`` or
+#: ``fgos-soo-2026``.
+SourceId = Annotated[
+    str,
+    StringConstraints(pattern=r"^(src-\d{1,3}|[a-z][a-z0-9]*(?:[-.][a-z0-9]+){0,4})$", max_length=64),
+]
 StaffSlotId = Annotated[str, StringConstraints(pattern=r"^ts-\d{1,3}$")]
 
 
@@ -123,6 +129,29 @@ class Module(SchemaModel):
     id: ModuleId
     title: str = Field(min_length=1, max_length=500)
     topics: list[Topic] = Field(min_length=1)
+    #: The module states its own volume, and the plan checks it against the
+    #: topics. A module that leaves it empty is refused by that check rather
+    #: than by the schema, so the model is told what to fix.
+    hours: float = Field(default=0, ge=0, description="Часы модуля — сумма часов его тем")
+
+    @model_validator(mode="after")
+    def _fill_the_hours(self) -> Self:
+        """A module that declares no hours gets the sum of its topics.
+
+        A curriculum written before the field existed has no hours at all, and
+        the plan it belongs to has to keep adding up after a deploy.
+        """
+        if "hours" in self.model_fields_set:
+            return self
+        return self.model_copy(update={"hours": self.topic_hours})
+
+    @property
+    def topic_hours(self) -> float:
+        """What the topics of this module add up to."""
+        return sum(
+            topic.hours.lecture + topic.hours.practice + topic.hours.lab + topic.hours.self_study
+            for topic in self.topics
+        )
 
 
 class Schedule(SchemaModel):
@@ -131,6 +160,9 @@ class Schedule(SchemaModel):
     weeks: int | None = Field(default=None, gt=0, description="Duration in weeks")
     days: int | None = Field(default=None, gt=0, description="Duration in days")
     hours_per_day: float | None = Field(default=None, gt=0, description="Daily load in hours")
+    max_hours_per_day: float | None = Field(
+        default=None, gt=0, description="Предел дневной нагрузки, если он назван в задании"
+    )
     note: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
@@ -146,20 +178,39 @@ class Curriculum(SchemaModel):
 
     modules: list[Module] = Field(min_length=1)
     schedule: Schedule
+    #: Hours of the final attestation. They are part of the programme's volume
+    #: and stand as the last row of the plan, so they are counted with the
+    #: topics: a 256-hour internship is 254 hours of self-study plus 2 hours
+    #: of the attestation, not 256 hours of topics.
+    attestation_hours: float = Field(default=0, ge=0, description="Часы итоговой аттестации")
+    #: Hours delivered remotely. A mixed programme says how many; a fully
+    #: in-person one leaves them empty.
+    distance_hours: float | None = Field(default=None, ge=0, description="Часы дистанционной работы")
+
+    @property
+    def topic_hours(self) -> float:
+        """What the topics of every module add up to."""
+        return sum(module.topic_hours for module in self.modules)
+
+    @property
+    def in_person_hours(self) -> float:
+        """The hours that are not delivered remotely."""
+        return self.total_hours - (self.distance_hours or 0)
 
     @property
     def total_hours(self) -> float:
-        """Total hours of all modules; the final attestation is not included."""
-        return sum(
-            topic.hours.lecture + topic.hours.practice + topic.hours.lab + topic.hours.self_study
-            for module in self.modules
-            for topic in module.topics
-        )
+        """Total hours of the programme: the topics and the final attestation."""
+        return self.topic_hours + self.attestation_hours
 
     @property
     def contact_hours(self) -> float:
-        """Classroom hours: lectures, practice and lab work."""
-        return sum(
+        """Contact hours: lectures, practice, lab work and the final attestation.
+
+        The attestation is contact time — nobody sits an exam alone at home —
+        and the plan has to add up: the contact hours and the self-study hours
+        are the whole volume.
+        """
+        return self.attestation_hours + sum(
             topic.hours.lecture + topic.hours.practice + topic.hours.lab
             for module in self.modules
             for topic in module.topics
@@ -248,6 +299,7 @@ class SeminarTask(SchemaModel):
     title: str = Field(min_length=1, max_length=500)
     statement: str = Field(min_length=1, max_length=4000)
     outcome_ids: list[OutcomeId] = Field(min_length=1, description="Outcomes the task reveals")
+    criteria: list[str] = Field(default_factory=list, description="Критерии оценки задания")
 
 
 class FinalAttestation(SchemaModel):
@@ -313,6 +365,13 @@ class Source(SchemaModel):
     )
     url: str | None = Field(default=None, max_length=2000, description="URL of an internet resource")
     primary: bool | None = Field(default=None, description="Literature only: True is основная, False is дополнительная")
+    #: Whether the catalogue holds this document. The backend sets it, not the
+    #: model: a source the catalogue does not know is kept and marked.
+    confirmed: bool = Field(default=True, description="Подтверждён каталогом источников")
+    #: How far the document may be trusted, as the catalogue describes it.
+    trust: str | None = Field(default=None, max_length=500, description="Статус доверия документа")
+    #: Where the document comes from.
+    origin: str | None = Field(default=None, max_length=500, description="Происхождение документа")
 
     @model_validator(mode="after")
     def _require_literature_for_primary(self) -> Self:

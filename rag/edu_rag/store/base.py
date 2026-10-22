@@ -1,6 +1,6 @@
 """Abstract contract for vector stores."""
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from typing import Protocol, runtime_checkable
 
 from ..models import ChunkRecord, SearchHit
@@ -49,12 +49,16 @@ class VectorStore(Protocol):
         self,
         query_vec: list[float],
         top_k: int = 10,
+        *,
+        kinds: Collection[str] | None = None,
     ) -> list[SearchHit]:
         """Return up to ``top_k`` hits sorted by descending similarity.
 
-        ``top_k <= 0`` returns an empty list — never ``scored[:top_k]``
-        with a negative slice (Python's negative slicing would silently
-        return all-but-last-N).
+        ``kinds`` filters on the catalog source kind, not the chunk kind: the
+        programme tool asks for normative acts or professional standards, while
+        a document may contain both text and table chunks. ``top_k <= 0``
+        returns an empty list — never ``scored[:top_k]`` with a negative slice
+        (Python's negative slicing would silently return all-but-last-N).
         """
         ...
 

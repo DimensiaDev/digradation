@@ -31,6 +31,8 @@ These five rules override any other instinct you have.
 digradation/
 ├── backend/            FastAPI service + TaskIQ workers     owner @yel-gar
 ├── frontend/           Angular 21 SPA                        owner @krchvl
+├── rag/                edu_rag package: chunking, embeddings, pgvector store, retrieval
+├── parser/             edu_parser package: source PDFs/docx -> document.json
 ├── e2e/                Playwright suite against the Compose stack
 ├── conf/               infra config: redis.conf, garage.toml, garage init, lifecycle rules, pg init
 ├── scripts/            pre-commit shims for per-package Poetry tools
@@ -278,11 +280,15 @@ granted access.
 The Dockerfile handles this with `WORKDIR /app`. Follow the same pattern for any new
 resource file.
 
-### Build contexts are per-package
+### Build contexts
 
-`backend` builds from `backend/`, `frontend` from `frontend/`, the Garage bootstrap
-from `conf/`. Nothing builds from the repository root, so there is no root
-`.dockerignore`; each context carries its own.
+`backend` builds from the **repository root**, because its image needs both
+`backend/` and the sibling `rag/` package. The root `.dockerignore` excludes
+everything else; the Dockerfile copies `backend/pyproject.toml`,
+`backend/poetry.lock` and `rag/` before `backend/`. `frontend` builds from
+`frontend/` and the Garage bootstrap from `conf/`; each of those contexts carries
+its own `.dockerignore`. Do not move the backend back to a `backend/` context
+without also vendoring or publishing `edu_rag`.
 
 ### Build caching is CI-only
 
@@ -324,6 +330,15 @@ poetry -C backend run pytest               # needs Docker daemon (testcontainers
 poetry -C backend run pytest --cov         # with a branch-coverage report
 ```
 
+### Rag package
+
+```bash
+poetry -C rag run black --check .
+poetry -C rag run ruff check .
+poetry -C rag run pytest                   # the pgvector store test needs Docker
+poetry -C rag run pytest --cov             # gate lives in rag/pyproject.toml
+```
+
 ### Coverage
 
 Backend coverage is measured with `pytest-cov` and **enforced at 90%**. The threshold
@@ -338,6 +353,9 @@ reads and enforces.
 
 **To change the gate:** edit `fail_under` in `backend/pyproject.toml`. Nothing else names
 a percentage. Verified to bite: at `fail_under = 90` the run exits 0, at `99` it exits 1.
+
+The `rag/` package has the same gate in `rag/pyproject.toml`; read its `fail_under` there
+rather than copying the figure into another file.
 
 **There is one test run, not two.** The workflow that used to run a second full suite just
 to produce a coverage report is deleted; `backend-ci.yml` collects coverage in the same run
@@ -381,6 +399,14 @@ could start a second run mid-document, and a union would advertise four same-nam
 `save_program_draft` specs, one per block schema. `SberProvider` rejects `strict=True` tools
 at construction because GigaChat v2 has no strict mode; the OpenAI client honours `strict`.
 
+### The exports are attachments
+
+A finished programme is written to the attachments bucket as a DOCX document and a PPTX file,
+registered as attachments of the chat, and their ids are recorded on the programme's state.
+`GET /chats/{session_id}/program` carries them in `exports`, and the client fetches them
+through the attachment route it already uses for a file the methodist uploaded. There is no
+download endpoint of their own, and no bucket was added for them.
+
 ### The mock provider
 
 `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) selects `app/providers/mock.py` instead of the
@@ -400,6 +426,33 @@ input always yields the same text. The `stage` mode's fabricated programme is on
 document sized to the volume the brief names, because the pipeline validates the blocks
 against each other and a block that disagrees fails the run.
 
+### The sources a programme may cite
+
+`app/agentic/sources.py` is the catalogue: it reads the corpus in `edu_materials/` — the
+federal educational standards, the professional standards and the programmes of the
+organisation — and turns each corpus description into a record the programme can cite.
+
+| What | Where |
+|---|---|
+| The corpus | `edu_materials/<corpus>/` — the documents and the description of each |
+| The catalogue | `app/agentic/sources.py` — `entries()`, `get_source()`, `search()` |
+| The path | `EDU_MATERIALS_PATH`, defaulting to the checkout's `edu_materials` |
+| The image | `backend/Dockerfile` copies the corpus to `/edu_materials` |
+
+- **A source is confirmed when the catalogue holds it, and only then.** The backend sets
+  `Source.confirmed`, not the model: a document the catalogue does not know is kept in the
+  programme and marked as unconfirmed, in the report, in the chat reply and in the DOCX.
+- **A professional standard a competence rests on is a refusal**, because a competence has to
+  stand on a standard that exists. A bibliography entry may be unconfirmed.
+- **The search is lexical** — a keyword match over the descriptions, with the title counting
+  double. The semantic index over the corpus arrives with the vector store; the seam is
+  `search()`, and both answers are the same shape.
+- **The online search is `app/agentic/websearch.py`.** The corpus search is lexical and offline;
+  the web search asks the encyclopedia by default (`WEB_SEARCH_URL` points it at a search
+  service of the deployment's own). It is off on the mock provider, so the end-to-end suite
+  never needs the internet. What it finds is marked as unconfirmed: the corpus alone confirms
+  a document.
+
 ### The programme pipeline
 
 The sequential educational-programme cycle is the reference implementation for any future
@@ -409,9 +462,15 @@ attempts and `run_id`; `app/agentic/store.py` is its only writer, and `to_draft(
 completeness gate that a partial state cannot pass.
 
 - **One TaskIQ task owns one stage**, in the order of `STAGE_ORDER` (competences, hours,
-  sources, summary; `assessment` and `materials` wait for #5). A stage commits its block and
-  only then enqueues the next task or `finalize_program_draft`. There is no loop over stages
-  inside a task, and that is what makes a worker death stop at a durable boundary.
+  sources, summary, assessment, materials). A stage commits its block and only then enqueues
+  the next task or `finalize_program_draft`. There is no loop over stages inside a task, and
+  that is what makes a worker death stop at a durable boundary.
+- **The programme is written in two halves.** `SKELETON_ORDER` (competences, hours, sources,
+  summary) is the skeleton: the goal, the competences and the hours the methodist approves.
+  When the skeleton is complete the run waits in `pending_approval` and `finalize_program_draft`
+  renders it; the content (`CONTENT_ORDER`: assessment, materials) is written only after the
+  methodist has approved it, and the approval is what puts the first content stage on the
+  queue. Nothing is generated from an unapproved skeleton.
 - **The state is `chat_sessions.program_state` (JSONB)**, mirrored to
   `program:state:{session_id}` in Redis for `PROGRAM_STATE_TTL`. PostgreSQL is canonical and
   a mirror that cannot be written never fails a task.
@@ -438,13 +497,60 @@ completeness gate that a partial state cannot pass.
   stages; carrying it there would mean storing it in `ProgramState` from the chat worker's
   intake turn. That is a deliberate decision, recorded in `.context/DECISIONS.md`.
 
+### Source retrieval (RAG)
+
+The source-citing programme stages can search a pgvector index of the curated corpus. The
+feature is off unless `RAG_ENABLED` is truthy, so a fresh checkout starts without a hub or an
+index.
+
+- **Embeddings come from the school hub, not GigaChat.** Real indexing and retrieval require
+  `SBER_API_SCOPE=openai` plus `OPENAI_URL`; `PERS`/`B2B`/`CORP` have no `/embeddings`
+  endpoint. `mock` is preferred when `SBER_API_KEY=mock`, and returns deterministic vectors
+  without a socket.
+- **The vector is fixed at 2048 dimensions.** The column is `HALFVEC(2048)`, not
+  `vector(2048)`: HNSW refuses more than 2000 dimensions for `vector`, while `halfvec`
+  supports 4000. `OPENAI_EMBEDDING_DIMENSION` must be `2048`; changing the model dimension
+  needs a migration, not just an environment edit.
+- **The catalog supplies citation ids.** `backend/res/rag-sources.json` maps stable `src-NN`
+  ids to parser `source_path`s. `backend/app/rag/catalog.py` validates it; the parser's own
+  `doc_id` is a content hash and is not a citation id.
+- **Ingestion is the one-off CLI `backend/index_rag.py`.** Run it in the backend image with
+  parser output mounted at `/materials/parsed`. It is idempotent by fingerprint and supports
+  `--dry-run`, `--prune`, `--strict` and `--batch-size`. There are no HTTP indexing or search
+  endpoints yet.
+- **`search_sources` is offered only by `stage_tools(stage)`**, never by the chat intake.
+  A hit is mapped to its catalog `Source`. An empty result is `found=false`; a provider or
+  database failure is `RagUnavailable`, which the tool turns into a note rather than failing
+  the stage.
+- **The catalogue answers when the index does not.** The corpus descriptions in
+  `edu_materials/` are the same documents in prose, and they need neither an index nor an
+  embedding provider, so a deployment without one still finds its documents. The two
+  catalogues describe the same ten documents, and a document has one id: the corpus entry is
+  filed under the catalogue's `src-NN` id.
+- **The score floor is measured, not guessed.** On this corpus an unrelated query scores about
+  0.18 and a related one about 0.44, and the two distributions do not overlap, so the floor
+  is 0.30. A lower floor admits exactly the junk the measurement excludes.
+- **A source the catalogue does not hold is kept and marked**, not refused: the programme
+  shows that nobody verified the document. A professional standard a competence rests on is
+  still a refusal, because a competence has to stand on a standard that exists.
+- **The backend and rag test suites need a Docker daemon.** The PostgreSQL testcontainer is
+  `pgvector/pgvector:pg18`, and the backend fixture runs
+  `CREATE EXTENSION IF NOT EXISTS vector` before `Base.metadata.create_all`. See
+  `.context/LESSONS.md` for the HNSW and `HALFVEC` traps.
+
 ### The chat turn and the programme API
 
 `app/tasks/api.py` runs one turn of a chat. The turn is a **tool loop**, not a single
 completion: the model is offered `INTAKE_TOOLS` and may call `begin_program` (which starts a
-run), `approve_program_draft` (which confirms a rendered draft), or simply answer in prose.
+run), `approve_program_draft` (which confirms a rendered draft), `revise_program` (which asks
+for one part to be redone), or simply answer in prose.
 `run_chat_turn` is the task; `process_response` publishes the answer.
 
+- **The methodist can ask for one part to be redone.** The intake offers `revise_program` with
+  the stage to redo and the notes: the stage runs again with the methodist's notes in its
+  brief, the blocks that are already committed stay, and the run goes straight back to where
+  the methodist left it instead of walking the pipeline again. A revision spends no attempt —
+  the budget of three per stage is there for the agent's own failures.
 - **The model no longer names the chat.** `HARNESS_STRUCTURED_SCHEMA` and
   `HarnessStructuredOutput` are gone: the reply is prose, and the name comes from
   `app/naming.py`, which holds the one rule — *a programme's title wins, otherwise the first
@@ -463,8 +569,10 @@ The endpoints the client uses:
 |---|---|
 | `POST /chats/{session_id}` | sends a message, and optionally the answers to the open questions |
 | `GET /chats/{session_id}/result` | the last turn's reply, and the open questions |
-| `GET /chats/{session_id}/program` | where the programme stands: status, stage, the blocks saved so far |
+| `GET /chats/{session_id}/program` | where the programme stands: status, stage, the blocks saved so far, the self-check report |
 | `GET /chats/programmes` | the user's programmes, paginated with `page` and `items_per_page` |
+| `GET /chats/{session_id}/program.docx` | the programme as a DOCX document |
+| `GET /chats/{session_id}/program.pptx` | the slides of the programme as a PPTX file |
 
 `GET /program` reads the Redis mirror first and falls back to the row, so a client that
 polls it does not touch PostgreSQL; the fallback re-mirrors the state. The response carries

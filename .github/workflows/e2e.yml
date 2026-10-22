@@ -2,10 +2,10 @@ name: E2E
 
 on:
   pull_request:
-    paths: ["e2e/**", "backend/**", "frontend/**", "docker-compose*", "conf/**"]
+    paths: ["e2e/**", "backend/**", "frontend/**", "rag/**", "docker-compose*", "conf/**"]
   push:
     branches: [main]
-    paths: ["e2e/**", "backend/**", "frontend/**", "docker-compose*", "conf/**"]
+    paths: ["e2e/**", "backend/**", "frontend/**", "rag/**", "docker-compose*", "conf/**"]
   workflow_dispatch:
 
 permissions:

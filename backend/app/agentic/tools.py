@@ -14,25 +14,29 @@ import copy
 import json
 import uuid
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Annotated, Any
 
 import structlog.stdlib
 from pydantic import BaseModel, Field, ValidationError
 
+from app.agentic import sources, websearch
 from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
-from app.agentic.sources import SourceFragment, get_source, search
+from app.agentic.sources import RagUnavailable
 from app.agentic.state import (
     MAX_QUESTION_LENGTH,
     STAGE_ORDER,
+    AssessmentBlock,
     CompetencesBlock,
     HoursBlock,
+    MaterialsBlock,
     ProgramState,
     SourcesBlock,
     SummaryBlock,
     new_state,
 )
 from app.providers.models import FunctionCall, FunctionDefinition, Tool, ToolCall
+from app.rag.catalog import canonical_source_id
 
 log = structlog.stdlib.get_logger(__name__)
 
@@ -46,6 +50,8 @@ STAGE_BLOCK: dict[Stage, type[BaseModel]] = {
     Stage.HOURS: HoursBlock,
     Stage.SOURCES: SourcesBlock,
     Stage.SUMMARY: SummaryBlock,
+    Stage.ASSESSMENT: AssessmentBlock,
+    Stage.MATERIALS: MaterialsBlock,
 }
 
 #: Stages that may look documents up before saving their block.
@@ -58,9 +64,6 @@ class ToolContext:
 
     session_id: uuid.UUID
     state: ProgramState | None = None
-    #: Documents the model has actually seen, through ``search_sources`` or an
-    #: earlier block. Only these may be cited.
-    known_source_ids: set[str] = field(default_factory=set)
     dirty: bool = False
     #: Whether the stage's block was accepted in this turn.
     saved: bool = False
@@ -77,7 +80,8 @@ class ToolResult(BaseModel):
 
 class SearchSourcesResult(ToolResult):
     query: str
-    fragments: list[SourceFragment] = Field(default_factory=list)
+    found: bool = False
+    fragments: list[sources.SourceFragment] = Field(default_factory=list)
 
 
 class SaveProgramDraftResult(ToolResult):
@@ -91,6 +95,12 @@ class BeginProgramResult(ToolResult):
 
 class ApproveProgramDraftResult(ToolResult):
     """What confirming the drafted programme tells the model."""
+
+
+class ReviseProgramResult(ToolResult):
+    """What a requested change tells the model."""
+
+    stage: Stage | None = None
 
 
 class SearchSourcesArguments(BaseModel):
@@ -132,6 +142,22 @@ class ApproveProgramDraftArguments(BaseModel):
     """Arguments of :func:`approve_program_draft`: the tool takes none."""
 
 
+class ReviseProgramArguments(BaseModel):
+    """What the methodist wants changed in one part of the programme."""
+
+    stage: Stage = Field(
+        description=(
+            "Какой блок переделать: competences, hours, sources, summary, assessment или materials. "
+            "Ставь тот блок, в котором нужно изменение, а не тот, который нужно закончить."
+        )
+    )
+    notes: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="Что именно изменить: например, заменить тему 2.3 или усложнить тест",
+    )
+
+
 def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
     """Inline ``$defs``/``$ref`` so the parameters are one self-contained object."""
     definitions = schema.get("$defs", {})
@@ -153,8 +179,10 @@ SEARCH_SOURCES_SPEC = FunctionDefinition(
     name="search_sources",
     description=(
         "Найти релевантные фрагменты в базе источников: ФГОС, профессиональные стандарты, "
-        "примеры образовательных программ. Возвращает фрагменты с идентификаторами документов; "
-        "ссылаться в программе можно только на документы из результата поиска."
+        "примеры образовательных программ, а также в интернете. Возвращает фрагменты с "
+        "идентификаторами документов; ссылаться в программе можно только на документы из "
+        "результата поиска. Документ, которого нет в базе источников, попадёт в программу "
+        "помеченным как неподтверждённый."
     ),
     parameters=_inline_refs(SearchSourcesArguments.model_json_schema()),
 )
@@ -179,6 +207,17 @@ APPROVE_PROGRAM_DRAFT_SPEC = FunctionDefinition(
     parameters=_inline_refs(ApproveProgramDraftArguments.model_json_schema()),
 )
 
+REVISE_PROGRAM_SPEC = FunctionDefinition(
+    name="revise_program",
+    description=(
+        "Переделать одну часть готовой программы по просьбе методиста: например, заменить тему 2.3 "
+        "или усложнить тест. Вызывай, когда методист попросил изменить конкретную часть программы; "
+        "пересобирается только эта часть, остальное остаётся как есть. В notes напиши, что именно "
+        "изменить."
+    ),
+    parameters=_inline_refs(ReviseProgramArguments.model_json_schema()),
+)
+
 #: What each stage's save call is for, in the words the model reads.
 _SAVE_DESCRIPTIONS: dict[Stage, str] = {
     Stage.COMPETENCES: (
@@ -194,6 +233,11 @@ _SAVE_DESCRIPTIONS: dict[Stage, str] = {
         "которые вернул search_sources."
     ),
     Stage.SUMMARY: "Сохранить паспорт программы: цель, задачи, аудиторию, форму обучения и документ по итогам.",
+    Stage.ASSESSMENT: (
+        "Сохранить оценочные средства: тестовые вопросы с ключами, задания для семинаров с критериями "
+        "оценки, формы текущего контроля и итоговую аттестацию."
+    ),
+    Stage.MATERIALS: "Сохранить планы лекций и слайды к темам учебного плана.",
 }
 
 #: The save specification of each stage, built from that stage's block model, so
@@ -208,66 +252,107 @@ STAGE_SPECS: dict[Stage, FunctionDefinition] = {
 }
 
 
-async def search_sources(ctx: ToolContext, arguments: SearchSourcesArguments) -> SearchSourcesResult:
-    """Search the catalog and remember the ids the model may now cite."""
-    fragments = await search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
-    ctx.known_source_ids.update(fragment.source.id for fragment in fragments)
+async def search_sources(_ctx: ToolContext, arguments: SearchSourcesArguments) -> SearchSourcesResult:
+    """Search the catalogue, the index and the web.
+
+    Three places hold documents: the curated catalogue, the pgvector index over
+    the parsed corpus, and the web. The search asks the first two together and
+    the third on its own, so a document the corpus holds and a document only the
+    web knows about are both found.
+    """
+    unavailable = False
+    try:
+        fragments = await sources.search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
+    except RagUnavailable as error:
+        log.warning("source_search_unavailable", query=arguments.query, error=str(error))
+        unavailable = True
+        fragments = await sources.search_corpus(
+            arguments.query,
+            kinds=arguments.kinds or None,
+            limit=arguments.limit,
+        )
+    for document in await websearch.search_web(arguments.query, limit=arguments.limit):
+        fragments.append(
+            sources.SourceFragment(
+                fragment_id=document.url,
+                source=document.as_source(),
+                section=document.title,
+                text=document.snippet,
+            )
+        )
     if not fragments:
-        return SearchSourcesResult(
-            query=arguments.query,
-            note=(
+        note = (
+            "Поиск по источникам временно недоступен. Продолжай без ссылок на документы: "
+            "не выдумывай источники и оставь ссылки пустыми, если поиск не вернул фрагменты."
+            if unavailable
+            else (
                 "По запросу ничего не найдено. Сформулируй запрос иначе или уточни вид деятельности; "
                 "не выдумывай источники и не ссылайся на документы, которых нет в результатах."
-            ),
+            )
         )
-    return SearchSourcesResult(query=arguments.query, fragments=fragments)
+        return SearchSourcesResult(query=arguments.query, found=False, note=note)
+    note = None
+    if unavailable:
+        note = (
+            "Индекс источников недоступен, ответы дал каталог. Если этого мало, скажи методисту: "
+            "ссылаться на документы, которых нет в ответе, нельзя."
+        )
+    return SearchSourcesResult(query=arguments.query, found=True, fragments=fragments, note=note)
 
 
 @dataclass(frozen=True)
 class _Citations:
     """What resolving a set of citations against the catalog found."""
 
+    #: The records the catalog holds for the cited ids.
     sources: list[Source]
+    #: Cited ids the catalog does not hold: kept, but marked as unconfirmed.
     unknown: list[str]
-    unsearched: list[str]
+    #: Professional standards a competence cites that the catalog does not hold.
+    unknown_standards: list[str]
+    #: Cited ids that are in the catalog but are not professional standards.
     not_standards: list[str]
 
 
-def _resolve_sources(ctx: ToolContext, source_ids: Iterable[str], *, standards: Iterable[str] = ()) -> _Citations:
-    """Replace the cited ids with their catalog records, collecting every refusal."""
-    standard_ids = set(standards)
-    citations = _Citations(sources=[], unknown=[], unsearched=[], not_standards=[])
-    for source_id in dict.fromkeys(source_ids):
-        source = get_source(source_id)
-        if source is None:
+def _resolve_sources(source_ids: Iterable[str], *, standards: Iterable[str] = ()) -> _Citations:
+    """Bind the cited ids to the catalogue, collecting what could not be bound.
+
+    A source the catalogue does not hold is not a refusal: the programme keeps it
+    and marks it as unconfirmed, because the methodist has to see that nobody
+    verified the document. A professional standard a competence rests on is a
+    refusal, because a competence has to stand on a standard that exists.
+    """
+    citations = _Citations(sources=[], unknown=[], unknown_standards=[], not_standards=[])
+    seen: set[str] = set()
+    for raw_source_id in source_ids:
+        source_id = canonical_source_id(raw_source_id)
+        if source_id in seen:
+            continue
+        seen.add(source_id)
+        record = sources.get_source(source_id)
+        if record is None:
             citations.unknown.append(source_id)
-        elif source_id not in ctx.known_source_ids:
-            citations.unsearched.append(source_id)
-        elif source_id in standard_ids and source.kind is not SourceKind.PROFESSIONAL_STANDARD:
-            citations.not_standards.append(source_id)
         else:
-            citations.sources.append(source)
+            citations.sources.append(record)
+    for source_id in dict.fromkeys(standards):
+        source_id = canonical_source_id(source_id)
+        record = sources.get_source(source_id)
+        if record is None:
+            citations.unknown_standards.append(source_id)
+        elif record.kind is not SourceKind.PROFESSIONAL_STANDARD:
+            citations.not_standards.append(source_id)
     return citations
 
 
 def _citation_error(citations: _Citations) -> SaveProgramDraftResult | None:
     """The refusal a bad citation earns, or ``None`` when every one resolved."""
-    if citations.unknown:
+    if citations.unknown_standards:
         return SaveProgramDraftResult(
             ok=False,
-            error="Неизвестные источники: " + ", ".join(citations.unknown),
+            error="Профессиональные стандарты, которых нет в каталоге: " + ", ".join(citations.unknown_standards),
             details=[
-                "Используй только источники из результатов search_sources; выдуманные документы запрещены. "
-                "Если поиск ничего не нашёл, оставь ссылки пустыми."
-            ],
-        )
-    if citations.unsearched:
-        return SaveProgramDraftResult(
-            ok=False,
-            error="Не подтверждённые поиском источники: " + ", ".join(citations.unsearched),
-            details=[
-                "Сначала найди документ вызовом search_sources и ссылайся только на то, что вернул поиск. "
-                "Если поиск ничего не нашёл, оставь ссылки пустыми."
+                "Найди профессиональный стандарт вызовом search_sources и укажи его id: "
+                "компетенция должна опираться на стандарт, который существует."
             ],
         )
     if citations.not_standards:
@@ -281,6 +366,20 @@ def _citation_error(citations: _Citations) -> SaveProgramDraftResult | None:
 
 def _no_ids(_block: Any) -> Iterable[str]:
     return ()
+
+
+def _catalogued(source: Source) -> Source:
+    """The catalogue record of a source, where the catalogue holds one.
+
+    A document the catalogue does not hold keeps what the model wrote about
+    it and is marked as unconfirmed: nobody verified it, and the methodist has
+    to see that.
+    """
+    source_id = canonical_source_id(source.id)
+    record = sources.get_source(source_id)
+    if record is None:
+        return source.model_copy(update={"id": source_id, "confirmed": False})
+    return record.model_copy(update={"primary": source.primary, "url": source.url or record.url})
 
 
 def _no_problems(_state: ProgramState, _block: Any) -> list[str]:
@@ -299,13 +398,66 @@ def _basis_ids(block: SummaryBlock) -> Iterable[str]:
     return block.summary.basis_source_ids
 
 
+def _basis_problems(state: ProgramState, block: SummaryBlock) -> list[str]:
+    """The passport may only rest on sources the programme already lists."""
+    known = {source.id for source in state.sources}
+    return [
+        f"источник {source_id} упомянут в паспорте, но не входит в список источников"
+        for source_id in block.summary.basis_source_ids
+        if source_id not in known
+    ]
+
+
 def _hours_problems(state: ProgramState, block: HoursBlock) -> list[str]:
     declared = {
         outcome.id
         for competence in state.competencies
         for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
     }
-    return state.topic_problems(block.curriculum, declared) + state.curriculum_problems(block.curriculum)
+    return (
+        state.topic_problems(block.curriculum, declared)
+        + state.uncovered_outcome_problems(block.curriculum, declared)
+        + state.curriculum_problems(block.curriculum)
+    )
+
+
+def _assessment_problems(state: ProgramState, block: AssessmentBlock) -> list[str]:
+    """The assessment has to check the programme that is already committed.
+
+    It also has to be something: an assessment without a question, without a
+    seminar task and without a form of control checks nothing.
+    """
+    if state.curriculum is None:
+        return ["учебный план ещё не собран"]
+    assessment = block.assessment
+    problems = state.assessment_problems(assessment, state.curriculum)
+    if not (assessment.questions or assessment.seminar_tasks or assessment.tools):
+        problems.append("оценочные средства не содержат ни вопросов, ни заданий, ни форм контроля")
+    return problems
+
+
+def _materials_problems(state: ProgramState, block: MaterialsBlock) -> list[str]:
+    """Every plan and every deck has to belong to a topic of the plan.
+
+    The materials also have to be there: a curriculum with no lecture plan and
+    no slides is a curriculum with nothing in it, and the criterion asks for
+    the slides of at least one module.
+    """
+    if state.curriculum is None:
+        return ["учебный план ещё не собран"]
+    topics = {topic.id for module in state.curriculum.modules for topic in module.topics}
+    problems = []
+    if not block.materials.lecture_plans:
+        problems.append("материалы не содержат ни одного плана лекции")
+    if not block.materials.slide_decks:
+        problems.append("материалы не содержат ни одного набора слайдов")
+    for plan in block.materials.lecture_plans:
+        if plan.topic_id not in topics:
+            problems.append(f"план лекции {plan.id} ссылается на несуществующую тему {plan.topic_id}")
+    for deck in block.materials.slide_decks:
+        if deck.topic_id not in topics:
+            problems.append(f"слайды {deck.id} ссылаются на несуществующую тему {deck.topic_id}")
+    return problems
 
 
 @dataclass(frozen=True)
@@ -343,7 +495,25 @@ _SAVERS: dict[type[BaseModel], _Save] = {
     SummaryBlock: _Save(
         apply=lambda state, block, sources: state.with_summary(block, sources),
         cited=_basis_ids,
+        problems=_basis_problems,
+        rejected="Паспорт программы не принят",
+        retry="Укажи в списке источников те документы, на которые опирается программа, и сохрани блок снова.",
         note="Паспорт программы сохранён. Черновик собирается, подтверждение попросит методист.",
+    ),
+    AssessmentBlock: _Save(
+        apply=lambda state, block, _sources: state.with_assessment(block),
+        problems=_assessment_problems,
+        rejected="Оценочные средства не приняты",
+        retry="Исправь привязки к темам и результатам обучения и добавь второе средство проверки "
+        "для каждого результата.",
+        note="Оценочные средства сохранены. Кратко подтверди, что блок готов, и остановись.",
+    ),
+    MaterialsBlock: _Save(
+        apply=lambda state, block, _sources: state.with_materials(block),
+        problems=_materials_problems,
+        rejected="Материалы не приняты",
+        retry="Укажи темы из учебного плана и сохрани блок снова.",
+        note="Материалы сохранены. Кратко подтверди, что блок готов, и остановись.",
     ),
 }
 
@@ -358,12 +528,37 @@ async def save_program_draft(ctx: ToolContext, arguments: BaseModel) -> SaveProg
         return SaveProgramDraftResult(ok=False, error="Неизвестный блок программы")
     if problems := rule.problems(state, arguments):
         return SaveProgramDraftResult(ok=False, error=rule.rejected, details=problems, note=rule.retry)
-    citations = _resolve_sources(ctx, rule.cited(arguments), standards=rule.standards(arguments))
+    citations = _resolve_sources(rule.cited(arguments), standards=rule.standards(arguments))
     if error := _citation_error(citations):
         return error
+    if isinstance(arguments, SourcesBlock):
+        # Where the catalogue holds the document, its record is what the draft
+        # cites; a document the catalogue does not hold keeps what the model
+        # wrote and is marked as unconfirmed, because nobody verified it.
+        arguments = arguments.model_copy(update={"sources": [_catalogued(source) for source in arguments.sources]})
     ctx.state = rule.apply(state, arguments, citations.sources)
     ctx.dirty = ctx.saved = True
-    return SaveProgramDraftResult(status=ctx.state.status, stage=ctx.state.current_stage, note=rule.note)
+    return SaveProgramDraftResult(
+        status=ctx.state.status,
+        stage=ctx.state.current_stage,
+        note=_note(rule, citations),
+    )
+
+
+def _note(rule: _Save, citations: _Citations) -> str:
+    """What the stage is told after its block was accepted.
+
+    A source the catalog does not hold is not refused, but the model has to
+    hear about it: the programme will mark the source as unconfirmed, and the
+    methodist has to know that nobody verified the document.
+    """
+    if not citations.unknown:
+        return rule.note
+    listed = ", ".join(citations.unknown)
+    return (
+        f"{rule.note} Каталог не подтвердил: {listed} — в программе они помечены как "
+        "неподтверждённые, скажи об этом методисту."
+    )
 
 
 async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> BeginProgramResult:
@@ -441,6 +636,38 @@ async def approve_program_draft(
     return ApproveProgramDraftResult(note="Черновик утверждён. Скажи методисту, что программа принята.")
 
 
+async def revise_program(ctx: ToolContext, arguments: ReviseProgramArguments) -> ReviseProgramResult:
+    """Ask for one part of the programme to be redone.
+
+    The change is not a new run: the blocks that are already committed stay,
+    the named stage is run again with the methodist's notes, and the rest of
+    the programme is checked against the block that changed.
+    """
+    state = ctx.state
+    if state is None or state.failed:
+        return ReviseProgramResult(ok=False, error="В этом чате нет программы")
+    if state.status is ProgramStatus.AWAITING_ANSWERS:
+        return ReviseProgramResult(
+            ok=False,
+            error="Программа ждёт ответов методиста",
+            note="Сначала ответь на вопросы программы, потом проси переделку.",
+        )
+    ctx.state = state.request_revision(arguments.stage, arguments.notes)
+    ctx.dirty = True
+    log.info(
+        "program_revision_requested",
+        chat_session_id=str(ctx.session_id),
+        stage=arguments.stage.value,
+    )
+    return ReviseProgramResult(
+        stage=arguments.stage,
+        note=(
+            f"Блок «{arguments.stage.value}» будет переделан: {arguments.notes}. "
+            "Скажи методисту, что правка взята в работу, остальное остаётся как было."
+        ),
+    )
+
+
 #: A handler takes the context and its own arguments model, and answers a result.
 Handler = Callable[[ToolContext, Any], Awaitable[ToolResult]]
 
@@ -466,11 +693,14 @@ AGENT_TOOL_REGISTRY: dict[str, AgentTool] = {
     APPROVE_PROGRAM_DRAFT_SPEC.name: AgentTool(
         APPROVE_PROGRAM_DRAFT_SPEC, ApproveProgramDraftArguments, approve_program_draft
     ),
+    REVISE_PROGRAM_SPEC.name: AgentTool(REVISE_PROGRAM_SPEC, ReviseProgramArguments, revise_program),
     SAVE_PROGRAM_DRAFT: AgentTool(STAGE_SPECS[Stage.COMPETENCES], None, save_program_draft),
 }
 
 #: Tools offered while the methodist is still describing the programme.
-INTAKE_TOOLS: list[Tool] = [Tool(function=spec) for spec in (BEGIN_PROGRAM_SPEC, APPROVE_PROGRAM_DRAFT_SPEC)]
+INTAKE_TOOLS: list[Tool] = [
+    Tool(function=spec) for spec in (BEGIN_PROGRAM_SPEC, APPROVE_PROGRAM_DRAFT_SPEC, REVISE_PROGRAM_SPEC)
+]
 
 
 def stage_tools(stage: Stage) -> list[Tool]:

@@ -1133,3 +1133,51 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   `POST /chats` and then `POST /chats/{id}` before navigating, so a mock that serves only
   the history list answers 404 and the redirect never happens. Any screen whose main action
   is a write needs its mock to own state, not just return fixtures. Found 2026-10-22.
+
+- A corpus description puts the heading of the next document on the line **before** its `ID:`
+  line, so an entry's extract ends where that heading starts. Reading the body up to the next
+  `ID:` line therefore mixes the next document's title into this document's summary, and a
+  search for "ФГОС среднего общего образования" then ranks the _основного_ general education
+  standard first, because its summary contains the next document's heading.
+
+- A run that is `approved` is terminal, so the approval of the skeleton must not set that
+  status: the content is written after the approval, and `program_stage` refuses a terminal
+  run before it looks at the stage. The approval therefore moves the run back to `generating`,
+  and `approved` means the programme is complete — the content's last stage. A whole cycle
+  test that drives the approval into the content stages is what proves it: without it the
+  content half of the programme never runs and nothing fails.
+
+- The Wikipedia API refuses a request without a `User-Agent`, and it refuses a generic one as
+  well: it wants a descriptive agent with a contact in it, and it says so in the body of the 403. A request that fails with "Please set a user-agent" is answered by sending one, not by
+  giving up on the search.
+
+- The repository-level `.dockerignore` decides what the backend image holds, and it excluded
+  `edu_materials/`: the image built fine until a `COPY` of the corpus failed with a path
+  that looked like it did not exist. The corpus has to be copied out of the exclusion list
+  when the backend starts to read it.
+- A block the offline mock fabricates has to be pushed through the same schema and the same
+  checks as a real one. The mock's assessment went unchecked for a long time, so a missing
+  `tool_id` in a fabricated question survived: the stage refused the block, the run died
+  after three attempts, and nothing in the suite failed because the mock's content stages
+  were never reached.
+
+- **HNSW refuses a `vector` column above 2000 dimensions.** `vector(2048)` with
+  `vector_cosine_ops` fails during `create_all`/migration with `column cannot have more than
+2000 dimensions for hnsw index`. Use `HALFVEC(2048)` and `halfvec_cosine_ops`; pgvector
+  supports halfvec to 4000 dimensions. Found 2026-10-22.
+- **`HalfVector` is a data helper, not the SQLAlchemy column type.** In pgvector-python
+  0.3.6, `pgvector.sqlalchemy.HalfVector` expects a vector value and raises `expected ndim
+to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALFVEC(2048)`.
+  Found 2026-10-22.
+- **`create_all` does not install the pgvector extension.** The backend test database is
+  built from `Base.metadata`, so the fixture must run `CREATE EXTENSION IF NOT EXISTS vector`
+  before `create_all`; the migration does the same before creating the table. Without it the
+  DDL fails before any test can report the real problem. Found 2026-10-22.
+- **Importing `edu_rag` now imports SQLAlchemy's async extension.** Exporting
+  `PgVectorStore` from the package makes the `greenlet` dependency load-bearing at import
+  time, not only when the store is used; declare it in `rag/pyproject.toml` or the rag test
+  suite fails during collection. Found 2026-10-22.
+- **A cached retriever and a monkeypatched retriever cannot both be cleared.** `get_retriever`
+  is `lru_cache`d, but tests that replace it with a plain fake leave no `cache_clear`
+  attribute. `clear_retriever_cache` has to use `getattr(get_retriever, "cache_clear", None)`
+  rather than calling the attribute directly. Found 2026-10-22.

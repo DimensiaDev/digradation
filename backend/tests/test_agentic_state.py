@@ -19,9 +19,12 @@ from pydantic import ValidationError
 from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.state import (
+    SKELETON_ORDER,
     STAGE_ORDER,
+    AssessmentBlock,
     ClarificationAnswer,
     ProgramState,
+    SourcesBlock,
     apply_answers,
     new_state,
 )
@@ -55,7 +58,7 @@ def make_state(blocks: Blocks, **overrides: Any) -> ProgramState:
         "run_id": RUN_ID,
         "status": ProgramStatus.PENDING_APPROVAL,
         "current_stage": Stage.SUMMARY,
-        "requested_hours": 66,
+        "requested_hours": 72,
         "finalized": True,
         **blocks,
         **overrides,
@@ -106,22 +109,152 @@ def test_completed_moves_the_run_to_the_next_stage() -> None:
     assert completed.stage_status(Stage.COMPETENCES) is StageStatus.COMPLETED
 
 
-def test_the_last_stage_leaves_the_run_awaiting_approval() -> None:
+def test_the_skeleton_leaves_the_run_awaiting_approval() -> None:
+    """The skeleton is what the methodist approves, so the run waits there."""
+    state = new_state(SESSION_ID, requested_hours=None, requirements=None)
+
+    for stage in SKELETON_ORDER:
+        state = state.started(stage).completed(stage)
+
+    assert state.status is ProgramStatus.PENDING_APPROVAL
+    assert state.current_stage is Stage.ASSESSMENT
+    assert all(state.stage_status(stage) is StageStatus.COMPLETED for stage in SKELETON_ORDER)
+
+
+def test_the_content_leaves_the_run_approved() -> None:
+    """Once the content is written the programme is complete."""
     state = new_state(SESSION_ID, requested_hours=None, requirements=None)
 
     for stage in STAGE_ORDER:
         state = state.started(stage).completed(stage)
 
-    assert state.status is ProgramStatus.PENDING_APPROVAL
-    assert state.current_stage is Stage.SUMMARY
+    assert state.status is ProgramStatus.APPROVED
+    assert state.terminal
     assert all(state.stage_status(stage) is StageStatus.COMPLETED for stage in STAGE_ORDER)
 
 
-def test_a_stage_outside_the_order_has_no_successor() -> None:
-    """Assessment and materials wait for #5, so they are not in the pipeline yet."""
+def test_the_stages_run_in_order() -> None:
+    """Every stage hands over to the next one, the skeleton first."""
     state = new_state(SESSION_ID, requested_hours=None, requirements=None)
 
-    assert state._successor(Stage.ASSESSMENT) is None
+    for stage in STAGE_ORDER:
+        state = state.started(stage)
+        assert state.current_stage is stage
+        state = state.completed(stage)
+
+    assert state.current_stage is Stage.MATERIALS
+
+
+def test_a_stage_outside_the_order_has_no_successor() -> None:
+    """A stage the pipeline does not run has no successor."""
+    state = new_state(SESSION_ID, requested_hours=None, requirements=None)
+
+    assert state._successor(Stage.ASSESSMENT) is Stage.MATERIALS
+    assert state._successor(Stage.MATERIALS) is None
+
+
+# ---------------------------------------------------------------------------
+# the report the methodist reads
+# ---------------------------------------------------------------------------
+
+
+def test_the_report_covers_the_hours_the_coverage_the_sources_and_the_sections(blocks: Blocks) -> None:
+    """One place where the checks of the programme are reported."""
+    state = make_state(blocks)
+
+    report = state.report()
+
+    assert [check.name for check in report.checks] == ["часы", "покрытие", "источники", "разделы"]
+    hours = report.checks[0]
+    assert hours.ok is True
+    assert hours.details["всего"] == 72
+    assert hours.details["темы"] == 66
+    assert hours.details["итоговая аттестация"] == 6
+    assert report.checks[1].details["результатов обучения"] == 8
+    assert report.checks[1].details["раскрыто в темах"] == 8
+
+
+def test_the_report_names_what_is_missing(blocks: Blocks) -> None:
+    blocks["curriculum"]["modules"][0]["hours"] = 99
+
+    report = make_state(blocks).report()
+
+    assert report.ok is False
+    assert "модуль m-1 заявлен на 99 ч" in " ".join(report.checks[0].problems)
+
+
+def test_the_report_names_the_sources_nobody_confirmed(blocks: Blocks) -> None:
+    """A source the catalog does not hold is a finding, not a silent gap."""
+    state = make_state(blocks).with_sources(SourcesBlock(sources=blocks["sources"]))
+
+    report = state.report()
+
+    sources = report.checks[2]
+    assert sources.name == "источники"
+    assert sources.details["всего источников"] == 6
+    assert sources.details["не подтверждено"] == 4
+    assert sources.details["подтверждено"] == 2
+    assert "act-273-fz" in " ".join(sources.problems)
+    assert "profstd-06.001" not in " ".join(sources.problems)
+
+
+def test_the_report_calls_an_empty_assessment_an_empty_section(blocks: Blocks) -> None:
+    """A section that exists but holds nothing is not filled."""
+    state = make_state(blocks)
+    state = state.with_assessment(
+        AssessmentBlock(
+            assessment={
+                "final": {"form": "экзамен", "hours": 0, "outcome_ids": ["ro-k-01"]},
+            }
+        )
+    )
+
+    report = state.report()
+
+    sections = report.checks[3]
+    assert sections.details["оценочные средства"] is False
+    assert "оценочные средства" in " ".join(sections.problems)
+
+
+def test_the_report_counts_the_means_of_checking(blocks: Blocks) -> None:
+    """The coverage check counts how many means each outcome has."""
+    state = make_state(blocks)
+    state = state.with_assessment(
+        AssessmentBlock(
+            assessment={
+                "questions": [
+                    {
+                        "id": "q-01-01",
+                        "tool_id": "at-01",
+                        "outcome_ids": ["ro-k-01"],
+                        "text": "Вопрос",
+                        "answers": ["Ответ"],
+                    }
+                ],
+                "seminar_tasks": [],
+                "tools": [],
+                "final": {"form": "экзамен", "hours": 0, "outcome_ids": ["ro-k-01"]},
+            }
+        )
+    )
+
+    report = state.report()
+
+    coverage = report.checks[1]
+    assert coverage.name == "покрытие"
+    assert coverage.details["проверяется двумя средствами"] == 0
+    assert "нужно хотя бы два" in " ".join(coverage.problems)
+
+
+def test_the_report_says_which_sections_are_empty(blocks: Blocks) -> None:
+    state = make_state(blocks)
+
+    report = state.report()
+
+    sections = report.checks[3]
+    assert sections.details["оценочные средства"] is False
+    assert sections.details["материалы"] is False
+    assert sections.ok is False
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +361,8 @@ def test_a_complete_run_produces_the_draft(blocks: Blocks) -> None:
 
     assert draft.title == blocks["title"]
     assert len(draft.competencies) == 2
-    assert draft.curriculum.total_hours == 66
+    assert draft.curriculum.topic_hours == 66
+    assert draft.curriculum.total_hours == 72
     assert len(draft.sources) == 6
 
 
@@ -274,11 +408,59 @@ def test_a_topic_may_not_cover_an_undeclared_outcome(blocks: Blocks) -> None:
     assert "ro-k-99" in str(caught.value)
 
 
+def test_an_outcome_nobody_teaches_is_refused(blocks: Blocks) -> None:
+    """A declared result that no topic reveals is not a result of the programme."""
+    for module in blocks["curriculum"]["modules"]:
+        for topic in module["topics"]:
+            topic["outcome_ids"] = [item for item in topic["outcome_ids"] if item != "ro-s-02"]
+
+    with pytest.raises(IncompleteDraft) as caught:
+        make_state(blocks).to_draft()
+
+    assert "результат обучения ro-s-02 не раскрыт ни в одной теме" in str(caught.value)
+
+
 def test_the_curriculum_must_match_the_requested_volume(blocks: Blocks) -> None:
     with pytest.raises(IncompleteDraft) as caught:
-        make_state(blocks, requested_hours=72).to_draft()
+        make_state(blocks, requested_hours=80).to_draft()
 
-    assert "не совпадает с заявленным объёмом программы" in str(caught.value)
+    assert "не совпадает с заявленным объёмом" in str(caught.value)
+
+
+def test_a_module_must_add_up_to_its_topics(blocks: Blocks) -> None:
+    blocks["curriculum"]["modules"][0]["hours"] = 99
+
+    with pytest.raises(IncompleteDraft) as caught:
+        make_state(blocks).to_draft()
+
+    assert "модуль m-1 заявлен на 99 ч" in str(caught.value)
+
+
+def test_the_final_attestation_is_part_of_the_volume(blocks: Blocks) -> None:
+    blocks["curriculum"]["attestation_hours"] = 0
+
+    with pytest.raises(IncompleteDraft) as caught:
+        make_state(blocks).to_draft()
+
+    assert "не совпадает с заявленным объёмом" in str(caught.value)
+
+
+def test_a_daily_load_over_the_stated_limit_is_refused(blocks: Blocks) -> None:
+    blocks["curriculum"]["schedule"] = {"days": 18, "hours_per_day": 6, "max_hours_per_day": 4}
+
+    with pytest.raises(IncompleteDraft) as caught:
+        make_state(blocks).to_draft()
+
+    assert "превышает заявленный предел 4 ч в день" in str(caught.value)
+
+
+def test_more_remote_hours_than_the_volume_is_refused(blocks: Blocks) -> None:
+    blocks["curriculum"]["distance_hours"] = 100
+
+    with pytest.raises(IncompleteDraft) as caught:
+        make_state(blocks).to_draft()
+
+    assert "дистанционных часов 100 больше" in str(caught.value)
 
 
 def test_a_schedule_too_short_for_the_volume_is_refused(blocks: Blocks) -> None:
@@ -314,9 +496,19 @@ def test_awaiting_approval_needs_a_rendered_draft(blocks: Blocks) -> None:
 
     approved = state.approved()
 
-    assert approved.status is ProgramStatus.APPROVED
-    assert approved.terminal
+    # The approval releases the content: the run keeps working rather than
+    # becoming a finished programme.
+    assert approved.status is ProgramStatus.GENERATING
+    assert not approved.terminal
     assert not approved.awaiting_approval
+
+
+def test_a_finished_programme_is_approved(blocks: Blocks) -> None:
+    """The programme is complete only when every part of the content is."""
+    state = make_state(blocks).completed(Stage.ASSESSMENT).completed(Stage.MATERIALS)
+
+    assert state.status is ProgramStatus.APPROVED
+    assert state.terminal
 
 
 def test_an_unrendered_draft_is_not_awaiting_approval(blocks: Blocks) -> None:

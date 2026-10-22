@@ -100,6 +100,16 @@ async def load(session_id: uuid.UUID) -> ProgramState | None:
     return state
 
 
+async def load_from(db: AsyncSession, session_id: uuid.UUID) -> ProgramState | None:
+    """Read the state from the row, through the caller's session.
+
+    A route reads inside its own transaction, and a session of its own would
+    not see it. The row is the canonical copy, so this is what an export uses.
+    """
+    raw = await db.scalar(select(ChatSession.program_state).where(ChatSession.session_id == session_id))
+    return parse(raw)
+
+
 async def load_mirror(session_id: uuid.UUID) -> ProgramState | None:
     """Read the state from the Redis mirror, or ``None`` when it is not there.
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -142,6 +143,57 @@ class ProgramBlocksSchema(BaseModel):
     summary: ProgramSummary | None = Field(default=None, description="Паспорт программы, если он уже сохранён")
 
 
+class ProgramCheckSchema(BaseModel):
+    """One check of the programme and what it found."""
+
+    name: str = Field(description="Что проверялось")
+    ok: bool = Field(description="Проверка пройдена")
+    problems: list[str] = Field(default_factory=list, description="Что не сошлось")
+    details: dict[str, Any] = Field(default_factory=dict, description="Числа проверки")
+
+
+class ProgramExportsSchema(BaseModel):
+    """The files the programme was exported to.
+
+    They are attachments of the chat, so the client fetches them with the
+    attachment route it already uses for a file the methodist uploaded.
+    """
+
+    document_attachment_id: int | None = Field(default=None, description="Вложение с документом программы")
+    slides_attachment_id: int | None = Field(default=None, description="Вложение со слайдами программы")
+
+
+class ProgramReportSchema(BaseModel):
+    """The checks the programme passed, for the methodist to read."""
+
+    ok: bool = Field(default=True, description="Все проверки пройдены")
+    checks: list[ProgramCheckSchema] = Field(default_factory=list, description="Проверки по порядку")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "ok": True,
+                "checks": [
+                    {
+                        "name": "часы",
+                        "ok": True,
+                        "problems": [],
+                        "details": {
+                            "заявлено": 72,
+                            "всего": 72,
+                            "темы": 66,
+                            "итоговая аттестация": 6,
+                            "аудиторных": 32,
+                            "самостоятельной работы": 34,
+                        },
+                    },
+                    {"name": "покрытие", "ok": True, "problems": [], "details": {}},
+                ],
+            }
+        }
+    )
+
+
 class ProgramStateSchema(BaseModel):
     """Where the programme of a chat stands."""
 
@@ -168,6 +220,8 @@ class ProgramStateSchema(BaseModel):
         default_factory=list, description="Вопросы, на которые программа ждёт ответов"
     )
     draft: ProgramBlocksSchema | None = Field(default=None, description="Документ в том виде, в каком он уже есть")
+    report: ProgramReportSchema | None = Field(default=None, description="Отчёт автопроверки программы")
+    exports: ProgramExportsSchema | None = Field(default=None, description="Выгрузки программы: документ и слайды")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -183,6 +237,7 @@ class ProgramStateSchema(BaseModel):
                     "summary": "pending",
                 },
                 "running": True,
+                "busy": True,
                 "error": None,
                 "updated_at": "2026-10-21T12:00:00+00:00",
                 "version": 7,
@@ -194,6 +249,18 @@ class ProgramStateSchema(BaseModel):
                     "curriculum": None,
                     "sources": [],
                     "summary": None,
+                },
+                "exports": {"document_attachment_id": 12, "slides_attachment_id": 13},
+                "report": {
+                    "ok": False,
+                    "checks": [
+                        {
+                            "name": "часы",
+                            "ok": False,
+                            "problems": ["учебный план ещё не собран"],
+                            "details": {"заявлено": 72, "всего": 0},
+                        }
+                    ],
                 },
             }
         }

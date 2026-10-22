@@ -15,8 +15,8 @@ from typing import Any
 
 import pytest
 
-from app.agentic import tools
-from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
+from app.agentic import sources, tools, websearch
+from app.agentic.models import ProgramStatus, Source, SourceKind, Stage, StageStatus
 from app.agentic.state import ClarificationQuestion, ProgramState, new_state
 from app.agentic.tools import (
     ApproveProgramDraftResult,
@@ -77,7 +77,15 @@ def hours_block(**overrides: Any) -> dict:
                 {
                     "id": "m-01",
                     "title": "Модуль",
-                    "topics": [{"id": "t-01.1", "title": "Тема", "hours": {"lecture": 2}}],
+                    "hours": 2,
+                    "topics": [
+                        {
+                            "id": "t-01.1",
+                            "title": "Тема",
+                            "hours": {"lecture": 2},
+                            "outcome_ids": ["ro-k-01"],
+                        }
+                    ],
                 }
             ],
             "schedule": {"days": 1, "hours_per_day": 2},
@@ -89,6 +97,81 @@ def hours_block(**overrides: Any) -> dict:
 
 def sources_block(*ids: str) -> dict:
     return {"sources": [{"id": source_id, "kind": "professional_standard", "title": "Источник"} for source_id in ids]}
+
+
+def assessment_block(**overrides: Any) -> dict:
+    """An assessment that checks the outcome of the mock programme twice."""
+    outcomes = ["ro-k-01"]
+    block: dict[str, Any] = {
+        "assessment": {
+            "tools": [
+                {
+                    "id": "at-01",
+                    "kind": "test",
+                    "title": "Тест",
+                    "topic_ids": ["t-01.1"],
+                    "outcome_ids": outcomes,
+                    "criteria": ["Не менее 70% верных ответов"],
+                }
+            ],
+            "final": {
+                "form": "защита проекта",
+                "hours": 0,
+                "outcome_ids": outcomes,
+                "criteria": ["Проект защищён"],
+            },
+            "questions": [
+                {
+                    "id": "q-01-01",
+                    "tool_id": "at-01",
+                    "outcome_ids": ["ro-k-01"],
+                    "text": "Что такое понятие?",
+                    "options": ["Определение", "Пример"],
+                    "answers": ["Определение"],
+                }
+            ],
+            "seminar_tasks": [
+                {
+                    "id": "st-01",
+                    "tool_id": "at-01",
+                    "topic_id": "t-01.1",
+                    "outcome_ids": ["ro-k-01"],
+                    "title": "Разбор задачи",
+                    "statement": "Решите задачу.",
+                    "criteria": ["Задача решена"],
+                }
+            ],
+        }
+    }
+    block.update(overrides)
+    return block
+
+
+def materials_block(**overrides: Any) -> dict:
+    """A lecture plan and a slide deck for the only topic of the mock programme."""
+    block: dict[str, Any] = {
+        "materials": {
+            "lecture_plans": [
+                {
+                    "id": "lp-01",
+                    "topic_id": "t-01.1",
+                    "title": "Основное содержание программы",
+                    "plan": ["Понятие и область применения", "Разбор примера"],
+                    "summary": "Лекция о том, что составляет основу программы.",
+                }
+            ],
+            "slide_decks": [
+                {
+                    "id": "sd-01",
+                    "topic_id": "t-01.1",
+                    "title": "Основное содержание программы",
+                    "slides": [{"title": "О чём лекция", "bullets": ["Область применения"]}],
+                }
+            ],
+        }
+    }
+    block.update(overrides)
+    return block
 
 
 def summary_block(*basis: str) -> dict:
@@ -118,7 +201,7 @@ def catalog(monkeypatch: pytest.MonkeyPatch, kind: SourceKind = SourceKind.PROFE
             return None
         return Source(id=source_id, kind=kind, title=STANDARD_TITLE)
 
-    monkeypatch.setattr(tools, "get_source", get_source)
+    monkeypatch.setattr(sources, "get_source", get_source)
 
 
 # --------------------------------------------------------------------------------------
@@ -126,8 +209,12 @@ def catalog(monkeypatch: pytest.MonkeyPatch, kind: SourceKind = SourceKind.PROFE
 # --------------------------------------------------------------------------------------
 
 
-def test_the_intake_offers_starting_and_approving() -> None:
-    assert [tool.function.name for tool in tools.INTAKE_TOOLS] == ["begin_program", "approve_program_draft"]
+def test_the_intake_offers_starting_approving_and_revising() -> None:
+    assert [tool.function.name for tool in tools.INTAKE_TOOLS] == [
+        "begin_program",
+        "approve_program_draft",
+        "revise_program",
+    ]
 
 
 def test_a_citing_stage_offers_the_search_and_its_own_block() -> None:
@@ -158,26 +245,63 @@ def test_every_stage_has_a_block_and_a_specification() -> None:
 # --------------------------------------------------------------------------------------
 
 
-async def test_search_reports_an_empty_catalog(context: ToolContext) -> None:
-    """The catalog is empty until RAG (#11) lands, and the model is told so."""
-    result = await execute_tool(context, call("search_sources", {"query": "образование"}))
+async def test_search_reports_what_the_catalog_does_not_hold(context: ToolContext) -> None:
+    """A query the corpus does not cover is answered with nothing, and the model is told so."""
+    result = await execute_tool(context, call("search_sources", {"query": "квантовая хромодинамика"}))
 
     assert result.ok is True
+    assert result.found is False
     assert "ничего не найдено" in (result.note or "")
-    assert context.known_source_ids == set()
 
 
-async def test_search_remembers_the_documents_it_showed(context: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_search_returns_the_documents_it_found(context: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
     async def search(query: str, *, kinds: Any = None, limit: int = 5):
         source = Source(id=STANDARD_ID, kind=SourceKind.PROFESSIONAL_STANDARD, title="П")
-        return [tools.SourceFragment(fragment_id="frag-01", source=source, section="1", text="Текст")]
+        return [sources.SourceFragment(fragment_id="frag-01", source=source, section="1", text="Текст")]
 
-    monkeypatch.setattr(tools, "search", search)
+    monkeypatch.setattr(sources, "search", search)
 
     result = await execute_tool(context, call("search_sources", {"query": "аналитик"}))
 
     assert result.ok is True
-    assert context.known_source_ids == {STANDARD_ID}
+    assert result.found is True
+    assert [fragment.source.id for fragment in result.fragments] == [STANDARD_ID]
+
+
+async def test_the_search_reaches_the_corpus_and_the_web(context: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The agent finds the documents of the corpus and the documents of the web."""
+
+    async def corpus(query: str, *, kinds: Any = None, limit: int = 5):
+        source = Source(id=STANDARD_ID, kind=SourceKind.PROFESSIONAL_STANDARD, title="П")
+        return [sources.SourceFragment(fragment_id="frag-01", source=source, section="1", text="Текст")]
+
+    async def web(query: str, *, limit: int = 5):
+        return [websearch.WebDocument(title="ФГОС НОО", url="https://ru.wikipedia.org/wiki/ФГОС", snippet="Текст")]
+
+    monkeypatch.setattr(sources, "search", corpus)
+    monkeypatch.setattr(websearch, "search_web", web)
+
+    result = await execute_tool(context, call("search_sources", {"query": "ФГОС НОО"}))
+
+    assert result.ok is True
+    assert result.fragments[0].source.id == STANDARD_ID
+    assert result.fragments[-1].source.url == "https://ru.wikipedia.org/wiki/ФГОС"
+    assert result.fragments[-1].source.confirmed is False
+
+
+async def test_an_unavailable_index_does_not_fail_the_stage(
+    context: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def search(query: str, *, kinds: Any = None, limit: int = 5):
+        raise tools.RagUnavailable("hub is down")
+
+    monkeypatch.setattr(sources, "search", search)
+
+    result = await execute_tool(context, call("search_sources", {"query": "аналитик"}))
+
+    assert result.ok is True
+    assert result.found is False
+    assert "временно недоступен" in (result.note or "")
 
 
 # --------------------------------------------------------------------------------------
@@ -323,6 +447,7 @@ async def test_a_zero_length_schedule_breaks_the_schema(context: ToolContext) ->
 
 
 async def test_a_schedule_with_weeks_only_is_accepted(context: ToolContext) -> None:
+    await execute_tool(context, save(competences_block()))
     context.state = at_stage(context.state, Stage.HOURS)
     block = hours_block()
     block["curriculum"]["schedule"] = {"weeks": 4}
@@ -334,8 +459,8 @@ async def test_a_schedule_with_weeks_only_is_accepted(context: ToolContext) -> N
 
 async def test_the_arguments_follow_the_stage_the_run_is_on(context: ToolContext) -> None:
     """The same tool takes the curriculum once the run reached the hours stage."""
+    await execute_tool(context, save(competences_block()))
     context.state = at_stage(context.state, Stage.HOURS)
-
     wrong = await execute_tool(context, save(competences_block()))
     right = await execute_tool(context, save(hours_block()))
 
@@ -372,10 +497,14 @@ async def test_the_save_handler_refuses_a_block_it_does_not_own(context: ToolCon
     assert "Неизвестный блок" in (result.error or "")
 
 
-async def test_saving_on_a_stage_without_a_block_is_refused(context: ToolContext) -> None:
+async def test_saving_on_a_stage_without_a_block_is_refused(
+    context: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stage with no block of its own cannot be saved into."""
     state = context.state
     assert state is not None
     context.state = state.model_copy(update={"current_stage": Stage.ASSESSMENT})
+    monkeypatch.setitem(tools.STAGE_BLOCK, Stage.ASSESSMENT, None)
 
     result = await execute_tool(context, save(competences_block()))
 
@@ -404,30 +533,115 @@ async def test_a_handler_that_raises_becomes_a_failed_result(
 
 
 # --------------------------------------------------------------------------------------
-# citations
+# the assessment stage
 # --------------------------------------------------------------------------------------
 
 
-async def test_a_competence_cannot_cite_a_document_the_run_has_not_seen(
-    context: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    catalog(monkeypatch)
-    block = competences_block()
-    block["competencies"][0]["standard_source_id"] = STANDARD_ID
+async def with_a_plan(context: ToolContext) -> ToolContext:
+    """A run that committed its competences and its curriculum."""
+    await execute_tool(context, save(competences_block()))
+    context.state = at_stage(context.state, Stage.HOURS)
+    await execute_tool(context, save(hours_block()))
+    context.state = at_stage(context.state, Stage.ASSESSMENT)
+    return context
+
+
+async def test_the_assessment_stage_saves_the_means_of_checking(context: ToolContext) -> None:
+    await with_a_plan(context)
+
+    result = await execute_tool(context, save(assessment_block()))
+
+    assert result.ok is True
+    assert context.state is not None
+    assert context.state.assessment is not None
+    assert context.state.assessment.final.form == "защита проекта"
+
+
+async def test_an_outcome_checked_once_is_refused(context: ToolContext) -> None:
+    """Every outcome of the programme is checked by at least two means."""
+    await with_a_plan(context)
+    block = assessment_block()
+    block["assessment"]["questions"] = []
+    block["assessment"]["seminar_tasks"] = []
 
     result = await execute_tool(context, save(block))
 
     assert result.ok is False
-    assert "Не подтверждённые поиском источники" in (result.error or "")
+    assert "нужно хотя бы два" in " ".join(result.details or [])
+
+
+async def test_an_attestation_that_does_not_match_the_plan_is_refused(context: ToolContext) -> None:
+    """The plan sets the hours aside for the attestation; they have to agree."""
+    await with_a_plan(context)
+    block = assessment_block()
+    block["assessment"]["final"]["hours"] = 4
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert "итоговая аттестация занимает 4 ч" in " ".join(result.details or [])
+
+
+async def test_a_question_pointing_at_an_unknown_form_is_refused(context: ToolContext) -> None:
+    await with_a_plan(context)
+    block = assessment_block()
+    block["assessment"]["questions"][0]["tool_id"] = "at-99"
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert "at-99" in " ".join(result.details or [])
+
+
+async def test_the_materials_stage_saves_the_lecture_plans(context: ToolContext) -> None:
+    await with_a_plan(context)
+    context.state = at_stage(context.state, Stage.MATERIALS)
+
+    result = await execute_tool(context, save(materials_block()))
+
+    assert result.ok is True
+    assert context.state is not None
+    assert context.state.materials is not None
+    assert context.state.materials.lecture_plans[0].topic_id == "t-01.1"
+
+
+async def test_a_plan_pointing_at_an_unknown_topic_is_refused(context: ToolContext) -> None:
+    await with_a_plan(context)
+    context.state = at_stage(context.state, Stage.MATERIALS)
+    block = materials_block()
+    block["materials"]["lecture_plans"][0]["topic_id"] = "t-99.9"
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert "t-99.9" in " ".join(result.details or [])
+
+
+# --------------------------------------------------------------------------------------
+# citations
+# --------------------------------------------------------------------------------------
+
+
+async def test_a_competence_cannot_cite_a_standard_the_catalog_does_not_hold(
+    context: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A competence has to stand on a professional standard that exists."""
+    catalog(monkeypatch)
+    block = competences_block()
+    block["competencies"][0]["standard_source_id"] = "src-99"
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert "которых нет в каталоге" in (result.error or "")
     assert context.state is not None
     assert context.state.competencies == []
 
 
-async def test_a_seen_standard_is_kept_with_the_catalog_record(
+async def test_a_catalog_standard_is_kept_with_the_catalog_record(
     context: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     catalog(monkeypatch)
-    context.known_source_ids.add(STANDARD_ID)
     block = competences_block()
     block["competencies"][0]["standard_source_id"] = STANDARD_ID
 
@@ -437,13 +651,26 @@ async def test_a_seen_standard_is_kept_with_the_catalog_record(
     assert context.state is not None
     assert context.state.competencies[0].standard_source_id == STANDARD_ID
     assert [source.title for source in context.state.sources] == [STANDARD_TITLE]
+    assert [source.confirmed for source in context.state.sources] == [True]
+
+
+async def test_citation_forms_are_canonicalised_and_deduplicated(
+    context: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    catalog(monkeypatch)
+    context.state = at_stage(context.state, Stage.SOURCES)
+
+    result = await execute_tool(context, save(sources_block(STANDARD_ID, "src-1")))
+
+    assert result.ok is True
+    assert context.state is not None
+    assert [source.id for source in context.state.sources] == [STANDARD_ID]
 
 
 async def test_a_standard_must_be_a_professional_standard(
     context: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     catalog(monkeypatch, kind=SourceKind.NORMATIVE_ACT)
-    context.known_source_ids.add(STANDARD_ID)
     block = competences_block()
     block["competencies"][0]["standard_source_id"] = STANDARD_ID
 
@@ -453,29 +680,30 @@ async def test_a_standard_must_be_a_professional_standard(
     assert "Не профессиональные стандарты" in (result.error or "")
 
 
-async def test_an_unknown_source_is_refused(context: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_an_unknown_source_is_kept_and_marked(context: ToolContext, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nobody verified the document, so the programme says so instead of dropping it."""
     catalog(monkeypatch)
     context.state = at_stage(context.state, Stage.SOURCES)
 
     result = await execute_tool(context, save(sources_block("src-99")))
 
-    assert result.ok is False
-    assert "Неизвестные источники: src-99" in (result.error or "")
-    assert "оставь ссылки пустыми" in " ".join(result.details or [])
+    assert result.ok is True
+    assert "неподтверждённые" in (result.note or "")
+    assert context.state is not None
+    assert [source.id for source in context.state.sources] == ["src-99"]
+    assert [source.confirmed for source in context.state.sources] == [False]
 
 
 async def test_the_sources_stage_adds_to_what_earlier_stages_cited(
     context: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     catalog(monkeypatch)
-    context.known_source_ids.add(STANDARD_ID)
     standard = competences_block()
     standard["competencies"][0]["standard_source_id"] = STANDARD_ID
     await execute_tool(context, save(standard))
     context.state = at_stage(context.state, Stage.SOURCES)
-    context.known_source_ids.add("src-07")
     monkeypatch.setattr(
-        tools, "get_source", lambda source_id: Source(id=source_id, kind=SourceKind.LITERATURE, title=source_id)
+        sources, "get_source", lambda source_id: Source(id=source_id, kind=SourceKind.LITERATURE, title=source_id)
     )
 
     result = await execute_tool(context, save(sources_block("src-07")))
@@ -494,14 +722,16 @@ async def test_the_summary_may_only_cite_documents_the_run_already_has(
     result = await execute_tool(context, save(summary_block("src-04")))
 
     assert result.ok is False
-    assert "Неизвестные источники: src-04" in (result.error or "")
+    assert "не входит в список источников" in " ".join(result.details or [])
 
 
 async def test_the_summary_citation_joins_the_source_list(
     context: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The passport rests on the documents the programme already lists."""
     catalog(monkeypatch)
-    context.known_source_ids.add(STANDARD_ID)
+    context.state = at_stage(context.state, Stage.SOURCES)
+    await execute_tool(context, save(sources_block(STANDARD_ID)))
     context.state = at_stage(context.state, Stage.SUMMARY)
 
     result = await execute_tool(context, save(summary_block(STANDARD_ID)))
@@ -535,7 +765,8 @@ async def test_no_programme_means_nothing_to_approve() -> None:
 
 
 async def test_an_approved_run_is_not_approved_twice(context: ToolContext) -> None:
-    context.state = context.state.mark_finalized().approved()
+    """A finished programme is not confirmed again."""
+    context.state = context.state.mark_finalized().completed(Stage.MATERIALS)
 
     result = await execute_tool(context, call("approve_program_draft", {}))
 
@@ -544,6 +775,7 @@ async def test_an_approved_run_is_not_approved_twice(context: ToolContext) -> No
 
 
 async def test_a_rendered_draft_can_be_approved(context: ToolContext) -> None:
+    """The approval releases the content; the run keeps working."""
     context.state = at_stage(context.state, Stage.SUMMARY).completed(Stage.SUMMARY).mark_finalized()
 
     result = await execute_tool(context, call("approve_program_draft", {}))
@@ -551,7 +783,100 @@ async def test_a_rendered_draft_can_be_approved(context: ToolContext) -> None:
     assert result.ok is True
     assert context.dirty is True
     assert context.state is not None
-    assert context.state.status is ProgramStatus.APPROVED
+    assert context.state.status is ProgramStatus.GENERATING
+    assert context.state.current_stage is Stage.ASSESSMENT
+
+
+# --------------------------------------------------------------------------------------
+# revising one part
+# --------------------------------------------------------------------------------------
+
+
+async def test_a_change_is_recorded_on_the_run(context: ToolContext) -> None:
+    """The methodist asks for one part to be redone, and only that part."""
+    context.state = at_stage(context.state, Stage.SUMMARY).completed(Stage.SUMMARY).mark_finalized()
+
+    result = await execute_tool(
+        context,
+        call("revise_program", {"stage": "hours", "notes": "замени тему 2.3"}),
+    )
+
+    assert result.ok is True
+    assert context.dirty is True
+    assert context.state is not None
+    assert context.state.revision is not None
+    assert context.state.revision.stage is Stage.HOURS
+    assert context.state.revision.notes == "замени тему 2.3"
+    assert context.state.status is ProgramStatus.GENERATING
+    assert context.state.stage_status(Stage.HOURS) is StageStatus.PENDING
+
+
+async def test_a_revision_drops_the_parts_written_from_the_revised_one(context: ToolContext) -> None:
+    """A block that outlives its foundation points at something that is gone."""
+    await execute_tool(context, save(competences_block()))
+    context.state = at_stage(context.state, Stage.HOURS)
+    await execute_tool(context, save(hours_block()))
+    context.state = at_stage(context.state, Stage.ASSESSMENT)
+    await execute_tool(context, save(assessment_block()))
+    assert context.state is not None
+    assert context.state.assessment is not None
+
+    await execute_tool(context, call("revise_program", {"stage": "hours", "notes": "замени тему 2.3"}))
+
+    assert context.state is not None
+    assert context.state.assessment is None
+    assert context.state.stage_status(Stage.ASSESSMENT) is StageStatus.PENDING
+
+
+async def test_a_change_gives_the_stage_its_budget_again(context: ToolContext) -> None:
+    """A change the methodist asked for is not a failed attempt."""
+    context.state = at_stage(context.state, Stage.SUMMARY).completed(Stage.SUMMARY).mark_finalized()
+    before = dict(context.state.attempts)
+
+    await execute_tool(context, call("revise_program", {"stage": "hours", "notes": "замени тему 2.3"}))
+
+    assert context.state is not None
+    assert context.state.attempts.get(Stage.HOURS) == 0
+    assert context.state.attempts.get(Stage.SUMMARY) == before.get(Stage.SUMMARY)
+
+
+async def test_there_is_nothing_to_revise_without_a_programme() -> None:
+    context = ToolContext(session_id=uuid.uuid4())
+
+    result = await execute_tool(context, call("revise_program", {"stage": "hours", "notes": "замени тему 2.3"}))
+
+    assert result.ok is False
+    assert "нет программы" in (result.error or "")
+
+
+async def test_materials_without_a_plan_or_a_deck_are_refused(context: ToolContext) -> None:
+    """A curriculum with no lecture plan and no slides is a curriculum with nothing in it."""
+    await with_a_plan(context)
+    context.state = at_stage(context.state, Stage.MATERIALS)
+    block = materials_block()
+    block["materials"]["lecture_plans"] = []
+    block["materials"]["slide_decks"] = []
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert "ни одного плана лекции" in " ".join(result.details or [])
+    assert "ни одного набора слайдов" in " ".join(result.details or [])
+
+
+async def test_an_assessment_without_means_is_refused(context: ToolContext) -> None:
+    """An assessment without a question, a task or a form of control checks nothing."""
+    await with_a_plan(context)
+    context.state = at_stage(context.state, Stage.ASSESSMENT)
+    block = assessment_block()
+    block["assessment"]["questions"] = []
+    block["assessment"]["seminar_tasks"] = []
+    block["assessment"]["tools"] = []
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert "ни вопросов, ни заданий" in " ".join(result.details or [])
 
 
 # --------------------------------------------------------------------------------------
