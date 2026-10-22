@@ -23,6 +23,7 @@ import { NotificationService } from '../../core/services/notification.service';
 import { PendingChatDraftService } from '../../core/services/pending-chat-draft.service';
 import { ProfileService } from '../../core/services/profile.service';
 import { SpeechRecognitionService } from '../../core/services/speech-recognition.service';
+import { speechErrorNotice } from '../../shared/utils/speech-error';
 import { BrandLogoAnimatedComponent } from '../../shared/components/brand-logo-animated/brand-logo-animated.component';
 import { FilePreviewComponent } from '../../shared/components/drag-n-drop/file-preview.component';
 import { FileTileComponent } from '../../shared/components/file-tile/file-tile.component';
@@ -119,6 +120,15 @@ export class HomePage {
         this.speech.stop();
       }
     });
+  }
+
+  onKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    void this.onSubmit(event);
   }
 
   onInput(event: Event): void {
@@ -303,30 +313,12 @@ export class HomePage {
   }
 
   private reportSpeechError(code: string): void {
-    if (code === 'no-speech') {
-      this.notifications.info('Речь не распознана', {
-        description: 'Попробуйте ещё раз.'
-      });
+    const notice = speechErrorNotice(code);
+    if (notice.type === 'info') {
+      this.notifications.info(notice.message, { description: notice.description });
       return;
     }
-
-    const messages: Record<string, string> = {
-      'not-allowed': 'Разрешите доступ к микрофону',
-      'service-not-allowed': 'Доступ к микрофону запрещён браузером',
-      'audio-capture': 'Микрофон не найден',
-      network: 'Сервис распознавания речи недоступен',
-      'language-not-supported': 'Сервис распознавания не поддерживает русский язык'
-    };
-    const microphoneBlocked = code === 'not-allowed' || code === 'service-not-allowed';
-
-    let description: string | undefined;
-    if (microphoneBlocked) {
-      description = 'Разрешите микрофон в настройках браузера и попробуйте снова.';
-    } else if (code === 'network') {
-      description = 'Проверьте подключение или попробуйте Safari.';
-    }
-
-    this.notifications.error(messages[code] ?? 'Не удалось распознать речь', { description });
+    this.notifications.error(notice.message, { description: notice.description });
   }
 
   private startChat(text: string, files: readonly File[]): void {

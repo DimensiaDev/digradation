@@ -96,4 +96,25 @@ describe('ProfileService', () => {
     expect(service.user()).toBeNull();
     expect(service.sessionChecked()).toBe(true);
   });
+
+  it('re-reads the profile for a new session instead of joining the one in flight', async () => {
+    // The guest check on boot is still unanswered when the methodist signs in.
+    const boot$ = firstValueFrom(service.ensureSession());
+    const inFlight = http.expectOne(ME_URL);
+
+    const signedIn$ = firstValueFrom(service.refresh());
+
+    // A request of its own, not the guest's: joining that one answers 401, and
+    // the sign-in would never reach the app.
+    http.expectOne(ME_URL).flush(testUser);
+
+    expect(await signedIn$).toEqual(testUser);
+    expect(service.user()).toEqual(testUser);
+
+    // The guest answer lands afterwards and must not undo the sign-in.
+    inFlight.flush({ detail: 'Not authenticated' }, { status: 401, statusText: 'Unauthorized' });
+
+    expect(await boot$).toBeNull();
+    expect(service.user()).toEqual(testUser);
+  });
 });

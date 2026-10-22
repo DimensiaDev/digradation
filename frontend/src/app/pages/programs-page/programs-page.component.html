@@ -3,20 +3,11 @@
     <header class="programs-page__header">
       <div class="programs-page__heading">
         <h1 class="h2">Мои программы</h1>
-        <p class="h4">Просматривайте и управляйте своими образовательными программами</p>
+        <p class="h4">Образовательные программы, созданные в чатах с агентом</p>
       </div>
     </header>
 
     <div class="programs-page__filters" role="group" aria-label="Фильтры каталога">
-      <app-select
-        class="programs-page__filter programs-page__filter--type"
-        [options]="typeOptions()"
-        [ngModel]="typeFilter()"
-        (ngModelChange)="selectType($event)"
-        label="Тип программы"
-        placeholder="Все типы"
-      />
-
       <app-select
         class="programs-page__filter programs-page__filter--date"
         [options]="dateOptions()"
@@ -24,17 +15,6 @@
         (ngModelChange)="selectDate($event)"
         label="Дата обновления"
         placeholder="Все даты"
-      />
-
-      <app-select
-        class="programs-page__filter programs-page__filter--tag"
-        [options]="tagOptions()"
-        [multiple]="true"
-        allValue="all"
-        [ngModel]="tagFilter()"
-        (ngModelChange)="selectTags($event)"
-        label="Теги"
-        placeholder="Все теги"
       />
     </div>
 
@@ -48,11 +28,7 @@
       @if (programs().length > 0) {
         <div class="programs-page__grid">
           @for (program of programs(); track program.id) {
-            <app-program-card
-              [program]="program"
-              (open)="openProgram(program, $event)"
-              (action)="onAction(program, $event)"
-            />
+            <app-program-card [program]="program" (open)="openProgram(program, $event)" />
           }
         </div>
       } @else {
@@ -66,9 +42,7 @@
           </p>
           <p class="h5 programs-page__empty-hint">
             {{
-              hasActiveFilters()
-                ? 'Попробуйте изменить тип, дату или теги.'
-                : 'Здесь появятся ваши программы.'
+              hasActiveFilters() ? 'Попробуйте изменить дату.' : 'Здесь появятся ваши программы.'
             }}
           </p>
 
@@ -134,5 +108,9 @@
     }
   </div>
 
-  <app-program-detail-panel [program]="selectedProgram()" (closed)="closeProgram()" />
+  <app-program-detail-panel
+    [program]="selectedProgram()"
+    (open)="openProgramChat()"
+    (closed)="closeProgram()"
+  />
 </section>

@@ -140,8 +140,8 @@ with `log = log.bind(attachment_id=...)`. Never use `print()`.
 | Folder | Holds |
 |---|---|
 | `core/` | singletons: `services/`, `guards/`, `interceptors/`, `models/` |
-| `features/` | route-level feature areas (`chat/`, `chat-create/`) |
-| `pages/` | routed pages (`login-page/`, `history-page/`, `profile-page/`, `admin/`) |
+| `features/` | route-level feature areas (`chat/`) |
+| `pages/` | routed pages (`home-page/`, `programs-page/`, `profile-page/`, `admin/`) |
 | `shared/` | reusable components and utils |
 
 ### State
@@ -164,6 +164,18 @@ no longer matches, rather than assuming responses arrive in order.
   `:root` and `html[data-theme='dark']`.
 - BEM-ish modifiers: `.button--main`, `.card--shadow`, `.input--error`.
 - `@use '...' as *` with relative paths and **no file extension**.
+
+### Rendering HTML
+
+- **`[innerHTML]` is the only way to put HTML in the DOM, and it is the safe one** because
+  Angular sanitizes the binding. `bypassSecurityTrust*` is used nowhere; do not introduce it.
+- **Call `DomSanitizer.sanitize(SecurityContext.HTML, …)` explicitly** at the boundary where
+  untrusted text becomes markup — the message bubble does, and the spreadsheet preview sanitizes
+  before it builds nodes. It is a second pass over the same sanitizer, so it changes nothing at
+  runtime; it exists so the sanitization is visible in the source, because a reviewer reading
+  `innerHTML` cannot tell an Angular binding from a raw assignment.
+- The text is untrusted twice over: the model writes the assistant's half, and the methodist's
+  own half is echoed back from the API.
 
 ### API layer
 
@@ -599,6 +611,15 @@ rule that will drift. Both endpoints answer with the programme's state, in the s
 `GET /program` answers with, and refuse what the tools refuse — 404 when the chat holds no
 programme, 409 when the decision is not allowed right now.
 
+**The methodist takes the decision in the chat.** While `status` is `pending_approval` and
+`busy` is false, `app-program-decision` replaces the composer the way the question form does,
+and offers an approval and a revision whose picker lists the stages whose status is
+`completed`. The blocks come from `programDecision` in `features/chat/program-view.ts`, and
+the two requests are `ChatService.approveProgram` / `reviseProgram`. A 409 is a rule of the
+programme, not a bug: show `detail` as it is and refresh the programme. Only the approval gate
+asks anything — a finished programme keeps the composer, and a content revision after the
+approval goes through the model's `revise_program`, which the methodist reaches by asking.
+
 `GET /program` reads the Redis mirror first and falls back to the row, so a client that
 polls it does not touch PostgreSQL; the fallback re-mirrors the state. The response carries
 the state's `updated_at` and `version`, so a client can see that it is looking at an older
@@ -672,7 +693,7 @@ seeded users and chats into the developer's own database; and copying the overri
 later `docker compose` command in the repo silently recreated the developer's containers
 with the e2e ports.
 
-Three constraints worth knowing before adding a spec:
+Four constraints worth knowing before adding a spec:
 
 - **The suite runs as one user, and the backend limits chat creation and message sending
   to 5 per minute per user.** The helper fixture clears the `ratelimit:*` counters in Redis
@@ -689,6 +710,17 @@ Three constraints worth knowing before adding a spec:
   timeout. The rate-limit clear retries within 15s and the idle-generation scan within 45s,
   then throws rather than letting the next test report a misleading 429 or 409; retry waits
   use `setTimeout` so the event loop stays free.
+- **A seeded programme is a real run, so the recovery cron will end it.** `recover_stalled_programs`
+  fails any non-terminal run untouched for ten minutes, so a seeded status decays within minutes:
+  seed a run that is terminal, waiting, or `finalized` (see `setup.sh`). `program-decision.spec.ts`
+  opens the seeded `pending_approval` programme, which is `finalized` with a committed skeleton for
+  exactly this reason, and it answers `POST /program/approve` and `/program/revision` locally —
+  a real revision starts a stage, and the offline provider cannot save one, so the run would fail
+  and the programme would stop being a draft for the rest of the suite. **An export needs three
+  things, not one**: the attachment row, the object in `uploads`, and the ids on the state — a
+  presigned URL for an object that was never stored answers 404, which the UI reports as a button
+  that does nothing. `program-exports.spec.ts` downloads both forms of the seeded `approved`
+  programme for that reason.
 
 ### Frontend
 

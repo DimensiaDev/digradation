@@ -43,9 +43,9 @@ test.describe("authentication", () => {
     page,
   }) => {
     await page.context().clearCookies();
-    await page.goto("/chats");
+    await page.goto("/settings");
 
-    await expect(page).toHaveURL(/\/chats$/);
+    await expect(page).toHaveURL(/\/settings$/);
     await expect(page.getByRole("heading", { name: "Требуется вход" })).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);
   });
@@ -54,7 +54,7 @@ test.describe("authentication", () => {
     page,
   }) => {
     await page.context().clearCookies();
-    await page.goto("/create");
+    await page.goto("/settings");
 
     const prompt = page.locator(".login-prompt");
     await expect(prompt.getByRole("heading", { name: "Требуется вход" })).toBeVisible();
@@ -65,8 +65,8 @@ test.describe("authentication", () => {
     await dialog.locator("#password").fill(E2E_PASSWORD);
     await dialog.getByRole("button", { name: "Войти" }).click();
 
-    await expect(page).toHaveURL(/\/create$/);
-    await expect(page.getByRole("heading", { name: "Новый чат" })).toBeVisible();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.getByRole("heading", { name: "Настройки" })).toBeVisible();
   });
 
   test("guests read the public pages without a prompt", async ({ page }) => {
@@ -99,8 +99,8 @@ test.describe("authentication", () => {
     await expect(page.getByRole("heading", { name: "Требуется вход" })).toBeVisible();
 
     // The cookie is gone: a protected route stays put and asks for a login.
-    await page.goto("/create");
-    await expect(page).toHaveURL(/\/create$/);
+    await page.goto("/settings");
+    await expect(page).toHaveURL(/\/settings$/);
     await expect(page.getByRole("heading", { name: "Требуется вход" })).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);
   });

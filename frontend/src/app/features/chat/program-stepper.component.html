@@ -1,0 +1,33 @@
+<nav class="program-stepper" aria-label="Этапы создания программы">
+  <ol class="program-stepper__list">
+    @for (step of steps; track step.id) {
+      <li
+        class="program-stepper__step"
+        [attr.data-state]="stepState(step.id)"
+        [attr.aria-current]="step.id === activeStep() ? 'step' : null"
+      >
+        <span
+          class="program-stepper__marker"
+          [class.program-stepper__marker--spinning]="isWorking(step.id)"
+          aria-hidden="true"
+        >
+          @switch (stepState(step.id)) {
+            @case ('completed') {
+              <svg size="16" lucideCheck></svg>
+            }
+            @case ('failed') {
+              <svg size="16" lucideTriangleAlert></svg>
+            }
+            @default {
+              {{ step.id }}
+            }
+          }
+        </span>
+        <span class="program-stepper__label">{{ step.label }}</span>
+        @if (isWorking(step.id)) {
+          <span class="visually-hidden">Этап выполняется</span>
+        }
+      </li>
+    }
+  </ol>
+</nav>

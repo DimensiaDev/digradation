@@ -151,7 +151,8 @@ from datetime import UTC, datetime, timedelta
 
 from app.database import get_session_maker
 from app.models.auth import User
-from app.models.chat import ChatSession
+from app.models.chat import Attachment, ChatSession
+from app.storage import get_s3_attachment_key, storage
 from sqlalchemy import delete, select
 
 USERNAME = os.environ["E2E_USERNAME"]
@@ -196,14 +197,61 @@ async def main():
             }
             if failed:
                 state["error"] = "e2e seeded failure"
-            db.add(
-                ChatSession(
-                    session_id=session_id,
-                    user_id=user.id,
-                    name=title,
-                    program_state=state,
-                )
+            if status == "pending_approval":
+                # The one programme a decision waits on, so the decision panel has
+                # a state to render: a draft that was shown is `finalized`, and its
+                # skeleton is committed, which is what fills the picker with the
+                # four blocks. `finalized` also keeps the row where it is — the
+                # recovery cron fails any non-terminal run it finds untouched for
+                # ten minutes, and this envelope is days old on purpose, because
+                # the catalogue orders by `updated_at`.
+                state["finalized"] = True
+                state["stages"] = {
+                    "competences": "completed",
+                    "hours": "completed",
+                    "sources": "completed",
+                    "summary": "completed",
+                    "assessment": "pending",
+                    "materials": "pending",
+                }
+            session = ChatSession(
+                session_id=session_id,
+                user_id=user.id,
+                name=title,
+                program_state=state,
             )
+            db.add(session)
+
+            if status == "approved":
+                # The finished programme is the one with the two export forms, and
+                # the client fetches them through the attachment route it uses for
+                # any file — so the row, the stored object and the state's ids all
+                # have to exist, or the presigned URL 404s and the download button
+                # looks broken. `approved` is terminal, so the recovery cron leaves
+                # the run alone.
+                await db.flush()
+                exports = {}
+                for name, state_field in (
+                    ("programme.docx", "document_attachment_id"),
+                    ("programme-slides.pptx", "slides_attachment_id"),
+                ):
+                    s3_key = get_s3_attachment_key(session_id, name)
+                    attachment = Attachment(
+                        session_id=session_id,
+                        name=name,
+                        s3_key=s3_key,
+                        ready=True,
+                    )
+                    db.add(attachment)
+                    await db.flush()
+                    async with storage.internal_client() as client:
+                        await client.put_object(
+                            Bucket="uploads",
+                            Key=s3_key,
+                            Body=f"e2e {name}".encode(),
+                        )
+                    exports[state_field] = attachment.id
+                session.program_state = {**state, "exports": exports}
         await db.commit()
         print(f"seeded {len(PROGRAMMES)} programmes for {USERNAME}")
 

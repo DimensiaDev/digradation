@@ -1,13 +1,10 @@
 import { Routes } from '@angular/router';
-import { ChatCreateComponent } from './features/chat-create/chat-create.component';
-import { ChatComponent } from './features/chat/chat.component';
 import { Layout } from './shared/components/layout/layout.component';
 import {
   ADMIN_NAV_ITEMS,
   USER_BOTTOM_NAV_ITEMS,
   USER_NAV_ITEMS
 } from './shared/navigation/navigation.config';
-import { HistoryPage } from './pages/history-page/history-page.component';
 import { SettingsPage } from './pages/settings-page/settings-page.component';
 import { ProfilePage } from './pages/profile-page/profile-page.component';
 import { HomePage } from './pages/home-page/home-page.component';
@@ -82,10 +79,12 @@ export const routes: Routes = [
             component: SectionPlaceholder,
             data: { title: 'Библиотека', subtitle: 'Здесь появятся материалы библиотеки' }
           },
-          { path: 'create', component: ChatCreateComponent },
           { path: 'settings', component: SettingsPage },
-          { path: 'chats', component: HistoryPage },
-          { path: 'chats/:id', component: ChatComponent },
+          {
+            path: 'chats/:id',
+            loadComponent: () =>
+              import('./features/chat/chat-page.component').then((module) => module.ChatPage)
+          },
           { path: 'profile', component: ProfilePage }
         ]
       }

@@ -26,6 +26,56 @@ describe('ChatMessageComponent', () => {
     expect(element.querySelector('.message__text')?.textContent).not.toContain('**');
   });
 
+  it('never puts a script from a message into the document', () => {
+    const element = render('Привет <script>alert(1)</script> и всё');
+
+    // The sanitizer drops the element and its payload, so nothing an author of
+    // the text wrote can run.
+    expect(element.querySelector('.message__text script')).toBeNull();
+    expect(element.querySelector('script')).toBeNull();
+    expect(element.querySelector('.message__text')?.innerHTML ?? '').not.toContain('<script');
+  });
+
+  it('strips an event handler and a javascript: link the model could write', () => {
+    const element = render('<img src="x" onerror="alert(1)"> [клик](javascript:alert(1))');
+
+    const image = element.querySelector('.message__text img');
+    expect(image === null || image.getAttribute('onerror') === null).toBe(true);
+    const href = element.querySelector('.message__text a')?.getAttribute('href') ?? '';
+    expect(href.startsWith('javascript:')).toBe(false);
+  });
+
+  it('renders clarification answers as cards instead of prose', () => {
+    const fixture = TestBed.createComponent(ChatMessageComponent);
+    fixture.componentRef.setInput('message', {
+      id: 1,
+      direction: 'outgoing',
+      text: 'Ответы на уточняющие вопросы по программе:\n— Сколько часов?: 72\n— Кто учится?: Руководители',
+      time: '12:00',
+      answers: [
+        { question: 'Сколько часов?', text: '72' },
+        { question: 'Кто учится?', text: 'Руководители' }
+      ]
+    } as ChatMessage);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelectorAll('.message__answer')).toHaveLength(2);
+    expect(element.querySelector('.message__text')).toBeNull();
+    expect(element.textContent).toContain('Сколько часов?');
+    expect(element.textContent).toContain('Руководители');
+  });
+
+  it('parses answer transcripts restored from history into cards', () => {
+    const element = render(
+      'Ответы на уточняющие вопросы по программе:\n— Сколько часов?: 72\n— Кто учится?: Руководители'
+    );
+
+    expect(element.querySelectorAll('.message__answer')).toHaveLength(2);
+    expect(element.querySelector('.message__answer-text')?.textContent).toBe('72');
+    expect(element.querySelector('.message__text')).toBeNull();
+  });
+
   it('renders a server attachment chip with enabled preview and download', () => {
     const element = render('Коммерческое предложение готово', [
       { name: 'kp.xlsx', attachmentId: 5 }

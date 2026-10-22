@@ -59,7 +59,7 @@ describe('applyRouteTransition', () => {
     const { transition } = stubTransition();
     const root = document.createElement('div');
 
-    applyRouteTransition(transition, '/create', '/chats', root);
+    applyRouteTransition(transition, '/profile', '/chats/42', root);
 
     expect(transition.skipTransition).not.toHaveBeenCalled();
     expect(root.dataset['navDirection']).toBe('none');

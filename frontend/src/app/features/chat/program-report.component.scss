@@ -1,0 +1,261 @@
+.program-preview__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+
+  flex-shrink: 0;
+
+  padding: 6px 10px;
+
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+
+  border-radius: 999px;
+
+  &[data-tone='success'] {
+    color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+  }
+
+  &[data-tone='danger'] {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 12%, var(--color-surface));
+  }
+}
+
+.program-preview__count {
+  display: inline-flex;
+  position: relative;
+  top: -1px;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+
+  background: var(--color-main);
+  border-radius: 999px;
+}
+
+.program-preview__empty-note {
+  margin: 9px 0 0;
+
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--color-gray);
+}
+
+.program-preview__report-summary {
+  margin-top: 12px;
+  padding: 12px 13px;
+
+  background: var(--color-secondary);
+  border-radius: 12px;
+}
+
+.program-preview__report-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.program-preview__report-score {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+
+  margin: 0;
+
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--color-gray);
+
+  strong {
+    font-size: 23px;
+    font-weight: 650;
+    line-height: 1;
+    color: var(--color-text);
+  }
+}
+
+.program-preview__report-caption {
+  margin: 3px 0 0;
+
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--color-gray);
+}
+
+.program-preview__report-progress {
+  height: 4px;
+  margin-top: 11px;
+
+  overflow: hidden;
+
+  background: color-mix(in srgb, var(--color-outline) 55%, transparent);
+  border-radius: 999px;
+}
+
+.program-preview__report-progress-fill {
+  display: block;
+
+  height: 100%;
+
+  background: var(--color-success);
+  border-radius: inherit;
+
+  transition: width 240ms ease;
+
+  &[data-tone='danger'] {
+    background: var(--color-danger);
+  }
+}
+
+.program-preview__report-verdict {
+  margin-left: auto;
+}
+
+.program-preview__report-groups {
+  display: grid;
+  gap: 16px;
+
+  margin-top: 15px;
+}
+
+.program-preview__report-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  margin: 0 0 7px;
+
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--color-gray);
+  text-transform: uppercase;
+
+  [data-group='problems'] & {
+    color: var(--color-danger);
+  }
+}
+
+.program-preview__checks {
+  display: grid;
+  gap: 6px;
+
+  margin: 0;
+  padding: 0;
+
+  list-style: none;
+}
+
+.program-preview__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+
+  min-width: 0;
+  padding: 9px 11px;
+
+  background: var(--color-secondary);
+  border-radius: 9px;
+
+  &--problem .program-preview__check-icon {
+    color: var(--color-danger);
+  }
+}
+
+.program-preview__check-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  width: 18px;
+  height: 18px;
+  margin-top: 0;
+
+  color: var(--color-success);
+}
+
+.program-preview__check-body {
+  flex: 1 1 auto;
+
+  min-width: 0;
+}
+
+.program-preview__check-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.program-preview__check-name {
+  min-width: 0;
+  margin: 0;
+
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.program-preview__check-problems {
+  display: grid;
+  gap: 6px;
+
+  margin: 7px 0 0;
+  padding: 0;
+
+  list-style: none;
+
+  li {
+    padding: 6px 8px;
+
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: var(--color-danger);
+
+    background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
+    border-left: 2px solid var(--color-danger);
+    border-radius: 0 6px 6px 0;
+  }
+}
+
+.program-preview__check-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 14px;
+
+  margin: 5px 0 0;
+
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.program-preview__check-detail {
+  display: flex;
+  gap: 4px;
+
+  min-width: 0;
+
+  dt {
+    color: var(--color-gray);
+  }
+
+  dd {
+    margin: 0;
+
+    font-weight: 500;
+    color: color-mix(in srgb, var(--color-text) 78%, var(--color-gray));
+  }
+}

@@ -3,12 +3,8 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-22** (a stage keeps the model on the tool until its block is saved, a
-retry reads the refusal that stopped the previous attempt, the OpenAI-compatible provider
-recovers GigaChat's inline call and never echoes the control token back, and a module's volume
-is the sum of its topics; the programme is written in two halves, its sources come from the
-curated catalogue and the pgvector index, the programme leaves as a document and as slides, and
-the methodist approves a draft and asks for a change through endpoints of their own)
+Last updated: **2026-10-22** (the methodist approves a draft and asks for a revision from the
+chat, so the two programme endpoints are reachable without the model)
 
 ---
 
@@ -21,13 +17,13 @@ attachments and the admin tooling remain part of the application.
 
 Everything described below is working via Docker Compose.
 
-| Package     | State                                                                                                                              |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, providers, the programme cycle, pgvector source retrieval       |
-| `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings, programmes catalogue |
-| `rag/`      | Complete: chunk models, mock embeddings, in-memory and pgvector stores, indexer, retrieval policy, one-off backend CLI              |
-| `e2e/`      | Complete: bounded specs against the real Compose stack with the offline provider                                                    |
-| Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup, `pgvector/pgvector:pg18` database                  |
+| Package     | State                                                                                                                                                                             |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, providers, the programme cycle, pgvector source retrieval                                                     |
+| `frontend/` | Complete: guest mode, sign-in dialog, the home composer that starts a chat, chat with polling and the programme aside, profile, admin users, admin settings, programmes catalogue, the approve/revision decision panel |
+| `rag/`      | Complete: chunk models, mock embeddings, in-memory and pgvector stores, indexer, retrieval policy, one-off backend CLI                                                            |
+| `e2e/`      | Complete: bounded specs against the real Compose stack with the offline provider                                                                                                  |
+| Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup, `pgvector/pgvector:pg18` database                                                                 |
 
 **Backend.** FastAPI on Python 3.14. Cookie auth (argon2), admin with account expiry, chat
 sessions with async generation, attachment upload / list / delete, presigned S3 results.
@@ -40,22 +36,35 @@ session is resolved by a `provideAppInitializer`, `/home` and `/help` are public
 route renders behind an `AuthGate` prompt, and `/login` is gone in favour of a shared
 `AuthModalService` dialog. Reactive forms, cookie auth, 2-second polling for generation
 results, inline preview for PDF, image, docx and xlsx, light/dark theme, admin user
-management, admin prompt-extension editor. Section switches animate through the browser's
-View Transitions API (`withViewTransitions`), direction derived from the sidebar order.
+management, admin prompt-extension editor. Chat uploads accept exactly the backend's
+formats — PDF, PNG/JPEG and DOCX — and programme exports are excluded from the staged-files
+list. Section switches animate through the browser's View Transitions API
+(`withViewTransitions`), direction derived from the sidebar order.
 
 `/home` is a single-column programme-creation landing with an animated brand mark, prompt
 examples and a composer docked to the bottom while empty. A send from `/home` starts a chat:
 an authenticated user goes straight to it, while a guest's text and files are held in
 `PendingChatDraftService`, the sign-in dialog opens, and the same chat is created and sent
-after login. The composer also dictates Russian through the Web Speech API. `/programs` is
+after login. It is the only place a chat is created — the standalone `/create` page and the
+paginated `/chats` list are gone, and the programmes catalogue carries the entry into a
+finished chat. The composer also dictates Russian through the Web Speech API. `/programs` is
 `Мои программы`: a lazy-loaded catalogue backed by `GET /chats/programmes` and
-`GET /chats/{session_id}/program`, with client-side filtering and paging, and two-second
-polling while a run is busy. Program creation has no entry point yet.
+`GET /chats/{session_id}/program`, with filtering by update month, paging, and two-second
+polling while a run is busy. Cards and the detail panel show only what those responses carry;
+the catalogue is read-only until the programme-mutation endpoints exist. The chat workspace's
+aside shows the saved blocks, the cited sources with their catalogue confirmation, and the
+self-check in a single-open accordion; the report opens with a score and a progress bar, then
+lists failures first and passed checks second. Session files and staged uploads are a `Файлы`
+accordion in the same aside, and the chat has no separate files panel. A block that a stage
+has just written is flashed once with a translucent backdrop, and the top stepper spins a ring
+around the stage a busy run is working on. The finished programme's DOCX and PPTX downloads
+stay pinned to the aside footer, outside the collapsible content. Program creation has no entry
+point yet.
 
 **Not started or placeholder.** The profile page body, user settings, and two admin sections
 (`Журнал действий`, `О системе`) render `SectionPlaceholder`. `/help` and `library` are
-intentional placeholders, and `/programs/new` waits for a create form. Duplicate / archive /
-restore / delete on the programmes page still mutate the loaded list only: no endpoints exist.
+intentional placeholders, and `/programs/new` waits for a create form. The programmes page has
+no mutation actions because no endpoints exist for duplicate, archive, restore or delete.
 
 **The programme cycle.** A chat can build one educational programme. A run is one
 `ProgramState` in `chat_sessions.program_state` (JSONB), mirrored to Redis for an hour, and it
@@ -113,22 +122,27 @@ index is not consulted and the corpus descriptions answer instead.
 (status, current stage, the blocks saved so far, the self-check report) and reads the Redis
 mirror before the row, so a client that polls it does not touch PostgreSQL; `running` comes
 from the stage lock, so a stalled programme is distinguishable from a busy one, and `busy`
-says whether the programme is being worked on at all. `GET /chats/{session_id}/result` also
-carries the questions a programme is waiting an answer to, and
-`POST /chats/{session_id}` takes those answers in an `answers` array next to `content`.
+says whether the programme is being worked on at all. `/program` and `/result` both expose
+the open questions while a run is `awaiting_answers`; the workspace reads them from
+`/program`, the endpoint it already polls. `POST /chats/{session_id}` takes the answers in an
+`answers` array next to `content`.
 `GET /chats/programmes` lists the user's programmes, paginated. A run may ask the methodist
 questions: `begin_program` takes them, the run waits in `awaiting_answers`, and the answers
 move it on.
 
-**The methodist decides through endpoints.** `POST /chats/{session_id}/program/approve` is
+**The methodist decides through endpoints and from the chat.** `POST /chats/{session_id}/program/approve` is
 the approval of a rendered draft: it releases the content stages, spends the attempt of the
 first one and records who approved and when. `POST /chats/{session_id}/program/revision` asks
 for one part to be redone: the stage runs again with the methodist's notes, the parts that
 were written from it are written again, and the stage starts a fresh budget of three. Both
 answer with the programme's state in the shape `GET /program` answers with, and both refuse
 what the model's own tools refuse — the rules live in `app/agentic/actions.py` and are shared.
-The client-side flow (the buttons, the answer form and the five-minute poll surviving a slow
-run) is still not built.
+The client reaches both from the chat: while a rendered draft waits (`status` is
+`pending_approval`, `busy` is false) a decision panel takes the composer's place, the way the
+question form does, and offers an approval and a revision. The revision form lists the blocks
+already saved and sends the chosen stage with the notes. If the finalisation has not run yet
+the approval is refused with 409; the panel re-reads the programme and the methodist presses
+it again.
 
 **RAG ingestion.** `backend/index_rag.py` is a one-off operator CLI, not an HTTP endpoint. It
 joins parser output under `edu_materials/parsed` to `backend/res/rag-sources.json` by
@@ -268,20 +282,24 @@ Ordered by value, not by commitment:
    deliberate headroom rather than an oversight.
 1. **Build the chat-side programme flow.** The backend can now write a programme in two
    halves, report on it, export it and redo one part of it; the client can list the
-   programmes and read the state, but it cannot yet answer the questions of a run, approve a
-   rendered draft or ask for a change from the chat. That is the gap that keeps the feature
-   out of the user's hands.
-2. **Turn the programs catalog into a real feature.** `ProgramsService` is an in-memory mock
-   and the detail aside's tabs are derived demo content; replace both with API calls,
-   persistence, and the create/edit form behind `/programs/new`.
+   programmes, read the state, answer the questions of a run, show the self-check report,
+   download the DOCX/PPTX exports, approve a rendered draft and ask for one part to be redone.
+   What is left is the run surviving a slow five-minute poll and the content revision after the
+   approval, which the methodist still reaches by asking the agent in prose.
+2. **Finish the programs catalog.** It is API-backed and shows only real programme state, but
+   it is still read-only: add the mutation endpoints and the create/edit form behind
+   `/programs/new`.
 3. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
    where per-content-type preparation belongs. The first content type that needs work is the
    first thing that goes in it, offloaded with `asyncio.to_thread`.
-4. **Extend the e2e suite.** It covers authentication (including the guest path and the
-   sign-in dialog), the chat journey, a follow-up message, attachments, the paginated history
-   list, admin roles and the admin prompt editor.
-   Not yet covered: the docx/xlsx preview, avatar upload, the theme toggle, the programs
-   catalog, and the error paths (a generation that fails, a session deleted mid-flight).
+4. **Extend the e2e suite.** It covers authentication (the guest path, the sign-in dialog and
+   the gate), the chat journey, a follow-up message, attachments, the home file preview, the
+   programmes catalogue (guest preview, paging, the detail panel), admin roles, the admin
+   prompt editor, the decision panel over a rendered draft (its text size, one card at a
+   time, and the body each decision sends), and the two output forms of a finished programme
+   (both downloads, through object storage and the attachment route).
+   Not yet covered: the docx and xlsx preview of an uploaded file, avatar upload, the theme
+   toggle, and the error paths (a generation that fails, a session deleted mid-flight).
 5. **Fill the placeholder sections:** profile, user settings, the admin action log
    (`Журнал действий`) and system info.
 6. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
@@ -293,31 +311,32 @@ Ordered by value, not by commitment:
    and in the code, but not in the example env file.
 10. **Add a per-test e2e user.** The suite shares one seeded user and works around the
 
-1. **Build a real index and turn RAG on.** Run the parser over the corpus, then
-   `index_rag.py`, then set `RAG_ENABLED=true`. The blocker is data, not code:
-   `edu_materials/parsed` is not committed, and the default `.env` scope is `PERS`, which has
-   no embeddings endpoint. Add the deployment setup when the hub is proven.
-2. **Add HTTP indexing and search endpoints** once the one-off CLI has been exercised in a
-   deployment. They need authorization, progress reporting and a way to cancel a run; the CLI
-   deliberately has none of that.
-3. **OCR for the scanned FGO PDFs.** The catalog already marks them `allow_empty`, so the
-   rest of the corpus can be indexed first; OCR is a parser change, not an ingestion change.
-4. **Finish the chat-side programme flow:** answer a run's questions and approve a rendered
-   draft from the chat UI, and make the five-minute poll survive a slow run.
-5. **Make `/programs` writable.** Duplicate, archive, restore and delete are still local; add
-   the endpoints and persist the actions.
-6. **Fill the placeholder sections:** profile, user settings, the admin action log
-   (`Журнал действий`) and system info.
-7. **Extend the e2e suite:** the docx/xlsx preview, avatar upload, the theme toggle, the
-   programmes catalogue, and the error paths (a failed generation, a session deleted mid-flight).
-8. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
-9. **Mirror the Garage image into a registry we control** and pin it by digest. MinIO's
-   deletion cost a CI outage and a migration; the same event could happen to
-   `dxflrs/garage`.
-10. **Add a LICENSE file**, currently absent.
-11. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
+11. **Build a real index and turn RAG on.** Run the parser over the corpus, then
+    `index_rag.py`, then set `RAG_ENABLED=true`. The blocker is data, not code:
+    `edu_materials/parsed` is not committed, and the default `.env` scope is `PERS`, which has
+    no embeddings endpoint. Add the deployment setup when the hub is proven.
+12. **Add HTTP indexing and search endpoints** once the one-off CLI has been exercised in a
+    deployment. They need authorization, progress reporting and a way to cancel a run; the CLI
+    deliberately has none of that.
+13. **OCR for the scanned FGO PDFs.** The catalog already marks them `allow_empty`, so the
+    rest of the corpus can be indexed first; OCR is a parser change, not an ingestion change.
+14. **Finish the chat-side programme flow:** make the five-minute poll survive a slow run, and
+    give the methodist a way to revise the content after the approval without phrasing it as a
+    chat message.
+15. **Make `/programs` writable.** There are no endpoints yet for duplicate, archive, restore or
+    delete, so the page deliberately offers no such actions.
+16. **Fill the placeholder sections:** profile, user settings, the admin action log
+    (`Журнал действий`) and system info.
+17. **Extend the e2e suite:** the docx/xlsx preview, avatar upload, the theme toggle, the
+    programmes catalogue, and the error paths (a failed generation, a session deleted mid-flight).
+18. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
+19. **Mirror the Garage image into a registry we control** and pin it by digest. MinIO's
+    deletion cost a CI outage and a migration; the same event could happen to
+    `dxflrs/garage`.
+20. **Add a LICENSE file**, currently absent.
+21. **Document `TEST_INSTANCE_MODE` in `.env.example`.** It exists in compose, in the README
     and in the code, but not in the example env file.
-12. **Add a per-test e2e user.** The suite shares one seeded user and works around the
+22. **Add a per-test e2e user.** The suite shares one seeded user and works around the
     5-per-minute rate limit by clearing Redis between tests.
 
 ---

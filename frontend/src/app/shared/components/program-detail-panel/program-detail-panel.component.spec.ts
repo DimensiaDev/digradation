@@ -8,19 +8,27 @@ const PROGRAM: Program = {
   title: 'Python для анализа данных',
   type: 'Повышение квалификации',
   direction: 'IT и аналитика',
-  hours: 72,
-  tags: ['IT', 'Python', 'Аналитика'],
-  status: 'published',
+  hours: 24,
+  status: 'approved',
   theme: 'it',
-  author: { name: 'Иванова А. В.', avatarUrl: null },
   updatedAt: '2025-10-12T12:00:00Z',
   description: 'Практический курс по анализу данных.',
-  goals: ['Освоить Python.', 'Научиться анализировать данные.']
+  goals: ['Освоить Python.', 'Научиться анализировать данные.'],
+  modules: [
+    {
+      id: 'm-1',
+      title: 'Введение',
+      summary: 'Основы Python',
+      hours: 22
+    }
+  ],
+  competencyStatements: ['Анализировать данные на Python.']
 };
 
 describe('ProgramDetailPanelComponent', () => {
   let fixture: ComponentFixture<ProgramDetailPanelComponent>;
   let component: ProgramDetailPanelComponent;
+  let opened: number;
   let closed: number;
   let main: HTMLElement;
 
@@ -41,22 +49,11 @@ describe('ProgramDetailPanelComponent', () => {
       .queryAll(By.css('.program-panel__tab'))
       .find((item) => item.nativeElement.textContent.trim() === label);
   const content = () => fixture.debugElement.query(By.css('.program-panel__content'));
-  const menu = () => fixture.debugElement.query(By.css('.program-panel__dropdown'));
   const scroll = () => fixture.debugElement.query(By.css('.program-panel__scroll'));
-  const menuButton = () =>
-    fixture.debugElement.query(By.css('.program-panel__menu--header .program-panel__menu-button'));
-  const menuItems = () => fixture.debugElement.queryAll(By.css('.program-panel__menu-item'));
-  const menuItem = (label: string) =>
-    menuItems().find((item) => item.nativeElement.textContent.trim() === label);
   const action = (label: string) =>
     fixture.debugElement
       .queryAll(By.css('.program-panel__action'))
       .find((item) => item.nativeElement.textContent.trim() === label);
-
-  const openMenu = () => {
-    menuButton().nativeElement.click();
-    detect();
-  };
 
   const selectTab = (label: string) => {
     tab(label)?.nativeElement.click();
@@ -70,7 +67,9 @@ describe('ProgramDetailPanelComponent', () => {
     TestBed.configureTestingModule({ imports: [ProgramDetailPanelComponent] });
     fixture = TestBed.createComponent(ProgramDetailPanelComponent);
     component = fixture.componentInstance;
+    opened = 0;
     closed = 0;
+    component.open.subscribe(() => opened++);
     component.closed.subscribe(() => closed++);
     fixture.componentRef.setInput('program', PROGRAM);
     detect();
@@ -88,8 +87,8 @@ describe('ProgramDetailPanelComponent', () => {
     expect(panel().attributes['aria-modal']).toBeUndefined();
     expect(panel().attributes['aria-labelledby']).toBe('program-panel-title');
     expect(text).toContain('Python для анализа данных');
-    expect(text).toContain('Опубликовано');
-    expect(text).toContain('72 часа');
+    expect(text).toContain('Согласована');
+    expect(text).toContain('24 часа');
     expect(text).toContain('Повышение квалификации');
     expect(text).toContain('IT и аналитика');
     expect(text).toContain('Практический курс по анализу данных.');
@@ -108,7 +107,7 @@ describe('ProgramDetailPanelComponent', () => {
     expect(closed).toBe(0);
   });
 
-  it('switches between every demo tab', () => {
+  it('switches between the implemented tabs', () => {
     expect(tab('Описание')?.attributes['aria-selected']).toBe('true');
     expect(tab('Описание')?.attributes['aria-controls']).toBe('program-panel-content');
     expect(content().attributes['id']).toBe('program-panel-content');
@@ -119,18 +118,25 @@ describe('ProgramDetailPanelComponent', () => {
     expect(tab('Структура')?.attributes['aria-controls']).toBe('program-panel-content');
     expect(tab('Описание')?.attributes['aria-controls']).toBeUndefined();
     expect(content().nativeElement.textContent).toContain('Структура программы');
-    expect(fixture.debugElement.queryAll(By.css('.program-panel__module')).length).toBe(4);
-    expect(content().nativeElement.textContent).toContain('Итого: 72 часа');
+    expect(fixture.debugElement.queryAll(By.css('.program-panel__module')).length).toBe(1);
+    expect(content().nativeElement.textContent).toContain('Введение');
+    expect(content().nativeElement.textContent).toContain('Итого: 24 часа');
 
     selectTab('Компетенции');
     expect(content().nativeElement.textContent).toContain('Компетенции');
-    expect(fixture.debugElement.queryAll(By.css('.program-panel__competency')).length).toBe(3);
-    expect(content().nativeElement.textContent).toContain('IT, Python, Аналитика');
+    expect(fixture.debugElement.queryAll(By.css('.program-panel__competency')).length).toBe(1);
+    expect(content().nativeElement.textContent).toContain('Анализировать данные на Python.');
+  });
 
-    selectTab('Материалы');
-    expect(content().nativeElement.textContent).toContain('Материалы');
-    expect(fixture.debugElement.queryAll(By.css('.program-panel__material')).length).toBe(4);
-    expect(content().nativeElement.textContent).toContain('Программа курса.pdf');
+  it('does not render unavailable tabs, menus or actions', () => {
+    expect(tab('Материалы')).toBeUndefined();
+    expect(fixture.debugElement.query(By.css('.program-panel__menu'))).toBeNull();
+    expect(fixture.debugElement.query(By.css('.program-panel__material'))).toBeNull();
+    expect(
+      fixture.debugElement
+        .queryAll(By.css('.program-panel__action'))
+        .map((item) => item.nativeElement.textContent.trim())
+    ).toEqual(['Открыть программу']);
   });
 
   it('navigates tabs with the keyboard', () => {
@@ -149,8 +155,8 @@ describe('ProgramDetailPanelComponent', () => {
 
     press('End');
 
-    expect(tab('Материалы')?.attributes['aria-selected']).toBe('true');
-    expect(document.activeElement).toBe(tab('Материалы')?.nativeElement);
+    expect(tab('Компетенции')?.attributes['aria-selected']).toBe('true');
+    expect(document.activeElement).toBe(tab('Компетенции')?.nativeElement);
 
     press('ArrowRight');
 
@@ -158,7 +164,7 @@ describe('ProgramDetailPanelComponent', () => {
 
     press('ArrowLeft');
 
-    expect(tab('Материалы')?.attributes['aria-selected']).toBe('true');
+    expect(tab('Компетенции')?.attributes['aria-selected']).toBe('true');
 
     press('Home');
 
@@ -188,6 +194,29 @@ describe('ProgramDetailPanelComponent', () => {
     expect(container.scrollTop).toBe(0);
   });
 
+  it('shows truthful empty states before the blocks are formed', () => {
+    setProgram({
+      ...PROGRAM,
+      type: '',
+      direction: '',
+      hours: 0,
+      description: '',
+      goals: [],
+      modules: undefined,
+      competencyStatements: undefined
+    });
+
+    expect(fixture.debugElement.query(By.css('.program-panel__meta'))).toBeNull();
+    expect(content().nativeElement.textContent).toContain('Описание ещё не сформировано.');
+    expect(content().nativeElement.textContent).toContain('Цели ещё не сформированы.');
+
+    selectTab('Структура');
+    expect(content().nativeElement.textContent).toContain('Структура ещё не сформирована.');
+
+    selectTab('Компетенции');
+    expect(content().nativeElement.textContent).toContain('Компетенции ещё не сформированы.');
+  });
+
   it('closes from the close button and Escape', () => {
     closeButton().nativeElement.click();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
@@ -204,88 +233,11 @@ describe('ProgramDetailPanelComponent', () => {
     expect(main.style.overflow).toBe('');
   });
 
-  it('opens the header menu and closes it on an outside click', () => {
-    openMenu();
-
-    expect(menu()).toBeTruthy();
-    expect(menuButton().attributes['aria-expanded']).toBe('true');
-
-    document.body.click();
-    detect();
-
-    expect(menu()).toBeNull();
-    expect(menuButton().attributes['aria-expanded']).toBe('false');
-  });
-
-  it('closes the menu on Escape before closing the panel', () => {
-    openMenu();
-
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    detect();
-
-    expect(menu()).toBeNull();
-    expect(closed).toBe(0);
-    expect(document.activeElement).toBe(menuButton().nativeElement);
-  });
-
-  it('moves through the menu with the arrow keys, Home and End', () => {
-    openMenu();
-    const items = menuItems().map((item) => item.nativeElement as HTMLButtonElement);
-
-    expect(document.activeElement).toBe(items[0]);
-    expect(items[0].getAttribute('tabindex')).toBe('0');
-    expect(items[1].getAttribute('tabindex')).toBe('-1');
-
-    const press = (key: string) => {
-      (document.activeElement as HTMLElement).dispatchEvent(
-        new KeyboardEvent('keydown', { key, bubbles: true })
-      );
-      detect();
-    };
-
-    press('ArrowDown');
-    expect(document.activeElement).toBe(items[1]);
-    expect(items[1].getAttribute('tabindex')).toBe('0');
-
-    press('End');
-    expect(document.activeElement).toBe(items[2]);
-
-    press('ArrowDown');
-    expect(document.activeElement).toBe(items[0]);
-
-    press('ArrowUp');
-    expect(document.activeElement).toBe(items[2]);
-
-    press('Home');
-    expect(document.activeElement).toBe(items[0]);
-  });
-
-  it('keeps the demo menu actions visual-only', () => {
-    openMenu();
-
-    menuItem('Дублировать')?.nativeElement.click();
-    detect();
-
-    expect(menu()).toBeNull();
-    expect(component.program()).toBe(PROGRAM);
-    expect(closed).toBe(0);
-  });
-
-  it('hides the archive action for an archived program', () => {
-    setProgram({ ...PROGRAM, status: 'archived' });
-    openMenu();
-
-    expect(fixture.nativeElement.textContent).toContain('Архив');
-    expect(menuItem('Архивировать')).toBeUndefined();
-    expect(menuItems().length).toBe(2);
-  });
-
-  it('keeps the footer action buttons visually only', () => {
+  it('emits open from the footer action', () => {
     action('Открыть программу')?.nativeElement.click();
-    action('Редактировать')?.nativeElement.click();
     detect();
 
-    expect(panel()).toBeTruthy();
+    expect(opened).toBe(1);
     expect(closed).toBe(0);
   });
 });

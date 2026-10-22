@@ -406,6 +406,25 @@ describe('HomePage', () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it('submits on Enter and keeps Shift+Enter for a line break', () => {
+    const submitSpy = vi.spyOn(page(), 'onSubmit').mockResolvedValue(undefined);
+    const field = textarea();
+
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
+    field.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(true);
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+
+    const shiftEnter = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      shiftKey: true,
+      cancelable: true
+    });
+    field.dispatchEvent(shiftEnter);
+    expect(shiftEnter.defaultPrevented).toBe(false);
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('places the microphone to the left of the send button', () => {
     expect(micButton().nextElementSibling).toBe(sendButton());
     expect(micButton().disabled).toBe(false);

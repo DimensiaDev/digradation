@@ -8,7 +8,18 @@
     <span class="message__author">Агент</span>
   }
   <div class="message__bubble">
-    <div class="message__text" [innerHTML]="renderedText()"></div>
+    @if (hasAnswers()) {
+      <div class="message__answers" aria-label="Ответы на уточняющие вопросы">
+        @for (answer of answers(); track answer.question) {
+          <div class="message__answer">
+            <span class="message__answer-question">{{ answer.question }}</span>
+            <span class="message__answer-text">{{ answer.text }}</span>
+          </div>
+        }
+      </div>
+    } @else {
+      <div class="message__text" [innerHTML]="renderedText()"></div>
+    }
     @if (hasAttachments()) {
       <ul class="message__attachments">
         @for (

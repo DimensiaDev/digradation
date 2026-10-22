@@ -22,113 +22,22 @@
   <div class="program-card__body">
     <h2 class="program-card__title">{{ program().title }}</h2>
 
-    <p class="program-card__meta">
-      <span>{{ program().type }}</span>
-      <span class="program-card__meta-separator" aria-hidden="true">•</span>
-      <span>{{ program().hours > 0 ? program().hours + ' ч' : '—' }}</span>
-    </p>
-
-    <ul class="program-card__tags" aria-label="Теги программы">
-      @for (tag of program().tags; track tag) {
-        <li class="program-card__tag">{{ tag }}</li>
-      }
-    </ul>
+    @if (program().type || program().hours > 0) {
+      <p class="program-card__meta">
+        @if (program().type) {
+          <span>{{ program().type }}</span>
+        }
+        @if (program().hours > 0) {
+          <span>{{ program().hours }} ч</span>
+        }
+      </p>
+    }
   </div>
 
   <footer class="program-card__footer">
-    <span class="program-card__author">
-      @if (program().author.avatarUrl; as avatarUrl) {
-        <img class="program-card__avatar" [src]="avatarUrl" alt="" />
-      } @else {
-        <span class="program-card__avatar program-card__avatar--initials" aria-hidden="true">
-          {{ initials() }}
-        </span>
-      }
-      <span class="program-card__author-name" [title]="program().author.name">
-        {{ program().author.name }}
-      </span>
-    </span>
-
     <time class="program-card__date" [attr.datetime]="program().updatedAt">
       <svg size="14" lucideCalendar aria-hidden="true"></svg>
       {{ formattedDate() }}
     </time>
-
-    <div class="program-card__menu">
-      <button
-        #menuButton
-        type="button"
-        class="program-card__menu-button icon-action"
-        [attr.aria-label]="'Действия с программой «' + program().title + '»'"
-        aria-haspopup="menu"
-        [attr.aria-expanded]="menuOpen()"
-        [attr.aria-controls]="menuOpen() ? menuId() : null"
-        (click)="toggleMenu()"
-      >
-        <svg size="18" lucideEllipsisVertical aria-hidden="true"></svg>
-      </button>
-
-      @if (menuOpen()) {
-        <div
-          class="program-card__dropdown popover-menu popover-menu--above"
-          role="menu"
-          tabindex="-1"
-          [id]="menuId()"
-          (keydown)="onMenuKeydown($event)"
-          animate.enter="popover-menu--enter"
-          animate.leave="popover-menu--leave"
-        >
-          <button
-            #menuItem
-            type="button"
-            class="program-card__menu-item popover-menu__item"
-            role="menuitem"
-            [attr.tabindex]="activeMenuItem() === 0 ? 0 : -1"
-            (click)="run('duplicate')"
-          >
-            <svg size="16" lucideCopy aria-hidden="true"></svg>
-            <span>Дублировать</span>
-          </button>
-
-          @if (isArchived()) {
-            <button
-              #menuItem
-              type="button"
-              class="program-card__menu-item popover-menu__item"
-              role="menuitem"
-              [attr.tabindex]="activeMenuItem() === 1 ? 0 : -1"
-              (click)="run('unarchive')"
-            >
-              <svg size="16" lucideArchiveRestore aria-hidden="true"></svg>
-              <span>Восстановить</span>
-            </button>
-          } @else {
-            <button
-              #menuItem
-              type="button"
-              class="program-card__menu-item popover-menu__item"
-              role="menuitem"
-              [attr.tabindex]="activeMenuItem() === 1 ? 0 : -1"
-              (click)="run('archive')"
-            >
-              <svg size="16" lucideArchive aria-hidden="true"></svg>
-              <span>Архивировать</span>
-            </button>
-          }
-
-          <button
-            #menuItem
-            type="button"
-            class="program-card__menu-item program-card__menu-item--danger popover-menu__item popover-menu__item--danger"
-            role="menuitem"
-            [attr.tabindex]="activeMenuItem() === 2 ? 0 : -1"
-            (click)="run('delete')"
-          >
-            <svg size="16" lucideTrash2 aria-hidden="true"></svg>
-            <span>Удалить</span>
-          </button>
-        </div>
-      }
-    </div>
   </footer>
 </article>

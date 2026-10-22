@@ -252,8 +252,8 @@ pool.get_connection()` is a `TypeError`; it must be awaited.
 - **A rate-limited backend makes an e2e suite trip its own limiter.** `chats:post` allows 5
   per minute per user for both chat creation and message sending. One run creates several
   chats as a single shared user, so the limit is reached _within_ the suite. The failure is
-  far from the cause: the chat is created (202), the send is rejected (429), and the create
-  page never navigates, so the assertion reports "expected URL to match /chats/.+".
+  far from the cause: the chat is created (202), the send is rejected (429), and the home
+  composer never navigates, so the assertion reports "expected URL to match /chats/.+".
   `workers: 1` plus clearing `ratelimit:*` in Redis before each test is the fix; parallel
   workers make per-test clearing useless because they trip each other.
 - **`docker compose exec` does not forward host env vars** into the container. Seeding a
@@ -543,7 +543,7 @@ No such file or directory`. Compose only sets two secrets that way and keeps the
   even though the backend container was healthy and correctly aliased. `--force-recreate`
   fixed it; a plain restart would not have.
 
-- **A `1fr 1fr` grid with a table inside blows out the centered container.** Grid `1fr` tracks are `minmax(auto, 1fr)`, so a wide table (unbreakable badges like `Суперпользователь`) forces the track past its share and the grid spills right past `max-width: 1200px; margin: 0 auto`, making the page look shifted versus single-column pages. Fix is `min-width: 0` on the grid children plus an `overflow-x: auto` wrapper around the table, the same pattern `history-page` already uses. No SCSS gate catches this (ESLint skips `.scss`, no stylelint).
+- **A `1fr 1fr` grid with a table inside blows out the centered container.** Grid `1fr` tracks are `minmax(auto, 1fr)`, so a wide table (unbreakable badges like `Суперпользователь`) forces the track past its share and the grid spills right past `max-width: 1200px; margin: 0 auto`, making the page look shifted versus single-column pages. Fix is `min-width: 0` on the grid children plus an `overflow-x: auto` wrapper around the table, the pattern the admin users page uses. No SCSS gate catches this (ESLint skips `.scss`, no stylelint).
 - **Garage has no default CORS policy, and the 403 it returns does not name the cause.** Every
   browser upload and download goes through a presigned URL, so each one is preflighted; with no
   `cors_config` on the bucket, `handle_options_for_bucket` finds no matching rule and answers
@@ -1062,10 +1062,11 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   the hit first; give the content `pointer-events: none` and opt the context menu back in
   with `pointer-events: auto`. Found 2026-10-21 on `feat/my-programs-page`.
 - **A component stylesheet over the 10 kB `anyComponentStyle` error budget fails `ng build`,
-  even if the repeated rules could live globally.** Moving the shared popover block to
-  `_menu.scss` took the panel from a 12.01 kB error to 9.51 kB (a warning), because global
-  styles do not count against the component budget. Found 2026-10-21 on
-  `feat/my-programs-page`.
+  even if the repeated rules could live globally.** Global styles — a partial `@use`d from
+  `styles.scss` — do not count against the component budget, so that is where a utility shared
+  by several components belongs. Measured twice: a popover block moved to a partial took the
+  panel from a 12.01 kB error to 9.51 kB (2026-10-21), and the update backdrop moved to
+  `_flash.scss` took the programme preview back under the budget (2026-10-22).
 - **`@HostListener('document:keydown.tab')` types `$event` as `Event`, not `KeyboardEvent`.**
   Strict template checking rejects reading `event.key`; listen on `document:keydown` and
   branch on `event.key === 'Tab'` instead. Found 2026-10-21 on `feat/my-programs-page`.
@@ -1110,11 +1111,34 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   field as if the list had it, and do not open a detail request for every card to fill one.
   The optional fields in `ProgramApiItem` are the seam for the catalogue contract growing.
   Found 2026-10-21.
+- **A new page component imported eagerly can break the bundle budget even when it looks
+  small.** `/chats/:id` needed the preview, stepper and question form, and importing
+  `ChatPage` directly in `app.routes.ts` pushed the initial bundle past the 1 MB error
+  threshold. The route now uses `loadComponent`; the build's budget is the check, not a guess.
+  Found 2026-10-22 on `feat/chat-page`.
+- **Web Speech `stop()` is not synchronous.** The service stops recognition and emits a final
+  result later, so sending immediately after `stop()` can send the field without the last
+  phrase. The composer sets `isStoppingSpeech`, waits for that final result, then reads the
+  text; a plain `stop(); send()` drops words. Found 2026-10-22.
+- **An absolutely positioned drawer is trapped by the first positioned ancestor.** The files
+  drawer lives inside `app-chat` but must cover the preview, so `.chat-page__workspace` is the
+  containing block and the chat pane and `app-chat` host stay unpositioned. Adding
+  `position: relative` to either intermediate element silently confines the drawer to the
+  chat column. Found 2026-10-22.
+- **A new close button can make an existing Playwright locator ambiguous.** The files drawer
+  gained `aria-label="Закрыть панель файлов"`, which contains the old `Панель файлов` name;
+  `getByRole('button', { name: 'Панель файлов' })` then matched both the toggle and the close
+  button, and strict mode fails even while the drawer keeps the close button hidden. All
+  three attachment specs now pass `exact: true`. Found 2026-10-22.
+- **A read-only mock makes the primary write path look like a dead button.** `/home` sends
+  `POST /chats` and then `POST /chats/{id}` before navigating, so a mock that serves only
+  the history list answers 404 and the redirect never happens. Any screen whose main action
+  is a write needs its mock to own state, not just return fixtures. Found 2026-10-22.
 
 - A corpus description puts the heading of the next document on the line **before** its `ID:`
   line, so an entry's extract ends where that heading starts. Reading the body up to the next
   `ID:` line therefore mixes the next document's title into this document's summary, and a
-  search for "ФГОС среднего общего образования" then ranks the *основного* general education
+  search for "ФГОС среднего общего образования" then ranks the _основного_ general education
   standard first, because its summary contains the next document's heading.
 
 - A run that is `approved` is terminal, so the approval of the skeleton must not set that
@@ -1125,8 +1149,7 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   content half of the programme never runs and nothing fails.
 
 - The Wikipedia API refuses a request without a `User-Agent`, and it refuses a generic one as
-  well: it wants a descriptive agent with a contact in it, and it says so in the body of the
-  403. A request that fails with "Please set a user-agent" is answered by sending one, not by
+  well: it wants a descriptive agent with a contact in it, and it says so in the body of the 403. A request that fails with "Please set a user-agent" is answered by sending one, not by
   giving up on the search.
 
 - The repository-level `.dockerignore` decides what the backend image holds, and it excluded
@@ -1141,11 +1164,11 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
 
 - **HNSW refuses a `vector` column above 2000 dimensions.** `vector(2048)` with
   `vector_cosine_ops` fails during `create_all`/migration with `column cannot have more than
-  2000 dimensions for hnsw index`. Use `HALFVEC(2048)` and `halfvec_cosine_ops`; pgvector
+2000 dimensions for hnsw index`. Use `HALFVEC(2048)` and `halfvec_cosine_ops`; pgvector
   supports halfvec to 4000 dimensions. Found 2026-10-22.
 - **`HalfVector` is a data helper, not the SQLAlchemy column type.** In pgvector-python
   0.3.6, `pgvector.sqlalchemy.HalfVector` expects a vector value and raises `expected ndim
-  to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALFVEC(2048)`.
+to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALFVEC(2048)`.
   Found 2026-10-22.
 - **`create_all` does not install the pgvector extension.** The backend test database is
   built from `Base.metadata`, so the fixture must run `CREATE EXTENSION IF NOT EXISTS vector`
@@ -1203,3 +1226,69 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   the turn. The same model may also omit a required field (`curriculum.schedule`) for six
   rounds in a row, so the round bound is what ends that attempt, not the model. Found
   2026-10-22.
+
+- **A programme export is an attachment with `chat_message_id = null`.** `GET
+/chats/{id}/attachments` returns it beside the methodist's staged uploads, so a client that
+  renders that list must subtract the ids in `program.exports`; otherwise `programme.docx`
+  looks like a pending upload and can be deleted, leaving the programme state pointing at a
+  missing file. Found 2026-10-22.
+- **Padding on a `0fr` grid item keeps an animated accordion open by exactly that padding.**
+  The panel collapses only its content box; `padding` and `border` still contribute height, so
+  a collapsed section kept a 23px strip. Put the padding and the divider on a child of the grid
+  item, and keep the grid item itself padding-free with `min-height: 0; overflow: hidden`.
+  Found 2026-10-22.
+- A programme block is not a pipeline stage. The preview placeholders said «Паспорт программы», «Учебный план» and «Источники» as if they were stages the client shows; the wizard names only five steps, so placeholders must point at «Каркас программы» or describe the agent's action, never invent a stage name.
+- `angular.json` caps a single component's stylesheet at 10 kB (`anyComponentStyle`, error) and warns from 6. The programme preview's 700 lines sit close to it, so adding a shared utility to that file pushed the build over by 24 bytes. The fix is a global partial under `src/app/` `@use`d from `styles.scss` — the pattern `_skeletons.scss` already sets — not a raised budget. Found 2026-10-22.
+- **`status: pending_approval` and `busy: false` arrive before the draft is finalized.** The
+  `completed()` transition sets the status, and `finalize_program_draft` runs as a *separate*
+  task that only writes the chat message and flips the private `finalized` flag. `busy` is
+  `status is GENERATING`, so it is false throughout, and the state does not expose `finalized`
+  at all: the client cannot tell that the draft was never rendered. `approve` then answers 409
+  `DraftNotReady` and the programme has to be re-read. A decision panel must therefore treat a
+  409 as a legitimate answer rather than a bug, and refresh. The window is short (the finalize
+  is enqueued in the same turn), but the state machine leaves it open. Found 2026-10-22.
+- A decision that is a gate has to replace the composer, not sit beside it. The questions form
+  and the approval panel are the same kind of moment — the run cannot move without the
+  methodist — so they share one slot; a control placed anywhere else leaves the methodist able
+  to type a message while the run is blocked, and the model answers it in prose. Found
+  2026-10-22.
+- **A block inherited from a deleted component can carry classes nothing styles.** The files
+  accordion's markup moved into the programme aside when the chat's own files panel was
+  deleted, and `.session-files__*` came with it — but the block defined no `&__subtitle`,
+  so `<h3 class="session-files__subtitle">` rendered as a browser-default heading, and its
+  rows used the shared `.button`, whose 15px padding is sized for a labelled action: three
+  icon buttons per row came out ~46×46px and dwarfed the file name. The symptom reads as "this
+  section was designed by someone else", and the cause is a rule that is *absent*, which no
+  grep for the class will show. Compare the element against a sibling that looks right
+  (`.program-preview__module`, `.program-preview__report-group-title`) and re-style to that,
+  rather than looking for the rule to change. Moving the block out also matters: the component
+  had reached 9.93 kB against the 10 kB `anyComponentStyle` ceiling, so `.session-files` now
+  lives in the global partial `_session-files.scss`, the pattern `_flash.scss` set. Found
+  2026-10-22.
+- The mock has to answer every route the client calls, or the demo blames the feature. Opening
+  the files accordion in mock mode asked for `GET /chats/{id}/attachments`, which the mock did
+  not answer, and the client's own error path raised "не удалось загрузить список файлов" — a
+  mock gap that looks like a broken feature. The list is now derived from the session's own
+  messages, so its ids cannot drift from the attachments those messages carry, and the demo
+  shows sent files without a second source of truth. Found 2026-10-22.
+- **A lookup that misses the row it just read is the index, not the data.** The e2e suite
+  started failing a test in three: sign-in answered 200 and set its cookie, the next
+  authenticated request was answered `401 Invalid session`, and whole runs came back green. The
+  row was there — the newest one by `expires_at` — while
+  `select count(*) from sessions where token = (select token from sessions order by expires_at desc limit 1)`
+  returned 0 in the same connection. With `set enable_indexscan = off` the same predicate
+  returned 1, and `bt_index_check` named it: `item order invariant violated for index
+  "sessions_pkey"`. `REINDEX TABLE sessions` repaired it in place; the data was never wrong and
+  the volume is disposable, but the *symptom* belonged to the session code. The trail to walk
+  is: row present in a scan → the same row missed by equality → disable index scans to confirm
+  → `bt_index_check` to name the index. Found 2026-10-22 on the e2e stack, where every test
+  signs in and the table had grown to several hundred rows.
+- **A seeded programme is a real run, and the recovery cron will fail it.** The e2e fixture
+  wrote a minimal envelope per status, and `recover_stalled_programs` treats a run untouched for
+  ten minutes as stalled: the `pending_approval` row had `finalize_program_draft` re-enqueued
+  (its blocks are absent, so `IncompleteDraft` ended the run) and the `generating` row had its
+  first stage enqueued against a provider that cannot save a block (three attempts, then
+  failed). So a seeded status decays within minutes and any spec that reads one is
+  time-dependent. Seed a run that is terminal (`failed`, `approved`, `verified`), waiting
+  (`draft`, `awaiting_answers`) or `finalized` — the last is what a rendered draft actually is,
+  and it is what keeps a decision panel reachable for a whole run. Found 2026-10-22.

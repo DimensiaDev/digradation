@@ -33,6 +33,11 @@ const FILE_TYPE_EXCEL = mdiNode(
   'M16.2 17h-2L12 13.2L9.8 17h-2l3.2-5l-3.2-5h2l2.2 3.8L14.2 7h2L13 12m6-9H5c-1.11 0-2 .89-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2'
 );
 
+const FILE_TYPE_POWERPOINT = mdiNode(
+  'file-powerpoint-box',
+  'M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2m-7 9h-2v2H8.5V9H12c.8 0 1.5.7 1.5 1.5v1c0 .8-.7 1.5-1.5 1.5m0-2h-2v1h2z'
+);
+
 const FILE_TYPE_IMAGE = mdiNode(
   'file-image-box',
   'M8.5 13.498l2.5 3.006l3.5-4.506l4.5 6H5m16 1v-14a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z'
@@ -71,6 +76,11 @@ export const FILE_TYPES: Record<string, FileTypeMeta> = {
     mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     style: { icon: FILE_TYPE_EXCEL, color: 'var(--color-success)' }
   },
+  '.pptx': {
+    kind: null,
+    mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    style: { icon: FILE_TYPE_POWERPOINT, color: 'var(--color-warning)' }
+  },
   '.png': {
     kind: 'image',
     mime: 'image/png',
@@ -89,7 +99,7 @@ export const FILE_TYPES: Record<string, FileTypeMeta> = {
 };
 
 // Extensions a user may attach. The list an admin edits first.
-export const ACCEPTED_EXTENSIONS: readonly string[] = ['.pdf', '.png', '.jpeg', '.jpg'];
+export const ACCEPTED_EXTENSIONS: readonly string[] = ['.pdf', '.png', '.jpeg', '.jpg', '.docx'];
 
 const UNKNOWN_FILE_TYPE_STYLE: FileTypeStyle = {
   icon: FILE_TYPE_GENERIC,

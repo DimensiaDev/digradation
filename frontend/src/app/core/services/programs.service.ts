@@ -11,11 +11,8 @@ import {
   ProgramModule,
   ProgramPageApi,
   ProgramStateApi,
-  ProgramStatus,
   ProgramTheme
 } from '../models/models';
-import { createId } from '../../shared/utils/create-id';
-import { ProfileService } from './profile.service';
 
 export const PROGRAMS_PAGE_SIZE = 6;
 
@@ -28,9 +25,7 @@ export const PROGRAM_POLL_INTERVAL_MS = 2_000;
 export interface ProgramsQuery {
   page?: number;
   itemsPerPage?: number;
-  type?: string;
   date?: string;
-  tags?: readonly string[];
 }
 
 const PROGRAM_KIND_LABELS: Record<ProgramKind, string> = {
@@ -47,8 +42,8 @@ function kindLabel(kind: ProgramKind | null | undefined): string | null {
   return kind ? PROGRAM_KIND_LABELS[kind] : null;
 }
 
-function themeForKind(kind: ProgramKind | null | undefined): ProgramTheme {
-  return kind ? PROGRAM_KIND_THEMES[kind] : 'it';
+function themeForKind(kind: ProgramKind | null | undefined): ProgramTheme | null {
+  return kind ? PROGRAM_KIND_THEMES[kind] : null;
 }
 
 function nonEmpty(value: string | null | undefined): string | null {
@@ -71,9 +66,11 @@ function curriculumHours(curriculum: ProgramCurriculumApi | null): number {
   if (!curriculum) {
     return 0;
   }
-  return curriculum.modules.reduce(
-    (total, module) => total + module.topics.reduce((sum, topic) => sum + topicHours(topic), 0),
-    0
+  return (
+    curriculum.modules.reduce(
+      (total, module) => total + module.topics.reduce((sum, topic) => sum + topicHours(topic), 0),
+      0
+    ) + (curriculum.attestation_hours ?? 0)
   );
 }
 
@@ -89,25 +86,11 @@ function curriculumModules(curriculum: ProgramCurriculumApi | null): readonly Pr
   }));
 }
 
-function cloneProgram(program: Program): Program {
-  return {
-    ...program,
-    tags: [...program.tags],
-    goals: [...program.goals],
-    author: { ...program.author },
-    competencyStatements: program.competencyStatements
-      ? [...program.competencyStatements]
-      : undefined,
-    modules: program.modules ? program.modules.map((module) => ({ ...module })) : undefined
-  };
-}
-
 @Injectable({
   providedIn: 'root'
 })
 export class ProgramsService {
   private readonly http = inject(HttpClient);
-  private readonly profile = inject(ProfileService);
   private readonly baseUrl = `${environment.apiUrl}/chats`;
 
   private readonly state = signal<readonly Program[]>([]);
@@ -143,15 +126,10 @@ export class ProgramsService {
   query(query: ProgramsQuery = {}): PaginatedResponse<Program> {
     const page = Math.max(0, query.page ?? 0);
     const itemsPerPage = query.itemsPerPage ?? PROGRAMS_PAGE_SIZE;
-    const type = query.type ?? 'all';
     const date = query.date ?? 'all';
-    const tags = query.tags ?? [];
 
     const filtered = this.state().filter(
-      (program) =>
-        (type === 'all' || program.type === type) &&
-        (date === 'all' || program.updatedAt.startsWith(date)) &&
-        (tags.length === 0 || tags.some((tag) => program.tags.includes(tag)))
+      (program) => date === 'all' || program.updatedAt.startsWith(date)
     );
     const start = page * itemsPerPage;
 
@@ -173,61 +151,6 @@ export class ProgramsService {
     this.detailRequestId++;
     this.detailPoll?.unsubscribe();
     this.detailPoll = null;
-  }
-
-  duplicate(id: string): void {
-    this.state.update((programs) => {
-      const source = programs.find((program) => program.id === id);
-      if (!source) {
-        return programs;
-      }
-
-      const copy: Program = {
-        ...cloneProgram(source),
-        id: createId(),
-        title: `${source.title} (копия)`,
-        status: 'draft',
-        updatedAt: new Date().toISOString()
-      };
-      return [copy, ...programs];
-    });
-  }
-
-  archive(id: string): void {
-    this.state.update((programs) =>
-      programs.map((program) => {
-        if (program.id !== id) {
-          return program;
-        }
-
-        const archived: Program = {
-          ...cloneProgram(program),
-          status: 'archived',
-          updatedAt: new Date().toISOString()
-        };
-        return archived;
-      })
-    );
-  }
-
-  unarchive(id: string): void {
-    this.state.update((programs) =>
-      programs.map((program) => {
-        if (program.id !== id) {
-          return program;
-        }
-
-        return {
-          ...cloneProgram(program),
-          status: 'published',
-          updatedAt: new Date().toISOString()
-        };
-      })
-    );
-  }
-
-  remove(id: string): void {
-    this.state.update((programs) => programs.filter((program) => program.id !== id));
   }
 
   private fetchPage(page: number, requestId: number, collected: ProgramApiItem[]): void {
@@ -302,6 +225,7 @@ export class ProgramsService {
           status: response.status === 'none' ? program.status : response.status,
           updatedAt: response.updated_at ?? program.updatedAt,
           type: kindLabel(draft.kind) ?? program.type,
+          theme: themeForKind(draft.kind) ?? program.theme,
           direction: nonEmpty(summary?.focus) ?? program.direction,
           hours: hours > 0 ? hours : program.hours,
           description:
@@ -324,25 +248,14 @@ export class ProgramsService {
     return {
       id: item.session_id,
       title: item.title,
-      type: item.type ?? kindLabel(item.kind) ?? 'Образовательная программа',
-      direction: item.direction ?? '—',
-      hours: item.hours ?? 0,
-      tags: item.tags ?? [],
-      status: item.status === 'none' ? 'draft' : (item.status as ProgramStatus),
-      theme: item.theme ?? themeForKind(item.kind),
-      author: item.author ?? this.currentAuthor(),
+      type: '',
+      direction: '',
+      hours: 0,
+      status: item.status,
+      theme: 'it',
       updatedAt: item.updated_at ?? '',
-      description: item.description ?? '',
-      goals: item.goals ?? []
+      description: '',
+      goals: []
     };
-  }
-
-  private currentAuthor(): { name: string; avatarUrl: string | null } {
-    const user = this.profile.user();
-    if (!user) {
-      return { name: '', avatarUrl: null };
-    }
-    const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username;
-    return { name, avatarUrl: null };
   }
 }

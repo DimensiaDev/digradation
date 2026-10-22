@@ -7,8 +7,8 @@ import {
 export type SectionDirection = 'forward' | 'backward' | 'none';
 
 // Sidebar order, top to bottom: moving to a lower entry plays "forward".
-// Sections reachable outside the sidebar (create, chats, profile) are absent
-// on purpose, so their transitions fall back to the neutral fade.
+// Sections reachable outside the sidebar (the chat workspace and the profile)
+// are absent on purpose, so their transitions fall back to the neutral fade.
 const SECTION_ORDER: readonly string[] = [
   ...USER_NAV_ITEMS.map((item) => item.route),
   ...USER_BOTTOM_NAV_ITEMS.map((item) => item.route),

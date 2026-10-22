@@ -21,7 +21,6 @@ import type { NavItem, Role } from '../../navigation/navigation.config';
     LucideDynamicIcon,
     RouterLink,
     RouterLinkActive,
-    LucideArrowLeft,
     LucidePanelLeftClose,
     LucidePanelLeftOpen,
     LucideMoon,
@@ -44,7 +43,7 @@ export class Sidebar {
   private static readonly USER_MENU_ITEM: NavItem = {
     label: 'Вернуться в пользовательское меню',
     icon: LucideArrowLeft,
-    route: '/chats'
+    route: '/home'
   };
 
   // The router's componentInputBinding sets every declared input from the
