@@ -704,7 +704,11 @@ Four constraints worth knowing before adding a spec:
   opens the seeded `pending_approval` programme, which is `finalized` with a committed skeleton for
   exactly this reason, and it answers `POST /program/approve` and `/program/revision` locally —
   a real revision starts a stage, and the offline provider cannot save one, so the run would fail
-  and the programme would stop being a draft for the rest of the suite.
+  and the programme would stop being a draft for the rest of the suite. **An export needs three
+  things, not one**: the attachment row, the object in `uploads`, and the ids on the state — a
+  presigned URL for an object that was never stored answers 404, which the UI reports as a button
+  that does nothing. `program-exports.spec.ts` downloads both forms of the seeded `approved`
+  programme for that reason.
 
 ### Frontend
 

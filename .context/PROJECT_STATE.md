@@ -295,10 +295,11 @@ Ordered by value, not by commitment:
 4. **Extend the e2e suite.** It covers authentication (the guest path, the sign-in dialog and
    the gate), the chat journey, a follow-up message, attachments, the home file preview, the
    programmes catalogue (guest preview, paging, the detail panel), admin roles, the admin
-   prompt editor, and the decision panel over a rendered draft (its text size, one card at a
-   time, and the body each decision sends).
-   Not yet covered: the docx and xlsx preview, avatar upload, the theme toggle, and the error
-   paths (a generation that fails, a session deleted mid-flight).
+   prompt editor, the decision panel over a rendered draft (its text size, one card at a
+   time, and the body each decision sends), and the two output forms of a finished programme
+   (both downloads, through object storage and the attachment route).
+   Not yet covered: the docx and xlsx preview of an uploaded file, avatar upload, the theme
+   toggle, and the error paths (a generation that fails, a session deleted mid-flight).
 5. **Fill the placeholder sections:** profile, user settings, the admin action log
    (`Журнал действий`) and system info.
 6. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).
