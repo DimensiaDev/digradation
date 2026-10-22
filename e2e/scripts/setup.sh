@@ -196,6 +196,23 @@ async def main():
             }
             if failed:
                 state["error"] = "e2e seeded failure"
+            if status == "pending_approval":
+                # The one programme a decision waits on, so the decision panel has
+                # a state to render: a draft that was shown is `finalized`, and its
+                # skeleton is committed, which is what fills the picker with the
+                # four blocks. `finalized` also keeps the row where it is — the
+                # recovery cron fails any non-terminal run it finds untouched for
+                # ten minutes, and this envelope is days old on purpose, because
+                # the catalogue orders by `updated_at`.
+                state["finalized"] = True
+                state["stages"] = {
+                    "competences": "completed",
+                    "hours": "completed",
+                    "sources": "completed",
+                    "summary": "completed",
+                    "assessment": "pending",
+                    "materials": "pending",
+                }
             db.add(
                 ChatSession(
                     session_id=session_id,

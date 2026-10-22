@@ -48,10 +48,10 @@ test.describe("attachment upload and delete", () => {
     await login(page);
     await createChat(page);
 
-    // Open the files panel, where "Загруженные файлы" lives.
-    await page
-      .getByRole("button", { name: "Панель файлов", exact: true })
-      .click();
+    // Open the files section, where "Загруженные файлы" lives.
+    // The files moved into the programme aside's `Файлы` accordion, and its
+    // label carries the file count once one is uploaded, so match the prefix.
+    await page.getByRole("button", { name: /^Файлы/ }).click();
     await expect(
       page.getByRole("heading", { name: "Загруженные файлы" }),
     ).toBeVisible();
@@ -79,9 +79,7 @@ test.describe("attachment upload and delete", () => {
   }) => {
     await login(page);
     const sessionId = await createChat(page);
-    await page
-      .getByRole("button", { name: "Панель файлов", exact: true })
-      .click();
+    await page.getByRole("button", { name: /^Файлы/ }).click();
     await uploadFile(page, "document.pdf");
 
     const row = page.locator(".session-files__file", {
@@ -123,9 +121,7 @@ test.describe("attachment upload and delete", () => {
   test("the delete call reports success to the session", async ({ page }) => {
     await login(page);
     const sessionId = await createChat(page);
-    await page
-      .getByRole("button", { name: "Панель файлов", exact: true })
-      .click();
+    await page.getByRole("button", { name: /^Файлы/ }).click();
     await uploadFile(page, "document.pdf");
 
     const row = page.locator(".session-files__file", {
