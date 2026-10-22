@@ -515,3 +515,28 @@ def test_an_unrendered_draft_is_not_awaiting_approval(blocks: Blocks) -> None:
     state = make_state(blocks, finalized=False)
 
     assert not state.awaiting_approval
+
+
+def test_the_approval_records_who_took_it(blocks: Blocks) -> None:
+    """The approval is the methodist's own decision, so it says who took it."""
+    state = make_state(blocks)
+    methodist = uuid.uuid4()
+
+    approved = state.approved(by=methodist)
+
+    assert approved.approved_by == methodist
+    assert approved.approved_at is not None
+    # The record is the approval's, and nothing else moves with it.
+    assert state.approved_by is None
+    assert state.approved_at is None
+
+
+def test_a_revision_records_who_asked_for_it(blocks: Blocks) -> None:
+    state = make_state(blocks)
+    methodist = uuid.uuid4()
+
+    revised = state.request_revision(Stage.HOURS, "замени тему 2.3", by=methodist)
+
+    assert revised.revision is not None
+    assert revised.revision.requested_by == methodist
+    assert revised.revision.requested_at is not None

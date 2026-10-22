@@ -13,6 +13,7 @@ tests spend deliberately.
 """
 
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,8 +23,8 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from redis.asyncio import Redis
-from sqlalchemy import func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.agentic import store
 from app.agentic.models import (
@@ -50,7 +51,7 @@ from app.cache import (
     get_program_stage_lock_key,
 )
 from app.harness import SYSTEM_PROMPT, build_system_prompt
-from app.models.auth import User
+from app.models.auth import Session, User
 from app.models.chat import (
     Attachment,
     ChatMessage,
@@ -75,9 +76,13 @@ def kiq(monkeypatch):
     """Replace both taskiq ``.kiq`` attributes the routes call with mocks."""
     generate = AsyncMock()
     process = AsyncMock()
+    stage = AsyncMock()
     monkeypatch.setattr("app.routes.chat.run_chat_turn.kiq", generate)
     monkeypatch.setattr("app.routes.chat.process_attachment.kiq", process)
-    return SimpleNamespace(generate=generate, process=process)
+    # The programme stages are enqueued from the task layer, which the routes
+    # call into, so the mock belongs to the task itself.
+    monkeypatch.setattr("app.tasks.program.program_stage.kiq", stage)
+    return SimpleNamespace(generate=generate, process=process, stage=stage)
 
 
 @pytest.fixture(autouse=True)
@@ -115,6 +120,47 @@ async def other_chat(db_session: AsyncSession) -> ChatSession:
     await db_session.commit()
     await db_session.refresh(other)
     return await make_chat(db_session, other.id, name="Чужой чат")
+
+
+@pytest_asyncio.fixture()
+async def committed_chat(engine: AsyncEngine) -> AsyncGenerator[SimpleNamespace]:
+    """A chat whose row is committed, with the name of the user who owns it.
+
+    The programme's state is written on the worker's own connection, and a row
+    that only the test's transaction can see is invisible to that connection.
+    The session row is written here too: a login through the route would
+    insert it into the test's transaction, and the lock that insert takes on
+    the user row would hold up this cleanup until the test itself ended.
+    """
+    from app.auth import generate_token
+
+    maker = async_sessionmaker(bind=engine, expire_on_commit=False)
+    async with maker() as db:
+        user = User(username=f"committed-{uuid.uuid4().hex[:8]}", password_hash="not-a-real-hash")
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        row = ChatSession(session_id=uuid.uuid4(), user_id=user.id)
+        db.add(row)
+        token = generate_token()
+        db.add(Session(token=token, user_id=user.id, expires_at=datetime.now(UTC) + timedelta(days=1)))
+        await db.commit()
+        await db.refresh(row)
+        owned = SimpleNamespace(row=row, username=user.username, uuid=user.uuid, user_id=user.id, token=token)
+    try:
+        yield owned
+    finally:
+        async with maker() as db:
+            await db.execute(delete(ChatSession).where(ChatSession.session_id == owned.row.session_id))
+            await db.execute(delete(User).where(User.id == owned.user_id))
+            await db.commit()
+
+
+@pytest_asyncio.fixture()
+async def committed_client(client: AsyncClient, committed_chat: SimpleNamespace) -> AsyncClient:
+    """``client`` with the session cookie of the committed chat's owner."""
+    client.cookies.set("session_token", committed_chat.token)
+    return client
 
 
 async def set_timestamp(db_session: AsyncSession, row, when: datetime):
@@ -792,6 +838,225 @@ async def test_get_result_carries_the_open_questions(
 
     assert response.status_code == 200
     assert response.json()["questions"] == [{"id": "q-1", "text": "На сколько часов?"}]
+
+
+# ---------------------------------------------------------------------------
+# POST /chats/{session_id}/program/approve
+# ---------------------------------------------------------------------------
+
+
+def waiting_for_approval(session_id: uuid.UUID, **changes) -> ProgramState:
+    """A run whose skeleton has been rendered and waits for the methodist."""
+    state = programme(session_id, status=ProgramStatus.PENDING_APPROVAL, finalized=True)
+    return state.model_copy(update=changes) if changes else state
+
+
+async def test_the_approval_releases_the_content(
+    committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
+):
+    """The approval puts the first content stage on the queue."""
+    session_id = committed_chat.row.session_id
+    state = waiting_for_approval(session_id)
+    await store.save(state)
+
+    response = await committed_client.post(f"/chats/{session_id}/program/approve")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "generating"
+    assert body["current_stage"] == "assessment"
+    assert body["busy"] is True
+    # The content is written from the approved skeleton, so the first content
+    # stage is the one that runs.
+    kiq.stage.assert_awaited_once_with(session_id, "assessment", state.run_id)
+
+
+async def test_the_approval_is_recorded_with_the_methodist(
+    committed_client: AsyncClient, committed_chat: SimpleNamespace, task_db: None, redis_session: None
+):
+    """The approval is the methodist's own decision, so it says who took it."""
+    session_id = committed_chat.row.session_id
+    state = waiting_for_approval(session_id)
+    await store.save(state)
+
+    response = await committed_client.post(f"/chats/{session_id}/program/approve")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["approved_by"] == str(committed_chat.uuid)
+    assert body["approved_at"] is not None
+
+    saved = await store.load(session_id)
+    assert saved is not None
+    assert saved.approved_by == committed_chat.uuid
+    assert saved.approved_at is not None
+
+
+async def test_a_draft_that_was_never_shown_cannot_be_approved(
+    committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
+):
+    session_id = committed_chat.row.session_id
+    state = programme(session_id, status=ProgramStatus.PENDING_APPROVAL, finalized=False)
+    await store.save(state)
+
+    response = await committed_client.post(f"/chats/{session_id}/program/approve")
+
+    assert response.status_code == 409
+    assert "готов" in response.json()["detail"]
+    kiq.stage.assert_not_awaited()
+
+
+async def test_a_finished_programme_cannot_be_approved_again(
+    committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
+):
+    session_id = committed_chat.row.session_id
+    state = programme(session_id, status=ProgramStatus.APPROVED, finalized=True)
+    await store.save(state)
+
+    response = await committed_client.post(f"/chats/{session_id}/program/approve")
+
+    assert response.status_code == 409
+    assert "утверждена" in response.json()["detail"]
+    kiq.stage.assert_not_awaited()
+
+
+async def test_a_chat_without_a_programme_cannot_be_approved(
+    committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
+):
+    response = await committed_client.post(f"/chats/{committed_chat.row.session_id}/program/approve")
+
+    assert response.status_code == 404
+    kiq.stage.assert_not_awaited()
+
+
+async def test_the_approval_is_forbidden_for_other_user(
+    auth_client: AsyncClient, other_chat, task_db: None, redis_session: None
+):
+    response = await auth_client.post(f"/chats/{other_chat.session_id}/program/approve")
+
+    assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# POST /chats/{session_id}/program/revision
+# ---------------------------------------------------------------------------
+
+
+async def test_a_revision_reruns_the_named_stage(
+    committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
+):
+    """The revision is not a new run: the stage runs again, the rest stays."""
+    session_id = committed_chat.row.session_id
+    state = programme(session_id, status=ProgramStatus.GENERATING)
+    await store.save(state)
+
+    response = await committed_client.post(
+        f"/chats/{session_id}/program/revision",
+        json={"stage": "hours", "notes": "замени тему 2.3"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "generating"
+    assert body["current_stage"] == "hours"
+    assert body["revision"]["stage"] == "hours"
+    assert body["revision"]["notes"] == "замени тему 2.3"
+    kiq.stage.assert_awaited_once_with(session_id, "hours", state.run_id)
+
+
+async def test_a_revision_is_recorded_with_the_methodist(
+    committed_client: AsyncClient, committed_chat: SimpleNamespace, task_db: None, redis_session: None
+):
+    session_id = committed_chat.row.session_id
+    state = programme(session_id, status=ProgramStatus.GENERATING)
+    await store.save(state)
+
+    response = await committed_client.post(
+        f"/chats/{session_id}/program/revision",
+        json={"stage": "hours", "notes": "замени тему 2.3"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["revision"]["requested_by"] == str(committed_chat.uuid)
+
+    saved = await store.load(session_id)
+    assert saved is not None
+    assert saved.revision is not None
+    assert saved.revision.requested_by == committed_chat.uuid
+    assert saved.revision.requested_at is not None
+
+
+async def test_a_revision_spends_no_attempt(
+    committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
+):
+    """A change the methodist asked for is not a failed attempt."""
+    session_id = committed_chat.row.session_id
+    state = programme(session_id, status=ProgramStatus.GENERATING)
+    await store.save(state)
+
+    response = await committed_client.post(
+        f"/chats/{session_id}/program/revision",
+        json={"stage": "hours", "notes": "замени тему 2.3"},
+    )
+
+    assert response.status_code == 200
+    saved = await store.load(session_id)
+    assert saved is not None
+    assert saved.attempts.get(Stage.HOURS) == 0
+
+
+async def test_a_programme_waiting_for_answers_cannot_be_revised(
+    committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
+):
+    session_id = committed_chat.row.session_id
+    state = programme(session_id, status=ProgramStatus.AWAITING_ANSWERS)
+    await store.save(state)
+
+    response = await committed_client.post(
+        f"/chats/{session_id}/program/revision",
+        json={"stage": "hours", "notes": "замени тему 2.3"},
+    )
+
+    assert response.status_code == 409
+    assert "ответов" in response.json()["detail"]
+    kiq.stage.assert_not_awaited()
+
+
+async def test_a_failed_programme_cannot_be_revised(
+    committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
+):
+    session_id = committed_chat.row.session_id
+    state = programme(session_id, failed=True, error="этап не завершился")
+    await store.save(state)
+
+    response = await committed_client.post(
+        f"/chats/{session_id}/program/revision",
+        json={"stage": "hours", "notes": "замени тему 2.3"},
+    )
+
+    assert response.status_code == 409
+    kiq.stage.assert_not_awaited()
+
+
+async def test_a_chat_without_a_programme_cannot_be_revised(
+    committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
+):
+    response = await committed_client.post(
+        f"/chats/{committed_chat.row.session_id}/program/revision",
+        json={"stage": "hours", "notes": "замени тему 2.3"},
+    )
+
+    assert response.status_code == 404
+    kiq.stage.assert_not_awaited()
+
+
+async def test_a_revision_without_notes_is_refused(auth_client: AsyncClient, chat, redis_session: None):
+    response = await auth_client.post(
+        f"/chats/{chat.session_id}/program/revision",
+        json={"stage": "hours", "notes": ""},
+    )
+
+    assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------

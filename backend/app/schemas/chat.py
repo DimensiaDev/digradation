@@ -163,6 +163,35 @@ class ProgramExportsSchema(BaseModel):
     slides_attachment_id: int | None = Field(default=None, description="Вложение со слайдами программы")
 
 
+class ProgramRevisionSchema(BaseModel):
+    """A change the methodist asked for in one part of the programme."""
+
+    stage: Stage = Field(description="Блок программы, который переделывается")
+    notes: str = Field(description="Что именно изменить")
+    requested_by: uuid.UUID | None = Field(default=None, description="Кто попросил переделку")
+    requested_at: datetime | None = Field(default=None, description="Когда попросили переделку")
+
+
+class ProgramRevisionRequest(BaseModel):
+    """The methodist's request to redo one part of the programme.
+
+    The stage names the block to redo and the notes say what to change in it.
+    The rest of the programme stays as it is.
+    """
+
+    stage: Stage = Field(description="Блок программы, который нужно переделать")
+    notes: str = Field(min_length=1, max_length=2000, description="Что именно изменить")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "stage": "hours",
+                "notes": "Замени тему 2.3: добавить разбор кейса из практикума",
+            }
+        }
+    )
+
+
 class ProgramReportSchema(BaseModel):
     """The checks the programme passed, for the methodist to read."""
 
@@ -222,6 +251,11 @@ class ProgramStateSchema(BaseModel):
     draft: ProgramBlocksSchema | None = Field(default=None, description="Документ в том виде, в каком он уже есть")
     report: ProgramReportSchema | None = Field(default=None, description="Отчёт автопроверки программы")
     exports: ProgramExportsSchema | None = Field(default=None, description="Выгрузки программы: документ и слайды")
+    revision: ProgramRevisionSchema | None = Field(
+        default=None, description="Правка, которую методист попросил внести, пока она не сделана"
+    )
+    approved_by: uuid.UUID | None = Field(default=None, description="Кто утвердил черновик программы")
+    approved_at: datetime | None = Field(default=None, description="Когда черновик был утверждён")
 
     model_config = ConfigDict(
         json_schema_extra={

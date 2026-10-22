@@ -787,6 +787,20 @@ async def test_a_rendered_draft_can_be_approved(context: ToolContext) -> None:
     assert context.state.current_stage is Stage.ASSESSMENT
 
 
+async def test_the_approval_names_the_methodist_who_took_it(context: ToolContext) -> None:
+    """The approval is the methodist's own decision, so it says who took it."""
+    methodist = uuid.uuid4()
+    context.user_id = methodist
+    context.state = at_stage(context.state, Stage.SUMMARY).completed(Stage.SUMMARY).mark_finalized()
+
+    result = await execute_tool(context, call("approve_program_draft", {}))
+
+    assert result.ok is True
+    assert context.state is not None
+    assert context.state.approved_by == methodist
+    assert context.state.approved_at is not None
+
+
 # --------------------------------------------------------------------------------------
 # revising one part
 # --------------------------------------------------------------------------------------

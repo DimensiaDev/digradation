@@ -25,7 +25,7 @@ from app.naming import first_user_message, resolve_chat_name
 from app.providers.containers import provider
 from app.providers.models import Message, ResponseFormat
 from app.tasks.conf.broker import broker, tsq_db
-from app.tasks.program import program_stage
+from app.tasks.program import program_stage, release_content, rerun_stage
 
 log = structlog.stdlib.get_logger(__name__)
 
@@ -110,7 +110,7 @@ async def run_chat_turn(session: uuid.UUID, answers: list[dict[str, str]] | None
                 # an error over a turn that succeeded.
                 log.info("program_answers_already_applied", session=str(session), reason=str(error))
 
-        ctx = ToolContext(session_id=session, state=state)
+        ctx = ToolContext(session_id=session, state=state, user_id=user.uuid)
         offered = INTAKE_TOOLS
 
         async def generate(history: list[Message]):
@@ -202,7 +202,7 @@ async def _commit_tool_state(ctx: ToolContext, previous: ProgramState | None, se
         await program_stage.kiq(session, saved.current_stage.value, saved.run_id)
     elif not started and saved.revision is not None:
         # The methodist asked for a change in one part: that part is redone.
-        await program_stage.kiq(session, saved.revision.stage.value, saved.run_id)
+        await rerun_stage(saved, saved.revision.stage)
     elif not started and saved.status is ProgramStatus.GENERATING:
         # The methodist approved the skeleton: the content may be written now.
         # The attempt is spent here, so the stage has the same budget as every
@@ -210,8 +210,7 @@ async def _commit_tool_state(ctx: ToolContext, previous: ProgramState | None, se
         stage = saved.current_stage
         if saved.stage_status(stage) is StageStatus.COMPLETED:
             return
-        queued = await store.save(saved.enqueued(stage), expected_run_id=saved.run_id)
-        await program_stage.kiq(session, queued.current_stage.value, queued.run_id)
+        await release_content(saved)
 
 
 @broker.task(queue_name="default")

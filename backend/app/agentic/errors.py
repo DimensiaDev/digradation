@@ -12,6 +12,10 @@ class ProgramError(Exception):
     """Base of every failure the pipeline raises."""
 
     reason = "не удалось продолжить формирование программы"
+    #: What the model is told to do next, when there is something to do. The
+    #: HTTP endpoints answer with the reason alone, because the client shows
+    #: the reason and acts on it.
+    note: str | None = None
 
     def __init__(self, detail: str | None = None) -> None:
         super().__init__(detail or self.reason)
@@ -69,3 +73,30 @@ class IncompleteDraft(ProgramError):
     def __init__(self, problems: list[str]) -> None:
         super().__init__("; ".join(problems))
         self.problems = problems
+
+
+class AlreadyApproved(ProgramError):
+    """The programme is complete, so there is nothing left to approve."""
+
+    reason = "Программа уже утверждена"
+    note = "Ничего делать не нужно."
+
+
+class DraftNotReady(ProgramError):
+    """The draft was never shown, so there is nothing to confirm."""
+
+    reason = "Черновик ещё не готов к подтверждению"
+    note = "Дождись, когда черновик будет показан методисту, и только потом подтверждай."
+
+
+class ProgrammeFailed(ProgramError):
+    """The run died, so nothing can be done to it any more."""
+
+    reason = "Программа не собрана"
+
+
+class WaitingForAnswers(ProgramError):
+    """The run is on hold until the methodist answers the open questions."""
+
+    reason = "Программа ждёт ответов методиста"
+    note = "Сначала ответь на вопросы программы, потом проси переделку."

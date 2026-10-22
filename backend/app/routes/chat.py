@@ -10,8 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import aliased, selectinload
 
-from app.agentic import store
-from app.agentic.errors import AnswersDoNotMatch
+from app.agentic import actions, store
+from app.agentic.errors import AnswersDoNotMatch, MissingChat, ProgramError, StaleState
 from app.agentic.render import render_answers
 from app.agentic.state import ClarificationAnswer, apply_answers
 from app.agentic.view import programme_questions, programme_state, programme_status
@@ -52,6 +52,7 @@ from app.schemas.chat import (
     ChatCreatedSchema,
     ChatDeletedResponse,
     ChatMessageSchema,
+    ProgramRevisionRequest,
     ProgramStateSchema,
     ResultSchema,
     ResultSchemaContent,
@@ -73,6 +74,7 @@ from app.schemas.files import (
 from app.storage import get_s3_attachment_key
 from app.tasks.api import run_chat_turn
 from app.tasks.files import _s3_try_delete, process_attachment
+from app.tasks.program import release_content, rerun_stage
 
 log = structlog.stdlib.get_logger(__name__)
 
@@ -582,6 +584,102 @@ async def get_program(session_id: VerifiedMessageSession, db: DbSession, redis_c
     return programme_state(state, running=running)
 
 
+@router.post(
+    "/{session_id}/program/approve",
+    summary="Approve the programme's draft",
+    response_model=ProgramStateSchema,
+    responses={
+        401: {"description": "Not authenticated, or session expired/invalid"},
+        403: {"description": "Chat session not found or does not belong to the user"},
+        404: {"description": "This chat holds no programme"},
+        409: {"description": "The draft is not ready to be approved, or the programme has moved on"},
+        429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
+    },
+)
+async def approve_program(session_id: VerifiedMessageSession, user: CurrentUser, db: DbSession):
+    """Approve the draft and let the content be written from it.
+
+    The programme is written in two halves: the skeleton — the goal, the
+    competences, the hours and the passport — is shown first, and the content
+    is written from it only once the methodist has approved it. This endpoint
+    is that approval, and it does what the model's own `approve_program_draft`
+    tool does: the content stages go on the queue and the attempt is spent, so
+    the content has the same budget as every other stage.
+
+    The approval is the methodist's own decision, so the state records who
+    approved and when. The response is the programme's state, in the same shape
+    `GET /chats/{session_id}/program` answers with.
+
+    A draft that was never shown cannot be approved, and a programme that is
+    already complete has nothing left to approve: both answer with 409.
+    """
+    state = await store.load_from(db, session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="В этом чате нет программы")
+    try:
+        approved = actions.approve(state, by=user.uuid)
+    except ProgramError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    try:
+        saved = await release_content(approved)
+    except MissingChat as error:
+        raise HTTPException(status_code=404, detail="В этом чате нет программы") from error
+    except StaleState as error:
+        raise HTTPException(status_code=409, detail="Программа изменилась, повторите подтверждение") from error
+    return programme_state(saved)
+
+
+@router.post(
+    "/{session_id}/program/revision",
+    summary="Ask for one part of the programme to be redone",
+    response_model=ProgramStateSchema,
+    responses={
+        401: {"description": "Not authenticated, or session expired/invalid"},
+        403: {"description": "Chat session not found or does not belong to the user"},
+        404: {"description": "This chat holds no programme"},
+        409: {"description": "The programme cannot be revised in its present state"},
+        429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
+    },
+)
+async def request_program_revision(
+    session_id: VerifiedMessageSession,
+    user: CurrentUser,
+    db: DbSession,
+    data: ProgramRevisionRequest,
+):
+    """Ask for one part of the programme to be redone.
+
+    The change is not a new run: the blocks that are already committed stay,
+    the named stage runs again with the methodist's notes, and the parts that
+    were written from it are written again, because a block that stays while
+    its foundation moves points at something that is no longer there.
+
+    The revision spends no attempt — a change the methodist asked for is not a
+    failed attempt, and the budget of three per stage is there for the agent's
+    own failures. The revision is recorded with the person who asked for it.
+
+    The response is the programme's state, in the same shape
+    `GET /chats/{session_id}/program` answers with.
+    """
+    state = await store.load_from(db, session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="В этом чате нет программы")
+    try:
+        revised = actions.revise(state, data.stage, data.notes, by=user.uuid)
+    except ProgramError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    try:
+        saved = await store.save(revised, expected_run_id=revised.run_id)
+    except MissingChat as error:
+        raise HTTPException(status_code=404, detail="В этом чате нет программы") from error
+    except StaleState as error:
+        raise HTTPException(status_code=409, detail="Программа изменилась, повторите правку") from error
+    revision = saved.revision
+    if revision is not None:
+        await rerun_stage(saved, revision.stage)
+    return programme_state(saved)
+
+
 @router.get(
     "/{session_id}/result",
     summary="Get last result if any user message was sent",
@@ -655,10 +753,10 @@ async def upload_file(
 ):
     """Register an attachment and get a presigned URL to upload it directly to storage.
 
-    Allowed content types: PDF, PNG, JPEG. Max file size 30 MB.
+    Allowed content types: PDF, PNG, JPEG, DOCX. Max file size 30 MB.
 
     The filename must be a bare name whose extension is one of .pdf, .png, .jpg,
-    .jpeg.
+    .jpeg, .docx.
 
     After uploading to the returned URL, call
     `POST /chats/{session_id}/uploads/{attachment_id}/uploaded` to confirm and

@@ -339,6 +339,25 @@ async def _enqueue_stage(state: ProgramState, stage: Stage) -> ProgramState:
     return saved
 
 
+async def release_content(state: ProgramState) -> ProgramState:
+    """Spend the attempt and put the first content stage on the queue.
+
+    The approval releases the content, and the release is a stage like any
+    other: it spends one of that stage's three attempts, so a stage that is
+    already complete is not run again and a stage that fails has a budget.
+    """
+    return await _enqueue_stage(state, state.current_stage)
+
+
+async def rerun_stage(state: ProgramState, stage: Stage) -> None:
+    """Put a stage on the queue for a change the methodist asked for.
+
+    A change is not a failed attempt, so the stage's budget is not spent here:
+    the revision itself gave the stage a fresh one.
+    """
+    await program_stage.kiq(state.session_id, stage.value, state.run_id)
+
+
 async def _request_files(session_id: uuid.UUID) -> list[str]:
     """The files the methodist attached to the request.
 

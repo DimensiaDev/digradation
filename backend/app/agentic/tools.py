@@ -20,7 +20,8 @@ from typing import Annotated, Any
 import structlog.stdlib
 from pydantic import BaseModel, Field, ValidationError
 
-from app.agentic import sources, websearch
+from app.agentic import actions, sources, websearch
+from app.agentic.errors import ProgramError
 from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
 from app.agentic.sources import RagUnavailable
 from app.agentic.state import (
@@ -67,6 +68,9 @@ class ToolContext:
     dirty: bool = False
     #: Whether the stage's block was accepted in this turn.
     saved: bool = False
+    #: The person the turn belongs to. A decision the methodist takes is
+    #: recorded against them, so the state says who approved the programme.
+    user_id: uuid.UUID | None = None
 
 
 class ToolResult(BaseModel):
@@ -622,15 +626,10 @@ async def approve_program_draft(
     state = ctx.state
     if state is None:
         return ApproveProgramDraftResult(ok=False, error="В этом чате нет программы")
-    if state.status is ProgramStatus.APPROVED:
-        return ApproveProgramDraftResult(ok=False, error="Программа уже утверждена", note="Ничего делать не нужно.")
-    if not state.awaiting_approval:
-        return ApproveProgramDraftResult(
-            ok=False,
-            error="Черновик ещё не готов к подтверждению",
-            note="Дождись, когда черновик будет показан методисту, и только потом подтверждай.",
-        )
-    ctx.state = state.approved()
+    try:
+        ctx.state = actions.approve(state, by=ctx.user_id)
+    except ProgramError as error:
+        return ApproveProgramDraftResult(ok=False, error=str(error), note=error.note)
     ctx.dirty = True
     log.info("program_approved", chat_session_id=str(ctx.session_id))
     return ApproveProgramDraftResult(note="Черновик утверждён. Скажи методисту, что программа принята.")
@@ -644,15 +643,12 @@ async def revise_program(ctx: ToolContext, arguments: ReviseProgramArguments) ->
     the programme is checked against the block that changed.
     """
     state = ctx.state
-    if state is None or state.failed:
+    if state is None:
         return ReviseProgramResult(ok=False, error="В этом чате нет программы")
-    if state.status is ProgramStatus.AWAITING_ANSWERS:
-        return ReviseProgramResult(
-            ok=False,
-            error="Программа ждёт ответов методиста",
-            note="Сначала ответь на вопросы программы, потом проси переделку.",
-        )
-    ctx.state = state.request_revision(arguments.stage, arguments.notes)
+    try:
+        ctx.state = actions.revise(state, arguments.stage, arguments.notes, by=ctx.user_id)
+    except ProgramError as error:
+        return ReviseProgramResult(ok=False, error=str(error), note=error.note)
     ctx.dirty = True
     log.info(
         "program_revision_requested",

@@ -135,11 +135,14 @@ class Revision(BaseModel):
 
     The revision names the stage to redo and what to change in it, so the
     stage can be run again with the methodist's notes instead of the whole
-    programme being rebuilt.
+    programme being rebuilt. It also names who asked for it: a change is a
+    decision of a person, and the record is what makes it one.
     """
 
     stage: Stage = Field(description="Блок программы, который нужно переделать")
     notes: str = Field(min_length=1, max_length=2000, description="Что именно изменить")
+    requested_by: uuid.UUID | None = Field(default=None, description="Кто попросил переделку")
+    requested_at: datetime | None = Field(default=None, description="Когда попросили переделку")
 
 
 class ProgramCheck(BaseModel):
@@ -215,6 +218,10 @@ class ProgramState(BaseModel):
     revision: Revision | None = None
     #: The files the programme was exported to, once it was complete.
     exports: ProgramExports | None = None
+    #: Who approved the skeleton and when. The approval is the methodist's own
+    #: decision, so the record names the person who made it.
+    approved_by: uuid.UUID | None = None
+    approved_at: datetime | None = None
 
     #: True once the draft has been rendered into the chat and may be approved.
     finalized: bool = False
@@ -303,20 +310,29 @@ class ProgramState(BaseModel):
         """
         return self._replace()
 
-    def approved(self) -> Self:
+    def approved(self, by: uuid.UUID | None = None) -> Self:
         """The methodist approved the skeleton: the content may be written.
 
         The run keeps working rather than becoming approved: ``approved`` is
         the state of a finished programme, and the content is not written yet.
         The run points at the first part of the content that is still missing.
+
+        ``by`` is the person who made the decision. It is recorded with the
+        moment of the approval, because the approval is the one step of the
+        pipeline nobody but the methodist may take.
         """
         pending = next(
             (item for item in CONTENT_ORDER if self.stage_status(item) is not StageStatus.COMPLETED),
             None,
         )
-        return self._replace(status=ProgramStatus.GENERATING, current_stage=pending or self.current_stage)
+        return self._replace(
+            status=ProgramStatus.GENERATING,
+            current_stage=pending or self.current_stage,
+            approved_by=by,
+            approved_at=datetime.now(UTC),
+        )
 
-    def request_revision(self, stage: Stage, notes: str) -> Self:
+    def request_revision(self, stage: Stage, notes: str, by: uuid.UUID | None = None) -> Self:
         """Ask for one part of the programme to be redone.
 
         The stage goes back to pending, the run starts working again, and the
@@ -339,7 +355,7 @@ class ProgramState(BaseModel):
             stages = stages.model_copy(update={written_by.value: StageStatus.PENDING})
             attempts[written_by] = 0
         return self._replace(
-            revision=Revision(stage=stage, notes=notes),
+            revision=Revision(stage=stage, notes=notes, requested_by=by, requested_at=datetime.now(UTC)),
             stages=stages,
             attempts=attempts,
             status=ProgramStatus.GENERATING,
