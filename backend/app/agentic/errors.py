@@ -89,6 +89,13 @@ class DraftNotReady(ProgramError):
     note = "Дождись, когда черновик будет показан методисту, и только потом подтверждай."
 
 
+class DraftIncomplete(ProgramError):
+    """The skeleton has a hole in it, so there is nothing whole to approve."""
+
+    reason = "Черновик ещё не собран"
+    note = "Дождись, когда все блоки черновика будут собраны, и только потом подтверждай."
+
+
 class ProgrammeFailed(ProgramError):
     """The run died, so nothing can be done to it any more."""
 
@@ -100,3 +107,31 @@ class WaitingForAnswers(ProgramError):
 
     reason = "Программа ждёт ответов методиста"
     note = "Сначала ответь на вопросы программы, потом проси переделку."
+
+
+class RevisionPending(ProgramError):
+    """A change the methodist asked for is still being carried out."""
+
+    reason = "Правка уже взята в работу"
+    note = "Дождись, пока текущая правка будет сделана, и проси следующую."
+
+
+class StageBusy(ProgramError):
+    """A worker is writing a stage right now."""
+
+    reason = "Программа сейчас пишется"
+    note = "Подожди, пока этап будет дописан, и проси переделку после этого."
+
+
+class StageNotReady(ProgramError):
+    """The named stage was never written, or what it is written from is not."""
+
+    reason = "Этот блок программы ещё не написан"
+    note = "Проси переделку того блока, который уже есть в программе."
+
+
+class SkeletonNotApproved(ProgramError):
+    """The content is written from an approved skeleton and from nothing else."""
+
+    reason = "Черновик программы ещё не утверждён"
+    note = "Сначала утверди черновик, потом проси переделку содержания."

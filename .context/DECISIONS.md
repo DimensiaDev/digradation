@@ -1902,8 +1902,9 @@ therefore a stage that runs again, not a new run.
 - **The run does not walk the pipeline again.** A revised stage goes straight back to where the
   methodist left the programme: the skeleton waits for the methodist again, the content is
   complete. The stages that were already done are not run a second time.
-- **A revision is not a failed attempt.** The budget of three attempts per stage is there for
-  the agent's own failures, so a revision spends none of it.
+- **A revision resets the stage's budget rather than adding to it.** The revised stage gets
+  three more attempts, and the run the revision queues is the first of them; a run that was
+  queued for free gave a stage that failed its first revised run a fourth execution.
 - **The draft is rendered again.** The revision clears the "rendered" flag, so the methodist
   sees the changed draft and confirms it again.
 
@@ -2098,9 +2099,50 @@ model's tool calls are a guess: the methodist has to be able to press a button.
 - **The endpoint answers with the programme's state,** in the shape `GET /program` answers
   with, so a client renders the answer without a second request. The pending revision comes
   with it, because the methodist's own notes are otherwise nowhere to be seen.
-- **An approval spends an attempt and a revision spends none,** exactly as the model's path
-  does: the release of the content is a stage like any other, and a change the methodist
-  asked for is not a failed attempt.
+- **An approval spends an attempt and a revision starts a fresh budget,** exactly as the
+  model's path does: the release of the content is a stage like any other, and a revision gives
+  the stage it reruns three attempts, the first of which is the run it queues.
 - **The endpoint writes the state through `app.agentic.store`,** on its own connection, so
   the state is committed before the stage is enqueued. A worker that picks the task up
   immediately therefore reads a state that already says what it is doing.
+
+## A decision is taken against the state the caller read (2026-10-22)
+
+The two decision endpoints made the read-modify-write race visible: a route reads the
+programme, decides, writes, and in between a worker or another decision may have moved it.
+
+- **The decision is compared and swapped, not just written.** `store.save` takes
+  `expected_version`, the version the caller read, and refuses the save when the row has
+  moved on. Without it an approval built from an older copy replaced a revision that landed
+  in between, and the methodist's notes were lost without a trace.
+- **A revision is refused while a stage is being written.** The worker holds its own copy
+  of the programme and saves it under the row lock; if a revision landed after that read,
+  the worker's newer version would accept and replace it. The state's `IN_PROGRESS` is the
+  durable signal, and the route also checks the current stage's Redis lock, which is held
+  from before the worker writes that it started.
+- **A revision is refused while another revision is pending.** The queued task names a
+  stage; a second request would replace the notes and the stage, and the first task would
+  write a block answering neither.
+- **Only a written stage, on written foundations, can be revised.** A stage that never ran
+  has nothing to redo, and a stage that runs without its prerequisites writes a block that
+  points at something that is not there.
+- **The content is revised only after the approval.** The content is written from an
+  approved skeleton; approving is what makes a content revision meaningful, and the state
+  carries `skeleton_approved` because `approved_by` is not always known (the stage executor
+  has no user id).
+- **A skeleton revision withdraws the approval and is shown again only when whole.** Revising
+  the competences resets the hours and revising the sources resets the passport, so
+  `revision_completed` keeps the run generating until the skeleton is complete, and the
+  approval refuses a skeleton with a hole in it. Approving a half-written skeleton released
+  content written from nothing.
+- **A revision drops the exports.** The old document and slides describe a programme that is
+  no longer on the table; a client that fetched their attachment ids downloaded the previous
+  version. The completed revision is kept as `last_revision`, because the pending field is
+  cleared when the work is done and the record of who asked has to outlive it.
+- **Releasing the content means the first content stage that is missing.** A completed
+  programme whose summary was revised and re-approved has no missing content, so it is not
+  re-run: its document and slides are exported again and the programme stays approved.
+- **Recovery no longer skips a generating run whose skeleton was rendered.** `finalized`
+  only means the skeleton reached the chat. The scan skips it for a run waiting for the
+  methodist, not for one that is still writing its content, so an approval whose queue entry
+  was lost is recovered instead of staying stuck until somebody notices.

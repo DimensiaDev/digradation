@@ -290,7 +290,12 @@ async def recover_stalled_programs() -> None:
     now = datetime.now(UTC)
     for row in rows:
         state = store.parse(row.program_state)
-        if state is None or state.failed or state.terminal or state.finalized:
+        if state is None or state.failed or state.terminal:
+            continue
+        if state.finalized and state.status is not ProgramStatus.GENERATING:
+            # The draft is on the table and waits for the methodist. A run that
+            # is still being worked on is not in that state even though its
+            # skeleton was rendered, and it has to be recovered.
             continue
         if now - state.updated_at < STALLED_AFTER:
             continue
@@ -340,22 +345,34 @@ async def _enqueue_stage(state: ProgramState, stage: Stage) -> ProgramState:
 
 
 async def release_content(state: ProgramState) -> ProgramState:
-    """Spend the attempt and put the first content stage on the queue.
+    """Put the first content stage that is still missing on the queue.
 
     The approval releases the content, and the release is a stage like any
     other: it spends one of that stage's three attempts, so a stage that is
     already complete is not run again and a stage that fails has a budget.
+
+    A programme whose content is already whole has nothing to release. Its
+    document and its slides are written again, because the block that was
+    revised is in them.
     """
-    return await _enqueue_stage(state, state.current_stage)
+    stage = next(
+        (item for item in CONTENT_ORDER if state.stage_status(item) is not StageStatus.COMPLETED),
+        None,
+    )
+    if stage is None:
+        await export_program.kiq(state.session_id, state.run_id)
+        return state
+    return await _enqueue_stage(state, stage)
 
 
-async def rerun_stage(state: ProgramState, stage: Stage) -> None:
+async def rerun_stage(state: ProgramState, stage: Stage) -> ProgramState:
     """Put a stage on the queue for a change the methodist asked for.
 
-    A change is not a failed attempt, so the stage's budget is not spent here:
-    the revision itself gave the stage a fresh one.
+    The attempt is spent here, so the revised stage runs against the same
+    budget as every other one: the revision gave the stage a fresh budget of
+    three, and the run it starts is the first of them.
     """
-    await program_stage.kiq(state.session_id, stage.value, state.run_id)
+    return await _enqueue_stage(state, stage)
 
 
 async def _request_files(session_id: uuid.UUID) -> list[str]:

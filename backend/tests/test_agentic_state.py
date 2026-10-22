@@ -17,12 +17,13 @@ import pytest
 from pydantic import ValidationError
 
 from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
-from app.agentic.models import ProgramStatus, Stage, StageStatus
+from app.agentic.models import ProgramStatus, Stage, StageStatus, StageStatuses
 from app.agentic.state import (
     SKELETON_ORDER,
     STAGE_ORDER,
     AssessmentBlock,
     ClarificationAnswer,
+    ProgramExports,
     ProgramState,
     SourcesBlock,
     apply_answers,
@@ -540,3 +541,76 @@ def test_a_revision_records_who_asked_for_it(blocks: Blocks) -> None:
     assert revised.revision is not None
     assert revised.revision.requested_by == methodist
     assert revised.revision.requested_at is not None
+
+
+def all_stages_written() -> StageStatuses:
+    """Every stage of the programme, written."""
+    return StageStatuses(**{stage.value: StageStatus.COMPLETED for stage in STAGE_ORDER})
+
+
+def test_a_revision_drops_the_exports_it_made_stale(blocks: Blocks) -> None:
+    """The old document describes a programme that is no longer on the table."""
+    state = make_state(blocks, stages=all_stages_written()).with_exports(
+        ProgramExports(document_attachment_id=1, slides_attachment_id=2)
+    )
+
+    revised = state.request_revision(Stage.ASSESSMENT, "усложни тест")
+
+    assert revised.exports is None
+
+
+def test_a_revision_of_the_skeleton_withdraws_the_approval(blocks: Blocks) -> None:
+    state = make_state(blocks, stages=all_stages_written()).approved(by=uuid.uuid4())
+    assert state.skeleton_approved
+
+    revised = state.request_revision(Stage.HOURS, "замени тему 2.3")
+
+    assert revised.skeleton_approved is False
+    assert revised.approved_by is None
+    assert revised.approved_at is None
+
+
+def test_a_revision_of_the_content_keeps_the_approval(blocks: Blocks) -> None:
+    methodist = uuid.uuid4()
+    state = make_state(blocks, stages=all_stages_written()).approved(by=methodist)
+
+    revised = state.request_revision(Stage.ASSESSMENT, "усложни тест")
+
+    assert revised.skeleton_approved is True
+    assert revised.approved_by == methodist
+
+
+def test_a_completed_revision_is_kept_as_the_last_one(blocks: Blocks) -> None:
+    """The pending field is cleared when the work is done, and the record has to outlive it."""
+    methodist = uuid.uuid4()
+    revised = make_state(blocks, stages=all_stages_written()).request_revision(
+        Stage.HOURS, "замени тему 2.3", by=methodist
+    )
+
+    done = revised.completed(Stage.HOURS).revision_completed(Stage.HOURS)
+
+    assert done.revision is None
+    assert done.last_revision is not None
+    assert done.last_revision.stage is Stage.HOURS
+    assert done.last_revision.requested_by == methodist
+    assert done.last_revision.requested_at is not None
+
+
+def test_a_redone_skeleton_waits_until_the_skeleton_is_whole(blocks: Blocks) -> None:
+    """A revision of the competences resets the hours, and the draft is not shown yet."""
+    revised = make_state(blocks, stages=all_stages_written()).request_revision(Stage.COMPETENCES, "уточни результаты")
+
+    done = revised.completed(Stage.COMPETENCES).revision_completed(Stage.COMPETENCES)
+
+    assert done.status is ProgramStatus.GENERATING
+    assert done.current_stage is Stage.HOURS
+    assert done.stage_status(Stage.HOURS) is StageStatus.PENDING
+
+
+def test_a_redone_skeleton_returns_to_approval_when_it_is_whole(blocks: Blocks) -> None:
+    revised = make_state(blocks, stages=all_stages_written()).request_revision(Stage.SUMMARY, "перепиши паспорт")
+
+    done = revised.completed(Stage.SUMMARY).revision_completed(Stage.SUMMARY)
+
+    assert done.status is ProgramStatus.PENDING_APPROVAL
+    assert done.current_stage is Stage.SUMMARY

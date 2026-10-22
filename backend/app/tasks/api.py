@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agentic import store
 from app.agentic.errors import AnswersDoNotMatch
 from app.agentic.loop import run_tool_loop
-from app.agentic.models import ProgramStatus, StageStatus
+from app.agentic.models import ProgramStatus
 from app.agentic.state import ClarificationAnswer, ProgramState, apply_answers
 from app.agentic.tools import INTAKE_TOOLS, ToolContext, call_executor
 from app.cache import get_deletion_key, get_generation_key, get_redis_client
@@ -200,16 +200,13 @@ async def _commit_tool_state(ctx: ToolContext, previous: ProgramState | None, se
     log.info("program_state_committed", session=str(session), run_id=str(saved.run_id), status=saved.status.value)
     if started and saved.status is ProgramStatus.GENERATING:
         await program_stage.kiq(session, saved.current_stage.value, saved.run_id)
-    elif not started and saved.revision is not None:
+    elif not started and saved.revision is not None and previous is not None and previous.revision is None:
         # The methodist asked for a change in one part: that part is redone.
         await rerun_stage(saved, saved.revision.stage)
-    elif not started and saved.status is ProgramStatus.GENERATING:
+    elif not started and saved.skeleton_approved and previous is not None and not previous.skeleton_approved:
         # The methodist approved the skeleton: the content may be written now.
-        # The attempt is spent here, so the stage has the same budget as every
-        # other one, and a stage that is already complete is not run again.
-        stage = saved.current_stage
-        if saved.stage_status(stage) is StageStatus.COMPLETED:
-            return
+        # The approval is the only thing that puts the content on the queue,
+        # and a turn that changed nothing else does not release it twice.
         await release_content(saved)
 
 

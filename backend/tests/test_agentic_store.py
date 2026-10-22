@@ -135,6 +135,17 @@ async def test_an_older_version_is_refused(state: ProgramState, task_db: None, r
         await store.save(saved)
 
 
+async def test_a_caller_that_read_the_row_is_refused_when_it_moved(
+    state: ProgramState, task_db: None, redis_client: Redis
+) -> None:
+    """A decision made against a version is not written over a newer programme."""
+    saved = await store.save(state)
+    await store.save(saved.started(saved.current_stage))
+
+    with pytest.raises(StaleState):
+        await store.save(saved.approved(), expected_version=saved.version)
+
+
 async def test_a_restart_replaces_a_finished_run(state: ProgramState, task_db: None, redis_client: Redis) -> None:
     finished = (await store.save(state)).approved()
     await store.save(finished)

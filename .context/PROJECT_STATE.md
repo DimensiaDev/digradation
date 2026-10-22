@@ -117,10 +117,10 @@ move it on.
 the approval of a rendered draft: it releases the content stages, spends the attempt of the
 first one and records who approved and when. `POST /chats/{session_id}/program/revision` asks
 for one part to be redone: the stage runs again with the methodist's notes, the parts that
-were written from it are written again, and the revision spends no attempt. Both answer with
-the programme's state in the shape `GET /program` answers with, and both refuse what the
-model's own tools refuse — the rules live in `app/agentic/actions.py` and are shared. The
-client-side flow (the buttons, the answer form and the five-minute poll surviving a slow
+were written from it are written again, and the stage starts a fresh budget of three. Both
+answer with the programme's state in the shape `GET /program` answers with, and both refuse
+what the model's own tools refuse — the rules live in `app/agentic/actions.py` and are shared.
+The client-side flow (the buttons, the answer form and the five-minute poll surviving a slow
 run) is still not built.
 
 **RAG ingestion.** `backend/index_rag.py` is a one-off operator CLI, not an HTTP endpoint. It

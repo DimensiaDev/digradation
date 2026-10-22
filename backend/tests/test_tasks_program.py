@@ -175,7 +175,7 @@ def skeleton_state(session_id: uuid.UUID) -> ProgramState:
 def complete_state(session_id: uuid.UUID) -> ProgramState:
     """A run that committed every block of the example document."""
     raw = example()
-    state = skeleton_state(session_id)
+    state = skeleton_state(session_id).approved()
     for stage in CONTENT_ORDER:
         state = state.started(stage)
         if stage is Stage.ASSESSMENT:
@@ -486,6 +486,33 @@ async def test_a_revision_of_the_skeleton_leads_to_the_content_being_written(
     assert saved.assessment is not None
     assert saved.materials is not None
     assert saved.status is ProgramStatus.APPROVED
+
+
+async def test_releasing_the_content_of_a_complete_programme_writes_the_exports_again(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, enqueued
+) -> None:
+    """A revised summary of a finished programme is approved without re-running a stage."""
+    state = await store.save(complete_state(chat).request_revision(Stage.SUMMARY, "перепиши паспорт"))
+
+    released = await program.release_content(state.approved())
+
+    stages, _, exports = enqueued
+    stages.assert_not_awaited()
+    exports.assert_awaited_once_with(chat, state.run_id)
+    assert released.status is ProgramStatus.APPROVED
+
+
+async def test_recovery_releases_the_content_of_an_approved_programme(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, enqueued
+) -> None:
+    """The approval is saved before the stage is queued: a lost queue entry is recovered."""
+    state = await store.save(aged(skeleton_state(chat).mark_finalized().approved()))
+
+    await run_task(program.recover_stalled_programs)
+
+    stages, finalizes, _ = enqueued
+    finalizes.assert_not_awaited()
+    stages.assert_awaited_once_with(chat, Stage.ASSESSMENT.value, state.run_id)
 
 
 async def test_a_revised_stage_runs_again_and_the_run_waits_for_the_methodist(

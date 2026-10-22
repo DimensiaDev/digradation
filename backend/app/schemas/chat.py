@@ -254,6 +254,9 @@ class ProgramStateSchema(BaseModel):
     revision: ProgramRevisionSchema | None = Field(
         default=None, description="Правка, которую методист попросил внести, пока она не сделана"
     )
+    last_revision: ProgramRevisionSchema | None = Field(
+        default=None, description="Последняя сделанная правка: кто её просил и когда"
+    )
     approved_by: uuid.UUID | None = Field(default=None, description="Кто утвердил черновик программы")
     approved_at: datetime | None = Field(default=None, description="Когда черновик был утверждён")
 

@@ -549,8 +549,9 @@ for one part to be redone), or simply answer in prose.
 - **The methodist can ask for one part to be redone.** The intake offers `revise_program` with
   the stage to redo and the notes: the stage runs again with the methodist's notes in its
   brief, the blocks that are already committed stay, and the run goes straight back to where
-  the methodist left it instead of walking the pipeline again. A revision spends no attempt —
-  the budget of three per stage is there for the agent's own failures.
+  the methodist left it instead of walking the pipeline again. The revision resets the stage's
+  budget, and the run it queues is the first of the three attempts: a change is not a failure,
+  but a stage that keeps failing while it is redone still has a limit.
 - **The model no longer names the chat.** `HARNESS_STRUCTURED_SCHEMA` and
   `HarnessStructuredOutput` are gone: the reply is prose, and the name comes from
   `app/naming.py`, which holds the one rule — *a programme's title wins, otherwise the first

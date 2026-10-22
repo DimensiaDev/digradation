@@ -33,6 +33,8 @@ from app.agentic.models import (
     ProgramKind,
     ProgramStatus,
     Stage,
+    StageStatus,
+    StageStatuses,
 )
 from app.agentic.state import (
     ClarificationQuestion,
@@ -845,9 +847,35 @@ async def test_get_result_carries_the_open_questions(
 # ---------------------------------------------------------------------------
 
 
+def skeleton_written() -> StageStatuses:
+    """The four stages of the skeleton, all of them written."""
+    return StageStatuses(
+        competences=StageStatus.COMPLETED,
+        hours=StageStatus.COMPLETED,
+        sources=StageStatus.COMPLETED,
+        summary=StageStatus.COMPLETED,
+    )
+
+
 def waiting_for_approval(session_id: uuid.UUID, **changes) -> ProgramState:
-    """A run whose skeleton has been rendered and waits for the methodist."""
-    state = programme(session_id, status=ProgramStatus.PENDING_APPROVAL, finalized=True)
+    """A run whose skeleton is written and rendered, waiting for the methodist."""
+    state = programme(
+        session_id,
+        status=ProgramStatus.PENDING_APPROVAL,
+        stages=skeleton_written(),
+        finalized=True,
+    )
+    return state.model_copy(update=changes) if changes else state
+
+
+def written_programme(session_id: uuid.UUID, **changes) -> ProgramState:
+    """A run whose skeleton is written, so there is a block to revise."""
+    state = programme(
+        session_id,
+        status=ProgramStatus.GENERATING,
+        current_stage=Stage.SOURCES,
+        stages=skeleton_written(),
+    )
     return state.model_copy(update=changes) if changes else state
 
 
@@ -896,7 +924,7 @@ async def test_a_draft_that_was_never_shown_cannot_be_approved(
     committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
 ):
     session_id = committed_chat.row.session_id
-    state = programme(session_id, status=ProgramStatus.PENDING_APPROVAL, finalized=False)
+    state = waiting_for_approval(session_id, finalized=False)
     await store.save(state)
 
     response = await committed_client.post(f"/chats/{session_id}/program/approve")
@@ -906,11 +934,27 @@ async def test_a_draft_that_was_never_shown_cannot_be_approved(
     kiq.stage.assert_not_awaited()
 
 
+async def test_a_skeleton_with_a_hole_in_it_cannot_be_approved(
+    committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
+):
+    """A revision of the competences resets the hours, and the draft is not whole."""
+    session_id = committed_chat.row.session_id
+    stages = skeleton_written().model_copy(update={"hours": StageStatus.PENDING})
+    state = waiting_for_approval(session_id, stages=stages)
+    await store.save(state)
+
+    response = await committed_client.post(f"/chats/{session_id}/program/approve")
+
+    assert response.status_code == 409
+    assert "собран" in response.json()["detail"]
+    kiq.stage.assert_not_awaited()
+
+
 async def test_a_finished_programme_cannot_be_approved_again(
     committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
 ):
     session_id = committed_chat.row.session_id
-    state = programme(session_id, status=ProgramStatus.APPROVED, finalized=True)
+    state = waiting_for_approval(session_id, status=ProgramStatus.APPROVED)
     await store.save(state)
 
     response = await committed_client.post(f"/chats/{session_id}/program/approve")
@@ -947,7 +991,7 @@ async def test_a_revision_reruns_the_named_stage(
 ):
     """The revision is not a new run: the stage runs again, the rest stays."""
     session_id = committed_chat.row.session_id
-    state = programme(session_id, status=ProgramStatus.GENERATING)
+    state = written_programme(session_id)
     await store.save(state)
 
     response = await committed_client.post(
@@ -968,7 +1012,7 @@ async def test_a_revision_is_recorded_with_the_methodist(
     committed_client: AsyncClient, committed_chat: SimpleNamespace, task_db: None, redis_session: None
 ):
     session_id = committed_chat.row.session_id
-    state = programme(session_id, status=ProgramStatus.GENERATING)
+    state = written_programme(session_id)
     await store.save(state)
 
     response = await committed_client.post(
@@ -986,12 +1030,12 @@ async def test_a_revision_is_recorded_with_the_methodist(
     assert saved.revision.requested_at is not None
 
 
-async def test_a_revision_spends_no_attempt(
+async def test_a_revised_stage_starts_its_budget_again(
     committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
 ):
-    """A change the methodist asked for is not a failed attempt."""
+    """The revision gives the stage a fresh budget of three, and the run is the first of them."""
     session_id = committed_chat.row.session_id
-    state = programme(session_id, status=ProgramStatus.GENERATING)
+    state = written_programme(session_id)
     await store.save(state)
 
     response = await committed_client.post(
@@ -1002,14 +1046,58 @@ async def test_a_revision_spends_no_attempt(
     assert response.status_code == 200
     saved = await store.load(session_id)
     assert saved is not None
-    assert saved.attempts.get(Stage.HOURS) == 0
+    assert saved.attempts.get(Stage.HOURS) == 1
+
+
+async def test_a_programme_that_is_being_written_cannot_be_revised(
+    committed_client: AsyncClient,
+    committed_chat: SimpleNamespace,
+    kiq,
+    task_db: None,
+    redis_client: Redis,
+):
+    """The worker that is writing it would save its own copy over the revision."""
+    session_id = committed_chat.row.session_id
+    state = written_programme(session_id)
+    await store.save(state)
+    await redis_client.set(get_program_stage_lock_key(session_id, state.current_stage), "worker", ex=60)
+
+    response = await committed_client.post(
+        f"/chats/{session_id}/program/revision",
+        json={"stage": "hours", "notes": "замени тему 2.3"},
+    )
+
+    assert response.status_code == 409
+    kiq.stage.assert_not_awaited()
+
+
+async def test_a_revision_that_was_taken_releases_the_stage(
+    committed_client: AsyncClient,
+    committed_chat: SimpleNamespace,
+    kiq,
+    task_db: None,
+    redis_client: Redis,
+):
+    """A worker that already took the queued stage is visible in the answer."""
+    session_id = committed_chat.row.session_id
+    state = written_programme(session_id)
+    await store.save(state)
+    await redis_client.set(get_program_stage_lock_key(session_id, Stage.HOURS), "worker", ex=60)
+
+    response = await committed_client.post(
+        f"/chats/{session_id}/program/revision",
+        json={"stage": "hours", "notes": "замени тему 2.3"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["running"] is True
 
 
 async def test_a_programme_waiting_for_answers_cannot_be_revised(
     committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
 ):
     session_id = committed_chat.row.session_id
-    state = programme(session_id, status=ProgramStatus.AWAITING_ANSWERS)
+    state = written_programme(session_id, status=ProgramStatus.AWAITING_ANSWERS)
     await store.save(state)
 
     response = await committed_client.post(
@@ -1026,7 +1114,7 @@ async def test_a_failed_programme_cannot_be_revised(
     committed_client: AsyncClient, committed_chat: SimpleNamespace, kiq, task_db: None, redis_session: None
 ):
     session_id = committed_chat.row.session_id
-    state = programme(session_id, failed=True, error="этап не завершился")
+    state = written_programme(session_id, failed=True, error="этап не завершился")
     await store.save(state)
 
     response = await committed_client.post(

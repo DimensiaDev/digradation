@@ -7,11 +7,13 @@ from typing import Annotated, Literal
 
 import structlog.stdlib
 from fastapi import APIRouter, Depends, HTTPException, Query
+from redis.asyncio import Redis
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import aliased, selectinload
 
 from app.agentic import actions, store
 from app.agentic.errors import AnswersDoNotMatch, MissingChat, ProgramError, StaleState
+from app.agentic.models import Stage
 from app.agentic.render import render_answers
 from app.agentic.state import ClarificationAnswer, apply_answers
 from app.agentic.view import programme_questions, programme_state, programme_status
@@ -111,6 +113,16 @@ def _is_bare_filename(filename: str) -> bool:
     download endpoint hands back to the browser as a filename.
     """
     return "/" not in filename and "\\" not in filename and filename.isprintable()
+
+
+async def _stage_is_running(redis_client: Redis, session_id: uuid.UUID, stage: Stage) -> bool:
+    """Whether a worker holds the lock of the stage the programme is on.
+
+    The lock is held from before the worker writes that it started until it
+    is done, so it closes the window in which the state still says the stage
+    is pending while a worker is already writing it.
+    """
+    return bool(await redis_client.exists(get_program_stage_lock_key(session_id, stage)))
 
 
 router = APIRouter(
@@ -580,7 +592,7 @@ async def get_program(session_id: VerifiedMessageSession, db: DbSession, redis_c
     state = await store.load_cached(db, session_id)
     running = False
     if state is not None:
-        running = bool(await redis_client.exists(get_program_stage_lock_key(session_id, state.current_stage)))
+        running = await _stage_is_running(redis_client, session_id, state.current_stage)
     return programme_state(state, running=running)
 
 
@@ -596,7 +608,12 @@ async def get_program(session_id: VerifiedMessageSession, db: DbSession, redis_c
         429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
     },
 )
-async def approve_program(session_id: VerifiedMessageSession, user: CurrentUser, db: DbSession):
+async def approve_program(
+    session_id: VerifiedMessageSession,
+    user: CurrentUser,
+    db: DbSession,
+    redis_client: RedisSession,
+):
     """Approve the draft and let the content be written from it.
 
     The programme is written in two halves: the skeleton — the goal, the
@@ -610,8 +627,11 @@ async def approve_program(session_id: VerifiedMessageSession, user: CurrentUser,
     approved and when. The response is the programme's state, in the same shape
     `GET /chats/{session_id}/program` answers with.
 
-    A draft that was never shown cannot be approved, and a programme that is
-    already complete has nothing left to approve: both answer with 409.
+    A draft that was never shown cannot be approved, a skeleton with a hole in
+    it is not a draft, and a programme that is already complete has nothing
+    left to approve: all three answer with 409. The approval is refused as
+    well when the programme moved on while it was being made, because it was
+    made against a draft that is no longer on the table.
     """
     state = await store.load_from(db, session_id)
     if state is None:
@@ -621,12 +641,22 @@ async def approve_program(session_id: VerifiedMessageSession, user: CurrentUser,
     except ProgramError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     try:
-        saved = await release_content(approved)
+        saved = await store.save(approved, expected_version=state.version)
     except MissingChat as error:
         raise HTTPException(status_code=404, detail="В этом чате нет программы") from error
     except StaleState as error:
         raise HTTPException(status_code=409, detail="Программа изменилась, повторите подтверждение") from error
-    return programme_state(saved)
+    try:
+        queued = await release_content(saved)
+    except StaleState:
+        # Another writer moved the programme between the approval and the
+        # release. The approval is committed, so the run is not lost: recovery
+        # puts the content on the queue once it is quiet again, and the answer
+        # is the state the approval left rather than an invitation to retry a
+        # decision that has already been taken.
+        log.warning("program_release_stale", chat_session_id=str(session_id))
+        queued = saved
+    return programme_state(queued, running=await _stage_is_running(redis_client, session_id, queued.current_stage))
 
 
 @router.post(
@@ -645,6 +675,7 @@ async def request_program_revision(
     session_id: VerifiedMessageSession,
     user: CurrentUser,
     db: DbSession,
+    redis_client: RedisSession,
     data: ProgramRevisionRequest,
 ):
     """Ask for one part of the programme to be redone.
@@ -654,9 +685,15 @@ async def request_program_revision(
     were written from it are written again, because a block that stays while
     its foundation moves points at something that is no longer there.
 
-    The revision spends no attempt — a change the methodist asked for is not a
-    failed attempt, and the budget of three per stage is there for the agent's
-    own failures. The revision is recorded with the person who asked for it.
+    The attempt is spent now, so the revised stage runs against the same
+    budget as every other one. The revision is recorded with the person who
+    asked for it.
+
+    A programme that is being written right now is not revised: the worker
+    that is writing it would save its own copy over the revision, and the
+    change would be lost. Neither is a programme whose content has not been
+    approved, because the content is written from an approved skeleton and from
+    nothing else.
 
     The response is the programme's state, in the same shape
     `GET /chats/{session_id}/program` answers with.
@@ -664,20 +701,27 @@ async def request_program_revision(
     state = await store.load_from(db, session_id)
     if state is None:
         raise HTTPException(status_code=404, detail="В этом чате нет программы")
+    if await _stage_is_running(redis_client, session_id, state.current_stage):
+        raise HTTPException(status_code=409, detail="Программа сейчас пишется")
     try:
         revised = actions.revise(state, data.stage, data.notes, by=user.uuid)
     except ProgramError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     try:
-        saved = await store.save(revised, expected_run_id=revised.run_id)
+        saved = await store.save(revised, expected_version=state.version)
     except MissingChat as error:
         raise HTTPException(status_code=404, detail="В этом чате нет программы") from error
     except StaleState as error:
         raise HTTPException(status_code=409, detail="Программа изменилась, повторите правку") from error
     revision = saved.revision
-    if revision is not None:
-        await rerun_stage(saved, revision.stage)
-    return programme_state(saved)
+    try:
+        queued = await rerun_stage(saved, revision.stage) if revision is not None else saved
+    except StaleState:
+        # The revision is committed; a concurrent writer moved the row before
+        # the stage was queued. Recovery enqueues it once the run is quiet.
+        log.warning("program_rerun_stale", chat_session_id=str(session_id))
+        queued = saved
+    return programme_state(queued, running=await _stage_is_running(redis_client, session_id, queued.current_stage))
 
 
 @router.get(

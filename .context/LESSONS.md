@@ -1171,3 +1171,17 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   `store.save` opens its own connection and takes the chat row's lock, so a chat that only
   the test's transaction can see is invisible to it, and the write fails with `MissingChat`.
   The fixture has to commit the chat on a connection of its own. Found 2026-10-22.
+- **The row lock serializes writes, not read-modify-writes.** `store.save` locks the row
+  while it writes, but the state the caller passes was built from a copy it read earlier, so
+  a worker or a decision can land in between. Pass `expected_version` whenever the write is
+  a decision made about what was read; a save that only moves the run forward does not need
+  it. Found in review, 2026-10-22.
+- **`finalized` means the skeleton reached the chat, not that the run is finished.** A run
+  writing its content is `finalized=True` as well, and the recovery scan skipped every
+  finalized run, so an approved programme whose queue entry was lost stayed generating for
+  ever while the scan walked past it. The skip belongs to a run waiting for the methodist.
+  Found in review, 2026-10-22.
+- **A test helper that builds a complete programme has to go through the approval.** A state
+  assembled by completing the stages and setting `skeleton_approved` never happened, so a
+  content revision made against it is refused and the failure looks like a broken rule
+  rather than a lying fixture. Found in review, 2026-10-22.
