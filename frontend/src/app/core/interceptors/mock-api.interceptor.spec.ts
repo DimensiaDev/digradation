@@ -8,6 +8,7 @@ import { environment as mockEnvironment } from '../../../environments/environmen
 import { mockApiInterceptor } from './mock-api.interceptor';
 import type {
   AdminUser,
+  ChatAttachmentUrl,
   ChatMessageApi,
   InstanceSettings,
   ProgramPageApi,
@@ -284,6 +285,33 @@ describe('mockApiInterceptor', () => {
     );
     expect(state.draft.title).toBe(programme.title);
     expect(state.draft.summary?.goal).toBeTruthy();
+  });
+
+  it('reports programme checks and exports for a finished programme', async () => {
+    await login();
+    const state = await firstValueFrom(
+      http.get<ProgramStateApi>(`${API}/chats/mock-programme-4/program`)
+    );
+    expect(state.report?.ok).toBe(true);
+    expect(state.report?.checks.length).toBe(4);
+    expect(state.exports).toEqual({
+      document_attachment_id: 4001,
+      slides_attachment_id: 4002
+    });
+  });
+
+  it('serves a programme export as an attachment URL', async () => {
+    await login();
+    const document = await firstValueFrom(
+      http.get<ChatAttachmentUrl>(`${API}/chats/mock-programme-4/attachments/4001`)
+    );
+    expect(document.filename).toBe('programme.docx');
+    expect(document.attachment_url).toContain('data:text/plain');
+
+    const slides = await firstValueFrom(
+      http.get<ChatAttachmentUrl>(`${API}/chats/mock-programme-4/attachments/4002`)
+    );
+    expect(slides.filename).toBe('programme-slides.pptx');
   });
 
   it('clears the open questions of a waiting programme after answers', async () => {

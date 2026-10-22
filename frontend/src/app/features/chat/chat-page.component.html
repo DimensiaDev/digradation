@@ -57,6 +57,7 @@
       [class.chat-page__pane--mobile-hidden]="mobileView() !== 'preview'"
     >
       <app-program-preview
+        [sessionId]="id()"
         [state]="program()"
         [loading]="programLoading()"
         [error]="programError()"

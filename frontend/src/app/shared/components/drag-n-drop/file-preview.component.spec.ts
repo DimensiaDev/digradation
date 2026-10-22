@@ -57,6 +57,7 @@ describe('previewKindFor', () => {
   it('returns null for formats without browser rendering', () => {
     expect(previewKindFor('.dwg')).toBeNull();
     expect(previewKindFor('.doc')).toBeNull();
+    expect(previewKindFor('.pptx')).toBeNull();
     expect(previewKindFor('.exe')).toBeNull();
     expect(previewKindFor('')).toBeNull();
   });
@@ -65,6 +66,7 @@ describe('previewKindFor', () => {
     expect(mimeTypeFor('.pdf')).toBe('application/pdf');
     expect(mimeTypeFor('.png')).toBe('image/png');
     expect(mimeTypeFor('.docx')).toContain('wordprocessingml');
+    expect(mimeTypeFor('.pptx')).toContain('presentationml');
     expect(mimeTypeFor('.xyz')).toBe('application/octet-stream');
   });
 });
@@ -272,6 +274,7 @@ describe('DragNDropComponent preview integration', () => {
 
   it('accepts exactly the formats the backend takes, including docx', () => {
     expect(ACCEPTED_EXTENSIONS).toEqual(['.pdf', '.png', '.jpeg', '.jpg', '.docx']);
+    expect(ACCEPTED_EXTENSIONS).not.toContain('.pptx');
   });
 
   it('offers a preview for every accepted upload type', () => {

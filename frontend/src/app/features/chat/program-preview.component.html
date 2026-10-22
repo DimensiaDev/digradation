@@ -297,6 +297,48 @@
           </p>
         }
       </section>
+
+      <section
+        class="program-preview__section"
+        data-section="results"
+        [class.program-preview__section--focused]="focused() === 'results'"
+      >
+        <h3 class="program-preview__section-title">
+          <svg size="16" lucideDownload aria-hidden="true"></svg>
+          Результаты программы
+        </h3>
+
+        @if (documentExportId() !== null || slidesExportId() !== null) {
+          <div class="program-preview__results">
+            @if (documentExportId() !== null) {
+              <button
+                type="button"
+                class="button button--outline button--centered"
+                [disabled]="downloading() !== null"
+                [attr.aria-busy]="downloading() === 'document'"
+                (click)="downloadExport('document')"
+              >
+                <svg size="16" lucideFileText aria-hidden="true"></svg>
+                {{ downloading() === 'document' ? 'Скачиваем DOCX…' : 'Скачать DOCX' }}
+              </button>
+            }
+            @if (slidesExportId() !== null) {
+              <button
+                type="button"
+                class="button button--outline button--centered"
+                [disabled]="downloading() !== null"
+                [attr.aria-busy]="downloading() === 'slides'"
+                (click)="downloadExport('slides')"
+              >
+                <svg size="16" lucidePresentation aria-hidden="true"></svg>
+                {{ downloading() === 'slides' ? 'Скачиваем PPTX…' : 'Скачать PPTX' }}
+              </button>
+            }
+          </div>
+        } @else {
+          <p class="program-preview__empty-note">Файлы программы появятся после её утверждения.</p>
+        }
+      </section>
     } @else {
       <div class="program-preview__empty">
         <span class="program-preview__empty-icon" aria-hidden="true">

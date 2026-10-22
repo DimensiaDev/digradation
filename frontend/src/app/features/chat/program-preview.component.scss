@@ -554,6 +554,18 @@
     color: var(--color-gray);
   }
 
+  &__results {
+    display: grid;
+    gap: 8px;
+
+    margin-top: 10px;
+
+    .button {
+      padding: 10px 12px;
+      font-size: 12px;
+    }
+  }
+
   &__empty {
     display: flex;
     flex-direction: column;

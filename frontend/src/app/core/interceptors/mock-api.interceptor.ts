@@ -191,10 +191,75 @@ const programmeSummary = (programme: ProgramApiItem) => ({
   form: 'Очно-заочная, с применением дистанционных технологий'
 });
 
+const PROGRAMME_EXPORTS: Record<string, NonNullable<ProgramStateApi['exports']>> = {
+  'mock-programme-4': { document_attachment_id: 4001, slides_attachment_id: 4002 },
+  'mock-programme-7': { document_attachment_id: 7001, slides_attachment_id: 7002 },
+  'mock-programme-8': { document_attachment_id: 8001, slides_attachment_id: 8002 }
+};
+
+const programmeReport = (
+  programme: ProgramApiItem,
+  status: ProgramApiItem['status']
+): NonNullable<ProgramStateApi['report']> => {
+  const ready = status === 'approved' || status === 'verified';
+  const hasPlan = ready || status === 'pending_approval';
+  const hasDraft = hasPlan || status === 'draft';
+  return {
+    ok: ready,
+    checks: [
+      {
+        name: 'часы',
+        ok: hasPlan,
+        problems: hasPlan ? [] : ['учебный план ещё не собран'],
+        details: {
+          заявлено: programme.hours,
+          всего: hasPlan ? programme.hours : 0,
+          темы: hasPlan ? programme.hours : 0,
+          'итоговая аттестация': 0
+        }
+      },
+      {
+        name: 'покрытие',
+        ok: ready,
+        problems: ready ? [] : ['результат обучения ещё не раскрыт ни в одной теме'],
+        details: {
+          'результатов обучения': ready ? 4 : 0,
+          'раскрыто в темах': ready ? 4 : 0,
+          'проверяется двумя средствами': ready ? 4 : 0
+        }
+      },
+      {
+        name: 'источники',
+        ok: ready,
+        problems: ready ? [] : ['источник web-demo не подтверждён каталогом — его нужно проверить'],
+        details: {
+          'всего источников': hasDraft ? 3 : 0,
+          подтверждено: hasDraft ? 2 : 0,
+          'не подтверждено': hasDraft ? 1 : 0
+        }
+      },
+      {
+        name: 'разделы',
+        ok: ready,
+        problems: ready ? [] : ['раздел «оценочные средства» не заполнен'],
+        details: {
+          компетенции: hasDraft,
+          'учебный план': hasPlan,
+          паспорт: hasDraft,
+          источники: hasDraft,
+          'оценочные средства': ready,
+          материалы: ready
+        }
+      }
+    ]
+  };
+};
+
 const programmeState = (programme: ProgramApiItem): ProgramStateApi => {
   const runtime = programmeRuntime.get(programme.session_id);
+  const status = runtime?.status ?? programme.status;
   return {
-    status: runtime?.status ?? programme.status,
+    status,
     current_stage: null,
     stages: {},
     running: false,
@@ -211,8 +276,8 @@ const programmeState = (programme: ProgramApiItem): ProgramStateApi => {
       sources: [],
       summary: programmeSummary(programme)
     },
-    report: null,
-    exports: null
+    report: programmeReport(programme, status),
+    exports: PROGRAMME_EXPORTS[programme.session_id] ?? null
   };
 };
 
@@ -430,6 +495,27 @@ export const mockApiInterceptor: HttpInterceptorFn = (req, next) => {
         return ok(emptyProgramState());
       }
       return fail(403, 'Программа не найдена');
+    }
+
+    const attachmentMatch = path.match(/^\/chats\/([^/]+)\/attachments\/(\d+)$/);
+    if (attachmentMatch && req.method === 'GET') {
+      const attachmentId = Number(attachmentMatch[2]);
+      const exports = PROGRAMME_EXPORTS[attachmentMatch[1]];
+      const filename =
+        exports?.document_attachment_id === attachmentId
+          ? 'programme.docx'
+          : exports?.slides_attachment_id === attachmentId
+            ? 'programme-slides.pptx'
+            : null;
+      if (!filename) {
+        return fail(404, 'Вложение не найдено');
+      }
+      return ok({
+        attachment_url: `data:text/plain;charset=utf-8,${encodeURIComponent(
+          'Демонстрационный файл программы из mock-режима.'
+        )}`,
+        filename
+      });
     }
 
     const resultMatch = path.match(/^\/chats\/([^/]+)\/result$/);

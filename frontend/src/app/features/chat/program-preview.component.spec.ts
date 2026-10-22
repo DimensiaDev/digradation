@@ -1,5 +1,9 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { of, throwError } from 'rxjs';
 import { ProgramStateApi } from '../../core/models/models';
+import { AttachmentDownloadService } from '../../core/services/attachment-download.service';
+import { NotificationService } from '../../core/services/notification.service';
 import { ProgramPreviewComponent } from './program-preview.component';
 
 function state(overrides: Partial<ProgramStateApi> = {}): ProgramStateApi {
@@ -114,16 +118,35 @@ const REVIEWED = state({
   }
 });
 
+const EXPORTED = state({
+  ...REVIEWED,
+  exports: {
+    document_attachment_id: 41,
+    slides_attachment_id: 42
+  }
+});
+
 describe('ProgramPreviewComponent', () => {
   let fixture: ComponentFixture<ProgramPreviewComponent>;
   let component: ProgramPreviewComponent;
+  let fetchFile: ReturnType<typeof vi.fn>;
+  let save: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
+    fetchFile = vi.fn(() => of(new File(['x'], 'programme.docx')));
+    save = vi.fn();
     await TestBed.configureTestingModule({
-      imports: [ProgramPreviewComponent]
+      imports: [ProgramPreviewComponent],
+      providers: [
+        {
+          provide: AttachmentDownloadService,
+          useValue: { fetchFile, save }
+        }
+      ]
     }).compileComponents();
     fixture = TestBed.createComponent(ProgramPreviewComponent);
     component = fixture.componentInstance;
+    fixture.componentRef.setInput('sessionId', 'mock-programme-4');
   });
 
   it('shows the empty state and the draft metadata placeholders', () => {
@@ -230,6 +253,70 @@ describe('ProgramPreviewComponent', () => {
         .getAttribute('data-tone')
     ).toBe('success');
     expect(fixture.nativeElement.querySelector('.program-preview__check--problem')).toBeNull();
+  });
+
+  it('shows the results block and downloads the available exports', () => {
+    const file = new File(['docx'], 'programme.docx');
+    fetchFile.mockReturnValue(of(file));
+    fixture.componentRef.setInput('state', EXPORTED);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Результаты программы');
+    expect(text).toContain('Скачать DOCX');
+    expect(text).toContain('Скачать PPTX');
+
+    const buttons = fixture.nativeElement.querySelectorAll(
+      '.program-preview__results button'
+    ) as NodeListOf<HTMLButtonElement>;
+    expect(buttons.length).toBe(2);
+
+    buttons[0].click();
+    fixture.detectChanges();
+
+    expect(fetchFile).toHaveBeenCalledWith('mock-programme-4', 41);
+    expect(save).toHaveBeenCalledWith(file, 'programme.docx');
+    expect(component.downloading()).toBeNull();
+  });
+
+  it('shows only the exports that exist', () => {
+    fixture.componentRef.setInput('state', {
+      ...EXPORTED,
+      exports: { document_attachment_id: null, slides_attachment_id: 42 }
+    });
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).not.toContain('Скачать DOCX');
+    expect(text).toContain('Скачать PPTX');
+  });
+
+  it('explains that exports appear after approval', () => {
+    fixture.componentRef.setInput('state', REVIEWED);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'Файлы программы появятся после её утверждения'
+    );
+  });
+
+  it('reports a failed download and enables the buttons again', () => {
+    fetchFile.mockReturnValue(
+      throwError(() => new HttpErrorResponse({ status: 404, error: { detail: 'Нет файла' } }))
+    );
+    fixture.componentRef.setInput('state', EXPORTED);
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector(
+      '.program-preview__results button'
+    ) as HTMLButtonElement;
+    button.click();
+    fixture.detectChanges();
+
+    const notifications = TestBed.inject(NotificationService).notifications();
+    expect(notifications[0]?.message).toContain('Не удалось скачать файл');
+    expect(component.downloading()).toBeNull();
+    expect(save).not.toHaveBeenCalled();
   });
 
   it('pulses the badge when the programme version changes', () => {

@@ -9,7 +9,8 @@ import { formatProgramHours } from '../../shared/utils/program-detail-content';
 
 export type ProgramWizardStep = 1 | 2 | 3 | 4 | 5;
 export type ProgramStepState = 'completed' | 'active' | 'pending' | 'failed';
-export type ProgramPreviewSection = 'summary' | 'competencies' | 'modules' | 'sources' | 'report';
+export type ProgramPreviewSection =
+  'summary' | 'competencies' | 'modules' | 'sources' | 'report' | 'results';
 export type ProgramBadgeTone = 'neutral' | 'progress' | 'success' | 'danger';
 
 export interface ProgramWizardStepView {

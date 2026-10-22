@@ -11,20 +11,28 @@ import {
   signal,
   viewChild
 } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   LucideBookOpen,
   LucideCheck,
   LucideClipboardCheck,
   LucideClock,
+  LucideDownload,
+  LucideFileText,
   LucideLaptop,
   LucideLayers,
   LucideLayoutTemplate,
+  LucidePresentation,
   LucideRefreshCw,
   LucideTags,
   LucideTarget,
   LucideTriangleAlert
 } from '@lucide/angular';
 import { ProgramStateApi } from '../../core/models/models';
+import { AttachmentDownloadService } from '../../core/services/attachment-download.service';
+import { NotificationService } from '../../core/services/notification.service';
+import { extractApiErrorMessage } from '../../shared/utils/api-error';
 import {
   ProgramPreviewSection,
   programBadge,
@@ -49,9 +57,12 @@ const FOCUS_HIGHLIGHT_MS = 1_400;
     LucideCheck,
     LucideClipboardCheck,
     LucideClock,
+    LucideDownload,
+    LucideFileText,
     LucideLaptop,
     LucideLayers,
     LucideLayoutTemplate,
+    LucidePresentation,
     LucideRefreshCw,
     LucideTags,
     LucideTarget,
@@ -62,6 +73,7 @@ const FOCUS_HIGHLIGHT_MS = 1_400;
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class ProgramPreviewComponent {
+  readonly sessionId = input.required<string>();
   readonly state = input<ProgramStateApi | null>(null);
   readonly loading = input(false);
   readonly error = input<string | null>(null);
@@ -78,6 +90,8 @@ export class ProgramPreviewComponent {
   readonly modules = computed(() => programModules(this.state()?.draft.curriculum));
   readonly sources = computed(() => programSources(this.state()));
   readonly report = computed(() => programReport(this.state()));
+  readonly documentExportId = computed(() => this.state()?.exports?.document_attachment_id ?? null);
+  readonly slidesExportId = computed(() => this.state()?.exports?.slides_attachment_id ?? null);
   readonly hasContent = computed(
     () =>
       Boolean(this.title()) ||
@@ -86,12 +100,18 @@ export class ProgramPreviewComponent {
       this.modules().length > 0 ||
       this.sources().length > 0 ||
       Boolean(this.report()) ||
+      this.documentExportId() !== null ||
+      this.slidesExportId() !== null ||
       Boolean(this.state()?.draft.summary)
   );
   readonly justUpdated = signal(false);
   readonly focused = signal<ProgramPreviewSection | null>(null);
+  readonly downloading = signal<'document' | 'slides' | null>(null);
 
   private readonly scroll = viewChild<ElementRef<HTMLElement>>('scroll');
+  private readonly attachmentDownload = inject(AttachmentDownloadService);
+  private readonly notifications = inject(NotificationService);
+  private readonly destroyRef = inject(DestroyRef);
   private lastVersion: number | null = null;
   private updateTimer: ReturnType<typeof setTimeout> | null = null;
   private focusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -111,7 +131,7 @@ export class ProgramPreviewComponent {
       this.lastVersion = version;
     });
 
-    inject(DestroyRef).onDestroy(() => {
+    this.destroyRef.onDestroy(() => {
       this.clearUpdateTimer();
       this.clearFocusTimer();
     });
@@ -123,6 +143,35 @@ export class ProgramPreviewComponent {
 
   topicCountLabel(count: number): string {
     return programTopicCountLabel(count);
+  }
+
+  downloadExport(kind: 'document' | 'slides'): void {
+    const attachmentId = kind === 'document' ? this.documentExportId() : this.slidesExportId();
+    if (attachmentId === null || this.downloading() !== null) {
+      return;
+    }
+
+    this.downloading.set(kind);
+    this.attachmentDownload
+      .fetchFile(this.sessionId(), attachmentId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (file) => {
+          this.attachmentDownload.save(file, file.name);
+          this.downloading.set(null);
+        },
+        error: (error: unknown) => {
+          this.downloading.set(null);
+          this.notifications.error(
+            error instanceof HttpErrorResponse
+              ? `Не удалось скачать файл: ${extractApiErrorMessage(error)}`
+              : error instanceof Error
+                ? error.message
+                : 'Не удалось скачать файл',
+            { description: 'Проверьте соединение и повторите попытку.' }
+          );
+        }
+      });
   }
 
   focusSection(section: ProgramPreviewSection): void {
