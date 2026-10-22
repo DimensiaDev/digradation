@@ -388,8 +388,11 @@ constructed with a default set, and a caller narrows it per turn with `generate(
 The hub can deliver GigaChat's native call as message text — `content='<|function_call|>{...}'`
 with `tool_calls=None` — so `OpenAIProvider` normalises that marker into a `ToolCall` before
 anything above it sees the reply. The payload may carry junk after the JSON object, so the
-first complete value is decoded and the tail is dropped; a marker that yields no call stays
-text. `SberProvider` talks to the v2 wire shape directly and needs none of this.
+first complete value is decoded and the tail is dropped. Nothing from the marker on ever
+leaves the provider, even when the payload does not parse: the token is a control token, and
+the hub answers a request that carries one with `400 Raw model control token in input`, which
+would otherwise turn a nudge into a failed attempt. `SberProvider` talks to the v2 wire shape
+directly and needs none of this.
 
 The two real providers use different wire shapes, and the internal model hides the difference:
 

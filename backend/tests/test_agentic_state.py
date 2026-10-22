@@ -333,6 +333,15 @@ def test_a_failure_below_the_budget_keeps_the_run_alive() -> None:
     assert failed.stage_status(Stage.COMPETENCES) is StageStatus.FAILED
 
 
+def test_a_completed_stage_clears_the_error_of_its_failed_attempt() -> None:
+    state = new_state(SESSION_ID, requested_hours=None, requirements=None)
+    failed = state.failed_stage(Stage.COMPETENCES, "провайдер не ответил")
+
+    done = failed.started(Stage.COMPETENCES).completed(Stage.COMPETENCES)
+
+    assert done.error is None
+
+
 def test_the_last_attempt_failing_ends_the_run() -> None:
     state = new_state(SESSION_ID, requested_hours=None, requirements=None)
     state = state.enqueued(Stage.COMPETENCES).enqueued(Stage.COMPETENCES)

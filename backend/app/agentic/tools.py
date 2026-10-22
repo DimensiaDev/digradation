@@ -14,7 +14,7 @@ import copy
 import json
 import uuid
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Any
 
 import structlog.stdlib
@@ -71,6 +71,9 @@ class ToolContext:
     #: The person the turn belongs to. A decision the methodist takes is
     #: recorded against them, so the state says who approved the programme.
     user_id: uuid.UUID | None = None
+    #: What the last refused call was told to fix. A stage that gives up hands
+    #: it to the retry, which otherwise starts from the same wrong plan.
+    last_problems: list[str] = field(default_factory=list)
 
 
 class ToolResult(BaseModel):
@@ -229,8 +232,9 @@ _SAVE_DESCRIPTIONS: dict[Stage, str] = {
         "знаниями, умениями и практическим опытом."
     ),
     Stage.HOURS: (
-        "Сохранить учебный план: модули, темы с часами и график обучения. Сумма часов тем "
-        "должна совпадать с заявленным объёмом программы."
+        "Сохранить учебный план: модули, темы с часами и график обучения. Часы модуля считаются по "
+        "его темам; сумма часов тем вместе с итоговой аттестацией должна совпадать с заявленным "
+        "объёмом программы."
     ),
     Stage.SOURCES: (
         "Сохранить источники, на которые опирается программа. Ссылайся только на документы, "
@@ -412,6 +416,19 @@ def _basis_problems(state: ProgramState, block: SummaryBlock) -> list[str]:
     ]
 
 
+def _derived_module_hours(block: HoursBlock) -> HoursBlock:
+    """Replace every declared module volume with the sum of its topics.
+
+    The model states both the module's volume and its topics, and the two
+    disagree: the attestation module is the usual case, because its hours live
+    in ``attestation_hours`` and its topic carries none. The topics are what
+    the plan is built from, so the declared number is replaced rather than
+    refused, and a plan can no longer contradict itself.
+    """
+    modules = [module.model_copy(update={"hours": module.topic_hours}) for module in block.curriculum.modules]
+    return block.model_copy(update={"curriculum": block.curriculum.model_copy(update={"modules": modules})})
+
+
 def _hours_problems(state: ProgramState, block: HoursBlock) -> list[str]:
     declared = {
         outcome.id
@@ -530,6 +547,8 @@ async def save_program_draft(ctx: ToolContext, arguments: BaseModel) -> SaveProg
     rule = _SAVERS.get(type(arguments))
     if rule is None:
         return SaveProgramDraftResult(ok=False, error="Неизвестный блок программы")
+    if isinstance(arguments, HoursBlock):
+        arguments = _derived_module_hours(arguments)
     if problems := rule.problems(state, arguments):
         return SaveProgramDraftResult(ok=False, error=rule.rejected, details=problems, note=rule.retry)
     citations = _resolve_sources(rule.cited(arguments), standards=rule.standards(arguments))

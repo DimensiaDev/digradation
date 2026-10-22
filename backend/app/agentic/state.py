@@ -284,7 +284,9 @@ class ProgramState(BaseModel):
         """Mark the stage done and point the state at its successor.
 
         The skeleton ends with a programme that waits for the methodist, and
-        the content ends with a programme that is complete.
+        the content ends with a programme that is complete. The reason a
+        previous attempt gave is cleared with it: a run that recovered is not
+        a run that failed.
         """
         stages = self.stages.model_copy(update={stage.value: StageStatus.COMPLETED})
         successor = self._successor(stage)
@@ -296,7 +298,7 @@ class ProgramState(BaseModel):
             status = ProgramStatus.GENERATING
         else:
             status = ProgramStatus.APPROVED
-        return self._replace(stages=stages, current_stage=successor or stage, status=status)
+        return self._replace(stages=stages, current_stage=successor or stage, status=status, error=None)
 
     def failed_stage(self, stage: Stage, error: str) -> Self:
         """Record a stage failure; the run ends once the stage's budget is spent."""

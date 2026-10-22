@@ -250,14 +250,24 @@ def test_map_completion_keeps_the_prose_before_a_marker():
     assert json.loads(result.tool_calls[0].function.arguments) == {"days": 5}
 
 
-def test_map_completion_leaves_a_marker_without_a_call_as_text():
-    """A marker whose payload is not a call is not something to execute."""
-    completion = make_completion(content='<|function_call|>{"visible": false}')
+def test_map_completion_drops_a_marker_without_a_call():
+    """The marker is a control token: the hub refuses a request that carries it."""
+    completion = make_completion(content='Сейчас сохраню.\n<|function_call|>{"visible": false}')
 
     result = OpenAIProvider._map_completion(completion)
 
     assert result.tool_calls == []
-    assert result.messages[0].content[0].text == '<|function_call|>{"visible": false}'
+    assert result.messages[0].content[0].text == "Сейчас сохраню."
+
+
+def test_map_completion_drops_a_marker_with_malformed_json():
+    """A broken payload is still no reason to echo the control token back."""
+    completion = make_completion(content='<|function_call|>{"name": "save_program_draft" "arguments": {}}')
+
+    result = OpenAIProvider._map_completion(completion)
+
+    assert result.tool_calls == []
+    assert result.messages[0].content == []
 
 
 @pytest.mark.asyncio

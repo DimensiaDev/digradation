@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.agentic import store
 from app.agentic.errors import MissingChat, StaleState
+from app.agentic.loop import MAX_TOOL_ROUNDS
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.state import (
     CONTENT_ORDER,
@@ -340,6 +341,32 @@ async def test_a_refused_block_is_asked_for_again_before_the_attempt_is_spent(
     # The refusal was answered inside the attempt, not by spending another one.
     assert saved.attempts[Stage.COMPETENCES.value] == 1
     assert len(provider.calls) == 4
+
+
+async def test_a_retry_reads_what_the_refused_call_asked_to_fix(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """The pipeline keeps no transcript, so the refusal travels in the state."""
+    state = await store.save(new_state(chat, requested_hours=None, requirements=None))
+    broken = {"kind": "professional_development", "title": "", "competencies": []}
+    provider.answers.append(save_turn(broken))
+    provider.answers.extend(answer("исправил") for _ in range(MAX_TOOL_ROUNDS))
+
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
+
+    failed = await store.load(chat)
+    assert failed is not None
+    assert not failed.failed
+    assert "title" in (failed.error or "")
+
+    provider.answers.extend([save_turn(COMPETENCES_BLOCK), answer("готово")])
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
+
+    retry = " ".join(part.text for message in provider.calls[-2]["messages"] for part in message.content)
+    assert "Прошлая попытка этого этапа не удалась" in retry
+    assert "title" in retry
+    done = await store.load(chat)
+    assert done is not None and done.error is None
 
 
 async def test_the_last_attempt_ends_the_run_and_tells_the_methodist(

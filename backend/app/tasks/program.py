@@ -33,7 +33,7 @@ from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.prompts import stage_messages
 from app.agentic.render import render_draft
 from app.agentic.state import CONTENT_ORDER, MAX_STAGE_ATTEMPTS, ProgramState
-from app.agentic.tools import ToolContext, call_executor, stage_tools
+from app.agentic.tools import ToolContext, ToolResult, call_executor, stage_tools
 from app.cache import PROGRAM_STAGE_LOCK_TTL, get_program_stage_lock_key, get_redis_client
 from app.database import db_session
 from app.models.auth import User
@@ -45,7 +45,7 @@ from app.models.chat import (
 )
 from app.naming import first_user_message, resolve_chat_name
 from app.providers.containers import provider
-from app.providers.models import GenerationResponse, Message, ResponseFormat
+from app.providers.models import GenerationResponse, Message, ResponseFormat, ToolCall
 from app.tasks.conf.broker import broker
 from app.tasks.exports import export_program
 
@@ -150,12 +150,21 @@ async def _run_stage(
             ctx.state = await store.save(ctx.state, expected_run_id=state.run_id)
             ctx.dirty = False
 
+    executor = call_executor(ctx, offered)
+
+    async def call_tool(tool_call: ToolCall) -> ToolResult:
+        """Run one call, remembering what a refusal asked the model to fix."""
+        result = await executor(tool_call)
+        if not result.ok and result.details:
+            ctx.last_problems = list(result.details)
+        return result
+
     try:
         ctx.state = await store.save(state.started(stage), expected_run_id=state.run_id)
         await run_tool_loop(
             stage_messages(ctx.state, files=await _request_files(session_id)),
             generate=generate,
-            call_tool=call_executor(ctx, offered),
+            call_tool=call_tool,
             checkpoint=checkpoint,
             complete=lambda: ctx.saved,
         )
@@ -172,7 +181,7 @@ async def _run_stage(
         stage_log.warning("program_stage_superseded", reason=str(error))
         return
     except ProgramError as error:
-        await _stage_failed(ctx.state or state, stage, error, stage_log)
+        await _stage_failed(ctx.state or state, stage, error, stage_log, ctx.last_problems)
         return
 
     stage_log.info("program_stage_completed", version=saved.version)
@@ -191,9 +200,17 @@ async def _stage_failed(
     stage: Stage,
     error: ProgramError,
     stage_log: structlog.stdlib.BoundLogger,
+    problems: list[str] | None = None,
 ) -> None:
-    """Spend an attempt, then either retry the stage or end the run."""
-    failed = state.failed_stage(stage, str(error))
+    """Spend an attempt, then either retry the stage or end the run.
+
+    What the last refused call asked the model to fix says more than "the block
+    was not saved", and the retry reads it in its brief instead of starting
+    from the same plan that was already refused. Any other failure keeps its
+    own reason: a stale refusal must not hide a provider error.
+    """
+    reason = "; ".join(problems) if problems and isinstance(error, StageNotCompleted) else str(error)
+    failed = state.failed_stage(stage, reason)
     try:
         saved = (
             await store.save(failed, expected_run_id=state.run_id)
@@ -204,10 +221,10 @@ async def _stage_failed(
         stage_log.info("program_stage_superseded", reason=str(superseded))
         return
     if failed.terminal:
-        stage_log.error("program_stage_gave_up", error=str(error))
-        await _notify(saved.session_id, _failure_message(str(error)))
+        stage_log.error("program_stage_gave_up", error=reason)
+        await _notify(saved.session_id, _failure_message(reason))
         return
-    stage_log.warning("program_stage_retry", attempt=saved.attempts.get(stage), error=str(error))
+    stage_log.warning("program_stage_retry", attempt=saved.attempts.get(stage), error=reason)
 
 
 def _failure_message(reason: str) -> str:

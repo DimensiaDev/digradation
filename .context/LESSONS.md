@@ -1192,7 +1192,9 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   prose answer and the run dies with "модель не сохранила блок этапа" — after three identical
   attempts, because the retry prompt is unchanged. `OpenAIProvider` parses the marker out of
   the content. The payload can run into junk after the object (`}}, "visible": false}`), so
-  decode the first complete value and drop the rest; a marker that yields no call stays text.
+  decode the first complete value and drop the rest. Nothing from the marker on may be sent
+  back, even when the payload does not parse: the hub refuses that request with
+  `400 Raw model control token in input`, and the loop's own nudge then spends the attempt.
   Found 2026-10-22 on a live `hours` stage.
 - **GigaChat answers a refused tool call with prose.** After `save_program_draft` returned
   `ok=false` for a bad `outcome_ids`, the model wrote "Я исправил ссылки…" and never called

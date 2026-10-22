@@ -2159,6 +2159,12 @@ the run died after three attempts.
   the only truthful signal that the block is committed. While it says no, the model's prose is
   kept in the history as its own turn, a user nudge follows, and the model gets another round
   within `MAX_TOOL_ROUNDS`.
+- **A retry carries the refusal that stopped the attempt.** The pipeline keeps no transcript:
+  each attempt rebuilds its prompt from the state, so a retry of a stage that died would start
+  from the same plan that was already refused. `program_stage` keeps the last refused call's
+  problems on the tool context, `failed_stage` records them instead of the generic "the block
+  was not saved", and `stage_brief` shows them to the next attempt. A completed stage clears
+  the reason, so a run that recovered stops reporting a failure.
 - **The intake passes nothing.** A refused intake call is a legitimate answer to the methodist
   ("a run already exists"), so nudging there would produce a pointless second call.
 - **A truncated answer is refused before the nudge.** `finish_reason=length` means the model did
@@ -2167,4 +2173,24 @@ the run died after three attempts.
 - **The reply is normalised in the provider, not in the loop.** GigaChat behind the hub emits
   its native `<|function_call|>` payload inside `content`; that is a wire-format quirk of one
   endpoint, so `OpenAIProvider` turns it into a `ToolCall` and everything above it sees the
-  normal shape.
+  normal shape. The marker and everything after it are dropped even when the payload does not
+  parse, because the hub refuses a request that carries the token
+  (`400 Raw model control token in input`): keeping an unparseable marker as prose turns the
+  loop's nudge into a failed attempt.
+
+## A module's volume is derived from its topics
+
+The `hours` stage refused a plan whose module stated a volume its topics did not add up to. On a
+live 40-hour brief the model produced fifteen curricula across three attempts and every one was
+refused; the persistent offender was the attestation module, which declared the 4 attestation
+hours while its only topic carried none, because those hours live in `attestation_hours`. The
+model then tried to put them into the topic as well and double-counted the volume.
+
+The topics are what the plan is built from, so `save_program_draft` replaces every declared module
+volume with the sum of its topics before the checks run. A plan can no longer contradict itself,
+and an attestation module no longer needs a volume it cannot have. The programme total — topics
+plus `attestation_hours` against `requested_hours` — is still checked, and its message names both
+numbers, so a wrong volume is still a refusal the model can act on.
+
+The report still checks the volumes of a state stored before this change; only new saves are
+normalised. Found 2026-10-22 on a live programme.

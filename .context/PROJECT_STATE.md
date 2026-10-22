@@ -3,11 +3,12 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-22** (a stage no longer ends on a prose answer while its block is
-unsaved, and the OpenAI-compatible provider recovers GigaChat's inline function call from the
-message text; the programme is written in two halves, its sources come from the curated
-catalogue and the pgvector index, the programme leaves as a document and as slides, and the
-methodist approves a draft and asks for a change through endpoints of their own)
+Last updated: **2026-10-22** (a stage keeps the model on the tool until its block is saved, a
+retry reads the refusal that stopped the previous attempt, the OpenAI-compatible provider
+recovers GigaChat's inline call and never echoes the control token back, and a module's volume
+is the sum of its topics; the programme is written in two halves, its sources come from the
+curated catalogue and the pgvector index, the programme leaves as a document and as slides, and
+the methodist approves a draft and asks for a change through endpoints of their own)
 
 ---
 
@@ -66,9 +67,10 @@ sources, summary, assessment, materials — and each commits its block before en
 next, so a worker that dies leaves every finished block behind and `recover_stalled_programs`
 restarts the stage that stopped. A stage does not take a text answer for a saved block: the
 tool loop is told whether the block is committed and sends the model back to the tool while it
-is not, because a refused call is often answered with "I fixed it" and no second call. The
-skeleton is rendered into the chat and waits for the
-methodist's confirmation, which the model turns into an `approve_program_draft` call; the
+is not, because a refused call is often answered with "I fixed it" and no second call. A retry
+is told what the last refused call asked to fix, because the pipeline keeps no transcript and
+would otherwise start from the same plan. The skeleton is rendered into the chat and waits for
+the methodist's confirmation, which the model turns into an `approve_program_draft` call; the
 content is written only after that approval, and a `revise_program` call reruns one part of
 the programme on request.
 
@@ -79,8 +81,9 @@ keys, seminar tasks, the current control, the final attestation) and the materia
 plans and slide decks) — is written only after that approval, and the approval is what puts
 the first content stage on the queue. Nothing is generated from a skeleton the methodist has
 not seen. The hours add up at every level: the final attestation is counted inside the volume,
-a module declares its own hours, every outcome is taught by a topic and checked by at least two
-means, and the schedule's capacity and daily load are checked against the volume.
+a module's volume is the sum of its topics rather than a number of its own, every outcome is
+taught by a topic and checked by at least two means, and the schedule's capacity and daily load
+are checked against the volume.
 
 **The sources come from two catalogues and the web.** `backend/res/rag-sources.json` is the
 curated catalogue: it holds the `src-NN` ids a programme cites and the paths the ingestion
@@ -215,10 +218,12 @@ shape without a socket.
 
 `SBER_API_SCOPE` selects the provider: `PERS` / `B2B` / `CORP` use the GigaChat client,
 `openai` the OpenAI-compatible one (`OPENAI_URL` is required in this mode, model via
-`OPENAI_MODEL`), `mock` the offline stand-in. Tool calling is implemented for both the
-OpenAI-compatible and the GigaChat v2 clients, and each turn names the tools it offers — the
-provider's own default list is empty on purpose, so a stage cannot offer the intake tools and
-vice versa. The OpenAI-compatible client also recovers GigaChat's native
+`OPENAI_MODEL`), `mock` the offline stand-in. The hub's plain chat model is the default and is
+enough for the easier stages; `OPENAI_MODEL=ai-sage/GigaChat3.5-432B-A28B-Reasoning` is the
+smarter, more expensive choice for a run whose arithmetic keeps being refused. Tool calling is
+implemented for both the OpenAI-compatible and the GigaChat v2 clients, and each turn names the
+tools it offers — the provider's own default list is empty on purpose, so a stage cannot offer
+the intake tools and vice versa. The OpenAI-compatible client also recovers GigaChat's native
 `<|function_call|>` payload when the hub delivers it as message text instead of `tool_calls`.
 The OpenAI live tests carry an extra `openai` marker and are selected with
 `-m 'live and openai'`; the GigaChat tool test shares `-m live` with the rest of
