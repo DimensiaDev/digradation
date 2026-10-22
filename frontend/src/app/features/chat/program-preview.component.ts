@@ -32,6 +32,7 @@ import {
 import { ProgramStateApi } from '../../core/models/models';
 import { AttachmentDownloadService } from '../../core/services/attachment-download.service';
 import { NotificationService } from '../../core/services/notification.service';
+import { AccordionSectionComponent } from '../../shared/components/accordion-section/accordion-section.component';
 import { extractApiErrorMessage } from '../../shared/utils/api-error';
 import {
   ProgramPreviewSection,
@@ -50,9 +51,12 @@ import {
 
 const FOCUS_HIGHLIGHT_MS = 1_400;
 
+export type ProgramAccordionSection = Exclude<ProgramPreviewSection, 'results'>;
+
 @Component({
   selector: 'app-program-preview',
   imports: [
+    AccordionSectionComponent,
     LucideBookOpen,
     LucideCheck,
     LucideClipboardCheck,
@@ -106,6 +110,7 @@ export class ProgramPreviewComponent {
   );
   readonly justUpdated = signal(false);
   readonly focused = signal<ProgramPreviewSection | null>(null);
+  readonly expandedSection = signal<ProgramAccordionSection | null>('summary');
   readonly downloading = signal<'document' | 'slides' | null>(null);
 
   private readonly scroll = viewChild<ElementRef<HTMLElement>>('scroll');
@@ -174,7 +179,19 @@ export class ProgramPreviewComponent {
       });
   }
 
+  isExpanded(section: ProgramAccordionSection): boolean {
+    return this.expandedSection() === section;
+  }
+
+  toggleSection(section: ProgramAccordionSection): void {
+    this.expandedSection.update((current) => (current === section ? null : section));
+  }
+
   focusSection(section: ProgramPreviewSection): void {
+    if (section !== 'results') {
+      this.expandedSection.set(section);
+    }
+
     const target = this.scroll()?.nativeElement.querySelector<HTMLElement>(
       `[data-section="${section}"]`
     );

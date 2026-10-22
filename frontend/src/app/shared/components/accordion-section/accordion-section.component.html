@@ -1,0 +1,42 @@
+<section class="accordion">
+  <h3 class="accordion__heading">
+    <button
+      type="button"
+      class="accordion__toggle"
+      [id]="toggleId()"
+      [attr.aria-controls]="panelId()"
+      [attr.aria-expanded]="expanded()"
+      (click)="toggled.emit()"
+    >
+      <span class="accordion__title">
+        <ng-content select="[accordionTitle]" />
+      </span>
+      <span class="accordion__end">
+        <ng-content select="[accordionMeta]" />
+        <svg
+          class="accordion__chevron"
+          [class.accordion__chevron--open]="expanded()"
+          size="16"
+          lucideChevronDown
+          aria-hidden="true"
+        ></svg>
+      </span>
+    </button>
+  </h3>
+
+  <div
+    class="accordion__panel"
+    role="region"
+    [class.accordion__panel--collapsed]="!expanded()"
+    [id]="panelId()"
+    [attr.aria-labelledby]="toggleId()"
+    [attr.aria-hidden]="expanded() ? null : 'true'"
+    [attr.inert]="expanded() ? null : ''"
+  >
+    <div class="accordion__panel-inner">
+      <div class="accordion__panel-content">
+        <ng-content />
+      </div>
+    </div>
+  </div>
+</section>

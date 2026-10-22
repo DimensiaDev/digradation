@@ -41,7 +41,7 @@
   }
 
   &__title {
-    font-size: 20px;
+    font-size: 22px;
   }
 
   &__name {
@@ -224,31 +224,16 @@
     border-radius: 7px;
   }
 
-  &__section {
+  &__sections {
+    display: grid;
+    gap: 8px;
+
     margin-top: 18px;
-    padding-top: 18px;
-
-    border-top: 1px solid var(--color-outline);
-
-    border-radius: 8px;
-
-    transition:
-      background 180ms ease,
-      box-shadow 180ms ease;
-
-    @include reduced-motion;
-
-    &--focused {
-      background: color-mix(in srgb, var(--color-main) 7%, transparent);
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-main) 7%, transparent);
-    }
   }
 
-  &__section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+  &__section--focused {
+    background: color-mix(in srgb, var(--color-main) 7%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-main) 7%, transparent);
   }
 
   &__section-title {
@@ -256,16 +241,14 @@
     align-items: center;
     gap: 7px;
 
-    margin: 0;
-
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
     line-height: 1.4;
     color: var(--color-text);
 
     & > svg {
       flex-shrink: 0;
-      color: var(--color-gray);
+      color: var(--color-main);
     }
   }
 
@@ -287,7 +270,7 @@
   }
 
   &__goal {
-    margin: 9px 0 0;
+    margin: 0;
 
     font-size: 14px;
     line-height: 1.55;
@@ -544,11 +527,44 @@
     color: var(--color-gray);
   }
 
+  &__footer {
+    flex-shrink: 0;
+
+    padding: 12px 22px;
+
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-outline);
+
+    transition: background 180ms ease;
+
+    &--focused {
+      background: color-mix(in srgb, var(--color-main) 7%, var(--color-surface));
+    }
+  }
+
+  &__footer-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+
+    margin: 0;
+
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--color-text);
+
+    & > svg {
+      flex-shrink: 0;
+      color: var(--color-gray);
+    }
+  }
+
   &__results {
     display: grid;
     gap: 8px;
 
-    margin-top: 10px;
+    margin-top: 9px;
 
     .button {
       padding: 10px 12px;
@@ -638,8 +654,8 @@
       padding: 14px 16px 20px;
     }
 
-    &__meta {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+    &__footer {
+      padding: 12px 16px;
     }
   }
 }

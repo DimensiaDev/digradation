@@ -2179,3 +2179,27 @@ and none of it survived a reload.
   with the detail request. The card grows into them once the panel has loaded them.
 - **Empty is a truthful state.** The detail panel says a block has not been formed yet instead
   of showing invented modules, competencies or materials.
+
+## The programme aside collapses its blocks and pins the downloads (2026-10-22)
+
+The aside stacked five heterogeneous blocks — the goal, competences, modules, sources and the
+self-check report — and pushed the DOCX and PPTX buttons below all of them. A methodist who
+wanted the download had to scroll past the whole programme every time.
+
+- **One section is open at a time.** The accordion opens the goal by default and closes it when
+  another section opens, so the aside shows the shape of the programme without turning its
+  length into the main thing. A section with no content still opens onto its truthful empty
+  note.
+- **Status, metadata and downloads do not collapse.** The header, badge, volume and format, and
+  the export buttons are the actions a methodist reaches for repeatedly; hiding them behind a
+  toggle would trade one scroll for another. Downloads are a footer only when an export exists.
+- **The accordion is a shared component.** `shared/components/accordion-section` owns the
+  button, the `aria-expanded` / `aria-controls` wiring and the panel, so the next long aside
+  gets the same behaviour without copying it. The chat preview keeps the block-specific styles.
+- **The panel stays in the DOM so it can animate.** `grid-template-rows` goes from `0fr` to
+  `1fr`; removing the content with `@if` would make the opening jump. While collapsed the
+  panel carries `aria-hidden` and `inert`, so the invisible content is neither announced nor
+  focusable. The transition is disabled under `prefers-reduced-motion`.
+- **The focus handoff expands its target.** `focusSection` still scrolls and highlights, and now
+  also opens the section, because scrolling to a collapsed header would highlight a closed
+  panel instead of its contents.

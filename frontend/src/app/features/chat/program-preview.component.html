@@ -64,271 +64,249 @@
         <span class="skeleton-item skeleton-item--rect program-preview__skeleton-block"></span>
       </div>
     } @else if (hasContent()) {
-      <section
-        class="program-preview__section"
-        data-section="summary"
-        [class.program-preview__section--focused]="focused() === 'summary'"
-      >
-        <h3 class="program-preview__section-title">
-          <svg size="16" lucideTarget aria-hidden="true"></svg>
-          Цель программы
-        </h3>
-        @if (goal()) {
-          <p class="program-preview__goal">{{ goal() }}</p>
-        } @else {
-          <p class="program-preview__empty-note">Цель появится после этапа «Паспорт программы».</p>
-        }
-      </section>
+      <div class="program-preview__sections">
+        <app-accordion-section
+          class="program-preview__section"
+          data-section="summary"
+          sectionId="program-preview-summary"
+          [expanded]="isExpanded('summary')"
+          [class.program-preview__section--focused]="focused() === 'summary'"
+          (toggled)="toggleSection('summary')"
+        >
+          <span accordionTitle class="program-preview__section-title">
+            <svg size="16" lucideTarget aria-hidden="true"></svg>
+            Цель программы
+          </span>
 
-      <section
-        class="program-preview__section"
-        data-section="competencies"
-        [class.program-preview__section--focused]="focused() === 'competencies'"
-      >
-        <header class="program-preview__section-header">
-          <h3 class="program-preview__section-title">
+          @if (goal()) {
+            <p class="program-preview__goal">{{ goal() }}</p>
+          } @else {
+            <p class="program-preview__empty-note">
+              Цель появится после этапа «Паспорт программы».
+            </p>
+          }
+        </app-accordion-section>
+
+        <app-accordion-section
+          class="program-preview__section"
+          data-section="competencies"
+          sectionId="program-preview-competencies"
+          [expanded]="isExpanded('competencies')"
+          [class.program-preview__section--focused]="focused() === 'competencies'"
+          (toggled)="toggleSection('competencies')"
+        >
+          <span accordionTitle class="program-preview__section-title">
             <svg size="16" lucideTags aria-hidden="true"></svg>
             Компетенции
-          </h3>
-          @if (competencies().length) {
-            <span class="program-preview__count">{{ competencies().length }}</span>
-          }
-        </header>
-
-        @if (competencies().length) {
-          <ul class="program-preview__competencies">
-            @for (competence of competencies(); track competence.id) {
-              <li class="program-preview__competency" [title]="competence.label">
-                {{ competence.label }}
-              </li>
+          </span>
+          <span accordionMeta>
+            @if (competencies().length) {
+              <span class="program-preview__count">{{ competencies().length }}</span>
             }
-          </ul>
-        } @else {
-          <p class="program-preview__empty-note">
-            Компетенции появятся после этапа «Структура и каркас».
-          </p>
-        }
-      </section>
+          </span>
 
-      <section
-        class="program-preview__section"
-        data-section="modules"
-        [class.program-preview__section--focused]="focused() === 'modules'"
-      >
-        <header class="program-preview__section-header">
-          <h3 class="program-preview__section-title">
+          @if (competencies().length) {
+            <ul class="program-preview__competencies">
+              @for (competence of competencies(); track competence.id) {
+                <li class="program-preview__competency" [title]="competence.label">
+                  {{ competence.label }}
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="program-preview__empty-note">
+              Компетенции появятся после этапа «Структура и каркас».
+            </p>
+          }
+        </app-accordion-section>
+
+        <app-accordion-section
+          class="program-preview__section"
+          data-section="modules"
+          sectionId="program-preview-modules"
+          [expanded]="isExpanded('modules')"
+          [class.program-preview__section--focused]="focused() === 'modules'"
+          (toggled)="toggleSection('modules')"
+        >
+          <span accordionTitle class="program-preview__section-title">
             <svg size="16" lucideLayers aria-hidden="true"></svg>
             Модули программы
-          </h3>
-          @if (modules().length) {
-            <span class="program-preview__count">{{ modules().length }}</span>
-          }
-        </header>
-
-        @if (modules().length) {
-          <ul class="program-preview__modules">
-            @for (module of modules(); track module.id; let index = $index) {
-              <li class="program-preview__module">
-                <span class="program-preview__module-index" aria-hidden="true">{{
-                  index + 1
-                }}</span>
-                <div class="program-preview__module-body">
-                  <p class="program-preview__module-title">{{ module.title }}</p>
-                  <p class="program-preview__module-meta">
-                    {{ topicCountLabel(module.topicCount) }}
-                    · {{ formatHours(module.hours) }}
-                  </p>
-                </div>
-              </li>
+          </span>
+          <span accordionMeta>
+            @if (modules().length) {
+              <span class="program-preview__count">{{ modules().length }}</span>
             }
-          </ul>
-          <p class="program-preview__total">Итого: {{ hoursLabel() }}</p>
-        } @else {
-          <p class="program-preview__empty-note">
-            Модули и часы появятся после этапа «Учебный план».
-          </p>
-        }
-      </section>
+          </span>
 
-      <section
-        class="program-preview__section"
-        data-section="sources"
-        [class.program-preview__section--focused]="focused() === 'sources'"
-      >
-        <header class="program-preview__section-header">
-          <h3 class="program-preview__section-title">
+          @if (modules().length) {
+            <ul class="program-preview__modules">
+              @for (module of modules(); track module.id; let index = $index) {
+                <li class="program-preview__module">
+                  <span class="program-preview__module-index" aria-hidden="true">{{
+                    index + 1
+                  }}</span>
+                  <div class="program-preview__module-body">
+                    <p class="program-preview__module-title">{{ module.title }}</p>
+                    <p class="program-preview__module-meta">
+                      {{ topicCountLabel(module.topicCount) }}
+                      · {{ formatHours(module.hours) }}
+                    </p>
+                  </div>
+                </li>
+              }
+            </ul>
+            <p class="program-preview__total">Итого: {{ hoursLabel() }}</p>
+          } @else {
+            <p class="program-preview__empty-note">
+              Модули и часы появятся после этапа «Учебный план».
+            </p>
+          }
+        </app-accordion-section>
+
+        <app-accordion-section
+          class="program-preview__section"
+          data-section="sources"
+          sectionId="program-preview-sources"
+          [expanded]="isExpanded('sources')"
+          [class.program-preview__section--focused]="focused() === 'sources'"
+          (toggled)="toggleSection('sources')"
+        >
+          <span accordionTitle class="program-preview__section-title">
             <svg size="16" lucideBookOpen aria-hidden="true"></svg>
             Источники
-          </h3>
+          </span>
+          <span accordionMeta>
+            @if (sources().length) {
+              <span class="program-preview__count">{{ sources().length }}</span>
+            }
+          </span>
+
           @if (sources().length) {
-            <span class="program-preview__count">{{ sources().length }}</span>
-          }
-        </header>
+            <ul class="program-preview__sources">
+              @for (source of sources(); track source.id) {
+                <li
+                  class="program-preview__module program-preview__source"
+                  [class.program-preview__source--unconfirmed]="!source.confirmed"
+                >
+                  <div class="program-preview__module-body">
+                    <span class="program-preview__source-kind">{{ source.kindLabel }}</span>
+                    <p class="program-preview__source-title">{{ source.title }}</p>
 
-        @if (sources().length) {
-          <ul class="program-preview__sources">
-            @for (source of sources(); track source.id) {
-              <li
-                class="program-preview__module program-preview__source"
-                [class.program-preview__source--unconfirmed]="!source.confirmed"
-              >
-                <div class="program-preview__module-body">
-                  <span class="program-preview__source-kind">{{ source.kindLabel }}</span>
-                  <p class="program-preview__source-title">{{ source.title }}</p>
-
-                  <p
-                    class="program-preview__source-status"
-                    [attr.data-confirmed]="source.confirmed"
-                  >
-                    @if (source.confirmed) {
-                      <svg size="13" lucideCheck aria-hidden="true"></svg>
-                      Подтверждён каталогом
-                    } @else {
-                      <svg size="13" lucideTriangleAlert aria-hidden="true"></svg>
-                      Не подтверждён — проверьте вручную
-                    }
-                  </p>
-
-                  @if (source.trust || source.origin) {
-                    <p class="program-preview__source-meta">
-                      @if (source.trust) {
-                        <span>Доверие: {{ source.trust }}</span>
-                      }
-                      @if (source.origin) {
-                        <span>Происхождение: {{ source.origin }}</span>
+                    <p
+                      class="program-preview__source-status"
+                      [attr.data-confirmed]="source.confirmed"
+                    >
+                      @if (source.confirmed) {
+                        <svg size="13" lucideCheck aria-hidden="true"></svg>
+                        Подтверждён каталогом
+                      } @else {
+                        <svg size="13" lucideTriangleAlert aria-hidden="true"></svg>
+                        Не подтверждён — проверьте вручную
                       }
                     </p>
-                  }
-                </div>
-              </li>
-            }
-          </ul>
-        } @else {
-          <p class="program-preview__empty-note">Источники появятся после этапа «Источники».</p>
-        }
-      </section>
 
-      <section
-        class="program-preview__section"
-        data-section="report"
-        [class.program-preview__section--focused]="focused() === 'report'"
-      >
-        <header class="program-preview__section-header">
-          <h3 class="program-preview__section-title">
+                    @if (source.trust || source.origin) {
+                      <p class="program-preview__source-meta">
+                        @if (source.trust) {
+                          <span>Доверие: {{ source.trust }}</span>
+                        }
+                        @if (source.origin) {
+                          <span>Происхождение: {{ source.origin }}</span>
+                        }
+                      </p>
+                    }
+                  </div>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="program-preview__empty-note">Источники появятся после этапа «Источники».</p>
+          }
+        </app-accordion-section>
+
+        <app-accordion-section
+          class="program-preview__section"
+          data-section="report"
+          sectionId="program-preview-report"
+          [expanded]="isExpanded('report')"
+          [class.program-preview__section--focused]="focused() === 'report'"
+          (toggled)="toggleSection('report')"
+        >
+          <span accordionTitle class="program-preview__section-title">
             <svg size="16" lucideClipboardCheck aria-hidden="true"></svg>
             Проверка
-          </h3>
+          </span>
+          <span accordionMeta>
+            @if (report(); as report) {
+              <span class="program-preview__count">{{ report.checks.length }}</span>
+            }
+          </span>
+
           @if (report(); as report) {
-            <span class="program-preview__count">{{ report.checks.length }}</span>
-          }
-        </header>
+            <div class="program-preview__report-verdict" role="status">
+              <span
+                class="program-preview__badge"
+                [attr.data-tone]="report.ok ? 'success' : 'danger'"
+              >
+                @if (report.ok) {
+                  <svg size="13" lucideCheck aria-hidden="true"></svg>
+                } @else {
+                  <svg size="13" lucideTriangleAlert aria-hidden="true"></svg>
+                }
+                {{ report.ok ? 'Проверки пройдены' : 'Нельзя утверждать' }}
+              </span>
+              <span class="program-preview__report-summary">
+                {{ report.passed }} из {{ report.checks.length }} проверок
+              </span>
+            </div>
 
-        @if (report(); as report) {
-          <div class="program-preview__report-verdict" role="status">
-            <span
-              class="program-preview__badge"
-              [attr.data-tone]="report.ok ? 'success' : 'danger'"
-            >
-              @if (report.ok) {
-                <svg size="13" lucideCheck aria-hidden="true"></svg>
-              } @else {
-                <svg size="13" lucideTriangleAlert aria-hidden="true"></svg>
+            <ul class="program-preview__checks">
+              @for (check of report.checks; track check.name) {
+                <li
+                  class="program-preview__module program-preview__check"
+                  [class.program-preview__check--problem]="!check.ok"
+                >
+                  <div class="program-preview__module-body">
+                    <header class="program-preview__check-head">
+                      <span class="program-preview__check-icon" aria-hidden="true">
+                        @if (check.ok) {
+                          <svg size="14" lucideCheck></svg>
+                        } @else {
+                          <svg size="14" lucideTriangleAlert></svg>
+                        }
+                      </span>
+                      <h4 class="program-preview__check-name">{{ check.label }}</h4>
+                      <span class="visually-hidden">
+                        {{ check.ok ? 'Пройдено' : 'Есть замечания' }}
+                      </span>
+                    </header>
+
+                    @if (check.problems.length) {
+                      <ul class="program-preview__check-problems">
+                        @for (problem of check.problems; track problem) {
+                          <li>{{ problem }}</li>
+                        }
+                      </ul>
+                    }
+
+                    @if (check.details.length) {
+                      <div class="program-preview__check-details">
+                        @for (detail of check.details; track detail.label) {
+                          <span>{{ detail.label }}: {{ detail.value }}</span>
+                        }
+                      </div>
+                    }
+                  </div>
+                </li>
               }
-              {{ report.ok ? 'Проверки пройдены' : 'Нельзя утверждать' }}
-            </span>
-            <span class="program-preview__report-summary">
-              {{ report.passed }} из {{ report.checks.length }} проверок
-            </span>
-          </div>
-
-          <ul class="program-preview__checks">
-            @for (check of report.checks; track check.name) {
-              <li
-                class="program-preview__module program-preview__check"
-                [class.program-preview__check--problem]="!check.ok"
-              >
-                <div class="program-preview__module-body">
-                  <header class="program-preview__check-head">
-                    <span class="program-preview__check-icon" aria-hidden="true">
-                      @if (check.ok) {
-                        <svg size="14" lucideCheck></svg>
-                      } @else {
-                        <svg size="14" lucideTriangleAlert></svg>
-                      }
-                    </span>
-                    <h4 class="program-preview__check-name">{{ check.label }}</h4>
-                    <span class="visually-hidden">
-                      {{ check.ok ? 'Пройдено' : 'Есть замечания' }}
-                    </span>
-                  </header>
-
-                  @if (check.problems.length) {
-                    <ul class="program-preview__check-problems">
-                      @for (problem of check.problems; track problem) {
-                        <li>{{ problem }}</li>
-                      }
-                    </ul>
-                  }
-
-                  @if (check.details.length) {
-                    <div class="program-preview__check-details">
-                      @for (detail of check.details; track detail.label) {
-                        <span>{{ detail.label }}: {{ detail.value }}</span>
-                      }
-                    </div>
-                  }
-                </div>
-              </li>
-            }
-          </ul>
-        } @else {
-          <p class="program-preview__empty-note">
-            Самопроверка появится, когда программа соберёт первые блоки.
-          </p>
-        }
-      </section>
-
-      <section
-        class="program-preview__section"
-        data-section="results"
-        [class.program-preview__section--focused]="focused() === 'results'"
-      >
-        <h3 class="program-preview__section-title">
-          <svg size="16" lucideDownload aria-hidden="true"></svg>
-          Результаты программы
-        </h3>
-
-        @if (documentExportId() !== null || slidesExportId() !== null) {
-          <div class="program-preview__results">
-            @if (documentExportId() !== null) {
-              <button
-                type="button"
-                class="button button--outline button--centered"
-                [disabled]="downloading() !== null"
-                [attr.aria-busy]="downloading() === 'document'"
-                (click)="downloadExport('document')"
-              >
-                <svg size="16" lucideFileText aria-hidden="true"></svg>
-                {{ downloading() === 'document' ? 'Скачиваем DOCX…' : 'Скачать DOCX' }}
-              </button>
-            }
-            @if (slidesExportId() !== null) {
-              <button
-                type="button"
-                class="button button--outline button--centered"
-                [disabled]="downloading() !== null"
-                [attr.aria-busy]="downloading() === 'slides'"
-                (click)="downloadExport('slides')"
-              >
-                <svg size="16" lucidePresentation aria-hidden="true"></svg>
-                {{ downloading() === 'slides' ? 'Скачиваем PPTX…' : 'Скачать PPTX' }}
-              </button>
-            }
-          </div>
-        } @else {
-          <p class="program-preview__empty-note">Файлы программы появятся после её утверждения.</p>
-        }
-      </section>
+            </ul>
+          } @else {
+            <p class="program-preview__empty-note">
+              Самопроверка появится, когда программа соберёт первые блоки.
+            </p>
+          }
+        </app-accordion-section>
+      </div>
     } @else {
       <div class="program-preview__empty">
         <span class="program-preview__empty-icon" aria-hidden="true">
@@ -341,4 +319,44 @@
       </div>
     }
   </div>
+
+  @if (documentExportId() !== null || slidesExportId() !== null) {
+    <footer
+      class="program-preview__footer"
+      data-section="results"
+      [class.program-preview__footer--focused]="focused() === 'results'"
+      aria-labelledby="program-preview-results-title"
+    >
+      <h3 id="program-preview-results-title" class="program-preview__footer-title">
+        <svg size="16" lucideDownload aria-hidden="true"></svg>
+        Результаты программы
+      </h3>
+      <div class="program-preview__results">
+        @if (documentExportId() !== null) {
+          <button
+            type="button"
+            class="button button--outline button--centered"
+            [disabled]="downloading() !== null"
+            [attr.aria-busy]="downloading() === 'document'"
+            (click)="downloadExport('document')"
+          >
+            <svg size="16" lucideFileText aria-hidden="true"></svg>
+            {{ downloading() === 'document' ? 'Скачиваем DOCX…' : 'Скачать DOCX' }}
+          </button>
+        }
+        @if (slidesExportId() !== null) {
+          <button
+            type="button"
+            class="button button--outline button--centered"
+            [disabled]="downloading() !== null"
+            [attr.aria-busy]="downloading() === 'slides'"
+            (click)="downloadExport('slides')"
+          >
+            <svg size="16" lucidePresentation aria-hidden="true"></svg>
+            {{ downloading() === 'slides' ? 'Скачиваем PPTX…' : 'Скачать PPTX' }}
+          </button>
+        }
+      </div>
+    </footer>
+  }
 </aside>

@@ -1187,3 +1187,8 @@ to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALF
   renders that list must subtract the ids in `program.exports`; otherwise `programme.docx`
   looks like a pending upload and can be deleted, leaving the programme state pointing at a
   missing file. Found 2026-10-22.
+- **Padding on a `0fr` grid item keeps an animated accordion open by exactly that padding.**
+  The panel collapses only its content box; `padding` and `border` still contribute height, so
+  a collapsed section kept a 23px strip. Put the padding and the divider on a child of the grid
+  item, and keep the grid item itself padding-free with `min-height: 0; overflow: hidden`.
+  Found 2026-10-22.

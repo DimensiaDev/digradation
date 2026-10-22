@@ -149,6 +149,14 @@ describe('ProgramPreviewComponent', () => {
     fixture.componentRef.setInput('sessionId', 'mock-programme-4');
   });
 
+  function expandSection(section: string): void {
+    const button = fixture.nativeElement.querySelector(
+      `[data-section="${section}"] .accordion__toggle`
+    ) as HTMLButtonElement;
+    button.click();
+    fixture.detectChanges();
+  }
+
   it('shows the empty state and only the supported metadata', () => {
     fixture.componentRef.setInput('state', state());
     fixture.detectChanges();
@@ -162,18 +170,63 @@ describe('ProgramPreviewComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.program-preview__meta-item').length).toBe(2);
   });
 
+  it('opens only one accordion section at a time', () => {
+    fixture.componentRef.setInput('state', FILLED);
+    fixture.detectChanges();
+
+    const summary = fixture.nativeElement.querySelector(
+      '#program-preview-summary-panel'
+    ) as HTMLElement;
+    const modules = fixture.nativeElement.querySelector(
+      '#program-preview-modules-panel'
+    ) as HTMLElement;
+
+    expect(summary.classList.contains('accordion__panel--collapsed')).toBe(false);
+    expect(modules.classList.contains('accordion__panel--collapsed')).toBe(true);
+    expect(modules.getAttribute('aria-hidden')).toBe('true');
+
+    expandSection('modules');
+
+    expect(summary.classList.contains('accordion__panel--collapsed')).toBe(true);
+    expect(modules.classList.contains('accordion__panel--collapsed')).toBe(false);
+    expect(modules.hasAttribute('aria-hidden')).toBe(false);
+    expect(
+      fixture.nativeElement
+        .querySelector('[data-section="modules"] .accordion__toggle')
+        .getAttribute('aria-expanded')
+    ).toBe('true');
+
+    expandSection('modules');
+
+    expect(modules.classList.contains('accordion__panel--collapsed')).toBe(true);
+  });
+
   it('renders real blocks, hours and the draft badge', () => {
     fixture.componentRef.setInput('state', FILLED);
     fixture.detectChanges();
 
-    const text = fixture.nativeElement.textContent as string;
+    let text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Аналитика данных');
     expect(text).toContain('Повышение квалификации');
     expect(text).toContain('Черновик обновлён');
     expect(text).toContain('18 часов');
     expect(text).toContain('Очно-заочная');
     expect(text).toContain('Подготовить аналитиков данных');
+    expect(
+      (fixture.nativeElement.querySelector('#program-preview-competencies-panel') as HTMLElement)
+        .classList
+    ).toContain('accordion__panel--collapsed');
+
+    expandSection('competencies');
+    text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Анализировать требования');
+    expect(
+      (fixture.nativeElement.querySelector('#program-preview-competencies-panel') as HTMLElement)
+        .classList
+    ).not.toContain('accordion__panel--collapsed');
+
+    expandSection('modules');
+    text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Введение');
     expect(text).toContain('1 тема');
     expect(text).toContain('Итого: 18 часов');
@@ -182,6 +235,7 @@ describe('ProgramPreviewComponent', () => {
   it('renders sources with their kind, confirmation, trust and origin', () => {
     fixture.componentRef.setInput('state', REVIEWED);
     fixture.detectChanges();
+    expandSection('sources');
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Источники');
@@ -207,6 +261,7 @@ describe('ProgramPreviewComponent', () => {
   it('renders the self-check report with problems and key details', () => {
     fixture.componentRef.setInput('state', REVIEWED);
     fixture.detectChanges();
+    expandSection('report');
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Проверка');
@@ -244,6 +299,7 @@ describe('ProgramPreviewComponent', () => {
       report: { ok: true, checks }
     });
     fixture.detectChanges();
+    expandSection('report');
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Проверки пройдены');
@@ -292,13 +348,11 @@ describe('ProgramPreviewComponent', () => {
     expect(text).toContain('Скачать PPTX');
   });
 
-  it('explains that exports appear after approval', () => {
+  it('shows no results footer until an export exists', () => {
     fixture.componentRef.setInput('state', REVIEWED);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain(
-      'Файлы программы появятся после её утверждения'
-    );
+    expect(fixture.nativeElement.querySelector('.program-preview__footer')).toBeNull();
   });
 
   it('reports a failed download and enables the buttons again', () => {

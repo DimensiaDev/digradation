@@ -5,7 +5,7 @@ in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
 Last updated: **2026-10-22** (the programmes catalogue shows only backend-backed data; the
 local-only duplicate/archive/delete actions, unsupported type/tag filters and the fabricated
-materials tab are gone, and the chat preview no longer invents an attestation type)
+materials tab are gone, and the chat preview's blocks are an accordion with pinned downloads)
 
 ---
 
@@ -50,9 +50,10 @@ after login. The composer also dictates Russian through the Web Speech API. `/pr
 `Мои программы`: a lazy-loaded catalogue backed by `GET /chats/programmes` and
 `GET /chats/{session_id}/program`, with filtering by update month, paging, and two-second
 polling while a run is busy. Cards and the detail panel show only what those responses carry;
-the catalogue is read-only until the programme-mutation endpoints exist. The chat workspace's aside shows the saved blocks, the cited
-sources with their catalogue confirmation, the self-check report with its problems and key
-details, and the finished programme's DOCX and PPTX downloads. Program creation has no entry
+the catalogue is read-only until the programme-mutation endpoints exist. The chat workspace's
+aside shows the saved blocks, the cited sources with their catalogue confirmation, and the
+self-check report in a single-open accordion; the finished programme's DOCX and PPTX downloads
+stay pinned to the aside footer, outside the collapsible content. Program creation has no entry
 point yet.
 
 **Not started or placeholder.** The profile page body, user settings, and two admin sections
