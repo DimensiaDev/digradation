@@ -176,9 +176,13 @@
 
 .program-preview__check-icon {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 
-  margin-top: 1px;
+  width: 18px;
+  height: 18px;
+  margin-top: 0;
 
   color: var(--color-success);
 }
