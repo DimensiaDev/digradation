@@ -155,7 +155,7 @@
     align-items: center;
     gap: 6px;
 
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 400;
     color: var(--color-gray);
   }
@@ -163,7 +163,7 @@
   &__meta-value {
     margin-top: 6px;
 
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     overflow-wrap: anywhere;
   }
@@ -183,7 +183,7 @@
     padding: 10px 12px;
 
     font: inherit;
-    font-size: 14px;
+    font-size: 15px;
     color: var(--color-gray);
     white-space: nowrap;
 
@@ -217,7 +217,7 @@
 
     margin-bottom: 12px;
 
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 600;
 
     &:not(:first-child) {
@@ -231,13 +231,13 @@
   }
 
   &__text {
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.7;
     color: color-mix(in srgb, var(--color-text) 88%, var(--color-gray));
   }
 
   &__empty {
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.6;
     color: var(--color-gray);
   }
@@ -252,7 +252,7 @@
     align-items: flex-start;
     gap: 10px;
 
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.55;
   }
 
@@ -297,7 +297,7 @@
     width: 26px;
     height: 26px;
 
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     color: var(--color-main);
 
@@ -321,7 +321,7 @@
   }
 
   &__module-title {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     line-height: 1.4;
   }
@@ -329,14 +329,14 @@
   &__module-hours {
     flex-shrink: 0;
 
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--color-main);
     white-space: nowrap;
   }
 
   &__module-summary {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 400;
     line-height: 1.5;
     color: var(--color-gray);
@@ -345,7 +345,7 @@
   &__total {
     margin-top: 10px;
 
-    font-size: 13px;
+    font-size: 14px;
     color: var(--color-gray);
   }
 
@@ -361,7 +361,7 @@
 
     padding: 12px 14px;
 
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.55;
 
     background: var(--color-surface);
