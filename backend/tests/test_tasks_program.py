@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.agentic import store
 from app.agentic.errors import MissingChat, StaleState
+from app.agentic.loop import MAX_TOOL_ROUNDS
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.state import (
     CONTENT_ORDER,
@@ -175,7 +176,7 @@ def skeleton_state(session_id: uuid.UUID) -> ProgramState:
 def complete_state(session_id: uuid.UUID) -> ProgramState:
     """A run that committed every block of the example document."""
     raw = example()
-    state = skeleton_state(session_id)
+    state = skeleton_state(session_id).approved()
     for stage in CONTENT_ORDER:
         state = state.started(stage)
         if stage is Stage.ASSESSMENT:
@@ -322,6 +323,50 @@ async def test_a_stage_that_saves_nothing_is_retried(
     assert saved.attempts[Stage.COMPETENCES.value] == 2
     stages, _, _ = enqueued
     stages.assert_awaited_once_with(chat, Stage.COMPETENCES.value, state.run_id)
+
+
+async def test_a_refused_block_is_asked_for_again_before_the_attempt_is_spent(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """A model that answers "I fixed it" after a refusal is sent back to the tool."""
+    state = await store.save(new_state(chat, requested_hours=None, requirements=None))
+    broken = {"kind": "professional_development", "title": "", "competencies": []}
+    provider.answers.extend([save_turn(broken), answer("исправил"), save_turn(COMPETENCES_BLOCK), answer("готово")])
+
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
+
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.stage_status(Stage.COMPETENCES) is StageStatus.COMPLETED
+    # The refusal was answered inside the attempt, not by spending another one.
+    assert saved.attempts[Stage.COMPETENCES.value] == 1
+    assert len(provider.calls) == 4
+
+
+async def test_a_retry_reads_what_the_refused_call_asked_to_fix(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """The pipeline keeps no transcript, so the refusal travels in the state."""
+    state = await store.save(new_state(chat, requested_hours=None, requirements=None))
+    broken = {"kind": "professional_development", "title": "", "competencies": []}
+    provider.answers.append(save_turn(broken))
+    provider.answers.extend(answer("исправил") for _ in range(MAX_TOOL_ROUNDS))
+
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
+
+    failed = await store.load(chat)
+    assert failed is not None
+    assert not failed.failed
+    assert "title" in (failed.error or "")
+
+    provider.answers.extend([save_turn(COMPETENCES_BLOCK), answer("готово")])
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
+
+    retry = " ".join(part.text for message in provider.calls[-2]["messages"] for part in message.content)
+    assert "Прошлая попытка этого этапа не удалась" in retry
+    assert "title" in retry
+    done = await store.load(chat)
+    assert done is not None and done.error is None
 
 
 async def test_the_last_attempt_ends_the_run_and_tells_the_methodist(
@@ -486,6 +531,33 @@ async def test_a_revision_of_the_skeleton_leads_to_the_content_being_written(
     assert saved.assessment is not None
     assert saved.materials is not None
     assert saved.status is ProgramStatus.APPROVED
+
+
+async def test_releasing_the_content_of_a_complete_programme_writes_the_exports_again(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, enqueued
+) -> None:
+    """A revised summary of a finished programme is approved without re-running a stage."""
+    state = await store.save(complete_state(chat).request_revision(Stage.SUMMARY, "перепиши паспорт"))
+
+    released = await program.release_content(state.approved())
+
+    stages, _, exports = enqueued
+    stages.assert_not_awaited()
+    exports.assert_awaited_once_with(chat, state.run_id)
+    assert released.status is ProgramStatus.APPROVED
+
+
+async def test_recovery_releases_the_content_of_an_approved_programme(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, enqueued
+) -> None:
+    """The approval is saved before the stage is queued: a lost queue entry is recovered."""
+    state = await store.save(aged(skeleton_state(chat).mark_finalized().approved()))
+
+    await run_task(program.recover_stalled_programs)
+
+    stages, finalizes, _ = enqueued
+    finalizes.assert_not_awaited()
+    stages.assert_awaited_once_with(chat, Stage.ASSESSMENT.value, state.run_id)
 
 
 async def test_a_revised_stage_runs_again_and_the_run_waits_for_the_methodist(

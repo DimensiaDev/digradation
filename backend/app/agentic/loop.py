@@ -34,6 +34,14 @@ log = structlog.stdlib.get_logger(__name__)
 #: model is looping instead of answering, which is a bug, not a slow conversation.
 MAX_TOOL_ROUNDS = 6
 
+#: What the model is told when it answers in prose while the caller's job is
+#: still undone. A refused call is answered with words far too often, and the
+#: words are not a saved block: the model has to call the tool again.
+UNFINISHED_NOTE = (
+    "Ты ответил текстом, но работа ещё не завершена. "
+    "Разбери замечания инструмента, исправь аргументы и вызови инструмент снова."
+)
+
 
 def _answer_text(messages: list[Message]) -> str:
     """The text the model wrote, assembling the parts of its messages."""
@@ -150,6 +158,7 @@ async def run_tool_loop(
     call_tool: Callable[[ToolCall], Awaitable[Any]],
     checkpoint: Callable[[], Awaitable[None]] | None = None,
     first_response: GenerationResponse | None = None,
+    complete: Callable[[], bool] | None = None,
 ) -> str:
     """Run the model until it answers with text instead of calling a tool.
 
@@ -157,6 +166,11 @@ async def run_tool_loop(
     back to the model, which is where a stage commits the block it just received.
     The bound counts tool rounds, not model turns: after the last round the model
     still gets one turn to answer from the results it already has.
+
+    ``complete`` answers whether the caller's job is done. While it says no, a
+    text answer does not end the loop: a model that was refused a block tends to
+    write "I fixed it" instead of calling again, and the caller would throw the
+    whole attempt away. The model is told so and gets another round instead.
     """
     messages = list(message_history)
     if first_response is None:
@@ -169,7 +183,16 @@ async def run_tool_loop(
     for round_number in range(1, MAX_TOOL_ROUNDS + 1):
         calls = response.tool_calls
         if not calls:
-            return _answer(response)
+            # A truncated reply is refused before it can be nudged: the model
+            # did not finish writing, so there is nothing to act on.
+            text = _answer(response)
+            if complete is not None and not complete() and round_number < MAX_TOOL_ROUNDS:
+                messages.extend(_assistant_messages(response))
+                messages.append(Message(role=Role.USER, content=[Content(text=UNFINISHED_NOTE)]))
+                log.info("tool_loop_unfinished", round=round_number)
+                response = await _generate_turn(generate, messages)
+                continue
+            return text
 
         _normalise_call_ids(calls)
         _attach_call_ids(response, calls)

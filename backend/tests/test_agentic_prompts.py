@@ -96,6 +96,16 @@ def test_the_brief_keeps_the_run_bookkeeping_out() -> None:
     assert str(state.session_id) not in brief
 
 
+def test_a_retried_stage_reads_the_reason_it_failed() -> None:
+    """The retry starts from the failure instead of the same wrong plan."""
+    state = run_at(Stage.HOURS).failed_stage(Stage.HOURS, "объём программы 35 ч не совпадает с 40 ч")
+
+    brief = stage_brief(state)
+
+    assert "Прошлая попытка этого этапа не удалась" in brief
+    assert "объём программы 35 ч не совпадает с 40 ч" in brief
+
+
 def test_a_stage_only_sees_the_blocks_that_exist() -> None:
     blocks = saved_blocks(run_at(Stage.HOURS))
 

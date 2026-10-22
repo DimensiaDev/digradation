@@ -1902,8 +1902,9 @@ therefore a stage that runs again, not a new run.
 - **The run does not walk the pipeline again.** A revised stage goes straight back to where the
   methodist left the programme: the skeleton waits for the methodist again, the content is
   complete. The stages that were already done are not run a second time.
-- **A revision is not a failed attempt.** The budget of three attempts per stage is there for
-  the agent's own failures, so a revision spends none of it.
+- **A revision resets the stage's budget rather than adding to it.** The revised stage gets
+  three more attempts, and the run the revision queues is the first of them; a run that was
+  queued for free gave a stage that failed its first revised run a fourth execution.
 - **The draft is rendered again.** The revision clears the "rendered" flag, so the methodist
   sees the changed draft and confirms it again.
 
@@ -2081,3 +2082,115 @@ set of materials without a slide passed it. The report now looks at what a secti
 and the stages refuse a block that is empty: a curriculum with no lecture plan and no
 slides is a curriculum with nothing in it, and the criterion asks for the slides of at
 least one module.
+
+## The methodist's decisions are endpoints, and the rules are shared (2026-10-22)
+
+The frontend asked for endpoints to approve a draft and to ask for a revision, because the
+model's tool calls are a guess: the methodist has to be able to press a button.
+
+- **The two surfaces share one set of rules.** `app/agentic/actions.py` holds the conditions
+  under which a decision is allowed, and both the model's tool and the HTTP endpoint call
+  it. A rule written twice is a rule that will drift, and the two surfaces have to refuse
+  the same programmes for the same reasons.
+- **The approval is the methodist's own decision, so it is recorded.** The state keeps who
+  approved and when, and the revision keeps who asked for it and when. Without the record an
+  explicit approval endpoint is indistinguishable from the model confirming the methodist's
+  words, and nobody can say who let the programme be finished.
+- **The endpoint answers with the programme's state,** in the shape `GET /program` answers
+  with, so a client renders the answer without a second request. The pending revision comes
+  with it, because the methodist's own notes are otherwise nowhere to be seen.
+- **An approval spends an attempt and a revision starts a fresh budget,** exactly as the
+  model's path does: the release of the content is a stage like any other, and a revision gives
+  the stage it reruns three attempts, the first of which is the run it queues.
+- **The endpoint writes the state through `app.agentic.store`,** on its own connection, so
+  the state is committed before the stage is enqueued. A worker that picks the task up
+  immediately therefore reads a state that already says what it is doing.
+
+## A decision is taken against the state the caller read (2026-10-22)
+
+The two decision endpoints made the read-modify-write race visible: a route reads the
+programme, decides, writes, and in between a worker or another decision may have moved it.
+
+- **The decision is compared and swapped, not just written.** `store.save` takes
+  `expected_version`, the version the caller read, and refuses the save when the row has
+  moved on. Without it an approval built from an older copy replaced a revision that landed
+  in between, and the methodist's notes were lost without a trace.
+- **A revision is refused while a stage is being written.** The worker holds its own copy
+  of the programme and saves it under the row lock; if a revision landed after that read,
+  the worker's newer version would accept and replace it. The state's `IN_PROGRESS` is the
+  durable signal, and the route also checks the current stage's Redis lock, which is held
+  from before the worker writes that it started.
+- **A revision is refused while another revision is pending.** The queued task names a
+  stage; a second request would replace the notes and the stage, and the first task would
+  write a block answering neither.
+- **Only a written stage, on written foundations, can be revised.** A stage that never ran
+  has nothing to redo, and a stage that runs without its prerequisites writes a block that
+  points at something that is not there.
+- **The content is revised only after the approval.** The content is written from an
+  approved skeleton; approving is what makes a content revision meaningful, and the state
+  carries `skeleton_approved` because `approved_by` is not always known (the stage executor
+  has no user id).
+- **A skeleton revision withdraws the approval and is shown again only when whole.** Revising
+  the competences resets the hours and revising the sources resets the passport, so
+  `revision_completed` keeps the run generating until the skeleton is complete, and the
+  approval refuses a skeleton with a hole in it. Approving a half-written skeleton released
+  content written from nothing.
+- **A revision drops the exports.** The old document and slides describe a programme that is
+  no longer on the table; a client that fetched their attachment ids downloaded the previous
+  version. The completed revision is kept as `last_revision`, because the pending field is
+  cleared when the work is done and the record of who asked has to outlive it.
+- **Releasing the content means the first content stage that is missing.** A completed
+  programme whose summary was revised and re-approved has no missing content, so it is not
+  re-run: its document and slides are exported again and the programme stays approved.
+- **Recovery no longer skips a generating run whose skeleton was rendered.** `finalized`
+  only means the skeleton reached the chat. The scan skips it for a run waiting for the
+  methodist, not for one that is still writing its content, so an approval whose queue entry
+  was lost is recovered instead of staying stuck until somebody notices.
+
+## A stage does not accept prose for a block it has not saved (2026-10-22)
+
+`run_tool_loop` ended the turn on the first text answer, which is right for the chat intake and
+wrong for a stage. A live `hours` run showed the shape: the model called `save_program_draft`,
+the tool refused the block, and the model answered "Я исправил ссылки…" instead of calling
+again. The attempt was thrown away with `StageNotCompleted`, the retry sent the same brief, and
+the run died after three attempts.
+
+- **The loop takes a `complete` callback.** `program_stage` passes `lambda: ctx.saved`, which is
+  the only truthful signal that the block is committed. While it says no, the model's prose is
+  kept in the history as its own turn, a user nudge follows, and the model gets another round
+  within `MAX_TOOL_ROUNDS`.
+- **A retry carries the refusal that stopped the attempt.** The pipeline keeps no transcript:
+  each attempt rebuilds its prompt from the state, so a retry of a stage that died would start
+  from the same plan that was already refused. `program_stage` keeps the last refused call's
+  problems on the tool context, `failed_stage` records them instead of the generic "the block
+  was not saved", and `stage_brief` shows them to the next attempt. A completed stage clears
+  the reason, so a run that recovered stops reporting a failure.
+- **The intake passes nothing.** A refused intake call is a legitimate answer to the methodist
+  ("a run already exists"), so nudging there would produce a pointless second call.
+- **A truncated answer is refused before the nudge.** `finish_reason=length` means the model did
+  not finish writing, so there is nothing to act on; `AnswerTruncated` still sends the stage to
+  its retry.
+- **The reply is normalised in the provider, not in the loop.** GigaChat behind the hub emits
+  its native `<|function_call|>` payload inside `content`; that is a wire-format quirk of one
+  endpoint, so `OpenAIProvider` turns it into a `ToolCall` and everything above it sees the
+  normal shape. The marker and everything after it are dropped even when the payload does not
+  parse, because the hub refuses a request that carries the token
+  (`400 Raw model control token in input`): keeping an unparseable marker as prose turns the
+  loop's nudge into a failed attempt.
+
+## A module's volume is derived from its topics
+
+The `hours` stage refused a plan whose module stated a volume its topics did not add up to. On a
+live 40-hour brief the model produced fifteen curricula across three attempts and every one was
+refused; the persistent offender was the attestation module, which declared the 4 attestation
+hours while its only topic carried none, because those hours live in `attestation_hours`. The
+model then tried to put them into the topic as well and double-counted the volume.
+
+The topics are what the plan is built from, so `save_program_draft` replaces every declared module
+volume with the sum of its topics before the checks run. A plan can no longer contradict itself,
+and an attestation module no longer needs a volume it cannot have. The programme total — topics
+plus `attestation_hours` against `requested_hours` — is still checked, and its message names both
+numbers, so a wrong volume is still a refusal the model can act on.
+
+The report still checks the volumes of a state stored before this change; only new saves are
+normalised. Found 2026-10-22 on a live programme.

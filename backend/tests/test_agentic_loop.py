@@ -20,7 +20,7 @@ from app.agentic.errors import (
     ToolCallFailed,
     ToolLoopExceeded,
 )
-from app.agentic.loop import MAX_TOOL_ROUNDS, run_tool_loop
+from app.agentic.loop import MAX_TOOL_ROUNDS, UNFINISHED_NOTE, run_tool_loop
 from app.providers.models import (
     Content,
     ContentFunctionCall,
@@ -96,6 +96,36 @@ async def test_a_text_answer_ends_the_loop_at_once() -> None:
     assert text == "готово"
     assert tools.calls == []
     assert len(generate.requests) == 1
+
+
+async def test_a_text_answer_does_not_end_a_job_the_caller_says_is_unfinished() -> None:
+    """A model that answers "I fixed it" instead of calling again is sent back."""
+    saved = False
+    generate = Script(answer("я исправил"), answer(calls=(call(call_id="call-1"),)), answer("готово"))
+
+    async def call_tool(_tool_call: ToolCall) -> dict:
+        nonlocal saved
+        saved = True
+        return {"ok": True}
+
+    text = await run_tool_loop([], generate=generate, call_tool=call_tool, complete=lambda: saved)
+
+    assert text == "готово"
+    assert len(generate.requests) == 3
+    prose, nudge = generate.requests[1][-2], generate.requests[1][-1]
+    assert prose.role == "assistant"
+    assert prose.content[0].text == "я исправил"
+    assert nudge.role == "user"
+    assert nudge.content[0].text == UNFINISHED_NOTE
+
+
+async def test_a_job_that_stays_unfinished_ends_at_the_round_bound() -> None:
+    generate = Script(*(answer(f"ответ {number}") for number in range(MAX_TOOL_ROUNDS)))
+
+    text = await run_tool_loop([], generate=generate, call_tool=Dispatcher(), complete=lambda: False)
+
+    assert text == f"ответ {MAX_TOOL_ROUNDS - 1}"
+    assert len(generate.requests) == MAX_TOOL_ROUNDS
 
 
 async def test_a_call_is_executed_and_its_result_returns_to_the_model() -> None:

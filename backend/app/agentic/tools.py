@@ -14,13 +14,14 @@ import copy
 import json
 import uuid
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Any
 
 import structlog.stdlib
 from pydantic import BaseModel, Field, ValidationError
 
-from app.agentic import sources, websearch
+from app.agentic import actions, sources, websearch
+from app.agentic.errors import ProgramError
 from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
 from app.agentic.sources import RagUnavailable
 from app.agentic.state import (
@@ -67,6 +68,12 @@ class ToolContext:
     dirty: bool = False
     #: Whether the stage's block was accepted in this turn.
     saved: bool = False
+    #: The person the turn belongs to. A decision the methodist takes is
+    #: recorded against them, so the state says who approved the programme.
+    user_id: uuid.UUID | None = None
+    #: What the last refused call was told to fix. A stage that gives up hands
+    #: it to the retry, which otherwise starts from the same wrong plan.
+    last_problems: list[str] = field(default_factory=list)
 
 
 class ToolResult(BaseModel):
@@ -225,8 +232,9 @@ _SAVE_DESCRIPTIONS: dict[Stage, str] = {
         "знаниями, умениями и практическим опытом."
     ),
     Stage.HOURS: (
-        "Сохранить учебный план: модули, темы с часами и график обучения. Сумма часов тем "
-        "должна совпадать с заявленным объёмом программы."
+        "Сохранить учебный план: модули, темы с часами и график обучения. Часы модуля считаются по "
+        "его темам; сумма часов тем вместе с итоговой аттестацией должна совпадать с заявленным "
+        "объёмом программы."
     ),
     Stage.SOURCES: (
         "Сохранить источники, на которые опирается программа. Ссылайся только на документы, "
@@ -408,6 +416,19 @@ def _basis_problems(state: ProgramState, block: SummaryBlock) -> list[str]:
     ]
 
 
+def _derived_module_hours(block: HoursBlock) -> HoursBlock:
+    """Replace every declared module volume with the sum of its topics.
+
+    The model states both the module's volume and its topics, and the two
+    disagree: the attestation module is the usual case, because its hours live
+    in ``attestation_hours`` and its topic carries none. The topics are what
+    the plan is built from, so the declared number is replaced rather than
+    refused, and a plan can no longer contradict itself.
+    """
+    modules = [module.model_copy(update={"hours": module.topic_hours}) for module in block.curriculum.modules]
+    return block.model_copy(update={"curriculum": block.curriculum.model_copy(update={"modules": modules})})
+
+
 def _hours_problems(state: ProgramState, block: HoursBlock) -> list[str]:
     declared = {
         outcome.id
@@ -526,6 +547,8 @@ async def save_program_draft(ctx: ToolContext, arguments: BaseModel) -> SaveProg
     rule = _SAVERS.get(type(arguments))
     if rule is None:
         return SaveProgramDraftResult(ok=False, error="Неизвестный блок программы")
+    if isinstance(arguments, HoursBlock):
+        arguments = _derived_module_hours(arguments)
     if problems := rule.problems(state, arguments):
         return SaveProgramDraftResult(ok=False, error=rule.rejected, details=problems, note=rule.retry)
     citations = _resolve_sources(rule.cited(arguments), standards=rule.standards(arguments))
@@ -622,15 +645,10 @@ async def approve_program_draft(
     state = ctx.state
     if state is None:
         return ApproveProgramDraftResult(ok=False, error="В этом чате нет программы")
-    if state.status is ProgramStatus.APPROVED:
-        return ApproveProgramDraftResult(ok=False, error="Программа уже утверждена", note="Ничего делать не нужно.")
-    if not state.awaiting_approval:
-        return ApproveProgramDraftResult(
-            ok=False,
-            error="Черновик ещё не готов к подтверждению",
-            note="Дождись, когда черновик будет показан методисту, и только потом подтверждай.",
-        )
-    ctx.state = state.approved()
+    try:
+        ctx.state = actions.approve(state, by=ctx.user_id)
+    except ProgramError as error:
+        return ApproveProgramDraftResult(ok=False, error=str(error), note=error.note)
     ctx.dirty = True
     log.info("program_approved", chat_session_id=str(ctx.session_id))
     return ApproveProgramDraftResult(note="Черновик утверждён. Скажи методисту, что программа принята.")
@@ -644,15 +662,12 @@ async def revise_program(ctx: ToolContext, arguments: ReviseProgramArguments) ->
     the programme is checked against the block that changed.
     """
     state = ctx.state
-    if state is None or state.failed:
+    if state is None:
         return ReviseProgramResult(ok=False, error="В этом чате нет программы")
-    if state.status is ProgramStatus.AWAITING_ANSWERS:
-        return ReviseProgramResult(
-            ok=False,
-            error="Программа ждёт ответов методиста",
-            note="Сначала ответь на вопросы программы, потом проси переделку.",
-        )
-    ctx.state = state.request_revision(arguments.stage, arguments.notes)
+    try:
+        ctx.state = actions.revise(state, arguments.stage, arguments.notes, by=ctx.user_id)
+    except ProgramError as error:
+        return ReviseProgramResult(ok=False, error=str(error), note=error.note)
     ctx.dirty = True
     log.info(
         "program_revision_requested",

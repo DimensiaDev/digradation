@@ -9,6 +9,7 @@ opening a socket.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -218,6 +219,55 @@ def test_map_completion_defaults_missing_usage_to_zero():
     assert result.usage.input_tokens_details.cached_tokens == 0
     assert result.usage.output_tokens == 0
     assert result.usage.total_tokens == 0
+
+
+def test_map_completion_recovers_a_call_the_hub_left_as_text():
+    """The hub sometimes relays GigaChat's marker with no structured call."""
+    completion = make_completion(
+        content=(
+            '<|function_call|>{"name": "save_program_draft", '
+            '"arguments": {"attestation_hours": 8}}, "visible": false}'
+        )
+    )
+
+    result = OpenAIProvider._map_completion(completion)
+
+    assert [call.function.name for call in result.tool_calls] == ["save_program_draft"]
+    assert json.loads(result.tool_calls[0].function.arguments) == {"attestation_hours": 8}
+    assert result.tool_calls[0].id is not None
+    # The marker and its payload are the call, not an answer.
+    assert result.messages[0].content == []
+
+
+def test_map_completion_keeps_the_prose_before_a_marker():
+    completion = make_completion(
+        content='Вот учебный план.\n<|function_call|>{"name": "save_program_draft", "arguments": {"days": 5}}'
+    )
+
+    result = OpenAIProvider._map_completion(completion)
+
+    assert result.messages[0].content[0].text == "Вот учебный план."
+    assert json.loads(result.tool_calls[0].function.arguments) == {"days": 5}
+
+
+def test_map_completion_drops_a_marker_without_a_call():
+    """The marker is a control token: the hub refuses a request that carries it."""
+    completion = make_completion(content='Сейчас сохраню.\n<|function_call|>{"visible": false}')
+
+    result = OpenAIProvider._map_completion(completion)
+
+    assert result.tool_calls == []
+    assert result.messages[0].content[0].text == "Сейчас сохраню."
+
+
+def test_map_completion_drops_a_marker_with_malformed_json():
+    """A broken payload is still no reason to echo the control token back."""
+    completion = make_completion(content='<|function_call|>{"name": "save_program_draft" "arguments": {}}')
+
+    result = OpenAIProvider._map_completion(completion)
+
+    assert result.tool_calls == []
+    assert result.messages[0].content == []
 
 
 @pytest.mark.asyncio
