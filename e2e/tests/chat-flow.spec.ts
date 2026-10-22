@@ -40,8 +40,8 @@ test.describe("chat conversation", () => {
       name: "Этапы создания программы",
     });
     await expect(stepper).toContainText("Запрос");
-    await expect(stepper).toContainText("Структура и каркас");
-    await expect(stepper).toContainText("Проверка");
+    await expect(stepper).toContainText("Каркас программы");
+    await expect(stepper).toContainText("Согласование каркаса");
     await expect(
       page.getByRole("heading", { name: "Каркас программы" }),
     ).toBeVisible();

@@ -47,7 +47,9 @@ describe('ProgramStepperComponent', () => {
     create(null);
 
     expect(fixture.nativeElement.textContent).toContain('Запрос');
-    expect(fixture.nativeElement.textContent).toContain('Проверка');
+    expect(fixture.nativeElement.textContent).toContain('Каркас программы');
+    expect(fixture.nativeElement.textContent).toContain('Согласование каркаса');
+    expect(fixture.nativeElement.textContent).toContain('Содержание и материалы');
     expect(steps().map((step) => step.dataset['state'])).toEqual([
       'active',
       'pending',
@@ -87,16 +89,29 @@ describe('ProgramStepperComponent', () => {
 
     expect(steps().map((step) => step.dataset['state'])).toEqual([
       'completed',
-      'completed',
       'failed',
+      'pending',
       'pending',
       'pending'
     ]);
-    expect(steps()[2].querySelector('svg')).not.toBeNull();
+    expect(steps()[1].querySelector('svg')).not.toBeNull();
+    expect(steps()[1].getAttribute('aria-current')).toBe('step');
+  });
+
+  it('waits for the methodist to agree the skeleton', () => {
+    create(state({ status: 'pending_approval' }));
+
+    expect(steps().map((step) => step.dataset['state'])).toEqual([
+      'completed',
+      'completed',
+      'active',
+      'pending',
+      'pending'
+    ]);
     expect(steps()[2].getAttribute('aria-current')).toBe('step');
   });
 
-  it('keeps the verification step current once the draft is approved', () => {
+  it('keeps the final step current once the programme is approved', () => {
     create(state({ status: 'approved' }));
 
     expect(steps().map((step) => step.dataset['state'])).toEqual([

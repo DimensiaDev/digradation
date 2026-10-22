@@ -97,13 +97,14 @@ const PROGRAM_DETAIL_LABELS: Record<string, string> = {
 
 export const PROGRAM_WIZARD_STEPS: readonly ProgramWizardStepView[] = [
   { id: 1, label: 'Запрос' },
-  { id: 2, label: 'Структура и каркас' },
-  { id: 3, label: 'Содержание и материалы' },
-  { id: 4, label: 'Проверка' },
+  { id: 2, label: 'Каркас программы' },
+  { id: 3, label: 'Согласование каркаса' },
+  { id: 4, label: 'Содержание и материалы' },
   { id: 5, label: 'Готово' }
 ];
 
-const CONTENT_STAGES = new Set(['sources', 'summary', 'assessment', 'materials']);
+const SKELETON_STAGES = new Set(['competences', 'hours', 'sources', 'summary']);
+const CONTENT_STAGES = new Set(['assessment', 'materials']);
 
 function hasDraftData(blocks: ProgramBlocksApi | null | undefined): boolean {
   return Boolean(
@@ -122,16 +123,16 @@ export function programStep(state: ProgramStateApi | null): ProgramWizardStep {
 
   if (state.status === 'generating' || state.status === 'failed') {
     if (state.current_stage && CONTENT_STAGES.has(state.current_stage)) {
-      return 3;
+      return 4;
     }
-    if (state.current_stage === 'hours') {
+    if (state.current_stage && SKELETON_STAGES.has(state.current_stage)) {
       return 2;
     }
     return state.current_stage ? 2 : 1;
   }
 
   if (state.status === 'pending_approval') {
-    return 4;
+    return 3;
   }
 
   if (state.status === 'approved' || state.status === 'verified') {

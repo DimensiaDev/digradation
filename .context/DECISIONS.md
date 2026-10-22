@@ -2203,3 +2203,17 @@ wanted the download had to scroll past the whole programme every time.
 - **The focus handoff expands its target.** `focusSection` still scrolls and highlights, and now
   also opens the section, because scrolling to a collapsed header would highlight a closed
   panel instead of its contents.
+
+## The stepper mirrors the two-phase programme pipeline (2026-10-22)
+
+The five UI steps used to smear four backend stages into one and call the approval wait
+"Проверка", so the stepper could not tell a skeleton being written from content being written.
+
+- **The labels follow the work:** Запрос → Каркас программы → Согласование каркаса →
+  Содержание и материалы → Готово.
+- **Skeleton stages map to step 2.** `competences`, `hours`, `sources` and `summary` all fill
+  the skeleton, even though they run as separate tasks.
+- **`pending_approval` is step 3.** The methodist is not waiting for a check to finish; the run
+  is waiting for them to agree the skeleton.
+- **Content stages map to step 4.** Only `assessment` and `materials` belong there; they start
+  after the approval, so the stepper moves back to step 4 rather than staying on "Готово".

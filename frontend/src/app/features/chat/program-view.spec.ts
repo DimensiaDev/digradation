@@ -67,14 +67,15 @@ describe('program-view', () => {
     expect(programStep(state({ status: 'draft' }))).toBe(1);
     expect(programStep(state({ status: 'generating', current_stage: 'competences' }))).toBe(2);
     expect(programStep(state({ status: 'generating', current_stage: 'hours' }))).toBe(2);
-    expect(programStep(state({ status: 'generating', current_stage: 'sources' }))).toBe(3);
-    expect(programStep(state({ status: 'generating', current_stage: 'summary' }))).toBe(3);
-    expect(programStep(state({ status: 'generating', current_stage: 'assessment' }))).toBe(3);
-    expect(programStep(state({ status: 'generating', current_stage: 'materials' }))).toBe(3);
-    expect(programStep(state({ status: 'pending_approval' }))).toBe(4);
+    expect(programStep(state({ status: 'generating', current_stage: 'sources' }))).toBe(2);
+    expect(programStep(state({ status: 'generating', current_stage: 'summary' }))).toBe(2);
+    expect(programStep(state({ status: 'generating', current_stage: 'assessment' }))).toBe(4);
+    expect(programStep(state({ status: 'generating', current_stage: 'materials' }))).toBe(4);
+    expect(programStep(state({ status: 'pending_approval' }))).toBe(3);
     expect(programStep(state({ status: 'approved' }))).toBe(5);
     expect(programStep(state({ status: 'verified' }))).toBe(5);
-    expect(programStep(state({ status: 'failed', current_stage: 'summary' }))).toBe(3);
+    expect(programStep(state({ status: 'failed', current_stage: 'summary' }))).toBe(2);
+    expect(programStep(state({ status: 'failed', current_stage: 'materials' }))).toBe(4);
     expect(programStep(state({ status: 'failed' }))).toBe(1);
   });
 

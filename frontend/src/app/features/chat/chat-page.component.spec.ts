@@ -114,7 +114,7 @@ describe('ChatPage', () => {
     expect(component.programLoading()).toBe(false);
     expect(fixture.nativeElement.textContent).toContain('Мои программы');
     expect(fixture.nativeElement.textContent).toContain('Создание образовательной программы');
-    expect(fixture.nativeElement.textContent).toContain('Проверка');
+    expect(fixture.nativeElement.textContent).toContain('Согласование каркаса');
     expect(chat.questions()).toEqual([question('q1')]);
   });
 
