@@ -1837,3 +1837,20 @@ now renders the whole programme rather than the skeleton alone.
   than a missing resource: the run is still going. The endpoint says so with 409.
 - **A seminar task has criteria.** The schema had none, and the criteria ask for them, so
   `SeminarTask.criteria` was added.
+
+## The references reach the model as files (2026-10-22)
+
+The criteria ask the agent to take a request with references in .docx, .pdf and text, and
+case 3 asks it to follow the structure of the programme that was attached — with new content
+rather than the old text.
+
+- **The references are files the model reads.** The provider accepts .docx the same way it
+  accepts a PDF, so the attachments go up with the message and the model sees them; the
+  backend does not have to extract the text to pass it on. The app accepts .docx uploads
+  for that reason.
+- **The prompt says what to do with them**: use the attached files as an example of the
+  structure and the volume, but do not carry their text over — the content has to be new.
+  That is a prohibition on the solution, so it belongs in the instructions the model
+  follows, not in a check that could only catch the obvious.
+- **The text of the request is the requirements** the run already carries, so a request in
+  plain text needs nothing else.

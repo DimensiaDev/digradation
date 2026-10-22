@@ -30,7 +30,8 @@ class S3UploadParams(BaseModel):
 
 
 class S3UploadRequest(BaseModel):
-    content_type: str = Field(max_length=64)
+    # The office formats have long media types: the .docx one is 67 characters.
+    content_type: str = Field(max_length=128)
     file_size: int = Field(description="File size in bytes")
 
 

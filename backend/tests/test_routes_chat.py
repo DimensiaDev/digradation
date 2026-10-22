@@ -1157,6 +1157,27 @@ async def test_upload_file_rejects_content_type(auth_client: AsyncClient, chat, 
     assert response.json()["detail"] == "Content type not allowed"
 
 
+async def test_a_docx_reference_can_be_uploaded(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None, s3: None
+):
+    """The template or an approved programme arrives as a .docx."""
+    response = await auth_client.post(
+        f"/chats/{chat.session_id}/uploads",
+        json={
+            "filename": "programme-template.docx",
+            "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "file_size": 2048,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["params"]["fields"]["key"].endswith(".docx")
+    attachment = await db_session.get(Attachment, data["attachment_id"])
+    assert attachment is not None
+    assert attachment.name == "programme-template.docx"
+
+
 async def test_upload_file_rejects_oversize(auth_client: AsyncClient, chat, redis_session: None, s3: None):
     response = await auth_client.post(
         f"/chats/{chat.session_id}/uploads",
