@@ -8,7 +8,6 @@ import {
   programHoursLabel,
   programKindLabel,
   programModules,
-  programStatusHint,
   programStatusLabel,
   programStep,
   programTopicCountLabel,
@@ -128,20 +127,9 @@ describe('program-view', () => {
     });
   });
 
-  it('describes the run status and its next action', () => {
+  it('labels the run status', () => {
     expect(programStatusLabel(null)).toBe('Нет программы');
     expect(programStatusLabel(state({ status: 'pending_approval' }))).toBe('На согласовании');
-    expect(programStatusHint(null)).toContain('Опишите программу');
-    expect(programStatusHint(state({ status: 'awaiting_answers' }))).toContain('Ответьте');
-    expect(programStatusHint(state({ status: 'generating', current_stage: 'hours' }))).toContain(
-      'учебный план'
-    );
-    expect(programStatusHint(state({ status: 'generating' }))).toContain('по этапам');
-    expect(programStatusHint(state({ status: 'pending_approval' }))).toContain('Проверьте');
-    expect(programStatusHint(state({ status: 'approved' }))).toContain('утверждена');
-    expect(programStatusHint(state({ status: 'failed', error: 'Нет данных' }))).toBe('Нет данных');
-    expect(programStatusHint(state({ status: 'failed' }))).toContain('Не удалось');
-    expect(programStatusHint(state({ status: 'draft' }))).toContain('Черновик');
   });
 
   it('sums curriculum hours and exposes modules', () => {

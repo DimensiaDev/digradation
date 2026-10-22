@@ -37,15 +37,6 @@ export const PROGRAM_WIZARD_STEPS: readonly ProgramWizardStepView[] = [
   { id: 5, label: 'Готово' }
 ];
 
-export const PROGRAM_STAGE_LABELS: Readonly<Record<string, string>> = {
-  competences: 'компетенции',
-  hours: 'учебный план',
-  sources: 'источники',
-  summary: 'паспорт программы',
-  assessment: 'аттестация',
-  materials: 'материалы'
-};
-
 const CONTENT_STAGES = new Set(['sources', 'summary', 'assessment', 'materials']);
 
 function hasDraftData(blocks: ProgramBlocksApi | null | undefined): boolean {
@@ -123,30 +114,6 @@ export function programBadge(state: ProgramStateApi | null): ProgramBadge {
 
 export function programStatusLabel(state: ProgramStateApi | null): string {
   return state ? PROGRAM_STATUS_LABELS[state.status] : PROGRAM_STATUS_LABELS.none;
-}
-
-export function programStatusHint(state: ProgramStateApi | null): string {
-  if (!state || state.status === 'none') {
-    return 'Опишите программу в чате, чтобы запустить сборку каркаса.';
-  }
-
-  switch (state.status) {
-    case 'awaiting_answers':
-      return 'Ответьте на вопросы агента, чтобы продолжить.';
-    case 'generating': {
-      const stage = state.current_stage ? PROGRAM_STAGE_LABELS[state.current_stage] : null;
-      return stage ? `Сейчас собираем ${stage}.` : 'Программа собирается по этапам.';
-    }
-    case 'pending_approval':
-      return 'Проверьте каркас и подтвердите программу в чате.';
-    case 'approved':
-    case 'verified':
-      return 'Программа утверждена.';
-    case 'failed':
-      return state.error?.trim() || 'Не удалось собрать программу.';
-    default:
-      return 'Черновик готов к продолжению.';
-  }
 }
 
 export function programKindLabel(state: ProgramStateApi | null): string | null {

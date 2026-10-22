@@ -33,7 +33,6 @@ import {
   programHoursLabel,
   programKindLabel,
   programModules,
-  programStatusHint,
   programTopicCountLabel
 } from './program-view';
 
@@ -71,7 +70,6 @@ export class ProgramPreviewComponent {
   readonly goal = computed(() => programGoal(this.state()));
   readonly competencies = computed(() => programCompetencies(this.state()));
   readonly modules = computed(() => programModules(this.state()?.draft.curriculum));
-  readonly statusHint = computed(() => programStatusHint(this.state()));
   readonly hasContent = computed(
     () =>
       Boolean(this.title()) ||
