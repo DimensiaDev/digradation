@@ -26,9 +26,17 @@
 
   &__header {
     display: grid;
-    gap: 12px;
+    gap: 20px;
 
     flex-shrink: 0;
+
+    min-width: 0;
+  }
+
+  &__heading {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 
     min-width: 0;
   }

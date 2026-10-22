@@ -21,8 +21,9 @@
 
   &__step {
     display: flex;
-    align-items: flex-start;
-    gap: 9px;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
 
     position: relative;
 
@@ -35,8 +36,8 @@
 
       position: absolute;
       top: 13px;
-      right: calc(100% - 13px);
-      left: 13px;
+      right: calc(50% + 14px);
+      left: calc(-50% + 14px);
 
       height: 2px;
 
@@ -83,9 +84,9 @@
   }
 
   &__label {
-    padding-top: 6px;
-
     min-width: 0;
+
+    text-align: center;
 
     font-size: 12px;
     font-weight: 500;
@@ -108,11 +109,10 @@
     color: var(--color-text);
 
     .program-stepper__marker {
-      color: var(--color-main);
+      color: var(--color-surface);
 
-      background: color-mix(in srgb, var(--color-main) 12%, var(--color-surface));
+      background: var(--color-main);
       border-color: var(--color-main);
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-main) 10%, transparent);
     }
 
     .program-stepper__label {
@@ -152,17 +152,10 @@
 @media (max-width: 600px) {
   .program-stepper {
     &__step {
-      flex-direction: column;
       gap: 4px;
-
-      &::before {
-        right: calc(100% - 13px);
-      }
     }
 
     &__label {
-      padding-top: 0;
-
       font-size: 11px;
     }
   }
