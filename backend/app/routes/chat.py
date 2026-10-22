@@ -692,12 +692,21 @@ async def _save_export(
 
     The export goes into the bucket the attachments live in and is registered
     like one, so the client can fetch it by its attachment id and the download
-    route works on it unchanged.
+    route works on it unchanged. A second call replaces the file rather than
+    leaving another one behind: the name identifies the export, and the storage
+    object and the row are the ones the first call made.
     """
-    key = get_s3_attachment_key(session_id, filename)
+    existing = await db.scalar(
+        select(Attachment).where(Attachment.session_id == session_id, Attachment.name == filename)
+    )
+    if existing is None:
+        key = get_s3_attachment_key(session_id, filename)
+        attachment = Attachment(name=filename, session_id=session_id, s3_key=key, ready=True)
+        db.add(attachment)
+    else:
+        key = existing.s3_key
+        attachment = existing
     await s3_internal.put_object(Bucket="uploads", Key=key, Body=content, ContentType=content_type)
-    attachment = Attachment(name=filename, session_id=session_id, s3_key=key, ready=True)
-    db.add(attachment)
     await db.commit()
     await db.refresh(attachment)
     url = await s3_public.generate_presigned_url(

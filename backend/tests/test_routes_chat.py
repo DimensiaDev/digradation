@@ -838,6 +838,32 @@ async def test_the_programme_can_be_downloaded_as_a_document(
     assert link.json()["attachment_url"] == data["attachment_url"]
 
 
+async def test_a_second_export_replaces_the_first(
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None, s3: None
+):
+    """The export is one file per programme, not a file per request."""
+    raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
+    state = new_state(chat.session_id, requested_hours=72, requirements="Программа")
+    state = state.with_competences(
+        CompetencesBlock(kind=raw["meta"]["kind"], title=raw["meta"]["title"], competencies=raw["competencies"]), []
+    )
+    state = state.with_curriculum(HoursBlock(curriculum=raw["curriculum"]))
+    state = state.with_sources(SourcesBlock(sources=raw["sources"]))
+    state = state.with_summary(SummaryBlock(summary=raw["summary"]), [])
+    state = state.with_assessment(AssessmentBlock(assessment=raw["assessment"]))
+    state = state.with_materials(MaterialsBlock(materials=raw["materials"]))
+    await put_programme(db_session, chat, state)
+
+    first = await auth_client.get(f"/chats/{chat.session_id}/program.docx")
+    second = await auth_client.get(f"/chats/{chat.session_id}/program.docx")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["attachment_id"] == second.json()["attachment_id"]
+    attachments = await db_session.scalars(select(Attachment).where(Attachment.session_id == chat.session_id))
+    assert len(list(attachments)) == 1
+
+
 async def test_a_document_of_a_chat_without_a_programme_is_not_found(
     auth_client: AsyncClient, chat, redis_session: None
 ):
