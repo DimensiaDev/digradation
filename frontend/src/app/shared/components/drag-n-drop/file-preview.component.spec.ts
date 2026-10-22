@@ -69,6 +69,13 @@ describe('previewKindFor', () => {
   });
 });
 
+describe('ACCEPTED_EXTENSIONS', () => {
+  it('accepts a docx, which the provider reads the way it reads a pdf', () => {
+    expect(ACCEPTED_EXTENSIONS).toContain('.docx');
+    expect(mimeTypeFor('.docx')).toContain('wordprocessingml');
+  });
+});
+
 describe('FilePreviewComponent', () => {
   const compile = (file: File) => {
     const fixture = TestBed.createComponent(FilePreviewComponent);
