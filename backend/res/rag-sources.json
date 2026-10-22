@@ -1,0 +1,85 @@
+[
+  {
+    "id": "src-01",
+    "path": "fgos/origs/fgos-noo-2021.pdf",
+    "kind": "normative_act",
+    "title": "Федеральный государственный образовательный стандарт начального общего образования",
+    "identifier": "Приказ Минпросвещения России от 31.05.2021 № 286",
+    "url": "https://fgosreestr.ru/",
+    "trust": 1.0,
+    "allow_empty": true
+  },
+  {
+    "id": "src-02",
+    "path": "fgos/origs/fgos-ooo-2021.pdf",
+    "kind": "normative_act",
+    "title": "Федеральный государственный образовательный стандарт основного общего образования",
+    "identifier": "Приказ Минпросвещения России от 31.05.2021 № 287",
+    "url": "https://fgosreestr.ru/",
+    "trust": 1.0,
+    "allow_empty": true
+  },
+  {
+    "id": "src-03",
+    "path": "fgos/origs/fgos-soo-2026.pdf",
+    "kind": "normative_act",
+    "title": "Федеральный государственный образовательный стандарт среднего общего образования",
+    "identifier": "ФГОС среднего общего образования (2026)",
+    "url": "https://fgosreestr.ru/",
+    "trust": 1.0,
+    "allow_empty": true
+  },
+  {
+    "id": "src-04",
+    "path": "prof_stand/origs/profstd-06.001.pdf",
+    "kind": "professional_standard",
+    "title": "Профессиональный стандарт 06.001",
+    "identifier": "06.001",
+    "trust": 1.0
+  },
+  {
+    "id": "src-05",
+    "path": "prof_stand/origs/profstd-06.017.pdf",
+    "kind": "professional_standard",
+    "title": "Профессиональный стандарт 06.017",
+    "identifier": "06.017",
+    "trust": 1.0
+  },
+  {
+    "id": "src-06",
+    "path": "prof_stand/origs/profstd-06.028.pdf",
+    "kind": "professional_standard",
+    "title": "Профессиональный стандарт 06.028",
+    "identifier": "06.028",
+    "trust": 1.0
+  },
+  {
+    "id": "src-07",
+    "path": "prof_stand/origs/profstd-06.052.pdf",
+    "kind": "professional_standard",
+    "title": "Профессиональный стандарт 06.052",
+    "identifier": "06.052",
+    "trust": 1.0
+  },
+  {
+    "id": "src-08",
+    "path": "edu_programs/origs/method-cases-acr-01.docx",
+    "kind": "reference",
+    "title": "Методические кейсы по разработке образовательных программ",
+    "trust": 0.6
+  },
+  {
+    "id": "src-09",
+    "path": "edu_programs/origs/prog-ai-intensive-24h.docx",
+    "kind": "reference",
+    "title": "Программа повышения квалификации «AI-интенсив», 24 часа",
+    "trust": 0.6
+  },
+  {
+    "id": "src-10",
+    "path": "edu_programs/origs/prog-ba-internship-248h.docx",
+    "kind": "reference",
+    "title": "Программа стажировки «Бизнес-аналитик», 248 часов",
+    "trust": 0.6
+  }
+]

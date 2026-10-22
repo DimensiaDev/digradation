@@ -19,8 +19,8 @@ def test_satisfies_protocol(provider):
 
 
 def test_attributes(provider):
-    assert provider.model == "mock-Embeddings"
-    assert provider.dimension == 1024
+    assert provider.model == "mock-ai-sage/Giga-Embeddings-instruct-3B"
+    assert provider.dimension == 2048
 
 
 async def test_returns_one_per_text(provider):
@@ -30,7 +30,7 @@ async def test_returns_one_per_text(provider):
 
 async def test_dimension(provider):
     [vec] = await provider.embed(["hello"])
-    assert len(vec) == 1024
+    assert len(vec) == 2048
 
 
 async def test_empty_input(provider):
@@ -77,4 +77,4 @@ async def test_unicode_text(provider):
     [a] = await provider.embed(["привет"])
     [b] = await provider.embed(["hello"])
     assert a != b
-    assert len(a) == 1024
+    assert len(a) == 2048

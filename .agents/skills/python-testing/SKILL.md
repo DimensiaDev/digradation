@@ -85,8 +85,9 @@ it as a real gate: change a model, generate the migration, do not try to weaken 
 
 - **Backend tests require a running Docker daemon.** Failures appear at fixture setup, not at
   an assertion, so read the error before suspecting the code.
-- `testcontainers` uses `postgres:18-alpine` with the `asyncpg` driver, and `redis:8`. This
-  matches production rather than using SQLite.
+- `testcontainers` uses `pgvector/pgvector:pg18` with the `asyncpg` driver, and `redis:8`.
+  This matches production rather than using SQLite; the fixtures install the `vector`
+  extension before creating the schema.
 - The app lifespan is **not** run in tests; the DB is created and disposed by session fixtures
   instead.
 - Ruff's `per-file-ignores` sets `ARG001` (unused function argument) as allowed under

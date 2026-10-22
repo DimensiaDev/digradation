@@ -152,7 +152,7 @@ class MockEmbeddingProvider(EmbeddingProvider):
     no numpy hot path — good enough for tests and offline e2e.
     """
 
-    def __init__(self, model: str = "mock-embeddings", dimension: int = 1024) -> None:
+    def __init__(self, model: str = "mock-embeddings", dimension: int = 2048) -> None:
         if dimension <= 0:
             raise ValueError(f"dimension must be positive, got {dimension}")
         self.model = model

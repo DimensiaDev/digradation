@@ -33,8 +33,14 @@ x-backend-env: &backend-env
   # Reached only when `SBER_API_SCOPE=openai`.
   OPENAI_URL: ${OPENAI_URL:-}
   OPENAI_MODEL: ${OPENAI_MODEL:-GigaChat/GigaChat-3-Pro}
-  OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-}
-  OPENAI_EMBEDDING_DIMENSION: ${OPENAI_EMBEDDING_DIMENSION:-}
+  OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-ai-sage/Giga-Embeddings-instruct-3B}
+  OPENAI_EMBEDDING_DIMENSION: ${OPENAI_EMBEDDING_DIMENSION:-2048}
+  # RAG search is off until an index has been built by `index_rag.py`. The
+  # defaults below are the retrieval policy, not corpus settings.
+  RAG_ENABLED: ${RAG_ENABLED:-false}
+  RAG_OVERSAMPLE: ${RAG_OVERSAMPLE:-4}
+  RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.15}
+  RAG_MAX_PER_SOURCE: ${RAG_MAX_PER_SOURCE:-3}
   SBER_API_KEY: ${SBER_API_KEY:?}
   SBER_API_SCOPE: ${SBER_API_SCOPE:?}
 
@@ -125,7 +131,7 @@ services:
       - "${TASKIQ_DASHBOARD_PORT:-8000}:8000"
 
   db:
-    image: postgres:18-alpine
+    image: pgvector/pgvector:pg18
     restart: unless-stopped
     environment:
       <<: *postgres-env

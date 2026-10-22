@@ -158,11 +158,12 @@ def test_every_stage_has_a_block_and_a_specification() -> None:
 # --------------------------------------------------------------------------------------
 
 
-async def test_search_reports_an_empty_catalog(context: ToolContext) -> None:
-    """The catalog is empty until RAG (#11) lands, and the model is told so."""
+async def test_search_reports_an_empty_result(context: ToolContext) -> None:
+    """With RAG disabled the tool honestly tells the model it found nothing."""
     result = await execute_tool(context, call("search_sources", {"query": "образование"}))
 
     assert result.ok is True
+    assert result.found is False
     assert "ничего не найдено" in (result.note or "")
     assert context.known_source_ids == set()
 
@@ -177,7 +178,24 @@ async def test_search_remembers_the_documents_it_showed(context: ToolContext, mo
     result = await execute_tool(context, call("search_sources", {"query": "аналитик"}))
 
     assert result.ok is True
+    assert result.found is True
     assert context.known_source_ids == {STANDARD_ID}
+
+
+async def test_an_unavailable_index_does_not_fail_the_stage(
+    context: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def search(query: str, *, kinds: Any = None, limit: int = 5):
+        raise tools.RagUnavailable("hub is down")
+
+    monkeypatch.setattr(tools, "search", search)
+
+    result = await execute_tool(context, call("search_sources", {"query": "аналитик"}))
+
+    assert result.ok is True
+    assert result.found is False
+    assert "временно недоступен" in (result.note or "")
+    assert context.known_source_ids == set()
 
 
 # --------------------------------------------------------------------------------------
@@ -437,6 +455,20 @@ async def test_a_seen_standard_is_kept_with_the_catalog_record(
     assert context.state is not None
     assert context.state.competencies[0].standard_source_id == STANDARD_ID
     assert [source.title for source in context.state.sources] == [STANDARD_TITLE]
+
+
+async def test_citation_forms_are_canonicalised_and_deduplicated(
+    context: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    catalog(monkeypatch)
+    context.known_source_ids.add(STANDARD_ID)
+    context.state = at_stage(context.state, Stage.SOURCES)
+
+    result = await execute_tool(context, save(sources_block(STANDARD_ID, "src-1")))
+
+    assert result.ok is True
+    assert context.state is not None
+    assert [source.id for source in context.state.sources] == [STANDARD_ID]
 
 
 async def test_a_standard_must_be_a_professional_standard(

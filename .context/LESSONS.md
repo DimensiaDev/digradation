@@ -1110,3 +1110,23 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   field as if the list had it, and do not open a detail request for every card to fill one.
   The optional fields in `ProgramApiItem` are the seam for the catalogue contract growing.
   Found 2026-10-21.
+- **HNSW refuses a `vector` column above 2000 dimensions.** `vector(2048)` with
+  `vector_cosine_ops` fails during `create_all`/migration with `column cannot have more than
+  2000 dimensions for hnsw index`. Use `HALFVEC(2048)` and `halfvec_cosine_ops`; pgvector
+  supports halfvec to 4000 dimensions. Found 2026-10-22.
+- **`HalfVector` is a data helper, not the SQLAlchemy column type.** In pgvector-python
+  0.3.6, `pgvector.sqlalchemy.HalfVector` expects a vector value and raises `expected ndim
+  to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALFVEC(2048)`.
+  Found 2026-10-22.
+- **`create_all` does not install the pgvector extension.** The backend test database is
+  built from `Base.metadata`, so the fixture must run `CREATE EXTENSION IF NOT EXISTS vector`
+  before `create_all`; the migration does the same before creating the table. Without it the
+  DDL fails before any test can report the real problem. Found 2026-10-22.
+- **Importing `edu_rag` now imports SQLAlchemy's async extension.** Exporting
+  `PgVectorStore` from the package makes the `greenlet` dependency load-bearing at import
+  time, not only when the store is used; declare it in `rag/pyproject.toml` or the rag test
+  suite fails during collection. Found 2026-10-22.
+- **A cached retriever and a monkeypatched retriever cannot both be cleared.** `get_retriever`
+  is `lru_cache`d, but tests that replace it with a plain fake leave no `cache_clear`
+  attribute. `clear_retriever_cache` has to use `getattr(get_retriever, "cache_clear", None)`
+  rather than calling the attribute directly. Found 2026-10-22.

@@ -31,6 +31,8 @@ These five rules override any other instinct you have.
 digradation/
 ├── backend/            FastAPI service + TaskIQ workers     owner @yel-gar
 ├── frontend/           Angular 21 SPA                        owner @krchvl
+├── rag/                edu_rag package: chunking, embeddings, pgvector store, retrieval
+├── parser/             edu_parser package: source PDFs/docx -> document.json
 ├── e2e/                Playwright suite against the Compose stack
 ├── conf/               infra config: redis.conf, garage.toml, garage init, lifecycle rules, pg init
 ├── scripts/            pre-commit shims for per-package Poetry tools
@@ -278,11 +280,15 @@ granted access.
 The Dockerfile handles this with `WORKDIR /app`. Follow the same pattern for any new
 resource file.
 
-### Build contexts are per-package
+### Build contexts
 
-`backend` builds from `backend/`, `frontend` from `frontend/`, the Garage bootstrap
-from `conf/`. Nothing builds from the repository root, so there is no root
-`.dockerignore`; each context carries its own.
+`backend` builds from the **repository root**, because its image needs both
+`backend/` and the sibling `rag/` package. The root `.dockerignore` excludes
+everything else; the Dockerfile copies `backend/pyproject.toml`,
+`backend/poetry.lock` and `rag/` before `backend/`. `frontend` builds from
+`frontend/` and the Garage bootstrap from `conf/`; each of those contexts carries
+its own `.dockerignore`. Do not move the backend back to a `backend/` context
+without also vendoring or publishing `edu_rag`.
 
 ### Build caching is CI-only
 
@@ -324,6 +330,15 @@ poetry -C backend run pytest               # needs Docker daemon (testcontainers
 poetry -C backend run pytest --cov         # with a branch-coverage report
 ```
 
+### Rag package
+
+```bash
+poetry -C rag run black --check .
+poetry -C rag run ruff check .
+poetry -C rag run pytest                   # the pgvector store test needs Docker
+poetry -C rag run pytest --cov             # gate lives in rag/pyproject.toml
+```
+
 ### Coverage
 
 Backend coverage is measured with `pytest-cov` and **enforced at 90%**. The threshold
@@ -338,6 +353,9 @@ reads and enforces.
 
 **To change the gate:** edit `fail_under` in `backend/pyproject.toml`. Nothing else names
 a percentage. Verified to bite: at `fail_under = 90` the run exits 0, at `99` it exits 1.
+
+The `rag/` package has the same gate in `rag/pyproject.toml`; read its `fail_under` there
+rather than copying the figure into another file.
 
 **There is one test run, not two.** The workflow that used to run a second full suite just
 to produce a coverage report is deleted; `backend-ci.yml` collects coverage in the same run
@@ -437,6 +455,37 @@ completeness gate that a partial state cannot pass.
   The admin `prompt_extension` from `harness.build_system_prompt` does not reach programme
   stages; carrying it there would mean storing it in `ProgramState` from the chat worker's
   intake turn. That is a deliberate decision, recorded in `.context/DECISIONS.md`.
+
+### Source retrieval (RAG)
+
+The source-citing programme stages can search a pgvector index of the curated corpus. The
+feature is off unless `RAG_ENABLED` is truthy, so a fresh checkout starts without a hub or an
+index.
+
+- **Embeddings come from the school hub, not GigaChat.** Real indexing and retrieval require
+  `SBER_API_SCOPE=openai` plus `OPENAI_URL`; `PERS`/`B2B`/`CORP` have no `/embeddings`
+  endpoint. `mock` is preferred when `SBER_API_KEY=mock`, and returns deterministic vectors
+  without a socket.
+- **The vector is fixed at 2048 dimensions.** The column is `HALFVEC(2048)`, not
+  `vector(2048)`: HNSW refuses more than 2000 dimensions for `vector`, while `halfvec`
+  supports 4000. `OPENAI_EMBEDDING_DIMENSION` must be `2048`; changing the model dimension
+  needs a migration, not just an environment edit.
+- **The catalog supplies citation ids.** `backend/res/rag-sources.json` maps stable `src-NN`
+  ids to parser `source_path`s. `backend/app/rag/catalog.py` validates it; the parser's own
+  `doc_id` is a content hash and is not a citation id.
+- **Ingestion is the one-off CLI `backend/index_rag.py`.** Run it in the backend image with
+  parser output mounted at `/materials/parsed`. It is idempotent by fingerprint and supports
+  `--dry-run`, `--prune`, `--strict` and `--batch-size`. There are no HTTP indexing or search
+  endpoints yet.
+- **`search_sources` is offered only by `stage_tools(stage)`**, never by the chat intake.
+  A hit is mapped to its catalog `Source`; the tool records the ids the model has seen, and
+  `save_program_draft` refuses an unknown or unseen citation. An empty result is
+  `found=false`; a provider or database failure is `RagUnavailable`, which the tool turns
+  into a note rather than failing the stage.
+- **The backend and rag test suites need a Docker daemon.** The PostgreSQL testcontainer is
+  `pgvector/pgvector:pg18`, and the backend fixture runs
+  `CREATE EXTENSION IF NOT EXISTS vector` before `Base.metadata.create_all`. See
+  `.context/LESSONS.md` for the HNSW and `HALFVEC` traps.
 
 ### The chat turn and the programme API
 
