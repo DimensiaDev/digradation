@@ -95,19 +95,33 @@ describe('ChatQuestionFormComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Новый вопрос');
   });
 
-  it('supports Ctrl+Enter to advance and submit', () => {
+  it('advances and submits on Enter', () => {
     const submitted: unknown[] = [];
     component.answersSubmitted.subscribe((answers) => submitted.push(answers));
 
     component.setAnswer('Для руководителей');
-    component.onKeydown(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }));
+    component.onKeydown(new KeyboardEvent('keydown', { key: 'Enter' }));
     fixture.detectChanges();
     expect(component.currentIndex()).toBe(1);
 
     component.setAnswer('72 часа');
-    component.onKeydown(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true }));
+    component.onKeydown(new KeyboardEvent('keydown', { key: 'Enter' }));
 
     expect(submitted).toHaveLength(1);
+  });
+
+  it('keeps Shift+Enter for a line break', () => {
+    component.setAnswer('Для руководителей');
+    const event = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      shiftKey: true,
+      cancelable: true
+    });
+
+    component.onKeydown(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(component.currentIndex()).toBe(0);
   });
 
   it('disables the controls while the answers are being sent', () => {

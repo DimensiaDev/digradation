@@ -63,6 +63,7 @@
         [value]="message()"
         [readOnly]="isStarting()"
         (input)="onInput($event)"
+        (keydown)="onKeydown($event)"
         (focus)="onFocus()"
         (blur)="onBlur()"
       ></textarea>

@@ -113,13 +113,15 @@ export class ChatQuestionFormComponent {
   }
 
   onKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      if (this.isLast()) {
-        this.submit();
-      } else {
-        this.next();
-      }
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    if (this.isLast()) {
+      this.submit();
+    } else {
+      this.next();
     }
   }
 }

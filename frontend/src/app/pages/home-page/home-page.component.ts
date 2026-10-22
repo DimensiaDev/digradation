@@ -122,6 +122,15 @@ export class HomePage {
     });
   }
 
+  onKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    void this.onSubmit(event);
+  }
+
   onInput(event: Event): void {
     if (this.isStarting()) {
       return;
