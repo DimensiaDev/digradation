@@ -31,7 +31,7 @@
   },
   {
     "id": "src-04",
-    "path": "prof_stand/origs/profstd-06.001.pdf",
+    "path": "prof_stand/origs/profstd-06.001.docx",
     "kind": "professional_standard",
     "title": "Профессиональный стандарт 06.001",
     "identifier": "06.001",
@@ -39,7 +39,7 @@
   },
   {
     "id": "src-05",
-    "path": "prof_stand/origs/profstd-06.017.pdf",
+    "path": "prof_stand/origs/profstd-06.017.docx",
     "kind": "professional_standard",
     "title": "Профессиональный стандарт 06.017",
     "identifier": "06.017",
@@ -47,7 +47,7 @@
   },
   {
     "id": "src-06",
-    "path": "prof_stand/origs/profstd-06.028.pdf",
+    "path": "prof_stand/origs/profstd-06.028.docx",
     "kind": "professional_standard",
     "title": "Профессиональный стандарт 06.028",
     "identifier": "06.028",
@@ -55,7 +55,7 @@
   },
   {
     "id": "src-07",
-    "path": "prof_stand/origs/profstd-06.052.pdf",
+    "path": "prof_stand/origs/profstd-06.052.docx",
     "kind": "professional_standard",
     "title": "Профессиональный стандарт 06.052",
     "identifier": "06.052",
@@ -84,30 +84,27 @@
   },
   {
     "id": "src-11",
-    "path": "fgos/origs/act-273-fz.pdf",
+    "path": "fgos/origs/act-273-fz.docx",
     "kind": "normative_act",
     "title": "Федеральный закон от 29.12.2012 № 273-ФЗ «Об образовании в Российской Федерации»",
     "identifier": "273-ФЗ",
-    "trust": 1.0,
-    "allow_empty": true
+    "trust": 1.0
   },
   {
     "id": "src-12",
-    "path": "fgos/origs/act-499.pdf",
+    "path": "fgos/origs/act-499.docx",
     "kind": "normative_act",
     "title": "Приказ Минобрнауки России от 01.07.2013 № 499 «Об утверждении Порядка организации и осуществления образовательной деятельности по дополнительным профессиональным программам»",
     "identifier": "№ 499",
-    "trust": 1.0,
-    "allow_empty": true
+    "trust": 1.0
   },
   {
     "id": "src-13",
-    "path": "fgos/origs/act-629.pdf",
+    "path": "fgos/origs/act-629.docx",
     "kind": "normative_act",
     "title": "Приказ Минпросвещения России от 27.07.2022 № 629 «Об утверждении Порядка организации и осуществления образовательной деятельности по дополнительным общеобразовательным программам»",
     "identifier": "№ 629",
-    "trust": 1.0,
-    "allow_empty": true
+    "trust": 1.0
   },
   {
     "id": "src-14",
@@ -120,21 +117,19 @@
   },
   {
     "id": "src-15",
-    "path": "prof_stand/origs/profstd-01.001.pdf",
+    "path": "prof_stand/origs/profstd-01.001.docx",
     "kind": "professional_standard",
     "title": "Профессиональный стандарт «Педагог (педагогическая деятельность в сфере дошкольного, начального общего, основного общего, среднего общего образования) (воспитатель, учитель)»",
     "identifier": "01.001",
-    "trust": 1.0,
-    "allow_empty": true
+    "trust": 1.0
   },
   {
     "id": "src-16",
-    "path": "prof_stand/origs/profstd-06.046.pdf",
+    "path": "prof_stand/origs/profstd-06.046.docx",
     "kind": "professional_standard",
     "title": "Профессиональный стандарт «Специалист по моделированию, сбору и анализу данных цифрового следа»",
     "identifier": "06.046",
-    "trust": 1.0,
-    "allow_empty": true
+    "trust": 1.0
   },
   {
     "id": "src-17",
