@@ -45,6 +45,20 @@ CONTENT_ORDER: tuple[Stage, ...] = (Stage.ASSESSMENT, Stage.MATERIALS)
 #: The stage whose completion means the skeleton is ready for the methodist.
 SKELETON_LAST = SKELETON_ORDER[-1]
 
+#: What a revision of a stage invalidates: the block that is dropped and the
+#: stage that writes it. A block that is written from another one may not
+#: outlive it — the curriculum names the outcomes the competences declare,
+#: the content is written from the hours, and the passport rests on the
+#: sources.
+REVISION_INVALIDATES: dict[Stage, tuple[tuple[str, Stage], ...]] = {
+    Stage.COMPETENCES: (("curriculum", Stage.HOURS), ("assessment", Stage.ASSESSMENT), ("materials", Stage.MATERIALS)),
+    Stage.HOURS: (("assessment", Stage.ASSESSMENT), ("materials", Stage.MATERIALS)),
+    Stage.SOURCES: (("summary", Stage.SUMMARY),),
+    Stage.SUMMARY: (),
+    Stage.ASSESSMENT: (),
+    Stage.MATERIALS: (),
+}
+
 #: Stages that produce a block of the document, in the order they run.
 STAGE_ORDER: tuple[Stage, ...] = SKELETON_ORDER + CONTENT_ORDER
 
@@ -281,8 +295,13 @@ class ProgramState(BaseModel):
 
         The run keeps working rather than becoming approved: ``approved`` is
         the state of a finished programme, and the content is not written yet.
+        The run points at the first part of the content that is still missing.
         """
-        return self._replace(status=ProgramStatus.GENERATING)
+        pending = next(
+            (item for item in CONTENT_ORDER if self.stage_status(item) is not StageStatus.COMPLETED),
+            None,
+        )
+        return self._replace(status=ProgramStatus.GENERATING, current_stage=pending or self.current_stage)
 
     def request_revision(self, stage: Stage, notes: str) -> Self:
         """Ask for one part of the programme to be redone.
@@ -292,36 +311,49 @@ class ProgramState(BaseModel):
         not spend an attempt: a change the methodist asked for is not a
         failed attempt, and the budget is there for the agent's own failures.
 
-        A revised skeleton invalidates the content: the assessment and the
-        materials are written from the hours, so they are written again rather
-        than left pointing at a topic that no longer exists.
+        The parts that are written from the revised one are dropped, because a
+        block that stays while its foundation moves is a block that points at
+        something that is no longer there: the curriculum names the outcomes
+        the competences declare, the content is written from the hours, and
+        the passport rests on the sources. What was dropped is written again.
         """
         stages = self.stages.model_copy(update={stage.value: StageStatus.PENDING})
-        if stage in SKELETON_ORDER:
-            stages = stages.model_copy(update={item.value: StageStatus.PENDING for item in CONTENT_ORDER})
+        changes: dict[str, Any] = {}
+        attempts = dict(self.attempts)
+        attempts[stage] = 0
+        for block, written_by in REVISION_INVALIDATES.get(stage, ()):
+            changes[block] = None
+            stages = stages.model_copy(update={written_by.value: StageStatus.PENDING})
+            attempts[written_by] = 0
         return self._replace(
             revision=Revision(stage=stage, notes=notes),
             stages=stages,
+            attempts=attempts,
             status=ProgramStatus.GENERATING,
             current_stage=stage,
             finalized=False,
+            **changes,
         )
 
     def revision_completed(self, stage: Stage) -> Self:
-        """The redone stage is done; the programme is back where it was.
+        """The redone stage is done; the run goes on with what is missing.
 
-        A revision reruns one stage and leaves the rest alone, so the run
-        does not walk the pipeline again: it goes straight back to the point
-        the methodist left it at.
+        A revision reruns one stage and drops the parts that were written
+        from it, so the run continues with the first part that is still
+        missing — the skeleton first, and the content only after the methodist
+        has approved it again.
         """
         stages = self.stages.model_copy(update={stage.value: StageStatus.COMPLETED})
-        if stage in CONTENT_ORDER:
-            # The programme is complete only when every part of the content is.
-            done = all(self.stage_status(item) is StageStatus.COMPLETED for item in CONTENT_ORDER)
-            status = ProgramStatus.APPROVED if done else ProgramStatus.GENERATING
+        pending = [item for item in STAGE_ORDER if getattr(stages, item.value) is not StageStatus.COMPLETED]
+        if pending and pending[0] in SKELETON_ORDER:
+            # The skeleton is not whole again; the run keeps working on it.
+            status = ProgramStatus.GENERATING
+            current = pending[0]
         else:
+            # The skeleton is whole; the methodist has to see it again.
             status = ProgramStatus.PENDING_APPROVAL
-        return self._replace(stages=stages, status=status, revision=None, current_stage=stage)
+            current = stage
+        return self._replace(stages=stages, status=status, current_stage=current, revision=None)
 
     def with_answers(self, answers: list[ClarificationAnswer]) -> Self:
         """Take the methodist's answers and let the programme start.

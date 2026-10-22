@@ -138,7 +138,7 @@ def assessment_block(**overrides: Any) -> dict:
                     "outcome_ids": ["ro-k-01"],
                     "title": "Разбор задачи",
                     "statement": "Решите задачу.",
-                    "outcome_criteria": ["Задача решена"],
+                    "criteria": ["Задача решена"],
                 }
             ],
         }
@@ -781,7 +781,24 @@ async def test_a_change_is_recorded_on_the_run(context: ToolContext) -> None:
     assert context.state.stage_status(Stage.HOURS) is StageStatus.PENDING
 
 
-async def test_a_change_does_not_spend_an_attempt(context: ToolContext) -> None:
+async def test_a_revision_drops_the_parts_written_from_the_revised_one(context: ToolContext) -> None:
+    """A block that outlives its foundation points at something that is gone."""
+    await execute_tool(context, save(competences_block()))
+    context.state = at_stage(context.state, Stage.HOURS)
+    await execute_tool(context, save(hours_block()))
+    context.state = at_stage(context.state, Stage.ASSESSMENT)
+    await execute_tool(context, save(assessment_block()))
+    assert context.state is not None
+    assert context.state.assessment is not None
+
+    await execute_tool(context, call("revise_program", {"stage": "hours", "notes": "замени тему 2.3"}))
+
+    assert context.state is not None
+    assert context.state.assessment is None
+    assert context.state.stage_status(Stage.ASSESSMENT) is StageStatus.PENDING
+
+
+async def test_a_change_gives_the_stage_its_budget_again(context: ToolContext) -> None:
     """A change the methodist asked for is not a failed attempt."""
     context.state = at_stage(context.state, Stage.SUMMARY).completed(Stage.SUMMARY).mark_finalized()
     before = dict(context.state.attempts)
@@ -789,7 +806,8 @@ async def test_a_change_does_not_spend_an_attempt(context: ToolContext) -> None:
     await execute_tool(context, call("revise_program", {"stage": "hours", "notes": "замени тему 2.3"}))
 
     assert context.state is not None
-    assert context.state.attempts == before
+    assert context.state.attempts.get(Stage.HOURS) == 0
+    assert context.state.attempts.get(Stage.SUMMARY) == before.get(Stage.SUMMARY)
 
 
 async def test_there_is_nothing_to_revise_without_a_programme() -> None:

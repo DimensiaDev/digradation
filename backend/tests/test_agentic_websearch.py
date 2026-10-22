@@ -19,8 +19,11 @@ from app.agentic.models import SourceKind
 def _no_configured_service(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without a service of its own, the encyclopedia answers."""
     monkeypatch.delenv(websearch.WEB_SEARCH_ENV, raising=False)
-    # The suite runs on the mock provider, and the search is off there.
-    monkeypatch.setattr(websearch, "offline", lambda: False)
+    # The suite runs on the mock provider, where the search is off; these
+    # tests are about the search itself, so it is switched on by the
+    # environment rather than by patching the switch.
+    monkeypatch.setenv("SBER_API_KEY", "a-real-key")
+    monkeypatch.setenv("SBER_API_SCOPE", "PERS")
 
 
 def answer(payload: dict) -> None:
@@ -98,9 +101,69 @@ async def test_a_blank_query_never_reaches_the_network(monkeypatch: pytest.Monke
     assert await websearch.search_web("   ") == []
 
 
+async def test_the_search_is_off_on_the_mock_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The switch itself: the key or the scope says the stack runs offline."""
+    monkeypatch.setenv("SBER_API_KEY", "mock")
+    monkeypatch.delenv("SBER_API_SCOPE", raising=False)
+    assert websearch.offline() is True
+
+    monkeypatch.setenv("SBER_API_KEY", "a-real-key")
+    monkeypatch.setenv("SBER_API_SCOPE", "mock")
+    assert websearch.offline() is True
+
+    monkeypatch.setenv("SBER_API_SCOPE", "PERS")
+    assert websearch.offline() is False
+
+
+async def test_the_search_asks_with_a_user_agent_and_reads_the_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The request itself: the encyclopedia refuses a request without an agent."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"query": {"search": []}})
+
+    transport = httpx.MockTransport(handler)
+    original = httpx.AsyncClient
+
+    def client(*args, **kwargs):
+        kwargs["transport"] = transport
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    assert await websearch.search_web("ФГОС НОО") == []
+    assert len(seen) == 1
+    assert seen[0].headers["User-Agent"] == websearch.USER_AGENT
+    assert seen[0].url.params["srsearch"] == "ФГОС НОО"
+
+
+async def test_a_body_that_is_not_json_is_a_search_that_found_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A broken answer must not become an error of the tool."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>not json</html>")
+
+    transport = httpx.MockTransport(handler)
+    original = httpx.AsyncClient
+
+    def client(*args, **kwargs):
+        kwargs["transport"] = transport
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    assert await websearch.search_web("ФГОС НОО") == []
+
+
+async def test_a_payload_of_another_shape_is_a_search_that_found_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An answer the service did not promise must not become an error of the tool."""
+    monkeypatch.setattr(websearch, "_fetch_json", answer({"query": "not a list"}))
+
+    assert await websearch.search_web("ФГОС НОО") == []
+
+
 async def test_the_mock_provider_turns_the_search_off(monkeypatch: pytest.MonkeyPatch) -> None:
     """The end-to-end suite runs on the mock provider and must not need the internet."""
-    monkeypatch.setattr(websearch, "offline", lambda: True)
+    monkeypatch.setenv("SBER_API_KEY", "mock")
 
     async def fail(*_args, **_kwargs):
         raise AssertionError("the network was reached")

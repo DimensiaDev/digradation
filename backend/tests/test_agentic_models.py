@@ -38,7 +38,7 @@ def test_example_document_state_validates(raw: Program) -> None:
     assert program.curriculum.topic_hours == 66
     assert program.curriculum.attestation_hours == 6
     assert program.curriculum.total_hours == 72
-    assert program.curriculum.contact_hours == 38
+    assert program.curriculum.contact_hours == 44
     assert program.curriculum.self_study_hours == 28
 
 

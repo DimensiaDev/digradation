@@ -127,6 +127,16 @@ def _curriculum(total: float) -> dict:
     }
 
 
+def _catalog_source() -> dict:
+    """A document of the corpus, the way the agent would cite it."""
+    return {
+        "id": "profstd-06.001",
+        "kind": "professional_standard",
+        "title": "Профессиональный стандарт «Программист»",
+        "identifier": "Приказ Минтруда России от 20.07.2022 № 424н",
+    }
+
+
 def _assessment() -> dict:
     """Assessment means that check every outcome of the mock programme twice."""
     outcomes = ["ro-k-01", "ro-s-01", "ro-e-01"]
@@ -152,6 +162,7 @@ def _assessment() -> dict:
         "questions": [
             {
                 "id": "q-01-01",
+                "tool_id": "at-01",
                 "topic_ids": ["t-01.1"],
                 "outcome_ids": ["ro-k-01"],
                 "text": "Что такое основное понятие программы?",
@@ -370,8 +381,9 @@ class MockProvider(AIClient):
             total = _requested_hours(_last_text(message_history)) or DEFAULT_PROGRAMME_HOURS
             return {"curriculum": _curriculum(total)}
         if "sources" in properties:
-            # The catalog is empty until the RAG index (#11), so nothing may be cited.
-            return {"sources": []}
+            # The catalogue holds the documents of the corpus, and the mock
+            # cites one of them the way the agent would.
+            return {"sources": [_catalog_source()]}
         if "assessment" in properties:
             return {"assessment": _assessment()}
         if "materials" in properties:

@@ -35,6 +35,10 @@ x-backend-env: &backend-env
   OPENAI_MODEL: ${OPENAI_MODEL:-GigaChat/GigaChat-3-Pro}
   OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-}
   OPENAI_EMBEDDING_DIMENSION: ${OPENAI_EMBEDDING_DIMENSION:-}
+  # Search service of the deployment, for the agent's online search. Without it
+  # the encyclopedia answers; the service answers the same request and the same
+  # response, so the backend does not change with it.
+  WEB_SEARCH_URL: ${WEB_SEARCH_URL:-}
   SBER_API_KEY: ${SBER_API_KEY:?}
   SBER_API_SCOPE: ${SBER_API_SCOPE:?}
 

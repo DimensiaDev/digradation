@@ -60,6 +60,8 @@ def _schedule(schedule: Schedule) -> str:
         parts.append(f"{schedule.days} дн.")
     if schedule.hours_per_day is not None:
         parts.append(f"{_hours(schedule.hours_per_day)} ч в день")
+    if schedule.max_hours_per_day is not None:
+        parts.append(f"не более {_hours(schedule.max_hours_per_day)} ч в день")
     text = ", ".join(parts)
     if schedule.note:
         note = schedule.note.strip().rstrip(".")
@@ -137,13 +139,19 @@ def render_draft(draft: ProgramDraft) -> str:
     curriculum = draft.curriculum
     if curriculum.attestation_hours:
         lines.extend(["", "### Итоговая аттестация", "", f"*{_hours(curriculum.attestation_hours)} ч*"])
+    remote = ""
+    if curriculum.distance_hours is not None:
+        remote = (
+            f", из них дистанционно {_hours(curriculum.distance_hours)} ч "
+            f"и очно {_hours(curriculum.in_person_hours)} ч"
+        )
     lines.extend(
         [
             "",
             (
                 f"**Итого:** {_hours(curriculum.total_hours)} ч "
                 f"(темы {_hours(curriculum.topic_hours)} ч, итоговая аттестация "
-                f"{_hours(curriculum.attestation_hours)} ч), в том числе аудиторных "
+                f"{_hours(curriculum.attestation_hours)} ч{remote}), в том числе аудиторных "
                 f"{_hours(curriculum.contact_hours)} ч и самостоятельной работы "
                 f"{_hours(curriculum.self_study_hours)} ч."
             ),

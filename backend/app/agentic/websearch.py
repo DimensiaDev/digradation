@@ -107,7 +107,9 @@ async def search_web(query: str, *, limit: int = 5) -> list[WebDocument]:
             found = await _search_service(endpoint, text, limit)
         else:
             found = await _search_wikipedia(text, limit)
-    except httpx.HTTPError as error:
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError) as error:
+        # A search that fails — a broken service, an answer that is not JSON,
+        # a payload of another shape — is a search that found nothing.
         log.warning("web_search_failed", error=str(error))
         return []
     return found[:limit]
@@ -154,7 +156,10 @@ async def _search_wikipedia(query: str, limit: int) -> list[WebDocument]:
         },
         headers={"Accept-Language": WIKIPEDIA_LANGUAGE, "User-Agent": USER_AGENT},
     )
-    hits = payload.get("query", {}).get("search", []) if isinstance(payload, dict) else []
+    query = payload.get("query") if isinstance(payload, dict) else None
+    hits = query.get("search", []) if isinstance(query, dict) else []
+    if not isinstance(hits, list):
+        return []
     found: list[WebDocument] = []
     for hit in hits:
         if not isinstance(hit, dict):

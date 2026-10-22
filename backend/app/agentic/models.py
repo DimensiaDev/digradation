@@ -134,6 +134,17 @@ class Module(SchemaModel):
     #: than by the schema, so the model is told what to fix.
     hours: float = Field(default=0, ge=0, description="Часы модуля — сумма часов его тем")
 
+    @model_validator(mode="after")
+    def _fill_the_hours(self) -> Self:
+        """A module that declares no hours gets the sum of its topics.
+
+        A curriculum written before the field existed has no hours at all, and
+        the plan it belongs to has to keep adding up after a deploy.
+        """
+        if "hours" in self.model_fields_set:
+            return self
+        return self.model_copy(update={"hours": self.topic_hours})
+
     @property
     def topic_hours(self) -> float:
         """What the topics of this module add up to."""
@@ -193,8 +204,13 @@ class Curriculum(SchemaModel):
 
     @property
     def contact_hours(self) -> float:
-        """Classroom hours: lectures, practice and lab work."""
-        return sum(
+        """Contact hours: lectures, practice, lab work and the final attestation.
+
+        The attestation is contact time — nobody sits an exam alone at home —
+        and the plan has to add up: the contact hours and the self-study hours
+        are the whole volume.
+        """
+        return self.attestation_hours + sum(
             topic.hours.lecture + topic.hours.practice + topic.hours.lab
             for module in self.modules
             for topic in module.topics

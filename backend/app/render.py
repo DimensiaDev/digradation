@@ -269,16 +269,25 @@ def _outcomes(competencies: list[Competence], attr: str) -> list[str]:
 def _render_schedule(doc: Document, draft: ProgramDraft) -> None:
     _heading(doc, "Сроки реализации и календарный учебный график", level=1)
     s = draft.curriculum.schedule
+    c = draft.curriculum
     if s.weeks:
         _labeled(doc, "Срок реализации:", f"{s.weeks} нед.")
     if s.days:
         _labeled(doc, "Количество учебных дней:", str(s.days))
     if s.hours_per_day:
         _labeled(doc, "Режим занятий:", f"до {_fmt_hours(s.hours_per_day)} ч в день")
+    if s.max_hours_per_day:
+        _labeled(doc, "Предельная дневная нагрузка:", f"{_fmt_hours(s.max_hours_per_day)} ч в день")
     if s.note:
         doc.add_paragraph(s.note)
 
-    _labeled(doc, "Общая трудоёмкость:", f"{_fmt_hours(draft.curriculum.total_hours)} ч")
+    _labeled(doc, "Общая трудоёмкость:", f"{_fmt_hours(c.total_hours)} ч")
+    if c.distance_hours is not None:
+        _labeled(
+            doc,
+            "Дистанционная работа:",
+            f"{_fmt_hours(c.distance_hours)} ч, очно {_fmt_hours(c.in_person_hours)} ч",
+        )
 
 
 # --------------------------------------------------------------------------- curriculum table

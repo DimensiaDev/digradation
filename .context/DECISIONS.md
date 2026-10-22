@@ -1927,3 +1927,40 @@ else. So the search has to reach outside it.
   the API schema, the key that reaches `api.giga.chat` is not available on the development
   machine, and the router in front of it exposes no built-ins. Shipping a protocol guess that
   cannot be run would be worse than a search that is known to work.
+
+## A revision drops the parts that were written from the revised one (2026-10-22)
+
+The first version of the revision kept the dependent blocks, and that was wrong: a curriculum
+whose topics name outcomes the competences no longer declare, or an assessment whose forms of
+control name topics the hours no longer have, is a block that points at something that is
+gone. The finalisation then refuses the programme and the methodist is told that a document
+they never touched is broken.
+
+- **What a revision invalidates is written down**, in `REVISION_INVALIDATES`: the competences
+  invalidate the curriculum and the content, the hours invalidate the content, the sources
+  invalidate the passport. What was dropped is written again — the stages that write it go
+  back to pending.
+- **The run continues with what is missing.** A revision of the skeleton leaves the run
+  working on the skeleton; the content waits for the methodist's approval of the changed
+  skeleton, as it did the first time.
+- **A revision gives the stage its budget again.** The attempts of the stages that run again
+  start at zero: the budget of three is there for the agent's own failures, and a change the
+  methodist asked for is not one.
+- **The approval points at the work that is missing.** The run does not remember which part
+  of the content is still missing, and an approval that enqueued the stage the run happened
+  to be on left the content unwritten until the attempt budget was spent.
+
+## The attestation is contact time (2026-10-22)
+
+The plan has to add up. The attestation's hours were counted in the volume and left out of
+the contact hours, so the rendered table showed a column that added up to more than its own
+total, and the chat line said that 38 contact hours and 28 hours of self-study make 72. The
+attestation is now contact time — nobody sits an exam alone at home — and the totals add up
+in both the document and the chat.
+
+## The remote share and the daily cap are shown (2026-10-22)
+
+A programme that is очно-заочная says how many of its hours are remote, and a programme
+with a daily cap says what the cap is. Both were collected and checked and then appeared
+nowhere: the passport said "очно-заочная" while the plan said nothing about how the hours
+are delivered. They are in the document's schedule section and in the chat's line now.

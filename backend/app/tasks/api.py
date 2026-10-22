@@ -205,7 +205,10 @@ async def _commit_tool_state(ctx: ToolContext, previous: ProgramState | None, se
         await program_stage.kiq(session, saved.revision.stage.value, saved.run_id)
     elif not started and saved.status is ProgramStatus.GENERATING:
         # The methodist approved the skeleton: the content may be written now.
-        await program_stage.kiq(session, saved.current_stage.value, saved.run_id)
+        # The attempt is spent here, so the stage has the same budget as every
+        # other one.
+        queued = await store.save(saved.enqueued(saved.current_stage), expected_run_id=saved.run_id)
+        await program_stage.kiq(session, queued.current_stage.value, queued.run_id)
 
 
 @broker.task(queue_name="default")

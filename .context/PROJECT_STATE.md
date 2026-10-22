@@ -103,8 +103,9 @@ web as well, and what it finds is unconfirmed too.
 
 **The programme leaves the system as a document and as slides.**
 `GET /chats/{session_id}/program.docx` returns the whole programme as a DOCX by the АЦР
-template, and `GET /chats/{session_id}/program.pptx` returns its slides as a PPTX file; both
-answer 409 until the programme is complete. `GET /chats/{session_id}/program` also carries the
+template, and `GET /chats/{session_id}/program.pptx` returns its slides as a PPTX file. The
+document answers 409 until the programme is complete, and the slides answer 404 while the
+programme has none. `GET /chats/{session_id}/program` also carries the
 self-check report: the hours, the coverage of the outcomes, the sources and the sections that
 are filled.
 

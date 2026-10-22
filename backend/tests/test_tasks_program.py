@@ -406,6 +406,56 @@ async def test_the_approval_releases_the_content_and_the_programme_ends_complete
     assert saved.terminal
 
 
+async def test_a_revision_of_the_skeleton_leads_to_the_content_being_written(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """A change to the skeleton, the approval of the changed skeleton, the content.
+
+    This is the whole cycle with a change in it: the methodist asks for one
+    part to be redone, the part is redone, the content that was written from
+    the old part is written again, and the programme ends complete.
+    """
+    state = await store.save(skeleton_state(chat))
+    await run_task(program.finalize_program_draft, chat, state.run_id)
+    waiting = await store.load(chat)
+    assert waiting is not None
+
+    # The methodist asks for the hours to be redone.
+    await store.save(waiting.request_revision(Stage.HOURS, "замени тему 2.3"))
+    provider.answers.extend([save_turn({"curriculum": example()["curriculum"]}), answer("готово")])
+
+    await run_task(program.program_stage, chat, Stage.HOURS.value, state.run_id)
+
+    revised = await store.load(chat)
+    assert revised is not None
+    assert revised.revision is None
+    assert revised.status is ProgramStatus.PENDING_APPROVAL
+    # The content was written from the old hours, so it is written again.
+    assert revised.assessment is None
+    assert revised.materials is None
+
+    # The methodist approves the changed skeleton.
+    await store.save(revised.approved())
+    raw = example()
+    provider.answers.extend(
+        [
+            save_turn({"assessment": raw["assessment"]}),
+            answer("Оценочные средства сохранены."),
+            save_turn({"materials": raw["materials"]}),
+            answer("Материалы сохранены."),
+        ]
+    )
+
+    await run_task(program.program_stage, chat, Stage.ASSESSMENT.value, state.run_id)
+    await run_task(program.program_stage, chat, Stage.MATERIALS.value, state.run_id)
+
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.assessment is not None
+    assert saved.materials is not None
+    assert saved.status is ProgramStatus.APPROVED
+
+
 async def test_a_revised_stage_runs_again_and_the_run_waits_for_the_methodist(
     chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:
@@ -1147,7 +1197,7 @@ async def test_a_replayed_stage_does_not_spend_an_attempt_on_its_successor(
 
 @pytest.mark.parametrize(
     "closed",
-    [lambda state: state.failed_run("не вышло"), lambda state: state.approved()],
+    [lambda state: state.failed_run("не вышло"), lambda state: state.completed(Stage.MATERIALS)],
     ids=["failed", "approved"],
 )
 async def test_advancing_a_closed_run_enqueues_nothing(enqueued, closed) -> None:
