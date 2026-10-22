@@ -26,6 +26,25 @@ describe('ChatMessageComponent', () => {
     expect(element.querySelector('.message__text')?.textContent).not.toContain('**');
   });
 
+  it('never puts a script from a message into the document', () => {
+    const element = render('Привет <script>alert(1)</script> и всё');
+
+    // The sanitizer drops the element and its payload, so nothing an author of
+    // the text wrote can run.
+    expect(element.querySelector('.message__text script')).toBeNull();
+    expect(element.querySelector('script')).toBeNull();
+    expect(element.querySelector('.message__text')?.innerHTML ?? '').not.toContain('<script');
+  });
+
+  it('strips an event handler and a javascript: link the model could write', () => {
+    const element = render('<img src="x" onerror="alert(1)"> [клик](javascript:alert(1))');
+
+    const image = element.querySelector('.message__text img');
+    expect(image === null || image.getAttribute('onerror') === null).toBe(true);
+    const href = element.querySelector('.message__text a')?.getAttribute('href') ?? '';
+    expect(href.startsWith('javascript:')).toBe(false);
+  });
+
   it('renders clarification answers as cards instead of prose', () => {
     const fixture = TestBed.createComponent(ChatMessageComponent);
     fixture.componentRef.setInput('message', {

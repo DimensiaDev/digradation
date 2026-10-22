@@ -1,4 +1,14 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  output,
+  SecurityContext,
+  signal
+} from '@angular/core';
+import { DomSanitizer } from '@angular/platform-browser';
 import {
   LucideBot,
   LucideCheck,
@@ -51,7 +61,22 @@ export class ChatMessageComponent {
 
   readonly isIncoming = computed(() => this.message().direction === 'incoming');
 
-  readonly renderedText = computed(() => renderMarkdown(this.message().text));
+  /**
+   * The message as HTML, sanitized at the boundary.
+   *
+   * The text is untrusted twice over: the model wrote the assistant's half, and
+   * the methodist's own half is echoed back from the API. `marked` turns either
+   * into HTML, so the string that reaches the DOM is attacker-shaped and is run
+   * through the sanitizer here rather than left to the implicit one on the
+   * `[innerHTML]` binding — a named step is one a reviewer can audit, and it is
+   * the only HTML sink in the application (`bypassSecurityTrust*` is used
+   * nowhere). Sanitizing twice is a no-op, so the rendered message is unchanged.
+   */
+  private readonly sanitizer = inject(DomSanitizer);
+
+  readonly renderedText = computed(
+    () => this.sanitizer.sanitize(SecurityContext.HTML, renderMarkdown(this.message().text)) ?? ''
+  );
 
   readonly answers = computed<readonly ChatMessageAnswer[]>(() => {
     const explicit = this.message().answers;
