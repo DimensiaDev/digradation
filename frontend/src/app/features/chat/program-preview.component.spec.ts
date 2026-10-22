@@ -170,6 +170,23 @@ describe('ProgramPreviewComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.program-preview__meta-item').length).toBe(2);
   });
 
+  it('points empty sections at the stage the client actually shows', () => {
+    fixture.componentRef.setInput(
+      'state',
+      state({
+        status: 'generating',
+        draft: { ...state().draft, title: 'Аналитика данных' }
+      })
+    );
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text.match(/на этапе «Каркас программы»/g)).toHaveLength(4);
+    expect(text).not.toContain('«Паспорт программы»');
+    expect(text).not.toContain('«Учебный план»');
+    expect(text).not.toContain('после этапа «Источники»');
+  });
+
   it('opens only one accordion section at a time', () => {
     fixture.componentRef.setInput('state', FILLED);
     fixture.detectChanges();
@@ -265,7 +282,11 @@ describe('ProgramPreviewComponent', () => {
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Проверка');
-    expect(text).toContain('1 из 2 проверок');
+    const score = fixture.nativeElement.querySelector(
+      '.program-preview__report-score'
+    ) as HTMLElement;
+    expect(score.textContent).toContain('1');
+    expect(score.textContent).toContain('из 2 проверок');
     expect(text).toContain('Нельзя утверждать');
     expect(text).toContain('Часы');
     expect(text).toContain('Заявлено');
@@ -275,14 +296,22 @@ describe('ProgramPreviewComponent', () => {
     expect(text).toContain('Покрытие результатов');
     expect(text).toContain('Раскрыто в темах');
     expect(text).toContain('результат обучения c-2 не раскрыт ни в одной теме');
+    expect(text).toContain('Требует внимания');
+    expect(text).toContain('Пройдено');
 
     const verdict = fixture.nativeElement.querySelector(
-      '.program-preview__report-verdict .program-preview__badge'
+      '.program-preview__report-summary .program-preview__badge'
     ) as HTMLElement;
     expect(verdict.getAttribute('data-tone')).toBe('danger');
 
+    const progress = fixture.nativeElement.querySelector(
+      '.program-preview__report-progress'
+    ) as HTMLElement;
+    expect(progress.getAttribute('aria-valuenow')).toBe('1');
+    expect(progress.getAttribute('aria-valuemax')).toBe('2');
+
     const problems = fixture.nativeElement.querySelectorAll(
-      '.program-preview__check--problem'
+      '[data-group="problems"] .program-preview__check--problem'
     ) as NodeListOf<HTMLElement>;
     expect(problems.length).toBe(1);
     expect(problems[0].textContent).toContain('не раскрыт');
@@ -303,12 +332,20 @@ describe('ProgramPreviewComponent', () => {
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Проверки пройдены');
-    expect(text).toContain('2 из 2 проверок');
+    const score = fixture.nativeElement.querySelector(
+      '.program-preview__report-score'
+    ) as HTMLElement;
+    expect(score.textContent).toContain('2');
+    expect(score.textContent).toContain('из 2 проверок');
     expect(
       fixture.nativeElement
-        .querySelector('.program-preview__report-verdict .program-preview__badge')
+        .querySelector('.program-preview__report-summary .program-preview__badge')
         .getAttribute('data-tone')
     ).toBe('success');
+    expect(fixture.nativeElement.querySelector('[data-group="problems"]')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelectorAll('[data-group="passed"] .program-preview__check').length
+    ).toBe(2);
     expect(fixture.nativeElement.querySelector('.program-preview__check--problem')).toBeNull();
   });
 

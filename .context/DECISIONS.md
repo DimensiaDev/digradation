@@ -2217,3 +2217,19 @@ The five UI steps used to smear four backend stages into one and call the approv
   is waiting for them to agree the skeleton.
 - **Content stages map to step 4.** Only `assessment` and `materials` belong there; they start
   after the approval, so the stepper moves back to step 4 rather than staying on "Готово".
+
+## The self-check is a grouped checklist, not a card stack (2026-10-22)
+
+The report used to render every check as a card with its own icon, outline and background,
+inside the accordion card, so five checks looked like five equally important boxes and a
+failed check was hard to spot.
+
+- **A score and a progress bar sit above the list.** Passed and total are visible before any
+  detail; the bar is red while the report is not OK and green when it is.
+- **Failures come first, successes second.** The groups are `Требует внимания` and `Пройдено`,
+  and an empty group is dropped. Successful checks no longer compete with failures for space.
+- **Every check gets the same padded row.** The padding and radius are uniform, so a failed
+  check does not shift its text against the successful ones.
+- **Only the conflicting sentence is red.** The check row stays neutral; each problem message
+  is its own tinted callout, because the backend names the mismatch but not which detail value
+  is wrong.

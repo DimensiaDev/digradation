@@ -1192,3 +1192,4 @@ to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALF
   a collapsed section kept a 23px strip. Put the padding and the divider on a child of the grid
   item, and keep the grid item itself padding-free with `min-height: 0; overflow: hidden`.
   Found 2026-10-22.
+- A programme block is not a pipeline stage. The preview placeholders said «Паспорт программы», «Учебный план» and «Источники» as if they were stages the client shows; the wizard names only five steps, so placeholders must point at «Каркас программы» or describe the agent's action, never invent a stage name.

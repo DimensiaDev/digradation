@@ -34,6 +34,7 @@ import { AttachmentDownloadService } from '../../core/services/attachment-downlo
 import { NotificationService } from '../../core/services/notification.service';
 import { AccordionSectionComponent } from '../../shared/components/accordion-section/accordion-section.component';
 import { extractApiErrorMessage } from '../../shared/utils/api-error';
+import { ProgramReportComponent } from './program-report.component';
 import {
   ProgramPreviewSection,
   programBadge,
@@ -57,6 +58,7 @@ export type ProgramAccordionSection = Exclude<ProgramPreviewSection, 'results'>;
   selector: 'app-program-preview',
   imports: [
     AccordionSectionComponent,
+    ProgramReportComponent,
     LucideBookOpen,
     LucideCheck,
     LucideClipboardCheck,

@@ -52,7 +52,8 @@ after login. The composer also dictates Russian through the Web Speech API. `/pr
 polling while a run is busy. Cards and the detail panel show only what those responses carry;
 the catalogue is read-only until the programme-mutation endpoints exist. The chat workspace's
 aside shows the saved blocks, the cited sources with their catalogue confirmation, and the
-self-check report in a single-open accordion; the finished programme's DOCX and PPTX downloads
+self-check in a single-open accordion; the report opens with a score and a progress bar, then
+lists failures first and passed checks second. The finished programme's DOCX and PPTX downloads
 stay pinned to the aside footer, outside the collapsible content. Program creation has no entry
 point yet.
 

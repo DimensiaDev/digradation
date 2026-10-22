@@ -12,6 +12,7 @@ import {
   ChatMessageApi,
   InstanceSettings,
   ProgramApiItem,
+  ProgramBlocksApi,
   ProgramQuestionApi,
   ProgramStateApi,
   User,
@@ -131,6 +132,111 @@ const PROGRAMME_HOURS: Record<string, number> = {
   'mock-programme-8': 48
 };
 
+const SOFT_SKILLS_DRAFT: ProgramBlocksApi = {
+  kind: 'professional_development',
+  title: 'Soft skills для руководителей',
+  competencies: [
+    {
+      id: 'soft-c1',
+      statement: 'Выстраивать коммуникацию с командой и стейкхолдерами',
+      code: 'ПК-1'
+    },
+    {
+      id: 'soft-c2',
+      statement: 'Давать развивающую обратную связь',
+      code: 'ПК-2'
+    },
+    {
+      id: 'soft-c3',
+      statement: 'Управлять конфликтами в команде',
+      code: 'ПК-3'
+    }
+  ],
+  curriculum: null,
+  sources: [
+    {
+      id: 'src-02',
+      kind: 'professional_standard',
+      title: 'Профессиональный стандарт «Руководитель подразделения»',
+      confirmed: true,
+      trust: 'Действующий документ',
+      origin: 'Минтруд России'
+    },
+    {
+      id: 'src-08',
+      kind: 'literature',
+      title: 'Практика управленческой коммуникации',
+      confirmed: true,
+      trust: 'Учебное издание',
+      origin: 'Издательство «Дело»'
+    }
+  ],
+  summary: {
+    goal: 'Развить у руководителей коммуникативные навыки, необходимые для управления командой и изменениями.',
+    tasks: [
+      'Освоить приёмы активного слушания',
+      'Научиться давать конструктивную обратную связь',
+      'Отработать стратегии разрешения конфликтов'
+    ],
+    target_audience: 'Руководители подразделений и проектных команд',
+    form: 'Очно-заочная, с применением дистанционных технологий'
+  }
+};
+
+const SOFT_SKILLS_REPORT: NonNullable<ProgramStateApi['report']> = {
+  ok: false,
+  checks: [
+    {
+      name: 'часы',
+      ok: false,
+      problems: ['учебный план ещё не собран'],
+      details: {
+        заявлено: 24,
+        всего: 0,
+        темы: 0,
+        'итоговая аттестация': 0
+      }
+    },
+    {
+      name: 'покрытие',
+      ok: false,
+      problems: ['результат обучения ещё не раскрыт ни в одной теме'],
+      details: {
+        'результатов обучения': 3,
+        'раскрыто в темах': 0,
+        'проверяется двумя средствами': 0
+      }
+    },
+    {
+      name: 'источники',
+      ok: true,
+      problems: [],
+      details: {
+        'всего источников': 2,
+        подтверждено: 2,
+        'не подтверждено': 0
+      }
+    },
+    {
+      name: 'разделы',
+      ok: false,
+      problems: [
+        'раздел «учебный план» не заполнен',
+        'раздел «оценочные средства» не заполнен',
+        'раздел «материалы» не заполнен'
+      ],
+      details: {
+        компетенции: true,
+        'учебный план': false,
+        паспорт: true,
+        источники: true,
+        'оценочные средства': false,
+        материалы: false
+      }
+    }
+  ]
+};
+
 interface ProgrammeRuntime {
   status: ProgramApiItem['status'];
   questions: ProgramQuestionApi[];
@@ -165,6 +271,10 @@ const programmeReport = (
   programme: ProgramApiItem,
   status: ProgramApiItem['status']
 ): NonNullable<ProgramStateApi['report']> => {
+  if (programme.session_id === 'mock-programme-6') {
+    return SOFT_SKILLS_REPORT;
+  }
+
   const ready = status === 'approved' || status === 'verified';
   const hasPlan = ready || status === 'pending_approval';
   const hasDraft = hasPlan || status === 'draft';
@@ -233,14 +343,17 @@ const programmeState = (programme: ProgramApiItem): ProgramStateApi => {
     updated_at: programme.updated_at,
     version: 1,
     questions: runtime?.questions ?? [],
-    draft: {
-      kind: null,
-      title: programme.title,
-      competencies: [],
-      curriculum: null,
-      sources: [],
-      summary: programmeSummary(programme)
-    },
+    draft:
+      programme.session_id === 'mock-programme-6'
+        ? SOFT_SKILLS_DRAFT
+        : {
+            kind: null,
+            title: programme.title,
+            competencies: [],
+            curriculum: null,
+            sources: [],
+            summary: programmeSummary(programme)
+          },
     report: programmeReport(programme, status),
     exports: PROGRAMME_EXPORTS[programme.session_id] ?? null
   };

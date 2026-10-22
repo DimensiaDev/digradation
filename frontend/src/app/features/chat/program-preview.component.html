@@ -81,9 +81,7 @@
           @if (goal()) {
             <p class="program-preview__goal">{{ goal() }}</p>
           } @else {
-            <p class="program-preview__empty-note">
-              Цель появится после этапа «Паспорт программы».
-            </p>
+            <p class="program-preview__empty-note">Цель появится на этапе «Каркас программы».</p>
           }
         </app-accordion-section>
 
@@ -115,7 +113,7 @@
             </ul>
           } @else {
             <p class="program-preview__empty-note">
-              Компетенции появятся после этапа «Каркас программы».
+              Компетенции появятся на этапе «Каркас программы».
             </p>
           }
         </app-accordion-section>
@@ -158,7 +156,7 @@
             <p class="program-preview__total">Итого: {{ hoursLabel() }}</p>
           } @else {
             <p class="program-preview__empty-note">
-              Модули и часы появятся после этапа «Учебный план».
+              Модули и часы появятся на этапе «Каркас программы».
             </p>
           }
         </app-accordion-section>
@@ -220,7 +218,9 @@
               }
             </ul>
           } @else {
-            <p class="program-preview__empty-note">Источники появятся после этапа «Источники».</p>
+            <p class="program-preview__empty-note">
+              Источники появятся на этапе «Каркас программы».
+            </p>
           }
         </app-accordion-section>
 
@@ -242,69 +242,7 @@
             }
           </span>
 
-          @if (report(); as report) {
-            <div class="program-preview__report-verdict" role="status">
-              <span
-                class="program-preview__badge"
-                [attr.data-tone]="report.ok ? 'success' : 'danger'"
-              >
-                @if (report.ok) {
-                  <svg size="13" lucideCheck aria-hidden="true"></svg>
-                } @else {
-                  <svg size="13" lucideTriangleAlert aria-hidden="true"></svg>
-                }
-                {{ report.ok ? 'Проверки пройдены' : 'Нельзя утверждать' }}
-              </span>
-              <span class="program-preview__report-summary">
-                {{ report.passed }} из {{ report.checks.length }} проверок
-              </span>
-            </div>
-
-            <ul class="program-preview__checks">
-              @for (check of report.checks; track check.name) {
-                <li
-                  class="program-preview__module program-preview__check"
-                  [class.program-preview__check--problem]="!check.ok"
-                >
-                  <div class="program-preview__module-body">
-                    <header class="program-preview__check-head">
-                      <span class="program-preview__check-icon" aria-hidden="true">
-                        @if (check.ok) {
-                          <svg size="14" lucideCheck></svg>
-                        } @else {
-                          <svg size="14" lucideTriangleAlert></svg>
-                        }
-                      </span>
-                      <h4 class="program-preview__check-name">{{ check.label }}</h4>
-                      <span class="visually-hidden">
-                        {{ check.ok ? 'Пройдено' : 'Есть замечания' }}
-                      </span>
-                    </header>
-
-                    @if (check.problems.length) {
-                      <ul class="program-preview__check-problems">
-                        @for (problem of check.problems; track problem) {
-                          <li>{{ problem }}</li>
-                        }
-                      </ul>
-                    }
-
-                    @if (check.details.length) {
-                      <div class="program-preview__check-details">
-                        @for (detail of check.details; track detail.label) {
-                          <span>{{ detail.label }}: {{ detail.value }}</span>
-                        }
-                      </div>
-                    }
-                  </div>
-                </li>
-              }
-            </ul>
-          } @else {
-            <p class="program-preview__empty-note">
-              Самопроверка появится, когда программа соберёт первые блоки.
-            </p>
-          }
+          <app-program-report [report]="report()" />
         </app-accordion-section>
       </div>
     } @else {

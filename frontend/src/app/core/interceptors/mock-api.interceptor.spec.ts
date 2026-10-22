@@ -340,6 +340,22 @@ describe('mockApiInterceptor', () => {
     expect(after.questions).toEqual([]);
   });
 
+  it('shows a mixed soft-skills programme with one passing check', async () => {
+    await login();
+    const state = await firstValueFrom(
+      http.get<ProgramStateApi>(`${API}/chats/mock-programme-6/program`)
+    );
+
+    expect(state.draft.title).toBe('Soft skills для руководителей');
+    expect(state.draft.competencies.length).toBeGreaterThan(0);
+    expect(state.draft.sources.length).toBeGreaterThan(0);
+    expect(state.draft.curriculum).toBeNull();
+
+    const passed = state.report?.checks.filter((check) => check.ok) ?? [];
+    expect(passed).toHaveLength(1);
+    expect(passed[0].name).toBe('источники');
+  });
+
   it('rejects unknown routes with 404', async () => {
     await login();
     await expect(firstValueFrom(http.get(`${API}/definitely-not-a-route`))).rejects.toMatchObject({
