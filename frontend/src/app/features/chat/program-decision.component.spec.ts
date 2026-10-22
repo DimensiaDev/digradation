@@ -47,6 +47,48 @@ describe('ProgramDecisionComponent', () => {
     expect(approved).toHaveBeenCalledTimes(1);
   });
 
+  it('shows one card at a time', () => {
+    const cards = () => fixture.nativeElement.querySelectorAll('.decision__card');
+    expect(cards()).toHaveLength(2);
+
+    reviseAction().click();
+    fixture.detectChanges();
+
+    expect(component.mode()).toBe('revise');
+    expect(cards()).toHaveLength(1);
+    expect(fixture.nativeElement.textContent).not.toContain('Утвердить каркас');
+
+    button('.decision__cancel').click();
+    fixture.detectChanges();
+
+    expect(component.mode()).toBe('choose');
+    expect(cards()).toHaveLength(2);
+    expect(fixture.nativeElement.textContent).toContain('Утвердить каркас');
+  });
+
+  it('hides the revision while the approval is being sent', () => {
+    approveAction().click();
+    fixture.componentRef.setInput('submitting', true);
+    fixture.detectChanges();
+
+    expect(component.mode()).toBe('approve');
+    expect(fixture.nativeElement.querySelectorAll('.decision__card')).toHaveLength(1);
+    expect(fixture.nativeElement.textContent).toContain('Утверждаем…');
+  });
+
+  it('brings the revision back when a refused approval settles', () => {
+    approveAction().click();
+    fixture.componentRef.setInput('submitting', true);
+    fixture.detectChanges();
+    expect(component.mode()).toBe('approve');
+
+    fixture.componentRef.setInput('submitting', false);
+    fixture.detectChanges();
+
+    expect(component.mode()).toBe('choose');
+    expect(fixture.nativeElement.querySelectorAll('.decision__card')).toHaveLength(2);
+  });
+
   it('expands the revision form and emits the chosen block with the notes', () => {
     const revised: ProgramRevisionRequest[] = [];
     component.revised.subscribe((request) => revised.push(request));
@@ -102,7 +144,7 @@ describe('ProgramDecisionComponent', () => {
     expect(revised).toEqual([{ stage: 'competences', notes: 'Переписать цель' }]);
   });
 
-  it('cancels a revision and returns to the approval', () => {
+  it('cancels a revision and returns to the choice', () => {
     component.startRevision();
     component.notes.set('Переписать цель');
     fixture.detectChanges();
@@ -110,7 +152,7 @@ describe('ProgramDecisionComponent', () => {
     button('.decision__cancel').click();
     fixture.detectChanges();
 
-    expect(component.mode()).toBe('approve');
+    expect(component.mode()).toBe('choose');
     expect(component.notes()).toBe('');
     expect(fixture.nativeElement.querySelector('.decision__blocks')).toBeNull();
   });
@@ -143,7 +185,7 @@ describe('ProgramDecisionComponent', () => {
     fixture.componentRef.setInput('blocks', [{ id: 'summary', label: 'Паспорт программы' }]);
     fixture.detectChanges();
 
-    expect(component.mode()).toBe('approve');
+    expect(component.mode()).toBe('choose');
     expect(component.selectedStage()).toBe('summary');
     expect(component.notes()).toBe('');
   });

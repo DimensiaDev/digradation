@@ -22,8 +22,13 @@ import {
 import { InputComponent } from '../../shared/components/input/input.component';
 import { ProgramDecisionBlock, ProgramRevisionView } from './program-view';
 
-/** What the methodist chose to do with the rendered draft. */
-export type ProgramDecisionAction = 'approve' | 'revise';
+/**
+ * Which card the panel is showing.
+ *
+ * The panel is one decision at a time: `choose` offers both, and picking either
+ * action hides the other card so only the chosen path is on screen.
+ */
+export type ProgramDecisionMode = 'choose' | 'approve' | 'revise';
 
 @Component({
   selector: 'app-program-decision',
@@ -48,7 +53,7 @@ export class ProgramDecisionComponent {
   readonly revised = output<ProgramRevisionRequest>();
 
   readonly maxNotes = MAX_REVISION_NOTES_LENGTH;
-  readonly mode = signal<ProgramDecisionAction>('approve');
+  readonly mode = signal<ProgramDecisionMode>('choose');
   readonly selectedStage = signal<ProgramStage | null>(null);
   readonly notes = signal('');
 
@@ -61,6 +66,7 @@ export class ProgramDecisionComponent {
   );
 
   private lastBlocksKey = '';
+  private wasSubmitting = false;
 
   constructor() {
     effect(() => {
@@ -72,10 +78,31 @@ export class ProgramDecisionComponent {
         return;
       }
       this.lastBlocksKey = key;
-      this.mode.set('approve');
+      this.mode.set('choose');
       this.selectedStage.set(this.blocks()[0]?.id ?? null);
       this.notes.set('');
     });
+
+    /**
+     * An approval the backend refused leaves the panel on screen, so the
+     * revision card has to come back: the methodist still owes the programme a
+     * decision, and the only card left was the one that just failed.
+     */
+    effect(() => {
+      const submitting = this.submitting();
+      if (this.wasSubmitting && !submitting && this.mode() === 'approve') {
+        this.mode.set('choose');
+      }
+      this.wasSubmitting = submitting;
+    });
+  }
+
+  startApproval(): void {
+    if (this.submitting()) {
+      return;
+    }
+    this.mode.set('approve');
+    this.approved.emit();
   }
 
   startRevision(): void {
@@ -92,7 +119,7 @@ export class ProgramDecisionComponent {
     if (this.submitting()) {
       return;
     }
-    this.mode.set('approve');
+    this.mode.set('choose');
     this.notes.set('');
   }
 
