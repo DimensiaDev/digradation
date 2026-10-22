@@ -1,12 +1,10 @@
 import {
-  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   ElementRef,
   computed,
   effect,
   inject,
-  Injector,
   signal,
   viewChild
 } from '@angular/core';
@@ -14,14 +12,10 @@ import { LucideChevronLeft, LucideChevronRight, LucideFolderOpen } from '@lucide
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Program } from '../../core/models/models';
-import { NotificationService } from '../../core/services/notification.service';
 import { ProfileService } from '../../core/services/profile.service';
 import { PROGRAMS_PAGE_SIZE, ProgramsService } from '../../core/services/programs.service';
 import { ProgramDetailPanelComponent } from '../../shared/components/program-detail-panel/program-detail-panel.component';
-import {
-  ProgramActionEvent,
-  ProgramCardComponent
-} from '../../shared/components/program-card/program-card.component';
+import { ProgramCardComponent } from '../../shared/components/program-card/program-card.component';
 import { Select, SelectOption } from '../../shared/components/select/select.component';
 
 const MONTH_LABELS = [
@@ -44,21 +38,6 @@ function monthLabel(value: string): string {
   return `${MONTH_LABELS[Number(month) - 1]} ${year}`;
 }
 
-function buildTypeOptions(programs: readonly Program[]): SelectOption[] {
-  const types = [...new Set(programs.map((program) => program.type))];
-  return [
-    { value: 'all', label: 'Все типы' },
-    ...types.map((type) => ({ value: type, label: type }))
-  ];
-}
-
-function buildTagOptions(programs: readonly Program[]): SelectOption[] {
-  const tags = [...new Set(programs.flatMap((program) => program.tags))].sort((first, second) =>
-    first.localeCompare(second, 'ru')
-  );
-  return [{ value: 'all', label: 'Все теги' }, ...tags.map((tag) => ({ value: tag, label: tag }))];
-}
-
 function buildDateOptions(programs: readonly Program[]): SelectOption[] {
   const months = [...new Set(programs.map((program) => program.updatedAt.slice(0, 7)))].sort(
     (first, second) => second.localeCompare(first)
@@ -67,20 +46,6 @@ function buildDateOptions(programs: readonly Program[]): SelectOption[] {
     { value: 'all', label: 'Все даты' },
     ...months.map((month) => ({ value: month, label: monthLabel(month) }))
   ];
-}
-
-function includeSelectedOptions(
-  options: SelectOption[],
-  selected: readonly string[],
-  labelFor: (value: string) => string = (value) => value
-): SelectOption[] {
-  const available = new Set(options.map((option) => option.value));
-  const missing = selected.filter((value) => value !== 'all' && !available.has(value));
-  if (missing.length === 0) {
-    return options;
-  }
-
-  return [...options, ...missing.map((value) => ({ value, label: labelFor(value) }))];
 }
 
 @Component({
@@ -100,11 +65,8 @@ function includeSelectedOptions(
 })
 export class ProgramsPage {
   private readonly programsService = inject(ProgramsService);
-  private readonly notifications = inject(NotificationService);
   private readonly profile = inject(ProfileService);
   private readonly router = inject(Router);
-  private readonly injector = inject(Injector);
-  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   constructor() {
     effect(() => {
@@ -116,24 +78,10 @@ export class ProgramsPage {
     });
   }
 
-  readonly typeFilter = signal('all');
   readonly dateFilter = signal('all');
-  readonly tagFilter = signal<readonly string[]>([]);
   readonly page = signal(0);
 
-  readonly typeOptions = computed(() =>
-    includeSelectedOptions(buildTypeOptions(this.programsService.programs()), [this.typeFilter()])
-  );
-  readonly dateOptions = computed(() =>
-    includeSelectedOptions(
-      buildDateOptions(this.programsService.programs()),
-      [this.dateFilter()],
-      monthLabel
-    )
-  );
-  readonly tagOptions = computed(() =>
-    includeSelectedOptions(buildTagOptions(this.programsService.programs()), this.tagFilter())
-  );
+  readonly dateOptions = computed(() => buildDateOptions(this.programsService.programs()));
   readonly selectedProgramId = signal<string | null>(null);
 
   private readonly resultsRegion = viewChild<ElementRef<HTMLElement>>('resultsRegion');
@@ -141,17 +89,13 @@ export class ProgramsPage {
 
   readonly pageSize = PROGRAMS_PAGE_SIZE;
 
-  readonly hasActiveFilters = computed(
-    () => this.typeFilter() !== 'all' || this.dateFilter() !== 'all' || this.tagFilter().length > 0
-  );
+  readonly hasActiveFilters = computed(() => this.dateFilter() !== 'all');
 
   readonly result = computed(() =>
     this.programsService.query({
       page: this.page(),
       itemsPerPage: this.pageSize,
-      type: this.typeFilter(),
-      date: this.dateFilter(),
-      tags: this.tagFilter()
+      date: this.dateFilter()
     })
   );
 
@@ -194,27 +138,14 @@ export class ProgramsPage {
     return items;
   });
 
-  selectType(value: string): void {
-    this.typeFilter.set(value);
-    this.page.set(0);
-    this.scrollToResults();
-  }
-
   selectDate(value: string): void {
     this.dateFilter.set(value);
     this.page.set(0);
     this.scrollToResults();
   }
 
-  selectTags(values: string[]): void {
-    this.tagFilter.set(values);
-    this.page.set(0);
-  }
-
   resetFilters(focusResults = true): void {
-    this.typeFilter.set('all');
     this.dateFilter.set('all');
-    this.tagFilter.set([]);
     this.page.set(0);
     if (focusResults) {
       this.focusResults();
@@ -256,13 +187,6 @@ export class ProgramsPage {
     this.resultsRegion()?.nativeElement.scrollIntoView?.({ block: 'start', behavior: 'auto' });
   }
 
-  private clampPage(): void {
-    const lastPage = Math.max(0, this.totalPages() - 1);
-    if (this.page() > lastPage) {
-      this.page.set(lastPage);
-    }
-  }
-
   openProgram(program: Program, trigger: HTMLElement | null): void {
     this.lastTrigger = trigger;
     this.selectedProgramId.set(program.id);
@@ -288,69 +212,5 @@ export class ProgramsPage {
 
     this.programsService.stopDetail();
     void this.router.navigate(['/chats', program.id]);
-  }
-
-  onAction(program: Program, event: ProgramActionEvent): void {
-    const index = this.programs().findIndex((item) => item.id === program.id);
-    let removed = false;
-
-    switch (event.action) {
-      case 'duplicate':
-        this.programsService.duplicate(program.id);
-        this.resetFilters(false);
-        this.notifications.success('Программа продублирована', {
-          description: 'Копия сохранена как черновик.'
-        });
-        break;
-      case 'archive':
-        this.programsService.archive(program.id);
-        this.clampPage();
-        this.notifications.info('Программа архивирована');
-        break;
-      case 'unarchive':
-        this.programsService.unarchive(program.id);
-        this.clampPage();
-        this.notifications.info('Программа восстановлена');
-        break;
-      case 'delete':
-        if (!window.confirm(`Удалить программу «${program.title}»?`)) {
-          return;
-        }
-        if (this.selectedProgramId() === program.id) {
-          this.selectedProgramId.set(null);
-          this.lastTrigger = null;
-          this.programsService.stopDetail();
-        }
-        this.programsService.remove(program.id);
-        this.clampPage();
-        removed = true;
-        this.notifications.info('Программа удалена');
-        break;
-    }
-
-    this.restoreActionFocus(event.trigger, index, removed);
-  }
-
-  private restoreActionFocus(trigger: HTMLElement | null, index: number, removed: boolean): void {
-    afterNextRender(
-      () => {
-        if (!removed && trigger?.isConnected) {
-          trigger.focus();
-          return;
-        }
-
-        const buttons = this.host.nativeElement.querySelectorAll<HTMLElement>(
-          '.program-card__menu-button'
-        );
-        const target = buttons[Math.max(0, Math.min(index, buttons.length - 1))];
-        if (target) {
-          target.focus();
-          return;
-        }
-
-        this.focusResults();
-      },
-      { injector: this.injector }
-    );
   }
 }

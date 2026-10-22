@@ -175,16 +175,11 @@ export type ProgramViewStatus =
   | 'verified'
   | 'failed';
 
-export type ProgramStatus = ProgramViewStatus | 'in_progress' | 'review' | 'published' | 'archived';
+export type ProgramStatus = ProgramViewStatus;
 
 export type ProgramKind = 'professional_development' | 'general_development';
 
 export type ProgramTheme = 'it' | 'analytics' | 'soft-skills' | 'agile' | 'management' | 'security';
-
-export interface ProgramAuthor {
-  name: string;
-  avatarUrl: string | null;
-}
 
 export interface ProgramModule {
   id: string;
@@ -199,10 +194,8 @@ export interface Program {
   type: string;
   direction: string;
   hours: number;
-  tags: readonly string[];
   status: ProgramStatus;
   theme: ProgramTheme;
-  author: ProgramAuthor;
   updatedAt: string;
   description: string;
   goals: readonly string[];
@@ -220,16 +213,6 @@ export interface ProgramApiItem {
   title: string;
   status: ProgramViewStatus;
   updated_at: string | null;
-  /** Optional fields the catalogue may expose later. */
-  kind?: ProgramKind | null;
-  type?: string | null;
-  direction?: string | null;
-  hours?: number | null;
-  tags?: readonly string[] | null;
-  author?: ProgramAuthor | null;
-  description?: string | null;
-  goals?: readonly string[] | null;
-  theme?: ProgramTheme | null;
 }
 
 export interface ProgramPageApi {
@@ -351,8 +334,6 @@ export interface ProgramStateApi {
   exports: ProgramExportsApi | null;
 }
 
-export type ProgramAction = 'duplicate' | 'archive' | 'unarchive' | 'delete';
-
 export const PROGRAM_STATUS_LABELS: Record<ProgramStatus, string> = {
   none: 'Нет программы',
   draft: 'Черновик',
@@ -361,9 +342,5 @@ export const PROGRAM_STATUS_LABELS: Record<ProgramStatus, string> = {
   pending_approval: 'На согласовании',
   approved: 'Согласована',
   verified: 'Проверена',
-  failed: 'Ошибка',
-  in_progress: 'В работе',
-  review: 'На проверке',
-  published: 'Опубликовано',
-  archived: 'Архив'
+  failed: 'Ошибка'
 };

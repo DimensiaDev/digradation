@@ -149,16 +149,17 @@ describe('ProgramPreviewComponent', () => {
     fixture.componentRef.setInput('sessionId', 'mock-programme-4');
   });
 
-  it('shows the empty state and the draft metadata placeholders', () => {
+  it('shows the empty state and only the supported metadata', () => {
     fixture.componentRef.setInput('state', state());
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).toContain('Каркас программы');
     expect(text).toContain('Ожидает данных');
-    expect(text).toContain('Тип аттестации');
-    expect(text).toContain('уточняется');
+    expect(text).not.toContain('Тип аттестации');
+    expect(text).not.toContain('уточняется');
     expect(text).toContain('Каркас появится здесь');
+    expect(fixture.nativeElement.querySelectorAll('.program-preview__meta-item').length).toBe(2);
   });
 
   it('renders real blocks, hours and the draft badge', () => {

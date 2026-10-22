@@ -1,5 +1,4 @@
 import {
-  afterRenderEffect,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -13,33 +12,21 @@ import {
   viewChildren
 } from '@angular/core';
 import {
-  LucideArchive,
   LucideArrowLeft,
   LucideBookOpen,
   LucideCheck,
   LucideClock,
   LucideCompass,
-  LucideCopy,
   LucideDynamicIcon,
-  LucideEllipsisVertical,
-  LucideFileText,
   LucideGraduationCap,
   LucideLayers,
-  LucidePencil,
-  LucideTarget,
-  LucideTrash2
+  LucideTarget
 } from '@lucide/angular';
 import { PROGRAM_STATUS_LABELS, Program } from '../../../core/models/models';
-import {
-  buildProgramCompetencies,
-  buildProgramMaterials,
-  buildProgramModules,
-  formatProgramHours
-} from '../../utils/program-detail-content';
-import { nextMenuIndex } from '../../utils/menu-keyboard';
+import { formatProgramHours } from '../../utils/program-detail-content';
 import { PROGRAM_THEME_ICONS } from '../../utils/program-theme';
 
-type ProgramTab = 'description' | 'structure' | 'competencies' | 'materials';
+type ProgramTab = 'description' | 'structure' | 'competencies';
 
 interface ProgramTabItem {
   readonly id: ProgramTab;
@@ -49,28 +36,21 @@ interface ProgramTabItem {
 const PROGRAM_TABS: readonly ProgramTabItem[] = [
   { id: 'description', label: 'Описание' },
   { id: 'structure', label: 'Структура' },
-  { id: 'competencies', label: 'Компетенции' },
-  { id: 'materials', label: 'Материалы' }
+  { id: 'competencies', label: 'Компетенции' }
 ];
 
 @Component({
   selector: 'app-program-detail-panel',
   imports: [
-    LucideArchive,
     LucideArrowLeft,
     LucideBookOpen,
     LucideCheck,
     LucideClock,
     LucideCompass,
-    LucideCopy,
     LucideDynamicIcon,
-    LucideEllipsisVertical,
-    LucideFileText,
     LucideGraduationCap,
     LucideLayers,
-    LucidePencil,
-    LucideTarget,
-    LucideTrash2
+    LucideTarget
   ],
   templateUrl: './program-detail-panel.component.html',
   styleUrl: './program-detail-panel.component.scss',
@@ -83,8 +63,6 @@ export class ProgramDetailPanelComponent {
 
   readonly tabs = PROGRAM_TABS;
   readonly activeTab = signal<ProgramTab>('description');
-  readonly menuOpen = signal(false);
-  readonly menuId = 'program-panel-menu-header';
 
   readonly themeIcon = computed(() => PROGRAM_THEME_ICONS[this.program()?.theme ?? 'it']);
   readonly statusLabel = computed(() => {
@@ -95,41 +73,16 @@ export class ProgramDetailPanelComponent {
     const hours = this.program()?.hours ?? 0;
     return hours > 0 ? formatProgramHours(hours) : '—';
   });
-  readonly modules = computed(() => {
-    const program = this.program();
-    return program ? buildProgramModules(program.hours, program.modules) : [];
-  });
-  readonly competencies = computed(() => {
-    const program = this.program();
-    return program ? buildProgramCompetencies(program) : [];
-  });
-  readonly materials = computed(() => buildProgramMaterials());
-  readonly isArchived = computed(() => this.program()?.status === 'archived');
-  readonly deleteMenuIndex = computed(() => (this.isArchived() ? 1 : 2));
+  readonly modules = computed(() => this.program()?.modules ?? []);
+  readonly competencies = computed(() => this.program()?.competencyStatements ?? []);
   readonly formatHours = formatProgramHours;
-  readonly activeMenuItem = signal(0);
 
   private readonly programId = computed(() => this.program()?.id ?? null);
   private readonly scroll = viewChild<ElementRef<HTMLElement>>('scroll');
   private readonly closeButton = viewChild<ElementRef<HTMLButtonElement>>('closeButton');
   private readonly tabButtons = viewChildren<ElementRef<HTMLButtonElement>>('tabButton');
-  private readonly headerMenu = viewChild<ElementRef<HTMLElement>>('headerMenu');
-  private readonly headerMenuButton = viewChild<ElementRef<HTMLButtonElement>>('headerMenuButton');
-  private readonly menuItems = viewChildren<ElementRef<HTMLButtonElement>>('menuItem');
-  private pendingMenuFocus = false;
 
   constructor() {
-    afterRenderEffect({
-      write: () => {
-        if (!this.menuOpen() || !this.pendingMenuFocus) {
-          return;
-        }
-
-        this.pendingMenuFocus = false;
-        this.menuItems()[this.activeMenuItem()]?.nativeElement.focus();
-      }
-    });
-
     effect(() => {
       if (!this.programId()) {
         return;
@@ -141,7 +94,6 @@ export class ProgramDetailPanelComponent {
       }
 
       this.activeTab.set('description');
-      this.menuOpen.set(false);
       this.closeButton()?.nativeElement.focus();
     });
   }
@@ -182,70 +134,14 @@ export class ProgramDetailPanelComponent {
     this.tabButtons()[nextIndex]?.nativeElement.focus();
   }
 
-  toggleMenu(): void {
-    if (this.menuOpen()) {
-      this.closeMenu();
-      return;
-    }
-
-    this.activeMenuItem.set(0);
-    this.pendingMenuFocus = true;
-    this.menuOpen.set(true);
-  }
-
-  closeMenu(restoreFocus = false): void {
-    if (!this.menuOpen()) {
-      return;
-    }
-
-    this.pendingMenuFocus = false;
-    this.menuOpen.set(false);
-    if (restoreFocus) {
-      this.headerMenuButton()?.nativeElement.focus();
-    }
-  }
-
-  onMenuKeydown(event: KeyboardEvent): void {
-    const items = this.menuItems();
-    const nextIndex = nextMenuIndex(event.key, this.activeMenuItem(), items.length);
-    if (nextIndex === null) {
-      return;
-    }
-
-    event.preventDefault();
-    this.activeMenuItem.set(nextIndex);
-    items[nextIndex]?.nativeElement.focus();
-  }
-
-  runMenuAction(): void {
-    this.closeMenu();
-  }
-
   close(): void {
     this.closed.emit();
   }
 
-  @HostListener('document:click', ['$event'])
-  onDocumentClick(event: MouseEvent): void {
-    const target = event.target as Node;
-    const insideMenu = this.headerMenu()?.nativeElement.contains(target);
-
-    if (!insideMenu) {
-      this.closeMenu();
-    }
-  }
-
   @HostListener('document:keydown.escape')
   onEscape(): void {
-    if (!this.programId()) {
-      return;
+    if (this.programId()) {
+      this.close();
     }
-
-    if (this.menuOpen()) {
-      this.closeMenu(true);
-      return;
-    }
-
-    this.close();
   }
 }

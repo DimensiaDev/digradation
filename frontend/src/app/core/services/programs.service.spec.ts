@@ -10,92 +10,49 @@ const API_ITEMS: ProgramApiItem[] = [
     session_id: 'it-python',
     title: 'Python для анализа данных',
     status: 'draft',
-    updated_at: '2025-10-12T09:00:00Z',
-    type: 'Повышение квалификации',
-    direction: 'IT и аналитика',
-    hours: 72,
-    tags: ['IT', 'Python', 'Аналитика'],
-    author: { name: 'Админ Демо', avatarUrl: null },
-    theme: 'it',
-    description: 'Практический курс',
-    goals: ['Освоить Python.']
+    updated_at: '2025-10-12T09:00:00Z'
   },
   {
     session_id: 'corp-security',
     title: 'Кибербезопасность для сотрудников',
     status: 'generating',
-    updated_at: '2025-10-08T09:00:00Z',
-    type: 'Корпоративное обучение',
-    direction: 'Информационная безопасность',
-    hours: 40,
-    tags: ['IT', 'Безопасность'],
-    theme: 'security'
+    updated_at: '2025-10-08T09:00:00Z'
   },
   {
     session_id: 'ml-basics',
     title: 'Основы машинного обучения',
     status: 'pending_approval',
-    updated_at: '2025-10-05T09:00:00Z',
-    type: 'Профессиональная переподготовка',
-    direction: 'Искусственный интеллект',
-    hours: 256,
-    tags: ['ML', 'Python', 'Аналитика'],
-    theme: 'analytics'
+    updated_at: '2025-10-05T09:00:00Z'
   },
   {
     session_id: 'agile-teams',
     title: 'Agile-трансформация команд',
     status: 'approved',
-    updated_at: '2025-09-28T09:00:00Z',
-    type: 'Корпоративное обучение',
-    direction: 'Управление и процессы',
-    hours: 16,
-    tags: ['Agile', 'Soft skills'],
-    theme: 'agile'
+    updated_at: '2025-09-28T09:00:00Z'
   },
   {
     session_id: 'project-management',
     title: 'Управление проектами',
     status: 'draft',
-    updated_at: '2025-09-24T09:00:00Z',
-    type: 'Повышение квалификации',
-    direction: 'Управление и процессы',
-    hours: 36,
-    tags: ['Менеджмент', 'Agile'],
-    theme: 'management'
+    updated_at: '2025-09-24T09:00:00Z'
   },
   {
     session_id: 'soft-skills-leaders',
     title: 'Soft skills для руководителей',
     status: 'awaiting_answers',
-    updated_at: '2025-09-19T09:00:00Z',
-    type: 'Корпоративное обучение',
-    direction: 'Развитие руководителей',
-    hours: 24,
-    tags: ['Soft skills', 'Коммуникация'],
-    theme: 'soft-skills'
+    updated_at: '2025-09-19T09:00:00Z'
   },
   {
     session_id: 'web-development',
     title: 'Веб-разработка: полный цикл',
     status: 'approved',
-    updated_at: '2025-08-30T09:00:00Z',
-    type: 'Профессиональная переподготовка',
-    direction: 'IT и аналитика',
-    hours: 256,
-    tags: ['IT', 'JavaScript'],
-    theme: 'it'
+    updated_at: '2025-08-30T09:00:00Z'
   },
   {
     session_id: 'product-analytics',
     title: 'Продуктовая аналитика',
     status: 'verified',
-    updated_at: '2025-08-22T09:00:00Z',
-    type: 'Повышение квалификации',
-    direction: 'IT и аналитика',
-    hours: 48,
-    tags: ['Аналитика', 'Data'],
-    theme: 'analytics'
+    updated_at: '2025-08-22T09:00:00Z'
   }
 ];
 
@@ -186,30 +143,21 @@ describe('ProgramsService', () => {
     expect(service.programs()[0]).toMatchObject({
       id: 'it-python',
       title: 'Python для анализа данных',
-      type: 'Повышение квалификации',
-      hours: 72,
-      status: 'draft'
+      status: 'draft',
+      updatedAt: '2025-10-12T09:00:00Z'
     });
-    expect(service.programs()[0].author.name).toBe('Админ Демо');
   });
 
-  it('falls back to the current user and placeholders for absent fields', () => {
-    load([
-      {
-        session_id: 'new-programme',
-        title: 'Новая программа',
-        status: 'generating',
-        updated_at: '2025-10-20T09:00:00Z'
-      }
-    ]);
+  it('keeps fields the catalogue does not return empty', () => {
+    load();
 
-    const [program] = service.programs();
-    expect(program.type).toBe('Образовательная программа');
-    expect(program.direction).toBe('—');
-    expect(program.hours).toBe(0);
-    expect(program.tags).toEqual([]);
-    expect(program.author.name).toBe('');
-    expect(program.theme).toBe('it');
+    expect(service.programs()[0].type).toBe('');
+    expect(service.programs()[0].direction).toBe('');
+    expect(service.programs()[0].hours).toBe(0);
+    expect(service.programs()[0].description).toBe('');
+    expect(service.programs()[0].goals).toEqual([]);
+    expect(service.programs()[0].modules).toBeUndefined();
+    expect(service.programs()[0].competencyStatements).toBeUndefined();
   });
 
   it('keeps the API order and paginates the catalogue locally', () => {
@@ -228,18 +176,14 @@ describe('ProgramsService', () => {
     ]);
   });
 
-  it('filters before paginating', () => {
+  it('filters by update month before paginating', () => {
     load();
 
-    const result = service.query({
-      type: 'Корпоративное обучение',
-      date: '2025-09',
-      tags: ['Soft skills']
-    });
+    const result = service.query({ date: '2025-08' });
 
     expect(result.items.map((program) => program.title)).toEqual([
-      'Agile-трансформация команд',
-      'Soft skills для руководителей'
+      'Веб-разработка: полный цикл',
+      'Продуктовая аналитика'
     ]);
     expect(result.total).toBe(2);
   });
@@ -277,6 +221,8 @@ describe('ProgramsService', () => {
     const program = service.programs().find((item) => item.id === 'it-python');
     expect(program?.status).toBe('pending_approval');
     expect(program?.updatedAt).toBe('2025-10-13T10:00:00Z');
+    expect(program?.type).toBe('Повышение квалификации');
+    expect(program?.direction).toBe('IT и аналитика');
     expect(program?.hours).toBe(24);
     expect(program?.description).toBe('Практический курс по анализу данных.');
     expect(program?.goals).toEqual(['Освоить Python.', 'Научиться визуализировать данные.']);
@@ -313,7 +259,7 @@ describe('ProgramsService', () => {
 
     const program = service.programs().find((item) => item.id === 'it-python');
     expect(program?.status).toBe('draft');
-    expect(program?.hours).toBe(72);
+    expect(program?.hours).toBe(0);
   });
 
   it('clears the catalogue', () => {
@@ -322,75 +268,5 @@ describe('ProgramsService', () => {
 
     expect(service.programs()).toEqual([]);
     expect(service.loaded()).toBe(false);
-  });
-
-  it('duplicates a program as a draft at the top', () => {
-    load();
-    const source = service.programs()[0];
-
-    service.duplicate(source.id);
-
-    const [copy] = service.programs();
-    expect(service.programs().length).toBe(9);
-    expect(copy.id).not.toBe(source.id);
-    expect(copy.title).toBe(`${source.title} (копия)`);
-    expect(copy.status).toBe('draft');
-    expect(copy.tags).toEqual(source.tags);
-    expect(copy.tags).not.toBe(source.tags);
-    expect(copy.goals).toEqual(source.goals);
-    expect(copy.goals).not.toBe(source.goals);
-  });
-
-  it('does nothing when duplicating an unknown program', () => {
-    load();
-    service.duplicate('missing');
-
-    expect(service.programs().length).toBe(8);
-  });
-
-  it('archives a program and refreshes its date', () => {
-    load();
-    const source = service.programs()[0];
-
-    service.archive(source.id);
-
-    const archived = service.programs().find((program) => program.id === source.id);
-    expect(archived?.status).toBe('archived');
-    expect(archived?.updatedAt).not.toBe(source.updatedAt);
-  });
-
-  it('leaves other programs untouched when archiving', () => {
-    load();
-    const source = service.programs()[0];
-    const other = service.programs()[1];
-
-    service.archive(source.id);
-
-    expect(service.programs().find((program) => program.id === other.id)).toEqual(other);
-  });
-
-  it('republishes an archived program and refreshes its date', () => {
-    load();
-    const source = service.programs()[0];
-    service.archive(source.id);
-    const archived = service.programs().find((program) => program.id === source.id);
-    if (!archived) {
-      throw new Error('Expected an archived program');
-    }
-
-    service.unarchive(source.id);
-
-    const restored = service.programs().find((program) => program.id === source.id);
-    expect(restored?.status).toBe('published');
-  });
-
-  it('removes a program', () => {
-    load();
-    const source = service.programs()[0];
-
-    service.remove(source.id);
-
-    expect(service.programs().some((program) => program.id === source.id)).toBe(false);
-    expect(service.programs().length).toBe(7);
   });
 });

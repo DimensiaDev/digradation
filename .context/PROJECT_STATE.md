@@ -3,10 +3,9 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-22** (the programme is written in two halves; its sources come from the
-curated catalogue and the pgvector index, with the corpus descriptions answering when there is
-no index; the programme leaves as a document and as slides, the client downloads both, and the
-search reaches the web)
+Last updated: **2026-10-22** (the programmes catalogue shows only backend-backed data; the
+local-only duplicate/archive/delete actions, unsupported type/tag filters and the fabricated
+materials tab are gone, and the chat preview no longer invents an attestation type)
 
 ---
 
@@ -49,16 +48,17 @@ an authenticated user goes straight to it, while a guest's text and files are he
 `PendingChatDraftService`, the sign-in dialog opens, and the same chat is created and sent
 after login. The composer also dictates Russian through the Web Speech API. `/programs` is
 `Мои программы`: a lazy-loaded catalogue backed by `GET /chats/programmes` and
-`GET /chats/{session_id}/program`, with client-side filtering and paging, and two-second
-polling while a run is busy. The chat workspace's aside shows the saved blocks, the cited
+`GET /chats/{session_id}/program`, with filtering by update month, paging, and two-second
+polling while a run is busy. Cards and the detail panel show only what those responses carry;
+the catalogue is read-only until the programme-mutation endpoints exist. The chat workspace's aside shows the saved blocks, the cited
 sources with their catalogue confirmation, the self-check report with its problems and key
 details, and the finished programme's DOCX and PPTX downloads. Program creation has no entry
 point yet.
 
 **Not started or placeholder.** The profile page body, user settings, and two admin sections
 (`Журнал действий`, `О системе`) render `SectionPlaceholder`. `/help` and `library` are
-intentional placeholders, and `/programs/new` waits for a create form. Duplicate / archive /
-restore / delete on the programmes page still mutate the loaded list only: no endpoints exist.
+intentional placeholders, and `/programs/new` waits for a create form. The programmes page has
+no mutation actions because no endpoints exist for duplicate, archive, restore or delete.
 
 **The programme cycle.** A chat can build one educational programme. A run is one
 `ProgramState` in `chat_sessions.program_state` (JSONB), mirrored to Redis for an hour, and it
@@ -259,9 +259,9 @@ Ordered by value, not by commitment:
    programmes, read the state, answer the questions of a run, show the self-check report and
    download the DOCX/PPTX exports, but it cannot yet approve a rendered draft or ask for a
    change. That is the gap that keeps the feature out of the user's hands.
-2. **Turn the programs catalog into a real feature.** `ProgramsService` is an in-memory mock
-   and the detail aside's tabs are derived demo content; replace both with API calls,
-   persistence, and the create/edit form behind `/programs/new`.
+2. **Finish the programs catalog.** It is API-backed and shows only real programme state, but
+   it is still read-only: add the mutation endpoints and the create/edit form behind
+   `/programs/new`.
 3. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
    where per-content-type preparation belongs. The first content type that needs work is the
    first thing that goes in it, offloaded with `asyncio.to_thread`.
@@ -292,8 +292,8 @@ Ordered by value, not by commitment:
     rest of the corpus can be indexed first; OCR is a parser change, not an ingestion change.
 14. **Finish the chat-side programme flow:** approve a rendered draft, ask for one part to be
     redone, and make the five-minute poll survive a slow run.
-15. **Make `/programs` writable.** Duplicate, archive, restore and delete are still local; add
-    the endpoints and persist the actions.
+15. **Make `/programs` writable.** There are no endpoints yet for duplicate, archive, restore or
+    delete, so the page deliberately offers no such actions.
 16. **Fill the placeholder sections:** profile, user settings, the admin action log
     (`Журнал действий`) and system info.
 17. **Extend the e2e suite:** the docx/xlsx preview, avatar upload, the theme toggle, the

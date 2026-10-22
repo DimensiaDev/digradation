@@ -2162,3 +2162,20 @@ set of materials without a slide passed it. The report now looks at what a secti
 and the stages refuse a block that is empty: a curriculum with no lecture plan and no
 slides is a curriculum with nothing in it, and the criterion asks for the slides of at
 least one module.
+
+## A catalogue shows only what the API returns (2026-10-22)
+
+The programmes page filled the gaps in `GET /chats/programmes` with invented data: type, hours,
+tags and author on every card, type/tag filters over values only the frontend knew, duplicate /
+archive / delete that mutated the loaded array, a detail-panel materials tab built from
+blueprints, and a chat-preview "Тип аттестации — уточняется". All of it looked like a feature
+and none of it survived a reload.
+
+- **Unsupported controls are removed, not disabled.** A disabled control still promises a
+  capability; an absent one does not. The catalogue keeps the real update-month filter, paging,
+  and the real detail blocks.
+- **The list model matches the list endpoint.** `ProgramApiItem` holds only `session_id`,
+  `title`, `status` and `updated_at`; type, hours, description, modules and competencies arrive
+  with the detail request. The card grows into them once the panel has loaded them.
+- **Empty is a truthful state.** The detail panel says a block has not been formed yet instead
+  of showing invented modules, competencies or materials.

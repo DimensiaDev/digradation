@@ -74,101 +74,62 @@ const PROGRAMMES: ProgramApiItem[] = [
     session_id: 'mock-programme-1',
     title: 'Python для анализа данных',
     status: 'draft',
-    updated_at: '2025-10-12T09:00:00Z',
-    type: 'Повышение квалификации',
-    direction: 'IT и аналитика',
-    hours: 72,
-    tags: ['IT', 'Python', 'Аналитика'],
-    author: { name: 'Админ Демо', avatarUrl: null },
-    theme: 'it',
-    description: 'Практический курс для специалистов, которые хотят освоить Python.',
-    goals: ['Уверенно работать с синтаксисом Python.']
+    updated_at: '2025-10-12T09:00:00Z'
   },
   {
     session_id: 'mock-programme-2',
     title: 'Кибербезопасность для сотрудников',
     status: 'generating',
-    updated_at: '2025-10-08T09:00:00Z',
-    type: 'Корпоративное обучение',
-    direction: 'Информационная безопасность',
-    hours: 40,
-    tags: ['IT', 'Безопасность'],
-    author: { name: 'Админ Демо', avatarUrl: null },
-    theme: 'security'
+    updated_at: '2025-10-08T09:00:00Z'
   },
   {
     session_id: 'mock-programme-3',
     title: 'Основы машинного обучения',
     status: 'pending_approval',
-    updated_at: '2025-10-05T09:00:00Z',
-    type: 'Профессиональная переподготовка',
-    direction: 'Искусственный интеллект',
-    hours: 256,
-    tags: ['ML', 'Python', 'Аналитика'],
-    author: { name: 'Админ Демо', avatarUrl: null },
-    theme: 'analytics'
+    updated_at: '2025-10-05T09:00:00Z'
   },
   {
     session_id: 'mock-programme-4',
     title: 'Agile-трансформация команд',
     status: 'approved',
-    updated_at: '2025-09-28T09:00:00Z',
-    type: 'Корпоративное обучение',
-    direction: 'Управление и процессы',
-    hours: 16,
-    tags: ['Agile', 'Soft skills'],
-    author: { name: 'Админ Демо', avatarUrl: null },
-    theme: 'agile'
+    updated_at: '2025-09-28T09:00:00Z'
   },
   {
     session_id: 'mock-programme-5',
     title: 'Управление проектами',
     status: 'draft',
-    updated_at: '2025-09-24T09:00:00Z',
-    type: 'Повышение квалификации',
-    direction: 'Управление и процессы',
-    hours: 36,
-    tags: ['Менеджмент', 'Agile'],
-    author: { name: 'Админ Демо', avatarUrl: null },
-    theme: 'management'
+    updated_at: '2025-09-24T09:00:00Z'
   },
   {
     session_id: 'mock-programme-6',
     title: 'Soft skills для руководителей',
     status: 'awaiting_answers',
-    updated_at: '2025-09-19T09:00:00Z',
-    type: 'Корпоративное обучение',
-    direction: 'Развитие руководителей',
-    hours: 24,
-    tags: ['Soft skills', 'Коммуникация'],
-    author: { name: 'Админ Демо', avatarUrl: null },
-    theme: 'soft-skills'
+    updated_at: '2025-09-19T09:00:00Z'
   },
   {
     session_id: 'mock-programme-7',
     title: 'Веб-разработка: полный цикл',
     status: 'approved',
-    updated_at: '2025-08-30T09:00:00Z',
-    type: 'Профессиональная переподготовка',
-    direction: 'IT и аналитика',
-    hours: 256,
-    tags: ['IT', 'JavaScript'],
-    author: { name: 'Админ Демо', avatarUrl: null },
-    theme: 'it'
+    updated_at: '2025-08-30T09:00:00Z'
   },
   {
     session_id: 'mock-programme-8',
     title: 'Продуктовая аналитика',
     status: 'verified',
-    updated_at: '2025-08-22T09:00:00Z',
-    type: 'Повышение квалификации',
-    direction: 'IT и аналитика',
-    hours: 48,
-    tags: ['Аналитика', 'Data'],
-    author: { name: 'Админ Демо', avatarUrl: null },
-    theme: 'analytics'
+    updated_at: '2025-08-22T09:00:00Z'
   }
 ];
+
+const PROGRAMME_HOURS: Record<string, number> = {
+  'mock-programme-1': 72,
+  'mock-programme-2': 40,
+  'mock-programme-3': 256,
+  'mock-programme-4': 16,
+  'mock-programme-5': 36,
+  'mock-programme-6': 24,
+  'mock-programme-7': 256,
+  'mock-programme-8': 48
+};
 
 interface ProgrammeRuntime {
   status: ProgramApiItem['status'];
@@ -184,12 +145,15 @@ programmeRuntime.set('mock-programme-6', {
   ]
 });
 
-const programmeSummary = (programme: ProgramApiItem) => ({
-  goal: programme.description ?? `Сформировать практические навыки по теме «${programme.title}».`,
-  tasks: programme.goals ?? [],
-  target_audience: 'Специалисты профильных направлений',
-  form: 'Очно-заочная, с применением дистанционных технологий'
-});
+const programmeSummary = (programme: ProgramApiItem) => {
+  const goal = `Сформировать практические навыки по теме «${programme.title}».`;
+  return {
+    goal,
+    tasks: [goal],
+    target_audience: 'Специалисты профильных направлений',
+    form: 'Очно-заочная, с применением дистанционных технологий'
+  };
+};
 
 const PROGRAMME_EXPORTS: Record<string, NonNullable<ProgramStateApi['exports']>> = {
   'mock-programme-4': { document_attachment_id: 4001, slides_attachment_id: 4002 },
@@ -204,6 +168,7 @@ const programmeReport = (
   const ready = status === 'approved' || status === 'verified';
   const hasPlan = ready || status === 'pending_approval';
   const hasDraft = hasPlan || status === 'draft';
+  const hours = PROGRAMME_HOURS[programme.session_id] ?? 0;
   return {
     ok: ready,
     checks: [
@@ -212,9 +177,9 @@ const programmeReport = (
         ok: hasPlan,
         problems: hasPlan ? [] : ['учебный план ещё не собран'],
         details: {
-          заявлено: programme.hours,
-          всего: hasPlan ? programme.hours : 0,
-          темы: hasPlan ? programme.hours : 0,
+          заявлено: hours,
+          всего: hasPlan ? hours : 0,
+          темы: hasPlan ? hours : 0,
           'итоговая аттестация': 0
         }
       },
