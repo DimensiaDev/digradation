@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { ProgramStateApi } from '../../core/models/models';
 import { AttachmentDownloadService } from '../../core/services/attachment-download.service';
 import { NotificationService } from '../../core/services/notification.service';
@@ -386,6 +386,41 @@ describe('ProgramPreviewComponent', () => {
     const text = fixture.nativeElement.textContent as string;
     expect(text).not.toContain('Скачать DOCX');
     expect(text).toContain('Скачать PPTX');
+  });
+
+  it('downloads one export at a time', () => {
+    const pending = new Subject<File>();
+    fetchFile.mockReturnValue(pending.asObservable());
+    fixture.componentRef.setInput('state', EXPORTED);
+    fixture.detectChanges();
+
+    const buttons = () =>
+      fixture.nativeElement.querySelectorAll(
+        '.program-preview__results button'
+      ) as NodeListOf<HTMLButtonElement>;
+
+    buttons()[0].click();
+    fixture.detectChanges();
+
+    expect(component.downloading()).toBe('document');
+    expect(fetchFile).toHaveBeenCalledTimes(1);
+    expect(buttons()[0].textContent).toContain('Скачиваем DOCX');
+    expect(buttons()[0].disabled).toBe(true);
+    expect(buttons()[1].disabled).toBe(true);
+
+    // A click while the first link is still being fetched must not start a
+    // second download of either form.
+    buttons()[0].click();
+    buttons()[1].click();
+    expect(fetchFile).toHaveBeenCalledTimes(1);
+
+    pending.next(new File(['docx'], 'programme.docx'));
+    pending.complete();
+    fixture.detectChanges();
+
+    expect(save).toHaveBeenCalledWith(expect.any(File), 'programme.docx');
+    expect(component.downloading()).toBeNull();
+    expect(buttons()[0].disabled).toBe(false);
   });
 
   it('shows no results footer until an export exists', () => {
