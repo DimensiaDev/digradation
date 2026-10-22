@@ -134,5 +134,9 @@
     }
   </div>
 
-  <app-program-detail-panel [program]="selectedProgram()" (closed)="closeProgram()" />
+  <app-program-detail-panel
+    [program]="selectedProgram()"
+    (open)="openProgramChat()"
+    (closed)="closeProgram()"
+  />
 </section>

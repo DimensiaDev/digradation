@@ -1110,3 +1110,26 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   field as if the list had it, and do not open a detail request for every card to fill one.
   The optional fields in `ProgramApiItem` are the seam for the catalogue contract growing.
   Found 2026-10-21.
+- **A new page component imported eagerly can break the bundle budget even when it looks
+  small.** `/chats/:id` needed the preview, stepper and question form, and importing
+  `ChatPage` directly in `app.routes.ts` pushed the initial bundle past the 1 MB error
+  threshold. The route now uses `loadComponent`; the build's budget is the check, not a guess.
+  Found 2026-10-22 on `feat/chat-page`.
+- **Web Speech `stop()` is not synchronous.** The service stops recognition and emits a final
+  result later, so sending immediately after `stop()` can send the field without the last
+  phrase. The composer sets `isStoppingSpeech`, waits for that final result, then reads the
+  text; a plain `stop(); send()` drops words. Found 2026-10-22.
+- **An absolutely positioned drawer is trapped by the first positioned ancestor.** The files
+  drawer lives inside `app-chat` but must cover the preview, so `.chat-page__workspace` is the
+  containing block and the chat pane and `app-chat` host stay unpositioned. Adding
+  `position: relative` to either intermediate element silently confines the drawer to the
+  chat column. Found 2026-10-22.
+- **A new close button can make an existing Playwright locator ambiguous.** The files drawer
+  gained `aria-label="Закрыть панель файлов"`, which contains the old `Панель файлов` name;
+  `getByRole('button', { name: 'Панель файлов' })` then matched both the toggle and the close
+  button, and strict mode fails even while the drawer keeps the close button hidden. All
+  three attachment specs now pass `exact: true`. Found 2026-10-22.
+- **A read-only mock makes the primary write path look like a dead button.** `/home` sends
+  `POST /chats` and then `POST /chats/{id}` before navigating, so a mock that serves only
+  the history list answers 404 and the redirect never happens. Any screen whose main action
+  is a write needs its mock to own state, not just return fixtures. Found 2026-10-22.

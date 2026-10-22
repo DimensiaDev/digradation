@@ -9,13 +9,20 @@ import {
   inject,
   input,
   OnInit,
+  output,
   signal,
+  untracked,
   viewChild
 } from '@angular/core';
 import {
+  LucideArrowRight,
+  LucideCheckCheck,
   LucideDownload,
   LucideDynamicIcon,
   LucideEye,
+  LucideFileCheck2,
+  LucideLayoutTemplate,
+  LucideMic,
   LucidePanelRightClose,
   LucidePanelRightOpen,
   LucidePaperclip,
@@ -32,15 +39,24 @@ import { AgentStatusComponent } from './agent-status.component';
 import { FilePreviewComponent } from '../../shared/components/drag-n-drop/file-preview.component';
 import { NotificationService } from '../../core/services/notification.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
-import { ChatMessageApi, ChatSessionAttachment } from '../../core/models/models';
+import {
+  ChatMessageApi,
+  ChatSessionAttachment,
+  ProgramAnswerApi,
+  ProgramQuestionApi
+} from '../../core/models/models';
 import { ChatService } from '../../core/services/chat.service';
 import { AttachmentDownloadService } from '../../core/services/attachment-download.service';
+import { SpeechRecognitionService } from '../../core/services/speech-recognition.service';
 import { extractApiErrorMessage } from '../../shared/utils/api-error';
+import { speechErrorNotice } from '../../shared/utils/speech-error';
 import { Router } from '@angular/router';
 import { InputComponent } from '../../shared/components/input/input.component';
 import { fileTypeStyleFor } from '../../shared/utils/file-types';
 import { getFileExtension } from '../../shared/utils/upload-format';
 import { DragOverlayComponent } from '../../shared/components/drag-n-drop/drag-overlay.component';
+import { ChatQuestionFormComponent } from './chat-question-form.component';
+import { ProgramMilestone, ProgramPreviewSection } from './program-view';
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
@@ -58,10 +74,16 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
     DragNDropComponent,
     DragOverlayComponent,
     LucideTrash2,
+    LucideArrowRight,
+    LucideCheckCheck,
+    LucideFileCheck2,
+    LucideLayoutTemplate,
+    LucideMic,
     ChatMessageComponent,
     AgentStatusComponent,
     FilePreviewComponent,
-    InputComponent
+    InputComponent,
+    ChatQuestionFormComponent
   ],
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -73,6 +95,15 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 })
 export class ChatComponent implements OnInit {
   readonly id = input.required<string>();
+  readonly questions = input<readonly ProgramQuestionApi[]>([]);
+  readonly milestones = input<readonly ProgramMilestone[]>([]);
+  readonly turnStarted = output<void>();
+  readonly turnFinished = output<void>();
+  readonly previewFocus = output<ProgramPreviewSection>();
+  readonly refreshProgram = output<void>();
+
+  private readonly speech = inject(SpeechRecognitionService);
+
   readonly isFilesOpen = signal<boolean>(false);
   readonly agentStatus = signal<'thinking' | null>(null);
   readonly attachedFiles = signal<File[]>([]);
@@ -87,6 +118,15 @@ export class ChatComponent implements OnInit {
    * the same list.
    */
   readonly pendingAttachments = signal<ChatSessionAttachment[]>([]);
+  readonly answersSubmitting = signal(false);
+  readonly answersSubmitted = signal(false);
+  readonly isStoppingSpeech = signal(false);
+
+  readonly isSpeechSupported = this.speech.isSupported;
+  readonly isRecording = this.speech.isListening;
+  readonly speechLabel = computed(() =>
+    this.isRecording() ? 'Остановить голосовой ввод' : 'Начать голосовой ввод'
+  );
 
   readonly sessionFiles = computed(() => {
     const seen = new Set<number>();
@@ -213,6 +253,8 @@ export class ChatComponent implements OnInit {
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private pollTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  private appliedSpeech = '';
+  private lastQuestionKey = '';
 
   private readonly notifications = inject(NotificationService);
   private readonly initialChatState = inject(InitialChatStateService);
@@ -221,7 +263,10 @@ export class ChatComponent implements OnInit {
   private readonly router = inject(Router);
 
   constructor() {
-    inject(DestroyRef).onDestroy(() => this.clearAgentTimers());
+    inject(DestroyRef).onDestroy(() => {
+      this.speech.stop();
+      this.clearAgentTimers();
+    });
 
     effect(() => {
       const sessionId = this.id();
@@ -231,11 +276,27 @@ export class ChatComponent implements OnInit {
       const isSessionSwitch = this.currentSessionId !== null;
       this.currentSessionId = sessionId;
       if (isSessionSwitch) {
-        this.stopReplyPolling();
+        this.stopReplyPolling(false);
+        this.speech.stop();
         this.messages.set([]);
         this.lastMessageFailed.set(false);
       }
       this.loadHistory(sessionId);
+    });
+
+    effect(() => {
+      this.applyTranscript(this.speech.transcript());
+    });
+
+    effect(() => {
+      const key = this.questions()
+        .map((question) => question.id)
+        .join('|');
+      if (key === this.lastQuestionKey) {
+        return;
+      }
+      this.lastQuestionKey = key;
+      this.answersSubmitted.set(false);
     });
 
     afterRenderEffect({
@@ -402,15 +463,25 @@ export class ChatComponent implements OnInit {
     this.attachedFiles.set(files);
   }
 
-  sendMessage(event?: Event) {
+  async sendMessage(event?: Event): Promise<void> {
     event?.preventDefault();
 
     if (this.isUploading()) {
       this.notifications.warning('Файлы ещё не все загрузились — дождитесь завершения');
       return;
     }
-    if (this.isSending() || this.agentStatus() !== null) {
+    if (this.isSending() || this.isStoppingSpeech() || this.agentStatus() !== null) {
       return;
+    }
+
+    if (this.isRecording()) {
+      this.isStoppingSpeech.set(true);
+      try {
+        await this.speech.stopAndWait();
+      } finally {
+        this.isStoppingSpeech.set(false);
+      }
+      this.applyTranscript(this.speech.transcript());
     }
 
     const text = this.messageInputValue().trim();
@@ -464,6 +535,116 @@ export class ChatComponent implements OnInit {
       });
   }
 
+  sendAnswers(answers: readonly ProgramAnswerApi[]): void {
+    if (this.answersSubmitting() || this.questions().length === 0) {
+      return;
+    }
+
+    const text = this.formatAnswers(this.questions(), answers);
+    const messageId = this.nextLocalMessageId--;
+
+    this.messages.update((messages) => [
+      ...messages,
+      {
+        id: messageId,
+        direction: 'outgoing',
+        text,
+        time: this.formatTime(),
+        status: 'sending'
+      }
+    ]);
+
+    this.answersSubmitting.set(true);
+    this.chatService
+      .send(this.id(), '', answers)
+      .pipe(
+        finalize(() => this.answersSubmitting.set(false)),
+        catchError((err: HttpErrorResponse) => {
+          this.notifications.error('Не удалось отправить ответы: ' + extractApiErrorMessage(err), {
+            description: 'Ответы сохранены в форме — попробуйте ещё раз.'
+          });
+          this.messages.update((messages) => messages.filter((m) => m.id !== messageId));
+          this.refreshProgram.emit();
+          return EMPTY;
+        })
+      )
+      .subscribe(() => {
+        this.setStatusForMessage(messageId, 'sent');
+        this.answersSubmitted.set(true);
+        this.startReplyPolling();
+      });
+  }
+
+  toggleSpeech(): void {
+    if (!this.isSpeechSupported) {
+      this.notifications.warning('Голосовой ввод не поддерживается в этом браузере', {
+        description: 'Попробуйте Chrome или Safari.'
+      });
+      return;
+    }
+
+    if (this.isRecording()) {
+      this.speech.stop();
+      return;
+    }
+
+    if (this.isSending() || this.isStoppingSpeech() || this.agentStatus() !== null) {
+      return;
+    }
+
+    this.appliedSpeech = '';
+    this.speech.start({
+      lang: 'ru-RU',
+      onError: (code) => this.reportSpeechError(code)
+    });
+  }
+
+  private applyTranscript(transcript: { final: string; interim: string }): void {
+    const spoken = [transcript.final, transcript.interim]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(' ');
+    if (!spoken) {
+      return;
+    }
+
+    const current = untracked(this.messageInputValue);
+    const previous = this.appliedSpeech;
+    this.appliedSpeech = spoken;
+
+    if (previous) {
+      const index = current.lastIndexOf(previous);
+      if (index !== -1) {
+        this.messageInputValue.set(
+          current.slice(0, index) + spoken + current.slice(index + previous.length)
+        );
+        return;
+      }
+    }
+
+    this.messageInputValue.set(current ? `${current.trimEnd()} ${spoken}` : spoken);
+  }
+
+  private reportSpeechError(code: string): void {
+    const notice = speechErrorNotice(code);
+    if (notice.type === 'info') {
+      this.notifications.info(notice.message, { description: notice.description });
+      return;
+    }
+    this.notifications.error(notice.message, { description: notice.description });
+  }
+
+  private formatAnswers(
+    questions: readonly ProgramQuestionApi[],
+    answers: readonly ProgramAnswerApi[]
+  ): string {
+    const byId = new Map(answers.map((answer) => [answer.question_id, answer.text.trim()]));
+    return [
+      'Ответы на уточняющие вопросы по программе:',
+      ...questions.map((question) => `— ${question.text}: ${byId.get(question.id) ?? ''}`)
+    ].join('\n');
+  }
+
   private setStatusForMessage(messageId: number, status: ChatMessageStatus): void {
     this.messages.update((messages) =>
       messages.map((message) => (message.id === messageId ? { ...message, status } : message))
@@ -491,10 +672,11 @@ export class ChatComponent implements OnInit {
   }
 
   private startReplyPolling() {
-    this.stopReplyPolling();
+    this.stopReplyPolling(false);
 
     this.lastMessageFailed.set(false);
     this.agentStatus.set('thinking');
+    this.turnStarted.emit();
     this.pollTimer = setInterval(() => this.checkForResult(), POLL_INTERVAL_MS);
     this.pollTimeoutTimer = setTimeout(() => {
       this.stopReplyPolling();
@@ -577,7 +759,9 @@ export class ChatComponent implements OnInit {
       });
   }
 
-  private stopReplyPolling() {
+  private stopReplyPolling(notifyFinished = true) {
+    const wasActive = this.pollTimer !== null || this.pollTimeoutTimer !== null;
+
     if (this.pollTimer !== null) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
@@ -587,6 +771,10 @@ export class ChatComponent implements OnInit {
       this.pollTimeoutTimer = null;
     }
     this.agentStatus.set(null);
+
+    if (wasActive && notifyFinished) {
+      this.turnFinished.emit();
+    }
   }
 
   private formatTime() {

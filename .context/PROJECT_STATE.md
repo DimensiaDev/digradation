@@ -3,8 +3,9 @@
 Rewritten in place on each update. Do not append. Keep it short and current; detail belongs
 in `DECISIONS.md` (rationale) or `AGENTS.md` (procedure).
 
-Last updated: **2026-10-21** (the chat turn became a tool loop and the programme got an API;
-the home page has voice input and the guest-draft handoff)
+Last updated: **2026-10-22** (the chat route became a programme workspace with a live
+preview, quick questions and voice input; mock mode now creates chats and opens catalogue
+programmes in their chat)
 
 ---
 
@@ -21,10 +22,7 @@ Everything described below is working and running via Docker Compose.
 | Component   | State                                                                                                                                                     |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, GigaChat harness                                                                      |
-| `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings, mock programs catalog |
-| `e2e/`      | Complete: specs against the real Compose stack with the offline provider                                                                                  |
-| `backend/`  | Complete: auth, users, admin, chat, files, TaskIQ workers, Alembic, providers, the programme cycle (#3)                                                   |
-| `frontend/` | Complete: guest mode, sign-in dialog, chat create, chat with polling and file panel, history, profile, admin users, admin settings                        |
+| `frontend/` | Complete: guest mode, sign-in dialog, chat create, programme workspace with live preview, history, profile, admin users, admin settings, programs catalog |
 | `e2e/`      | Complete: specs with bounded timeouts against the real Compose stack with the offline provider                                                            |
 | Infra       | 13 Compose services, dev and memory-limit overrides, healthcheck-gated startup                                                                            |
 
@@ -71,8 +69,35 @@ behind the blurred overlay, but the catalogue is empty because the endpoint is
 authenticated. Duplicate / archive / restore / delete still mutate the loaded list only:
 there are no endpoints for them yet. The card and panel action menus use the menu-button
 keyboard pattern with roving tab focus, and the detail panel remains a non-modal right-side
-aside that fills the viewport below 980px. Program creation has no entry point yet, so the
-catalog has no create button.
+aside that fills the viewport below 980px. The catalogue has no create button; creation
+starts from `/home` and lands on the chat workspace. Pressing «Открыть программу» in the
+detail aside navigates to `/chats/{session_id}`, so the catalogue and the programme
+workspace share the same chat route.
+
+**Mock mode now covers the write path.** `start:mock` keeps a mutable chat store in
+`mock-api.interceptor.ts`: `POST /chats` creates an empty session, `POST /chats/{id}`
+appends the methodist's message and a deterministic reply, and history, `/result` and
+`/program` resolve both seeded, newly created and catalogue-programme sessions. An
+ordinary new chat reports programme status `none`; opening `mock-programme-*` serves its
+transcript and draft. The waiting mock programme exposes questions and clears them when
+the answers are posted. Mock uploads remain unsupported because the presigned PUT is a raw
+`XMLHttpRequest`; creation from `/home` works for a text-only message.
+
+**The chat page is a programme workspace (#45).** `/chats/:id` now renders `ChatPage`:
+breadcrumb back to `/programs`, a five-step stepper, the chat card and a live
+«Каркас программы» preview. The page polls `GET /chats/{id}/program` every two seconds while
+the run is `busy` or a chat turn is in flight, stops while the run waits for answers, and
+refreshes once a turn finishes. The preview renders only blocks the backend has actually
+saved: title, kind, hours, form, goal, competencies and modules, with placeholders for what
+has not arrived. The stepper maps `status` and `current_stage` onto brief / structure /
+content / review / done and marks a failed stage. Programme milestones appear in the chat
+transcript and focus the matching preview section. When the run is `awaiting_answers`, the
+composer is replaced by a one-question-at-a-time form whose answers are submitted together
+in the chat message's `answers` array; the optimistic transcript line mirrors the backend's
+`render_answers()` text. The composer also dictates through the same Web Speech service as
+`/home`. The files panel keeps its «Панель файлов» button but now overlays the workspace
+instead of shrinking the chat. Confirming the rendered draft is still done in chat; there is
+no separate approve button.
 
 **The programme cycle (#3).** A chat can build one educational programme. A run is one
 `ProgramState` in `chat_sessions.program_state` (JSONB), mirrored to Redis for an hour, and it
@@ -90,14 +115,17 @@ until the RAG index (#11), so a draft cites no documents today.
 **The programme API.** `GET /chats/{session_id}/program` reports where a programme stands
 (status, current stage, the blocks saved so far) and reads the Redis mirror before the row, so
 a client that polls it does not touch PostgreSQL; `running` comes from the stage lock, so a
-stalled programme is distinguishable from a busy one. `GET /chats/{session_id}/result` also
-carries the questions a programme is waiting an answer to, and
-`POST /chats/{session_id}` takes those answers in an `answers` array next to `content`.
+stalled programme is distinguishable from a busy one. `/program` and `/result` both expose
+the open questions while a run is `awaiting_answers`; the workspace reads them from
+`/program`, the endpoint it already polls. `POST /chats/{session_id}` takes the answers in an
+`answers` array next to `content`.
 `GET /chats/programmes` lists the user's programmes, paginated. A run may ask the methodist
 questions: `begin_program` takes them, the run waits in `awaiting_answers`, and the answers
-move it on. The catalogue and its detail aside consume both endpoints; the chat-side
-programme flow (answering the run's questions and approving a rendered draft) is still not
-built, and the chat's five-minute poll can time out before a slow run finishes.
+move it on. The catalogue and its detail aside consume both endpoints, and the chat workspace
+now answers the run's questions. The draft is still confirmed conversationally: the model
+turns the methodist's approval into `approve_program_draft`, and there is no separate approve
+control. The chat's five-minute poll can time out before a slow run finishes; the programme
+preview keeps polling on `busy` independently.
 
 **Two dead placeholder directories** are still tracked: `frontend/src/app/shared/components/
 chat-widget/` and `.../param-table/`, each holding only a `.gitkeep`. They are leftovers from
@@ -200,17 +228,19 @@ Ordered by value, not by commitment:
 0. **Decide what the application is for.** Everything else is downstream. The base system
    prompt is one paragraph and the schema carries only `{chat_name, message}`, which is
    deliberate headroom rather than an oversight.
-1. **Turn the programs catalog into a real feature.** `ProgramsService` is an in-memory mock
-   and the detail aside's tabs are derived demo content; replace both with API calls,
-   persistence, and the create/edit form behind `/programs/new`.
+1. **Finish the programs catalog as a writable feature.** The list and detail now come from
+   the API, and the chat workspace creates a programme; duplicate / archive / restore / delete
+   still need endpoints, and `/programs/new` still renders a placeholder.
 2. **Make `_prepare_for_llm` earn its place.** It is a deliberate pass-through and the seam
    where per-content-type preparation belongs. The first content type that needs work is the
    first thing that goes in it, offloaded with `asyncio.to_thread`.
 3. **Extend the e2e suite.** It covers authentication (including the guest path and the
    sign-in dialog), the chat journey, a follow-up message, attachments, the paginated history
    list, admin roles and the admin prompt editor.
-   Not yet covered: the docx/xlsx preview, avatar upload, the theme toggle, the programs
-   catalog, and the error paths (a generation that fails, a session deleted mid-flight).
+   The chat workspace shell, stepper, empty preview and microphone are covered. Not yet
+   covered: a populated preview (unit tests only), the docx/xlsx preview, avatar upload, the
+   theme toggle, the programs catalog, and the error paths (a generation that fails, a
+   session deleted mid-flight).
 4. **Fill the placeholder sections:** profile, user settings, the admin action log
    (`Журнал действий`) and system info.
 5. **Delete the two tracked `.gitkeep` placeholder directories** (`chat-widget`, `param-table`).

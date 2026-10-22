@@ -161,6 +161,8 @@ export const MAX_FILE_SIZE = 30 * 1024 * 1024;
 
 export const MAX_MESSAGE_LENGTH = 5000;
 
+export const MAX_ANSWER_LENGTH = 4000;
+
 export const VISIBLE_FILES_LIMIT = 5;
 
 export type ProgramViewStatus =
@@ -270,9 +272,13 @@ export interface ProgramSummaryApi {
   goal: string;
   tasks: readonly string[];
   target_audience: string;
+  admission_requirements?: string | null;
   annotation?: string | null;
   relevance?: string | null;
+  form?: string | null;
+  issued_document?: string | null;
   focus?: string | null;
+  level?: string | null;
 }
 
 export interface ProgramBlocksApi {
@@ -286,6 +292,11 @@ export interface ProgramBlocksApi {
 
 export interface ProgramQuestionApi {
   id: string;
+  text: string;
+}
+
+export interface ProgramAnswerApi {
+  question_id: string;
   text: string;
 }
 

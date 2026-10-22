@@ -12,6 +12,7 @@ import {
   ChatMessageApi,
   InstanceSettings,
   ProgramApiItem,
+  ProgramQuestionApi,
   ProgramStateApi,
   User,
   UserChat,
@@ -169,19 +170,63 @@ const PROGRAMMES: ProgramApiItem[] = [
   }
 ];
 
-const programmeState = (programme: ProgramApiItem): ProgramStateApi => ({
-  status: programme.status,
+interface ProgrammeRuntime {
+  status: ProgramApiItem['status'];
+  questions: ProgramQuestionApi[];
+}
+
+const programmeRuntime = new Map<string, ProgrammeRuntime>();
+programmeRuntime.set('mock-programme-6', {
+  status: 'awaiting_answers',
+  questions: [
+    { id: 'mock-question-1', text: 'Для какой аудитории предназначена программа?' },
+    { id: 'mock-question-2', text: 'Сколько часов нужно отвести на практику?' }
+  ]
+});
+
+const programmeSummary = (programme: ProgramApiItem) => ({
+  goal: programme.description ?? `Сформировать практические навыки по теме «${programme.title}».`,
+  tasks: programme.goals ?? [],
+  target_audience: 'Специалисты профильных направлений',
+  form: 'Очно-заочная, с применением дистанционных технологий'
+});
+
+const programmeState = (programme: ProgramApiItem): ProgramStateApi => {
+  const runtime = programmeRuntime.get(programme.session_id);
+  return {
+    status: runtime?.status ?? programme.status,
+    current_stage: null,
+    stages: {},
+    running: false,
+    busy: false,
+    error: null,
+    updated_at: programme.updated_at,
+    version: 1,
+    questions: runtime?.questions ?? [],
+    draft: {
+      kind: null,
+      title: programme.title,
+      competencies: [],
+      curriculum: null,
+      sources: [],
+      summary: programmeSummary(programme)
+    }
+  };
+};
+
+const emptyProgramState = (): ProgramStateApi => ({
+  status: 'none',
   current_stage: null,
   stages: {},
   running: false,
   busy: false,
   error: null,
-  updated_at: programme.updated_at,
-  version: 1,
+  updated_at: null,
+  version: 0,
   questions: [],
   draft: {
     kind: null,
-    title: programme.title,
+    title: null,
     competencies: [],
     curriculum: null,
     sources: [],
@@ -239,6 +284,47 @@ const sessionMessages = (session: UserChat): ChatMessageApi[] => [
   },
   session.last_message
 ];
+
+function programmeMessages(programme: ProgramApiItem, index: number): ChatMessageApi[] {
+  const updatedAt = programme.updated_at ? new Date(programme.updated_at) : new Date();
+  return [
+    {
+      id: 1000 + index * 2,
+      role: 'user',
+      content: 'Собери образовательную программу по этому направлению',
+      attachments: [],
+      timestamp: new Date(updatedAt.getTime() - 60_000).toISOString()
+    },
+    {
+      id: 1001 + index * 2,
+      role: 'assistant',
+      content: `Черновик программы «${programme.title}» готов. Проверьте карточку и подтвердите программу в чате.`,
+      attachments: [],
+      timestamp: updatedAt.toISOString()
+    }
+  ];
+}
+
+const chatMessages = new Map<string, ChatMessageApi[]>(
+  chats.map((chat) => [chat.session_id, sessionMessages(chat)])
+);
+const programmeChatMessages = new Map<string, ChatMessageApi[]>(
+  PROGRAMMES.map((programme, index) => [programme.session_id, programmeMessages(programme, index)])
+);
+
+const messagesFor = (sessionId: string): ChatMessageApi[] | undefined =>
+  chatMessages.get(sessionId) ?? programmeChatMessages.get(sessionId);
+
+const nameFor = (text: string): string => {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (!clean) {
+    return 'Новый чат';
+  }
+  return clean.length > 48 ? `${clean.slice(0, 48)}…` : clean;
+};
+
+let nextChatNumber = 1;
+let nextMessageId = 2000;
 
 type MockResponse = Observable<HttpEvent<unknown>>;
 
@@ -301,7 +387,7 @@ export const mockApiInterceptor: HttpInterceptorFn = (req, next) => {
       return ok({ items, total: PROGRAMMES.length, page, items_per_page: itemsPerPage });
     }
 
-    if (path === '/chats') {
+    if (path === '/chats' && req.method === 'GET') {
       const page = Number(params.get('page') ?? 0);
       const itemsPerPage = Number(params.get('items_per_page') ?? 10);
       const sort = params.get('sort') ?? 'date';
@@ -324,35 +410,111 @@ export const mockApiInterceptor: HttpInterceptorFn = (req, next) => {
       return ok({ items, total: chats.length, page, items_per_page: itemsPerPage });
     }
 
+    if (path === '/chats' && req.method === 'POST') {
+      const sessionId = `mock-chat-${nextChatNumber++}`;
+      chatMessages.set(sessionId, []);
+      return ok({ session_id: sessionId });
+    }
+
     const programMatch = path.match(/^\/chats\/([^/]+)\/program$/);
     if (programMatch) {
       const programme = PROGRAMMES.find((candidate) => candidate.session_id === programMatch[1]);
-      if (!programme) {
-        return fail(403, 'Программа не найдена');
+      if (programme) {
+        return ok(programmeState(programme));
       }
-      return ok(programmeState(programme));
+      if (chatMessages.has(programMatch[1])) {
+        return ok(emptyProgramState());
+      }
+      return fail(403, 'Программа не найдена');
     }
 
-    const chatMatch = path.match(/^\/chats\/([^/]+)(\/result)?$/);
-    if (chatMatch) {
-      const session = chats.find((candidate) => candidate.session_id === chatMatch[1]);
-      if (!session) {
+    const resultMatch = path.match(/^\/chats\/([^/]+)\/result$/);
+    if (resultMatch && req.method === 'GET') {
+      const messages = messagesFor(resultMatch[1]);
+      if (!messages) {
         return fail(403, 'Чат не найден');
       }
-      if (chatMatch[2]) {
-        const index = chats.indexOf(session);
-        return ok({
-          running: false,
-          result: {
-            type: 'success',
-            content: REPLY(index),
-            timestamp: session.last_message.timestamp,
-            attachment_id: null,
-            update_name: null
-          }
+      const lastMessage = messages[messages.length - 1];
+      return ok({
+        running: false,
+        result: lastMessage
+          ? {
+              type: 'success',
+              content: lastMessage.content,
+              timestamp: lastMessage.timestamp,
+              attachment_id: null,
+              update_name: null
+            }
+          : null
+      });
+    }
+
+    const sendMatch = path.match(/^\/chats\/([^/]+)$/);
+    if (sendMatch && req.method === 'POST') {
+      const sessionId = sendMatch[1];
+      const messages = messagesFor(sessionId);
+      if (!messages) {
+        return fail(403, 'Чат не найден');
+      }
+
+      const rawAnswers = body?.['answers'];
+      const answers = Array.isArray(rawAnswers) ? rawAnswers : [];
+      const content = String(body?.['content'] ?? '').trim();
+      const text = content || (answers.length > 0 ? 'Ответы на уточняющие вопросы' : '');
+      if (!text) {
+        return fail(422, 'Сообщение не может быть пустым');
+      }
+
+      messages.push({
+        id: nextMessageId++,
+        role: 'user',
+        content: text,
+        attachments: [],
+        timestamp: new Date().toISOString()
+      });
+
+      const runtime = programmeRuntime.get(sessionId);
+      const programme = PROGRAMMES.find((candidate) => candidate.session_id === sessionId);
+      if (runtime) {
+        runtime.questions = [];
+        runtime.status = 'pending_approval';
+        if (programme) {
+          programme.status = 'pending_approval';
+        }
+      }
+
+      const reply: ChatMessageApi = {
+        id: nextMessageId++,
+        role: 'assistant',
+        content: runtime
+          ? `Ответы получены. Программа «${programme?.title ?? ''}» переходит на проверку.`
+          : `Принято: «${text.length > 80 ? `${text.slice(0, 80)}…` : text}». Черновик ответа готов.`,
+        attachments: [],
+        timestamp: new Date(Date.now() + 500).toISOString()
+      };
+      messages.push(reply);
+
+      const existing = chats.find((candidate) => candidate.session_id === sessionId);
+      if (existing) {
+        existing.last_message = reply;
+      } else {
+        chats.push({
+          session_id: sessionId,
+          name: programme?.title ?? nameFor(text),
+          last_message: reply
         });
       }
-      return ok(sessionMessages(session).map((message) => ({ ...message })));
+
+      return ok({ message: 'ok' });
+    }
+
+    const historyMatch = path.match(/^\/chats\/([^/]+)$/);
+    if (historyMatch && req.method === 'GET') {
+      const messages = messagesFor(historyMatch[1]);
+      if (!messages) {
+        return fail(403, 'Чат не найден');
+      }
+      return ok(messages.map((message) => ({ ...message, attachments: [...message.attachments] })));
     }
 
     if (path === '/admin/users' && req.method === 'GET') {

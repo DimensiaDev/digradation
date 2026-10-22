@@ -1,6 +1,5 @@
 import { Routes } from '@angular/router';
 import { ChatCreateComponent } from './features/chat-create/chat-create.component';
-import { ChatComponent } from './features/chat/chat.component';
 import { Layout } from './shared/components/layout/layout.component';
 import {
   ADMIN_NAV_ITEMS,
@@ -85,7 +84,11 @@ export const routes: Routes = [
           { path: 'create', component: ChatCreateComponent },
           { path: 'settings', component: SettingsPage },
           { path: 'chats', component: HistoryPage },
-          { path: 'chats/:id', component: ChatComponent },
+          {
+            path: 'chats/:id',
+            loadComponent: () =>
+              import('./features/chat/chat-page.component').then((module) => module.ChatPage)
+          },
           { path: 'profile', component: ProfilePage }
         ]
       }

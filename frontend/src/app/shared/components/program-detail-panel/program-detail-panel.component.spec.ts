@@ -21,6 +21,7 @@ const PROGRAM: Program = {
 describe('ProgramDetailPanelComponent', () => {
   let fixture: ComponentFixture<ProgramDetailPanelComponent>;
   let component: ProgramDetailPanelComponent;
+  let opened: number;
   let closed: number;
   let main: HTMLElement;
 
@@ -70,7 +71,9 @@ describe('ProgramDetailPanelComponent', () => {
     TestBed.configureTestingModule({ imports: [ProgramDetailPanelComponent] });
     fixture = TestBed.createComponent(ProgramDetailPanelComponent);
     component = fixture.componentInstance;
+    opened = 0;
     closed = 0;
+    component.open.subscribe(() => opened++);
     component.closed.subscribe(() => closed++);
     fixture.componentRef.setInput('program', PROGRAM);
     detect();
@@ -280,12 +283,12 @@ describe('ProgramDetailPanelComponent', () => {
     expect(menuItems().length).toBe(2);
   });
 
-  it('keeps the footer action buttons visually only', () => {
+  it('emits open from the footer action', () => {
     action('Открыть программу')?.nativeElement.click();
     action('Редактировать')?.nativeElement.click();
     detect();
 
-    expect(panel()).toBeTruthy();
+    expect(opened).toBe(1);
     expect(closed).toBe(0);
   });
 });

@@ -13,6 +13,8 @@ import {
   ChatUploadParams,
   MessageResponse,
   PaginatedResponse,
+  ProgramAnswerApi,
+  ProgramStateApi,
   UserChat
 } from '../models/models';
 
@@ -48,8 +50,17 @@ export class ChatService {
     return this.http.get<ChatResult>(`${this.baseUrl}/${sessionId}/result`);
   }
 
-  send(sessionId: string, content: string): Observable<MessageResponse> {
-    return this.http.post<MessageResponse>(`${this.baseUrl}/${sessionId}`, { content });
+  program(sessionId: string): Observable<ProgramStateApi> {
+    return this.http.get<ProgramStateApi>(`${this.baseUrl}/${sessionId}/program`);
+  }
+
+  send(
+    sessionId: string,
+    content: string,
+    answers: readonly ProgramAnswerApi[] = []
+  ): Observable<MessageResponse> {
+    const body = answers.length > 0 ? { content, answers } : { content };
+    return this.http.post<MessageResponse>(`${this.baseUrl}/${sessionId}`, body);
   }
 
   remove(sessionId: string): Observable<{ deleted: boolean }> {

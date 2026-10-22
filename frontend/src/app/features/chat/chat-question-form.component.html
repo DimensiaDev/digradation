@@ -1,0 +1,82 @@
+<form class="question-form" novalidate (submit)="onSubmit($event)">
+  <header class="question-form__header">
+    <span class="question-form__icon" aria-hidden="true">
+      <svg size="20" lucideMessageCircleQuestion></svg>
+    </span>
+    <div class="question-form__heading">
+      <p class="question-form__eyebrow">Агент уточняет детали</p>
+      <p class="question-form__progress" aria-live="polite">
+        Вопрос {{ currentIndex() + 1 }} из {{ questions().length }}
+      </p>
+    </div>
+    <ol class="question-form__steps" aria-label="Прогресс ответов">
+      @for (question of questions(); track question.id; let index = $index) {
+        <li
+          class="question-form__step"
+          [attr.data-state]="
+            index === currentIndex() ? 'current' : answerFor(question) ? 'answered' : 'pending'
+          "
+          [attr.aria-label]="
+            'Вопрос ' +
+            (index + 1) +
+            (index === currentIndex() ? ', текущий' : answerFor(question) ? ', отвечен' : '')
+          "
+        >
+          @if (answerFor(question) && index !== currentIndex()) {
+            <svg size="10" lucideCheck aria-hidden="true"></svg>
+          }
+        </li>
+      }
+    </ol>
+  </header>
+
+  @if (currentQuestion(); as question) {
+    <p class="question-form__question">{{ question.text }}</p>
+
+    <app-input
+      [asTextarea]="true"
+      [autoResize]="true"
+      [rows]="2"
+      [maxLength]="maxLength"
+      [counterVisibleFrom]="1000"
+      [placeholder]="'Введите ответ…'"
+      [ariaLabel]="'Ответ на вопрос: ' + question.text"
+      [value]="currentAnswer()"
+      [disabled]="submitting()"
+      (valueChange)="setAnswer($event)"
+      (keydown)="onKeydown($event)"
+    />
+
+    <footer class="question-form__footer">
+      <button
+        type="button"
+        class="button button--outline question-form__back"
+        [disabled]="isFirst() || submitting()"
+        (click)="previous()"
+      >
+        <svg size="16" lucideChevronLeft aria-hidden="true"></svg>
+        Назад
+      </button>
+
+      @if (isLast()) {
+        <button
+          type="submit"
+          class="button button--main question-form__next"
+          [disabled]="!canProceed() || submitting()"
+        >
+          {{ submitting() ? 'Отправляем…' : 'Отправить ответы' }}
+        </button>
+      } @else {
+        <button
+          type="button"
+          class="button button--main question-form__next"
+          [disabled]="!canProceed() || submitting()"
+          (click)="next()"
+        >
+          Далее
+          <svg size="16" lucideChevronRight aria-hidden="true"></svg>
+        </button>
+      }
+    </footer>
+  }
+</form>

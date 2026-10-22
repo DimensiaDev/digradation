@@ -1,0 +1,176 @@
+<aside class="program-preview" aria-labelledby="program-preview-title">
+  <header class="program-preview__header">
+    <div class="program-preview__heading">
+      <h2 id="program-preview-title" class="h3">Каркас программы</h2>
+      @if (title()) {
+        <p class="program-preview__name">{{ title() }}</p>
+      } @else {
+        <p class="program-preview__name program-preview__name--muted">Собирается по ходу диалога</p>
+      }
+      @if (kind()) {
+        <p class="program-preview__kind">{{ kind() }}</p>
+      }
+    </div>
+
+    <span class="program-preview__badge" role="status" [attr.data-tone]="badge().tone">
+      <span
+        class="program-preview__badge-dot"
+        [class.program-preview__badge-dot--pulse]="justUpdated()"
+        aria-hidden="true"
+      ></span>
+      {{ badge().label }}
+    </span>
+  </header>
+
+  <div #scroll class="program-preview__scroll">
+    @if (error()) {
+      <div class="program-preview__error" role="alert">
+        <svg size="18" lucideTriangleAlert aria-hidden="true"></svg>
+        <p>{{ error() }}</p>
+        <button type="button" class="button button--outline" (click)="reload.emit()">
+          <svg size="14" lucideRefreshCw aria-hidden="true"></svg>
+          Повторить
+        </button>
+      </div>
+    }
+
+    <dl class="program-preview__meta">
+      <div class="program-preview__meta-item">
+        <span class="program-preview__meta-icon" aria-hidden="true">
+          <svg size="17" lucideClock></svg>
+        </span>
+        <div>
+          <dt>Объём</dt>
+          <dd>{{ hoursLabel() }}</dd>
+        </div>
+      </div>
+
+      <div class="program-preview__meta-item">
+        <span class="program-preview__meta-icon" aria-hidden="true">
+          <svg size="17" lucideLaptop></svg>
+        </span>
+        <div>
+          <dt>Формат обучения</dt>
+          <dd>{{ formLabel() }}</dd>
+        </div>
+      </div>
+
+      <div class="program-preview__meta-item">
+        <span class="program-preview__meta-icon" aria-hidden="true">
+          <svg size="17" lucideClipboardCheck></svg>
+        </span>
+        <div>
+          <dt>Тип аттестации</dt>
+          <dd>— <span class="program-preview__meta-note">уточняется</span></dd>
+        </div>
+      </div>
+    </dl>
+
+    <p class="program-preview__hint">{{ statusHint() }}</p>
+
+    @if (loading() && !state()) {
+      <div class="program-preview__loading" aria-label="Загрузка каркаса программы">
+        <span class="skeleton-item skeleton-item--text program-preview__skeleton-title"></span>
+        <span class="skeleton-item skeleton-item--text"></span>
+        <span class="skeleton-item skeleton-item--text program-preview__skeleton-short"></span>
+        <span class="skeleton-item skeleton-item--rect program-preview__skeleton-block"></span>
+      </div>
+    } @else if (hasContent()) {
+      <section
+        class="program-preview__section"
+        data-section="summary"
+        [class.program-preview__section--focused]="focused() === 'summary'"
+      >
+        <h3 class="program-preview__section-title">
+          <svg size="16" lucideTarget aria-hidden="true"></svg>
+          Цель программы
+        </h3>
+        @if (goal()) {
+          <p class="program-preview__goal">{{ goal() }}</p>
+        } @else {
+          <p class="program-preview__empty-note">Цель появится после этапа «Паспорт программы».</p>
+        }
+      </section>
+
+      <section
+        class="program-preview__section"
+        data-section="competencies"
+        [class.program-preview__section--focused]="focused() === 'competencies'"
+      >
+        <header class="program-preview__section-header">
+          <h3 class="program-preview__section-title">
+            <svg size="16" lucideTags aria-hidden="true"></svg>
+            Компетенции
+          </h3>
+          @if (competencies().length) {
+            <span class="program-preview__count">{{ competencies().length }}</span>
+          }
+        </header>
+
+        @if (competencies().length) {
+          <ul class="program-preview__competencies">
+            @for (competence of competencies(); track competence.id) {
+              <li class="program-preview__competency" [title]="competence.label">
+                {{ competence.label }}
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="program-preview__empty-note">
+            Компетенции появятся после этапа «Структура и каркас».
+          </p>
+        }
+      </section>
+
+      <section
+        class="program-preview__section"
+        data-section="modules"
+        [class.program-preview__section--focused]="focused() === 'modules'"
+      >
+        <header class="program-preview__section-header">
+          <h3 class="program-preview__section-title">
+            <svg size="16" lucideLayers aria-hidden="true"></svg>
+            Модули программы
+          </h3>
+          @if (modules().length) {
+            <span class="program-preview__count">{{ modules().length }}</span>
+          }
+        </header>
+
+        @if (modules().length) {
+          <ul class="program-preview__modules">
+            @for (module of modules(); track module.id; let index = $index) {
+              <li class="program-preview__module">
+                <span class="program-preview__module-index" aria-hidden="true">{{
+                  index + 1
+                }}</span>
+                <div class="program-preview__module-body">
+                  <p class="program-preview__module-title">{{ module.title }}</p>
+                  <p class="program-preview__module-meta">
+                    {{ topicCountLabel(module.topicCount) }}
+                    · {{ formatHours(module.hours) }}
+                  </p>
+                </div>
+              </li>
+            }
+          </ul>
+          <p class="program-preview__total">Итого: {{ hoursLabel() }}</p>
+        } @else {
+          <p class="program-preview__empty-note">
+            Модули и часы появятся после этапа «Учебный план».
+          </p>
+        }
+      </section>
+    } @else {
+      <div class="program-preview__empty">
+        <span class="program-preview__empty-icon" aria-hidden="true">
+          <svg size="28" lucideLayoutTemplate></svg>
+        </span>
+        <p class="h4">Каркас появится здесь</p>
+        <p class="program-preview__empty-text">
+          Опишите программу в чате — блоки будут появляться по мере готовности.
+        </p>
+      </div>
+    }
+  </div>
+</aside>

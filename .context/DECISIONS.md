@@ -1766,3 +1766,70 @@ catalogue does not return yet keep their elements.
   `e2e/scripts/setup.sh` writes eight minimal `chat_sessions.program_state` envelopes for
   the e2e user. The list endpoint needs only title, status and `updated_at`; the detail
   endpoint accepts the model's defaults for the rest.
+
+## The chat route is a programme workspace, and its preview is the API's state (2026-10-22)
+
+Issue #45 turned `/chats/:id` from a bare chat into the place where a programme is created
+and watched. The workspace is a shell around the existing chat, not a replacement for it.
+
+- **The preview renders the programme state, never a demo draft.** `GET /chats/{id}/program`
+  is the only source; the existing `formatProgramHours` was reused, but the mock module and
+  competency builders were not. A fabricated blueprint would look complete before the model
+  saved anything, and the methodist could not tell what was real.
+- **`draft` is always an object.** The backend guarantees a `ProgramBlocksApi`, so the client
+  does not branch on `null`; every block is simply empty until a stage saves it. Making it
+  nullable would spread a contract the API does not have through every preview getter.
+- **The page polls on `busy` plus a local turn flag.** `busy` covers every stage and the
+  finalisation, while a chat turn in flight covers the intake before the run exists. The poll
+  stops on `awaiting_answers` when no turn is running: the run cannot move until the
+  methodist answers, so polling would only produce identical responses.
+- **Questions come from `/program`.** `/result` also exposes them, but the workspace already
+  polls `/program` for the preview, and reading the run's questions from the run's own view
+  keeps one response as the source. The chat client does not add a second question channel
+  that could disagree with the preview.
+- **The answer form shows one question, the request carries all of them.** The backend
+  requires exactly one answer per open question and refuses an answer to a question nobody
+  asked. Submitting the whole set in one message keeps one user action in one turn, and the
+  form's Back/Next is presentation only.
+- **The optimistic answer bubble mirrors `render_answers()`.** The server repeats the answers
+  in the transcript, so the client builds the same heading and bullet lines locally. A
+  different local shape would make the transcript jump when the real message arrives.
+- **The stepper is a projection, not a stored stage.** `status` plus `current_stage` map onto
+  brief / structure / content / review / done; a failed run keeps the step it failed on and
+  marks it failed. The backend has no notion of a five-step wizard, so the client must not
+  persist one.
+- **The files panel overlays the workspace.** Keeping it as a third column squeezed the chat
+  and the preview below readability, and the preview is the point of the page. The chat keeps
+  its width; the drawer covers the preview while open, and `overflow: hidden` on the page
+  clips it.
+- **`/chats/:id` is lazy-loaded.** Routing directly to `ChatPage` added enough component code
+  to push the initial bundle over its 1 MB budget. The flagging is the build's, not a guess:
+  `ng build` reported the budget overrun until the route used `loadComponent`.
+- **Speech notices are shared.** The chat mic and `/home` use one `speechErrorNotice` mapping;
+  two copies would drift on browser-specific error codes.
+- **The populated preview is unit-tested, the empty one is e2e-tested.** The offline mock
+  cannot produce a rendered programme, and seeding `program_state` would test the seed rather
+  than the workspace's contract with the API. E2E checks the shell, stepper, empty state and
+  microphone; the preview's populated states are covered by component specs.
+
+## Mock mode is a stateful chat fixture, not a read-only catalogue (2026-10-22)
+
+The mock interceptor used to serve only seeded reads, which was enough for browsing but not
+for the primary action: `/home` creates a chat and sends a message before it navigates, so
+`start:mock` looked broken. The mock now mirrors the backend's write path.
+
+- **The mock owns a mutable chat store.** `POST /chats` creates an empty session, and
+  `POST /chats/{id}` appends the user message plus a deterministic reply. History, `/result`
+  and the chat list read that store, so a created chat survives navigation and appears in
+  history rather than being a throwaway id.
+- **A catalogue programme is already a chat session.** «Открыть программу» navigates to
+  `/chats/{session_id}`, and the interceptor serves that session's transcript from
+  `PROGRAMMES` instead of inventing a second programme-chat route. This matches the backend,
+  where the catalogue row and the chat are the same `chat_sessions` row.
+- **An ordinary chat reports programme status `none`.** Chat preview code polls `/program` on
+  every chat, so the mock answers with an empty state for any created or seeded chat; only a
+  catalogue session returns a draft.
+- **The waiting programme demonstrates the answer form.** `mock-programme-6` starts
+  `awaiting_answers` with two questions; posting answers clears them and moves it to
+  `pending_approval`. Without this, the status would advertise a question flow the mock could
+  not complete.

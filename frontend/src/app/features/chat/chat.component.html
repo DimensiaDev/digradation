@@ -1,9 +1,9 @@
-<section class="section chat-section">
-  <header class="section__header chat-section-header">
-    <h1 class="h2">Чат с агентом</h1>
+<section class="chat-panel">
+  <header class="chat-panel__header">
+    <h2 class="h3 chat-panel__title">Чат с агентом</h2>
     <button
       type="button"
-      class="chat-section-header__toggle"
+      class="chat-panel__toggle"
       aria-label="Панель файлов"
       [attr.aria-expanded]="isFilesOpen()"
       [attr.aria-controls]="id()"
@@ -16,7 +16,8 @@
       }
     </button>
   </header>
-  <div class="chat-container">
+
+  <div class="chat-body">
     <ul #chatMessages class="chat-messages" role="log" aria-label="История сообщений">
       @for (message of messages(); track message.id; let last = $last) {
         <li>
@@ -29,6 +30,39 @@
           />
         </li>
       }
+
+      @for (milestone of milestones(); track milestone.id) {
+        <li class="chat-milestone">
+          <article class="chat-milestone__card">
+            <span class="chat-milestone__icon" aria-hidden="true">
+              @switch (milestone.id) {
+                @case ('structure') {
+                  <svg size="18" lucideCheckCheck></svg>
+                }
+                @case ('scaffold') {
+                  <svg size="18" lucideLayoutTemplate></svg>
+                }
+                @default {
+                  <svg size="18" lucideFileCheck2></svg>
+                }
+              }
+            </span>
+            <div class="chat-milestone__content">
+              <p class="chat-milestone__title">{{ milestone.title }}</p>
+              <p class="chat-milestone__description">{{ milestone.description }}</p>
+            </div>
+            <button
+              type="button"
+              class="chat-milestone__action"
+              (click)="previewFocus.emit(milestone.section)"
+            >
+              Открыть каркас
+              <svg size="14" lucideArrowRight aria-hidden="true"></svg>
+            </button>
+          </article>
+        </li>
+      }
+
       @if (agentStatus()) {
         <li>
           <app-agent-status />
@@ -37,52 +71,85 @@
     </ul>
 
     <footer class="chat-input-panel">
-      <form class="chat-input-panel__form" (submit)="sendMessage($event)">
-        <app-drag-n-drop
-          [sessionId]="id()"
-          variant="compact"
-          (filesChange)="onFilesChange($event)"
-          (uploadingChange)="onUploadingChange($event)"
+      @if (questions().length > 0 && !answersSubmitted()) {
+        <app-chat-question-form
+          [questions]="questions()"
+          [submitting]="answersSubmitting()"
+          (answersSubmitted)="sendAnswers($event)"
         />
-        <app-input
-          #messageInput
-          [asTextarea]="true"
-          [autoResize]="true"
-          [rows]="1"
-          placeholder="Введите сообщение..."
-          ariaLabel="Введите сообщение"
-          autocomplete="off"
-          [value]="messageInputValue()"
-          (inputEvent)="onMessageInput($event)"
-          (keydown)="onMessageKeydown($event)"
-        >
-          <button
-            appInputPrefix
-            type="button"
-            aria-label="Прикрепить файл"
-            class="button button--outline chat-input-panel__attach-button"
-            (click)="openFilePicker()"
+      } @else {
+        <form class="chat-input-panel__form" (submit)="sendMessage($event)">
+          <app-drag-n-drop
+            [sessionId]="id()"
+            variant="compact"
+            (filesChange)="onFilesChange($event)"
+            (uploadingChange)="onUploadingChange($event)"
+          />
+          <app-input
+            #messageInput
+            [asTextarea]="true"
+            [autoResize]="true"
+            [rows]="1"
+            placeholder="Введите сообщение..."
+            ariaLabel="Введите сообщение"
+            autocomplete="off"
+            [value]="messageInputValue()"
+            (inputEvent)="onMessageInput($event)"
+            (keydown)="onMessageKeydown($event)"
           >
-            <svg size="20" lucidePaperclip aria-hidden="true"></svg>
+            <button
+              appInputPrefix
+              type="button"
+              aria-label="Прикрепить файл"
+              class="button button--outline chat-input-panel__attach-button"
+              (click)="openFilePicker()"
+            >
+              <svg size="20" lucidePaperclip aria-hidden="true"></svg>
+            </button>
+            <button
+              appInputSuffix
+              type="button"
+              class="chat-input-panel__mic"
+              [class.chat-input-panel__mic--recording]="isRecording()"
+              [attr.aria-label]="speechLabel()"
+              [title]="isSpeechSupported ? speechLabel() : 'Голосовой ввод не поддерживается'"
+              [disabled]="isSending() || isStoppingSpeech() || agentStatus() !== null"
+              (click)="toggleSpeech()"
+            >
+              <svg size="18" lucideMic aria-hidden="true"></svg>
+            </button>
+          </app-input>
+          <button
+            type="submit"
+            aria-label="Отправить"
+            class="button button--main button--squared chat-input-panel__send-button"
+            [disabled]="
+              !messageInputValue().trim() ||
+              isUploading() ||
+              isSending() ||
+              isStoppingSpeech() ||
+              agentStatus() !== null
+            "
+          >
+            <svg size="18" lucideSendHorizontal aria-hidden="true"></svg>
           </button>
-        </app-input>
-        <button
-          type="submit"
-          aria-label="Отправить"
-          class="button button--main button--squared chat-input-panel__send-button"
-          [disabled]="
-            !messageInputValue().trim() || isUploading() || isSending() || agentStatus() !== null
-          "
-        >
-          <svg size="18" lucideSendHorizontal aria-hidden="true"></svg>
-        </button>
-      </form>
+        </form>
+      }
     </footer>
   </div>
 </section>
-<aside class="section card files-aside" [attr.id]="id()">
-  <header class="section__header">
-    <h2 class="h2">Файлы</h2>
+
+<aside class="card files-aside" [attr.id]="id()">
+  <header class="files-aside__header">
+    <h2 class="h2 files-aside__title">Файлы</h2>
+    <button
+      type="button"
+      class="files-aside__close"
+      aria-label="Закрыть панель файлов"
+      (click)="handleFilesOpen()"
+    >
+      <svg size="18" lucidePanelRightClose aria-hidden="true"></svg>
+    </button>
   </header>
 
   <section class="session-files__section">

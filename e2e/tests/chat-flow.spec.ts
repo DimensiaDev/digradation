@@ -12,7 +12,9 @@ test.describe("chat conversation", () => {
     await login(page);
     await page.goto("/create");
 
-    await expect(page.getByRole("heading", { name: "Новый чат" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Новый чат" }),
+    ).toBeVisible();
     await page
       .locator("#description")
       .fill("Собери основные тезисы из приложенного документа");
@@ -25,6 +27,29 @@ test.describe("chat conversation", () => {
       page.getByText("Собери основные тезисы из приложенного документа"),
     ).toBeVisible();
 
+    // The chat is now a programme workspace: breadcrumb, wizard and live preview.
+    await expect(page.locator(".chat-page__breadcrumb")).toContainText(
+      "Мои программы",
+    );
+    await expect(
+      page.getByRole("heading", {
+        name: "Создание образовательной программы",
+      }),
+    ).toBeVisible();
+    const stepper = page.getByRole("navigation", {
+      name: "Этапы создания программы",
+    });
+    await expect(stepper).toContainText("Запрос");
+    await expect(stepper).toContainText("Структура и каркас");
+    await expect(stepper).toContainText("Проверка");
+    await expect(
+      page.getByRole("heading", { name: "Каркас программы" }),
+    ).toBeVisible();
+    await expect(page.getByText("Каркас появится здесь")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Начать голосовой ввод" }),
+    ).toBeVisible();
+
     // The worker pipeline produces an assistant reply.
     await expect(
       page.locator(".message__author", { hasText: "Агент" }).first(),
@@ -32,7 +57,9 @@ test.describe("chat conversation", () => {
 
     // The side panel lists the session's files. Nothing generates one any more,
     // so this is where the empty state has to be.
-    await page.getByRole("button", { name: "Панель файлов" }).click();
+    await page
+      .getByRole("button", { name: "Панель файлов", exact: true })
+      .click();
     await expect(page.locator(".files-aside")).toBeVisible();
     await expect(page.getByText("Нет файлов в загрузке")).toBeVisible();
   });
@@ -57,7 +84,9 @@ test.describe("chat conversation", () => {
     await page.getByRole("button", { name: "Отправить" }).click();
 
     // A second agent turn appears alongside the first.
-    await expect(page.locator(".message__author", { hasText: "Агент" })).toHaveCount(2, {
+    await expect(
+      page.locator(".message__author", { hasText: "Агент" }),
+    ).toHaveCount(2, {
       timeout: 45_000,
     });
   });

@@ -3,6 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
+import { provideRouter, Router } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProgramApiItem, ProgramStateApi, User } from '../../core/models/models';
 import { ProfileService } from '../../core/services/profile.service';
@@ -143,6 +144,7 @@ describe('ProgramsPage', () => {
   let fixture: ComponentFixture<ProgramsPage>;
   let service: ProgramsService;
   let http: HttpTestingController;
+  let router: Router;
 
   const cards = () => fixture.debugElement.queryAll(By.css('.program-card'));
   const cardTitles = () =>
@@ -233,6 +235,7 @@ describe('ProgramsPage', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        provideRouter([]),
         { provide: ProfileService, useValue: { user: USER } }
       ]
     });
@@ -245,6 +248,7 @@ describe('ProgramsPage', () => {
       .flush({ items: API_ITEMS, total: API_ITEMS.length, page: 0, items_per_page: 100 });
     fixture.detectChanges();
     service = TestBed.inject(ProgramsService);
+    router = TestBed.inject(Router);
   });
 
   afterEach(() => {
@@ -610,6 +614,18 @@ describe('ProgramsPage', () => {
     expect(detailPanel().nativeElement.textContent).toContain('Python для анализа данных');
     expect(detailPanel().nativeElement.textContent).toContain('72 часа');
     expect(detailPanel().nativeElement.textContent).toContain('Практический курс');
+  });
+
+  it('opens the program chat from the detail panel', () => {
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    openFirstProgram();
+
+    fixture.debugElement
+      .queryAll(By.css('.program-panel__action'))
+      .find((item) => item.nativeElement.textContent.trim() === 'Открыть программу')
+      ?.nativeElement.click();
+
+    expect(navigate).toHaveBeenCalledWith(['/chats', 'it-python']);
   });
 
   it('closes the panel and restores focus to the card', () => {

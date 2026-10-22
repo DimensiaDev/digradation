@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { LucideChevronLeft, LucideChevronRight, LucideFolderOpen } from '@lucide/angular';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { Program } from '../../core/models/models';
 import { NotificationService } from '../../core/services/notification.service';
 import { ProfileService } from '../../core/services/profile.service';
@@ -101,6 +102,7 @@ export class ProgramsPage {
   private readonly programsService = inject(ProgramsService);
   private readonly notifications = inject(NotificationService);
   private readonly profile = inject(ProfileService);
+  private readonly router = inject(Router);
   private readonly injector = inject(Injector);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
@@ -276,6 +278,16 @@ export class ProgramsPage {
     if (trigger?.isConnected) {
       trigger.focus();
     }
+  }
+
+  openProgramChat(): void {
+    const program = this.selectedProgram();
+    if (!program) {
+      return;
+    }
+
+    this.programsService.stopDetail();
+    void this.router.navigate(['/chats', program.id]);
   }
 
   onAction(program: Program, event: ProgramActionEvent): void {

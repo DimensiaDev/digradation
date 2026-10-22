@@ -78,6 +78,7 @@ const PROGRAM_TABS: readonly ProgramTabItem[] = [
 })
 export class ProgramDetailPanelComponent {
   readonly program = input<Program | null>(null);
+  readonly open = output<void>();
   readonly closed = output<void>();
 
   readonly tabs = PROGRAM_TABS;

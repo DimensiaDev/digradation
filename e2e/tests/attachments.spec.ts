@@ -50,7 +50,7 @@ test.describe("attachment upload and delete", () => {
 
     // Open the files panel, where "Загруженные файлы" lives.
     await page
-      .getByRole("button", { name: "Панель файлов" })
+      .getByRole("button", { name: "Панель файлов", exact: true })
       .click();
     await expect(
       page.getByRole("heading", { name: "Загруженные файлы" }),
@@ -80,7 +80,7 @@ test.describe("attachment upload and delete", () => {
     await login(page);
     const sessionId = await createChat(page);
     await page
-      .getByRole("button", { name: "Панель файлов" })
+      .getByRole("button", { name: "Панель файлов", exact: true })
       .click();
     await uploadFile(page, "document.pdf");
 
@@ -124,7 +124,7 @@ test.describe("attachment upload and delete", () => {
     await login(page);
     const sessionId = await createChat(page);
     await page
-      .getByRole("button", { name: "Панель файлов" })
+      .getByRole("button", { name: "Панель файлов", exact: true })
       .click();
     await uploadFile(page, "document.pdf");
 

@@ -150,6 +150,59 @@ describe('ChatService', () => {
     expect(result?.running).toBe(true);
   });
 
+  it('sends answers together with an empty message', () => {
+    let result: { message: string } | undefined;
+
+    service
+      .send(SESSION_ID, '', [{ question_id: 'question-1', text: 'Для руководителей' }])
+      .subscribe((response) => {
+        result = response;
+      });
+
+    const req = http.expectOne(`${environment.apiUrl}/chats/${SESSION_ID}`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({
+      content: '',
+      answers: [{ question_id: 'question-1', text: 'Для руководителей' }]
+    });
+    req.flush({ message: 'Message accepted' }, { status: 202, statusText: 'Accepted' });
+
+    expect(result?.message).toBe('Message accepted');
+  });
+
+  it('fetches the programme state of a chat', () => {
+    let result: { status: string; questions: readonly { id: string }[] } | undefined;
+
+    service.program(SESSION_ID).subscribe((program) => {
+      result = program;
+    });
+
+    const req = http.expectOne(`${environment.apiUrl}/chats/${SESSION_ID}/program`);
+    expect(req.request.method).toBe('GET');
+    req.flush({
+      status: 'awaiting_answers',
+      current_stage: 'competences',
+      stages: {},
+      running: false,
+      busy: false,
+      error: null,
+      updated_at: '2026-10-21T12:00:00Z',
+      version: 2,
+      questions: [{ id: 'question-1', text: 'Для кого программа?' }],
+      draft: {
+        kind: null,
+        title: null,
+        competencies: [],
+        curriculum: null,
+        sources: [],
+        summary: null
+      }
+    });
+
+    expect(result?.status).toBe('awaiting_answers');
+    expect(result?.questions[0].id).toBe('question-1');
+  });
+
   it('performs the attachment upload pipeline requests', () => {
     const uploads: unknown[] = [];
 
