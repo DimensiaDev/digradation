@@ -1128,3 +1128,13 @@ closed the prompt with 0 null`, hook exit 127) and the push died before anything
   well: it wants a descriptive agent with a contact in it, and it says so in the body of the
   403. A request that fails with "Please set a user-agent" is answered by sending one, not by
   giving up on the search.
+
+- The repository-level `.dockerignore` decides what the backend image holds, and it excluded
+  `edu_materials/`: the image built fine until a `COPY` of the corpus failed with a path
+  that looked like it did not exist. The corpus has to be copied out of the exclusion list
+  when the backend starts to read it.
+- A block the offline mock fabricates has to be pushed through the same schema and the same
+  checks as a real one. The mock's assessment went unchecked for a long time, so a missing
+  `tool_id` in a fabricated question survived: the stage refused the block, the run died
+  after three attempts, and nothing in the suite failed because the mock's content stages
+  were never reached.
