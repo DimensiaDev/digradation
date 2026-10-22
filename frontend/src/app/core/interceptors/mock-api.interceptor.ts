@@ -472,6 +472,16 @@ const sessionMessages = (session: UserChat): ChatMessageApi[] => [
   session.last_message
 ];
 
+/**
+ * Files the methodist sent with the brief. The aside's files section reads the
+ * attachments of the messages, so without these the section has nothing to show
+ * and cannot be reviewed.
+ */
+const PROGRAMME_SENT_FILES: ChatMessageApi['attachments'] = [
+  { id: 3101, name: 'ТЗ на программу.pdf' },
+  { id: 3102, name: 'Учебный план.docx' }
+];
+
 function programmeMessages(programme: ProgramApiItem, index: number): ChatMessageApi[] {
   const updatedAt = programme.updated_at ? new Date(programme.updated_at) : new Date();
   return [
@@ -479,7 +489,7 @@ function programmeMessages(programme: ProgramApiItem, index: number): ChatMessag
       id: 1000 + index * 2,
       role: 'user',
       content: 'Собери образовательную программу по этому направлению',
-      attachments: [],
+      attachments: PROGRAMME_SENT_FILES.map((file) => ({ ...file })),
       timestamp: new Date(updatedAt.getTime() - 60_000).toISOString()
     },
     {
@@ -651,16 +661,39 @@ export const mockApiInterceptor: HttpInterceptorFn = (req, next) => {
       return fail(403, 'Программа не найдена');
     }
 
+    const sessionAttachmentsMatch = path.match(/^\/chats\/([^/]+)\/attachments$/);
+    if (sessionAttachmentsMatch && req.method === 'GET') {
+      const messages = messagesFor(sessionAttachmentsMatch[1]);
+      if (!messages) {
+        return fail(403, 'Чат не найден');
+      }
+      return ok(
+        messages.flatMap((message) =>
+          message.attachments.map((attachment) => ({
+            id: attachment.id,
+            filename: attachment.name,
+            status: 'completed',
+            ready: true,
+            chat_message_id: message.id,
+            timestamp: message.timestamp
+          }))
+        )
+      );
+    }
+
     const attachmentMatch = path.match(/^\/chats\/([^/]+)\/attachments\/(\d+)$/);
     if (attachmentMatch && req.method === 'GET') {
       const attachmentId = Number(attachmentMatch[2]);
       const exports = PROGRAMME_EXPORTS[attachmentMatch[1]];
+      const sent = messagesFor(attachmentMatch[1])
+        ?.flatMap((message) => message.attachments)
+        .find((attachment) => attachment.id === attachmentId);
       const filename =
         exports?.document_attachment_id === attachmentId
           ? 'programme.docx'
           : exports?.slides_attachment_id === attachmentId
             ? 'programme-slides.pptx'
-            : null;
+            : (sent?.name ?? null);
       if (!filename) {
         return fail(404, 'Вложение не найдено');
       }
