@@ -381,6 +381,13 @@ could start a second run mid-document, and a union would advertise four same-nam
 `save_program_draft` specs, one per block schema. `SberProvider` rejects `strict=True` tools
 at construction because GigaChat v2 has no strict mode; the OpenAI client honours `strict`.
 
+### The exports are attachments
+
+`GET /chats/{session_id}/program.docx` and `.../program.pptx` write the file into the
+attachments bucket, register it as an attachment of the chat and answer with the attachment
+id and a presigned link — the shape the client already gets for a file the methodist
+uploaded. The attachment route works on them unchanged, and no bucket was added for them.
+
 ### The mock provider
 
 `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) selects `app/providers/mock.py` instead of the

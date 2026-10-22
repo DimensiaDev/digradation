@@ -7,8 +7,9 @@ from typing import Annotated, Literal
 
 import structlog.stdlib
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from redis.asyncio import Redis
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
 from app.agentic import store
@@ -66,6 +67,7 @@ from app.schemas.chat import (
 from app.schemas.files import (
     AttachmentDeletedResponse,
     ChatSessionAttachmentSchema,
+    ProgramExportSchema,
     S3AttachmentSchema,
     S3AttachmentStatusResponse,
     S3ChatUploadParams,
@@ -587,8 +589,8 @@ async def get_program(session_id: VerifiedMessageSession, db: DbSession, redis_c
 
 @router.get(
     "/{session_id}/program.docx",
-    summary="Download the programme as a DOCX document",
-    response_class=Response,
+    summary="The programme as a DOCX document",
+    response_model=ProgramExportSchema,
     responses={
         401: {"description": "Not authenticated, or session expired/invalid"},
         403: {"description": "Chat session not found or does not belong to the user"},
@@ -597,12 +599,20 @@ async def get_program(session_id: VerifiedMessageSession, db: DbSession, redis_c
         429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
     },
 )
-async def download_program_docx(session_id: VerifiedMessageSession, db: DbSession):
-    """Return the programme as a DOCX document.
+async def download_program_docx(
+    session_id: VerifiedMessageSession,
+    db: DbSession,
+    s3_public: S3PublicClient,
+    s3_internal: S3InternalClient,
+    redis: RedisSession,
+):
+    """Return the programme as a DOCX document, saved and ready to download.
 
     The document is the whole programme: the approved skeleton and the content
-    written from it. A programme that is not finished cannot be assembled, and
-    that is a conflict rather than a missing resource — the run is still going.
+    written from it. It is stored in the attachments bucket and registered as
+    an attachment of the chat, so the client gets the same kind of presigned
+    link it gets for a file the methodist uploaded, and the file can be
+    fetched again by its attachment id.
     """
     state = await store.load_from(db, session_id)
     if state is None:
@@ -614,17 +624,22 @@ async def download_program_docx(session_id: VerifiedMessageSession, db: DbSessio
     except IncompleteDraft as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     content = await asyncio.to_thread(render_program_document, document)
-    return Response(
+    return await _save_export(
+        session_id,
+        db,
+        s3_public,
+        s3_internal,
+        redis,
+        filename="programme.docx",
         content=content,
-        media_type=DOCX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="programme-{session_id}.docx"'},
+        content_type=DOCX_MEDIA_TYPE,
     )
 
 
 @router.get(
     "/{session_id}/program.pptx",
-    summary="Download the slides of the programme as a PPTX file",
-    response_class=Response,
+    summary="The slides of the programme as a PPTX file",
+    response_model=ProgramExportSchema,
     responses={
         401: {"description": "Not authenticated, or session expired/invalid"},
         403: {"description": "Chat session not found or does not belong to the user"},
@@ -632,8 +647,14 @@ async def download_program_docx(session_id: VerifiedMessageSession, db: DbSessio
         429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
     },
 )
-async def download_program_pptx(session_id: VerifiedMessageSession, db: DbSession):
-    """Return the slides of the programme as a PPTX file.
+async def download_program_pptx(
+    session_id: VerifiedMessageSession,
+    db: DbSession,
+    s3_public: S3PublicClient,
+    s3_internal: S3InternalClient,
+    redis: RedisSession,
+):
+    """Return the slides of the programme as a PPTX file, saved and ready to download.
 
     Every deck of the programme is in the file. The criterion is the slides of
     at least one module, and the decks of a programme are written per topic, so
@@ -644,11 +665,53 @@ async def download_program_pptx(session_id: VerifiedMessageSession, db: DbSessio
         raise HTTPException(status_code=404, detail="The chat holds no programme with slides")
     title = state.title or "Презентационные материалы программы"
     content = await asyncio.to_thread(render_slides, state.materials, programme_title=title)
-    return Response(
+    return await _save_export(
+        session_id,
+        db,
+        s3_public,
+        s3_internal,
+        redis,
+        filename="programme-slides.pptx",
         content=content,
-        media_type=PPTX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="programme-{session_id}.pptx"'},
+        content_type=PPTX_MEDIA_TYPE,
     )
+
+
+async def _save_export(
+    session_id: uuid.UUID,
+    db: AsyncSession,
+    s3_public: S3PublicClient,
+    s3_internal: S3InternalClient,
+    redis: Redis,
+    *,
+    filename: str,
+    content: bytes,
+    content_type: str,
+) -> ProgramExportSchema:
+    """Store an export, register it as an attachment and presign its download.
+
+    The export goes into the bucket the attachments live in and is registered
+    like one, so the client can fetch it by its attachment id and the download
+    route works on it unchanged.
+    """
+    key = get_s3_attachment_key(session_id, filename)
+    await s3_internal.put_object(Bucket="uploads", Key=key, Body=content, ContentType=content_type)
+    attachment = Attachment(name=filename, session_id=session_id, s3_key=key, ready=True)
+    db.add(attachment)
+    await db.commit()
+    await db.refresh(attachment)
+    url = await s3_public.generate_presigned_url(
+        ClientMethod="get_object",
+        Params={"Bucket": "uploads", "Key": key},
+        ExpiresIn=3600,
+    )
+    await redis.set(
+        get_attachment_url_key(attachment.id),
+        json.dumps({"url": url, "filename": attachment.name}),
+        nx=False,
+        ex=3600,
+    )
+    return ProgramExportSchema(attachment_id=attachment.id, attachment_url=url, filename=attachment.name)
 
 
 @router.get(

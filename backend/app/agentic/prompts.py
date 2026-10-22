@@ -12,7 +12,7 @@ from typing import Any
 
 from app.agentic.models import Stage
 from app.agentic.state import ClarificationAnswer, ClarificationQuestion, ProgramState
-from app.providers.models import Content, Message
+from app.providers.models import Content, FileSchema, Message
 
 #: What every stage is told about its job, in the same words each time.
 STAGE_SYSTEM_PROMPT = """\
@@ -116,9 +116,16 @@ def _answered_questions(state: ProgramState) -> list[tuple[ClarificationQuestion
     return [(question, by_id[question.id]) for question in state.questions if question.id in by_id]
 
 
-def stage_messages(state: ProgramState) -> list[Message]:
-    """The conversation of one stage: the standing rules and the brief."""
+def stage_messages(state: ProgramState, files: list[str] | None = None) -> list[Message]:
+    """The conversation of one stage: the standing rules and the brief.
+
+    The files are the ones the methodist attached to the request. The provider
+    reads them the way it reads a message, so a stage sees the template or the
+    approved programme the request came with, and not only the description of
+    it that the intake wrote down.
+    """
+    attachments = [FileSchema(id=file_id) for file_id in files or []]
     return [
         Message(role="system", content=[Content(text=STAGE_SYSTEM_PROMPT)]),
-        Message(role="user", content=[Content(text=stage_brief(state))]),
+        Message(role="user", content=[Content(text=stage_brief(state), files=attachments)]),
     ]

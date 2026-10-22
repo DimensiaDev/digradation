@@ -41,6 +41,7 @@ from app.agentic.state import (
 )
 from app.auth import hash_password
 from app.cache import get_program_stage_lock_key
+from app.database import db_session
 from app.models.auth import User
 from app.models.chat import (
     MAX_CHAT_NAME_LENGTH,
@@ -273,6 +274,35 @@ async def test_a_saved_block_completes_the_stage_and_enqueues_the_next(
     assert saved.attempts[Stage.HOURS.value] == 1
     stages, _ = enqueued
     stages.assert_awaited_once_with(chat, Stage.HOURS.value, state.run_id)
+
+
+async def test_the_stage_receives_the_files_of_the_request(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """The template the methodist attached is readable by the stage that writes the plan."""
+    async with db_session() as db:
+        db.add(
+            ChatMessage(
+                chat_session_id=chat,
+                role=UserRole.USER,
+                content="Программа по такому образцу",
+                files_str="giga-file-1,giga-file-2",
+            )
+        )
+        await db.commit()
+    state = await store.save(new_state(chat, requested_hours=None, requirements=None))
+    provider.answers.extend([save_turn(COMPETENCES_BLOCK), answer("готово")])
+
+    await run_task(program.program_stage, chat, Stage.COMPETENCES.value, state.run_id)
+
+    assert provider.calls, "the stage did not call the provider"
+    sent = [
+        [file.id for file in (part.files or [])]
+        for message in provider.calls[0]["messages"]
+        if message.role == "user"
+        for part in message.content
+    ]
+    assert sent == [["giga-file-1", "giga-file-2"]]
 
 
 async def test_a_citing_stage_is_offered_the_search_and_its_own_block(

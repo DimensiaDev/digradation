@@ -146,7 +146,7 @@ async def _run_stage(
     try:
         ctx.state = await store.save(state.started(stage), expected_run_id=state.run_id)
         await run_tool_loop(
-            stage_messages(ctx.state),
+            stage_messages(ctx.state, files=await _request_files(session_id)),
             generate=generate,
             call_tool=call_executor(ctx, offered),
             checkpoint=checkpoint,
@@ -323,6 +323,29 @@ async def _enqueue_stage(state: ProgramState, stage: Stage) -> ProgramState:
     saved = await store.save(state.enqueued(stage), expected_run_id=state.run_id)
     await program_stage.kiq(saved.session_id, stage.value, saved.run_id)
     return saved
+
+
+async def _request_files(session_id: uuid.UUID) -> list[str]:
+    """The files the methodist attached to the request.
+
+    The provider's file ids are on the messages of the chat, so a stage can
+    read the template or the approved programme the request came with. A chat
+    without attachments has none, and a message without files carries nothing.
+    """
+    async with db_session() as db:
+        rows = await db.scalars(
+            select(ChatMessage.files_str).where(
+                ChatMessage.chat_session_id == session_id,
+                ChatMessage.files_str.is_not(None),
+            )
+        )
+        found: list[str] = []
+        for row in rows:
+            for file_id in (row or "").split(","):
+                name = file_id.strip()
+                if name and name not in found:
+                    found.append(name)
+    return found
 
 
 async def _advance(state: ProgramState) -> None:

@@ -1964,3 +1964,21 @@ A programme that is очно-заочная says how many of its hours are remot
 with a daily cap says what the cap is. Both were collected and checked and then appeared
 nowhere: the passport said "очно-заочная" while the plan said nothing about how the hours
 are delivered. They are in the document's schedule section and in the chat's line now.
+
+## The exports leave the system as files, and the reference reaches every stage (2026-10-22)
+
+Two gaps between what the backend produced and what a client could actually use.
+
+- **The exports are files, not responses.** A programme that is rendered into a response
+  body cannot be downloaded, cannot be attached to a message and expires with the request.
+  The export endpoints now write the document and the slides into the attachments bucket,
+  register them as attachments of the chat and answer with the attachment id and a
+  presigned link — the same shape the client already gets for a file the methodist
+  uploaded. No new bucket: the attachments bucket is where the attachment system lives and
+  where its download route already looks.
+- **The reference reaches the stages, not only the intake.** The files a methodist attaches
+  are on the chat messages, so the chat turn could read them and the stages could not: a
+  stage only saw the brief, and the brief carried the intake's description of the
+  reference rather than the reference. The stage task now passes the files of the request
+  into the brief's message, so a stage reads the template or the approved programme the
+  request came with, the way the provider reads any attached file.

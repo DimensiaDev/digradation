@@ -805,7 +805,7 @@ async def test_get_result_carries_the_open_questions(
 
 
 async def test_the_programme_can_be_downloaded_as_a_document(
-    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None, s3: None
 ):
     raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
     state = new_state(chat.session_id, requested_hours=72, requirements="Программа")
@@ -822,8 +822,20 @@ async def test_the_programme_can_be_downloaded_as_a_document(
     response = await auth_client.get(f"/chats/{chat.session_id}/program.docx")
 
     assert response.status_code == 200
-    assert response.content[:2] == b"PK"
-    assert "wordprocessingml" in response.headers["content-type"]
+    data = response.json()
+    assert data["filename"] == "programme.docx"
+    assert data["attachment_id"] > 0
+    assert data["attachment_url"]
+
+    # The export is an attachment of the chat, so the client can fetch it again
+    # by its id and the download route works on it unchanged.
+    attachment = await db_session.get(Attachment, data["attachment_id"])
+    assert attachment is not None
+    assert attachment.session_id == chat.session_id
+    assert attachment.ready is True
+    link = await auth_client.get(f"/chats/{chat.session_id}/attachments/{data['attachment_id']}")
+    assert link.status_code == 200
+    assert link.json()["attachment_url"] == data["attachment_url"]
 
 
 async def test_a_document_of_a_chat_without_a_programme_is_not_found(
@@ -846,7 +858,7 @@ async def test_a_document_of_an_unfinished_programme_is_a_conflict(
 
 
 async def test_the_slides_can_be_downloaded(
-    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
+    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None, s3: None
 ):
     raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
     state = new_state(chat.session_id, requested_hours=72, requirements="Программа")
@@ -856,8 +868,10 @@ async def test_the_slides_can_be_downloaded(
     response = await auth_client.get(f"/chats/{chat.session_id}/program.pptx")
 
     assert response.status_code == 200
-    assert response.content[:2] == b"PK"
-    assert "presentationml" in response.headers["content-type"]
+    data = response.json()
+    assert data["filename"] == "programme-slides.pptx"
+    assert data["attachment_id"] > 0
+    assert data["attachment_url"]
 
 
 async def test_the_slides_of_a_chat_without_materials_are_not_found(
