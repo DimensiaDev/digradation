@@ -185,6 +185,45 @@ describe('ChatPage', () => {
     expect(chat.questions()).toEqual([question('q2', 'Срок?')]);
   });
 
+  it('offers the decision while the draft waits, and hides it during a turn', () => {
+    create(
+      SESSION_ID,
+      state({
+        status: 'pending_approval',
+        busy: false,
+        running: false,
+        current_stage: 'summary',
+        stages: {
+          competences: 'completed',
+          hours: 'completed',
+          sources: 'completed',
+          summary: 'completed',
+          assessment: 'pending',
+          materials: 'pending'
+        }
+      })
+    );
+
+    expect(component.decision()?.blocks.map((block) => block.id)).toEqual([
+      'competences',
+      'hours',
+      'sources',
+      'summary'
+    ]);
+    expect(chat.decision()).not.toBeNull();
+
+    const start = fixture.debugElement.query(By.css('.start-turn')).nativeElement as HTMLElement;
+    start.click();
+    fixture.detectChanges();
+
+    expect(component.decision()).toBeNull();
+    http
+      .expectOne(PROGRAM_URL(SESSION_ID))
+      .flush(state({ status: 'pending_approval', busy: false }));
+    fixture.detectChanges();
+    expect(chat.decision()).toBeNull();
+  });
+
   it('reports a load failure and retries through the preview', () => {
     fixture = TestBed.createComponent(ChatPage);
     component = fixture.componentInstance;

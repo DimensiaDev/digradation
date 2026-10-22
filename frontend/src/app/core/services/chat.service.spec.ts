@@ -149,6 +149,38 @@ describe('ChatService', () => {
     expect(result?.questions[0].id).toBe('question-1');
   });
 
+  it('approves the programme draft', () => {
+    let result: { status: string } | undefined;
+
+    service.approveProgram(SESSION_ID).subscribe((program) => {
+      result = program;
+    });
+
+    const req = http.expectOne(`${environment.apiUrl}/chats/${SESSION_ID}/program/approve`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({});
+    req.flush({ status: 'generating' });
+
+    expect(result?.status).toBe('generating');
+  });
+
+  it('requests a revision of one block with the notes', () => {
+    let result: { status: string } | undefined;
+
+    service
+      .reviseProgram(SESSION_ID, { stage: 'hours', notes: 'Добавить кейс в тему 2.3' })
+      .subscribe((program) => {
+        result = program;
+      });
+
+    const req = http.expectOne(`${environment.apiUrl}/chats/${SESSION_ID}/program/revision`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ stage: 'hours', notes: 'Добавить кейс в тему 2.3' });
+    req.flush({ status: 'generating' });
+
+    expect(result?.status).toBe('generating');
+  });
+
   it('performs the attachment upload pipeline requests', () => {
     const uploads: unknown[] = [];
 

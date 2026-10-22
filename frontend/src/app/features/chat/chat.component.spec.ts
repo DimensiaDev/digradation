@@ -16,6 +16,8 @@ const HISTORY_URL = `${environment.apiUrl}/chats/${SESSION_ID}`;
 const RESULT_URL = `${environment.apiUrl}/chats/${SESSION_ID}/result`;
 const SEND_URL = `${environment.apiUrl}/chats/${SESSION_ID}`;
 const ATTACHMENTS_URL = `${environment.apiUrl}/chats/${SESSION_ID}/attachments`;
+const APPROVE_URL = `${environment.apiUrl}/chats/${SESSION_ID}/program/approve`;
+const REVISION_URL = `${environment.apiUrl}/chats/${SESSION_ID}/program/revision`;
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
@@ -769,6 +771,96 @@ describe('Chat behaviour', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('app-chat-question-form')).not.toBeNull();
     expect(component.answersSubmitted()).toBe(false);
+  });
+
+  it('shows the decision panel in place of the composer and approves the draft', () => {
+    openSession();
+    fixture.componentRef.setInput('decision', {
+      blocks: [{ id: 'competences' as const, label: 'Компетенции' }],
+      lastRevision: null
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('app-program-decision')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.chat-input-panel__form')).toBeNull();
+
+    const refreshed = vi.fn();
+    component.refreshProgram.subscribe(refreshed);
+    component.approveProgramme();
+
+    const request = http.expectOne(APPROVE_URL);
+    expect(request.request.method).toBe('POST');
+    request.flush({ status: 'approved' });
+    fixture.detectChanges();
+
+    expect(component.decisionSubmitting()).toBe(false);
+    expect(refreshed).toHaveBeenCalled();
+    expect(notifications.success).toHaveBeenCalledWith('Каркас утверждён', {
+      description: 'Агент пишет оценочные средства и материалы.'
+    });
+  });
+
+  it('sends the chosen block and the notes when a revision is requested', () => {
+    openSession();
+    fixture.componentRef.setInput('decision', {
+      blocks: [{ id: 'hours' as const, label: 'Учебный план и часы' }],
+      lastRevision: null
+    });
+    fixture.detectChanges();
+
+    const refreshed = vi.fn();
+    component.refreshProgram.subscribe(refreshed);
+    component.reviseProgramme({ stage: 'hours', notes: 'Добавить кейс в тему 2.3' });
+
+    const request = http.expectOne(REVISION_URL);
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({
+      stage: 'hours',
+      notes: 'Добавить кейс в тему 2.3'
+    });
+    request.flush({ status: 'generating' });
+    fixture.detectChanges();
+
+    expect(refreshed).toHaveBeenCalled();
+    expect(notifications.success).toHaveBeenCalledWith('Программа отправлена на доработку', {
+      description: 'Агент переделает выбранный блок и обновит документ.'
+    });
+  });
+
+  it('reports a refused decision and asks the page to re-read the programme', () => {
+    openSession();
+    fixture.componentRef.setInput('decision', {
+      blocks: [{ id: 'competences' as const, label: 'Компетенции' }],
+      lastRevision: null
+    });
+    fixture.detectChanges();
+
+    const refreshed = vi.fn();
+    component.refreshProgram.subscribe(refreshed);
+    component.approveProgramme();
+    http
+      .expectOne(APPROVE_URL)
+      .flush(
+        { detail: 'Черновик ещё не готов к подтверждению' },
+        { status: 409, statusText: 'Conflict' }
+      );
+    fixture.detectChanges();
+
+    expect(component.decisionSubmitting()).toBe(false);
+    expect(refreshed).toHaveBeenCalled();
+    expect(notifications.error).toHaveBeenCalledWith(
+      'Не удалось утвердить каркас: Черновик ещё не готов к подтверждению',
+      { description: 'Состояние программы обновлено — проверьте его и повторите решение.' }
+    );
+  });
+
+  it('does nothing without a pending decision', () => {
+    openSession();
+
+    component.approveProgramme();
+    component.reviseProgramme({ stage: 'hours', notes: 'что-то' });
+
+    expect(http.match(() => true)).toEqual([]);
   });
 
   it('starts and replaces the live speech transcript without duplicating it', async () => {

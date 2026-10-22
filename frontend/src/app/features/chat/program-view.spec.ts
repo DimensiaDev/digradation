@@ -3,6 +3,7 @@ import {
   programBadge,
   programChangedSections,
   programCompetencies,
+  programDecision,
   programFormLabel,
   programGoal,
   programHours,
@@ -10,7 +11,9 @@ import {
   programKindLabel,
   programModules,
   programReport,
+  programRevisionView,
   programSources,
+  programStageLabel,
   programStatusLabel,
   programStep,
   programTopicCountLabel,
@@ -369,5 +372,74 @@ describe('program-view', () => {
       { label: 'Компетенции', value: 'есть' },
       { label: 'Материалы', value: 'нет' }
     ]);
+  });
+
+  describe('programDecision', () => {
+    const skeletonStages = {
+      competences: 'completed',
+      hours: 'completed',
+      sources: 'completed',
+      summary: 'completed',
+      assessment: 'pending',
+      materials: 'pending'
+    };
+
+    it('is due only while a rendered draft waits for the methodist', () => {
+      expect(programDecision(null)).toBeNull();
+      expect(programDecision(state({ status: 'generating', stages: skeletonStages }))).toBeNull();
+      // A run that is still being worked on asks nothing.
+      expect(programDecision(state({ status: 'pending_approval', busy: true }))).toBeNull();
+      expect(
+        programDecision(state({ status: 'pending_approval', busy: false, stages: skeletonStages }))
+      ).not.toBeNull();
+    });
+
+    it('offers the blocks that already exist, in pipeline order', () => {
+      const decision = programDecision(
+        state({ status: 'pending_approval', busy: false, stages: skeletonStages })
+      );
+
+      expect(decision?.blocks).toEqual([
+        { id: 'competences', label: 'Компетенции' },
+        { id: 'hours', label: 'Учебный план и часы' },
+        { id: 'sources', label: 'Источники' },
+        { id: 'summary', label: 'Паспорт программы' }
+      ]);
+      expect(decision?.lastRevision).toBeNull();
+    });
+
+    it('carries the last revision made', () => {
+      const decision = programDecision(
+        state({
+          status: 'pending_approval',
+          busy: false,
+          stages: skeletonStages,
+          last_revision: {
+            stage: 'hours',
+            notes: 'Добавить кейс',
+            requested_by: 'user-1',
+            requested_at: '2026-10-22T10:00:00Z'
+          }
+        })
+      );
+
+      expect(decision?.lastRevision).toEqual({
+        stageLabel: 'Учебный план и часы',
+        notes: 'Добавить кейс'
+      });
+    });
+
+    it('labels every stage and tolerates an unknown one', () => {
+      expect(programStageLabel('summary')).toBe('Паспорт программы');
+      expect(programRevisionView(null)).toBeNull();
+      expect(
+        programRevisionView({
+          stage: 'materials',
+          notes: 'Переписать',
+          requested_by: null,
+          requested_at: null
+        })
+      ).toEqual({ stageLabel: 'Материалы', notes: 'Переписать' });
+    });
   });
 });
