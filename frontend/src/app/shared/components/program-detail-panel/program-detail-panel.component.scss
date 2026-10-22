@@ -170,9 +170,9 @@
 
   &__tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
 
-    overflow-x: auto;
     border-bottom: 1px solid var(--color-outline);
   }
 
@@ -267,9 +267,6 @@
     margin-top: 1px;
 
     color: var(--color-success);
-
-    background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
-    border-radius: 50%;
   }
 
   &__modules {
