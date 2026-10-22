@@ -152,6 +152,17 @@ class ProgramCheckSchema(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict, description="Числа проверки")
 
 
+class ProgramExportsSchema(BaseModel):
+    """The files the programme was exported to.
+
+    They are attachments of the chat, so the client fetches them with the
+    attachment route it already uses for a file the methodist uploaded.
+    """
+
+    document_attachment_id: int | None = Field(default=None, description="Вложение с документом программы")
+    slides_attachment_id: int | None = Field(default=None, description="Вложение со слайдами программы")
+
+
 class ProgramReportSchema(BaseModel):
     """The checks the programme passed, for the methodist to read."""
 
@@ -210,6 +221,7 @@ class ProgramStateSchema(BaseModel):
     )
     draft: ProgramBlocksSchema | None = Field(default=None, description="Документ в том виде, в каком он уже есть")
     report: ProgramReportSchema | None = Field(default=None, description="Отчёт автопроверки программы")
+    exports: ProgramExportsSchema | None = Field(default=None, description="Выгрузки программы: документ и слайды")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -238,6 +250,7 @@ class ProgramStateSchema(BaseModel):
                     "sources": [],
                     "summary": None,
                 },
+                "exports": {"document_attachment_id": 12, "slides_attachment_id": 13},
                 "report": {
                     "ok": False,
                     "checks": [

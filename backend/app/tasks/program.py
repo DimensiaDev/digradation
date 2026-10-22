@@ -47,6 +47,7 @@ from app.naming import first_user_message, resolve_chat_name
 from app.providers.containers import provider
 from app.providers.models import GenerationResponse, Message, ResponseFormat
 from app.tasks.conf.broker import broker
+from app.tasks.exports import export_program
 
 log = structlog.stdlib.get_logger(__name__)
 
@@ -355,10 +356,17 @@ async def _advance(state: ProgramState) -> None:
     task — and both read the state the database has, so replaying a stage task
     does not start a second copy of anything.
     """
-    if state.failed or state.terminal:
+    if state.failed:
         return
     if state.status is ProgramStatus.PENDING_APPROVAL:
         await finalize_program_draft.kiq(state.session_id, state.run_id)
+        return
+    if state.status is ProgramStatus.APPROVED:
+        # The programme is complete: the document and the slides are written,
+        # and the client fetches them by their attachment ids.
+        await export_program.kiq(state.session_id, state.run_id)
+        return
+    if state.terminal:
         return
     next_stage = state.current_stage
     if next_stage in CONTENT_ORDER:

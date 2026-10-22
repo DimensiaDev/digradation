@@ -12,7 +12,6 @@ the budget is 5 requests a minute for ``chats:post``, which is what the 429
 tests spend deliberately.
 """
 
-import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,14 +34,10 @@ from app.agentic.models import (
     Stage,
 )
 from app.agentic.state import (
-    AssessmentBlock,
     ClarificationQuestion,
     CompetencesBlock,
-    HoursBlock,
-    MaterialsBlock,
+    ProgramExports,
     ProgramState,
-    SourcesBlock,
-    SummaryBlock,
     new_state,
 )
 from app.cache import (
@@ -804,108 +799,20 @@ async def test_get_result_carries_the_open_questions(
 # ---------------------------------------------------------------------------
 
 
-async def test_the_programme_can_be_downloaded_as_a_document(
-    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None, s3: None
-):
-    raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
-    state = new_state(chat.session_id, requested_hours=72, requirements="Программа")
-    state = state.with_competences(
-        CompetencesBlock(kind=raw["meta"]["kind"], title=raw["meta"]["title"], competencies=raw["competencies"]), []
-    )
-    state = state.with_curriculum(HoursBlock(curriculum=raw["curriculum"]))
-    state = state.with_sources(SourcesBlock(sources=raw["sources"]))
-    state = state.with_summary(SummaryBlock(summary=raw["summary"]), [])
-    state = state.with_assessment(AssessmentBlock(assessment=raw["assessment"]))
-    state = state.with_materials(MaterialsBlock(materials=raw["materials"]))
-    await put_programme(db_session, chat, state)
-
-    response = await auth_client.get(f"/chats/{chat.session_id}/program.docx")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["filename"] == "programme.docx"
-    assert data["attachment_id"] > 0
-    assert data["attachment_url"]
-
-    # The export is an attachment of the chat, so the client can fetch it again
-    # by its id and the download route works on it unchanged.
-    attachment = await db_session.get(Attachment, data["attachment_id"])
-    assert attachment is not None
-    assert attachment.session_id == chat.session_id
-    assert attachment.ready is True
-    link = await auth_client.get(f"/chats/{chat.session_id}/attachments/{data['attachment_id']}")
-    assert link.status_code == 200
-    assert link.json()["attachment_url"] == data["attachment_url"]
-
-
-async def test_a_second_export_replaces_the_first(
-    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None, s3: None
-):
-    """The export is one file per programme, not a file per request."""
-    raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
-    state = new_state(chat.session_id, requested_hours=72, requirements="Программа")
-    state = state.with_competences(
-        CompetencesBlock(kind=raw["meta"]["kind"], title=raw["meta"]["title"], competencies=raw["competencies"]), []
-    )
-    state = state.with_curriculum(HoursBlock(curriculum=raw["curriculum"]))
-    state = state.with_sources(SourcesBlock(sources=raw["sources"]))
-    state = state.with_summary(SummaryBlock(summary=raw["summary"]), [])
-    state = state.with_assessment(AssessmentBlock(assessment=raw["assessment"]))
-    state = state.with_materials(MaterialsBlock(materials=raw["materials"]))
-    await put_programme(db_session, chat, state)
-
-    first = await auth_client.get(f"/chats/{chat.session_id}/program.docx")
-    second = await auth_client.get(f"/chats/{chat.session_id}/program.docx")
-
-    assert first.status_code == 200
-    assert second.status_code == 200
-    assert first.json()["attachment_id"] == second.json()["attachment_id"]
-    attachments = await db_session.scalars(select(Attachment).where(Attachment.session_id == chat.session_id))
-    assert len(list(attachments)) == 1
-
-
-async def test_a_document_of_a_chat_without_a_programme_is_not_found(
-    auth_client: AsyncClient, chat, redis_session: None
-):
-    response = await auth_client.get(f"/chats/{chat.session_id}/program.docx")
-
-    assert response.status_code == 404
-
-
-async def test_a_document_of_an_unfinished_programme_is_a_conflict(
+async def test_the_programme_response_names_the_exports(
     auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None
 ):
+    """The client fetches the files with the attachment route it already uses."""
     state = new_state(chat.session_id, requested_hours=72, requirements="Программа")
+    state = state.with_exports(ProgramExports(document_attachment_id=12, slides_attachment_id=13))
     await put_programme(db_session, chat, state)
 
-    response = await auth_client.get(f"/chats/{chat.session_id}/program.docx")
-
-    assert response.status_code == 409
-
-
-async def test_the_slides_can_be_downloaded(
-    auth_client: AsyncClient, db_session: AsyncSession, chat, redis_session: None, s3: None
-):
-    raw = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
-    state = new_state(chat.session_id, requested_hours=72, requirements="Программа")
-    state = state.with_materials(MaterialsBlock(materials=raw["materials"]))
-    await put_programme(db_session, chat, state)
-
-    response = await auth_client.get(f"/chats/{chat.session_id}/program.pptx")
+    response = await auth_client.get(f"/chats/{chat.session_id}/program")
 
     assert response.status_code == 200
-    data = response.json()
-    assert data["filename"] == "programme-slides.pptx"
-    assert data["attachment_id"] > 0
-    assert data["attachment_url"]
-
-
-async def test_the_slides_of_a_chat_without_materials_are_not_found(
-    auth_client: AsyncClient, chat, redis_session: None
-):
-    response = await auth_client.get(f"/chats/{chat.session_id}/program.pptx")
-
-    assert response.status_code == 404
+    exports = response.json()["exports"]
+    assert exports["document_attachment_id"] == 12
+    assert exports["slides_attachment_id"] == 13
 
 
 # ---------------------------------------------------------------------------

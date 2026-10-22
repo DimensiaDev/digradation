@@ -7,13 +7,11 @@ from typing import Annotated, Literal
 
 import structlog.stdlib
 from fastapi import APIRouter, Depends, HTTPException, Query
-from redis.asyncio import Redis
 from sqlalchemy import delete, func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
 from app.agentic import store
-from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
+from app.agentic.errors import AnswersDoNotMatch
 from app.agentic.render import render_answers
 from app.agentic.state import ClarificationAnswer, apply_answers
 from app.agentic.view import programme_questions, programme_state, programme_status
@@ -48,7 +46,6 @@ from app.models.chat import (
     UserRole,
 )
 from app.models.settings import SETTINGS_ROW_ID, Settings
-from app.render import render_program_document
 from app.schemas import MessageResponse
 from app.schemas.chat import (
     ChatAttachment,
@@ -67,14 +64,12 @@ from app.schemas.chat import (
 from app.schemas.files import (
     AttachmentDeletedResponse,
     ChatSessionAttachmentSchema,
-    ProgramExportSchema,
     S3AttachmentSchema,
     S3AttachmentStatusResponse,
     S3ChatUploadParams,
     S3ChatUploadRequest,
     S3UploadParams,
 )
-from app.slides import render_slides
 from app.storage import get_s3_attachment_key
 from app.tasks.api import run_chat_turn
 from app.tasks.files import _s3_try_delete, process_attachment
@@ -585,142 +580,6 @@ async def get_program(session_id: VerifiedMessageSession, db: DbSession, redis_c
     if state is not None:
         running = bool(await redis_client.exists(get_program_stage_lock_key(session_id, state.current_stage)))
     return programme_state(state, running=running)
-
-
-@router.get(
-    "/{session_id}/program.docx",
-    summary="The programme as a DOCX document",
-    response_model=ProgramExportSchema,
-    responses={
-        401: {"description": "Not authenticated, or session expired/invalid"},
-        403: {"description": "Chat session not found or does not belong to the user"},
-        404: {"description": "The chat holds no programme"},
-        409: {"description": "The programme is not complete yet"},
-        429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
-    },
-)
-async def download_program_docx(
-    session_id: VerifiedMessageSession,
-    db: DbSession,
-    s3_public: S3PublicClient,
-    s3_internal: S3InternalClient,
-    redis: RedisSession,
-):
-    """Return the programme as a DOCX document, saved and ready to download.
-
-    The document is the whole programme: the approved skeleton and the content
-    written from it. It is stored in the attachments bucket and registered as
-    an attachment of the chat, so the client gets the same kind of presigned
-    link it gets for a file the methodist uploaded, and the file can be
-    fetched again by its attachment id.
-    """
-    state = await store.load_from(db, session_id)
-    if state is None:
-        raise HTTPException(status_code=404, detail="The chat holds no programme")
-    if state.assessment is None or state.materials is None:
-        raise HTTPException(status_code=409, detail="The programme is not complete yet")
-    try:
-        document = state.to_document()
-    except IncompleteDraft as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    content = await asyncio.to_thread(render_program_document, document)
-    return await _save_export(
-        session_id,
-        db,
-        s3_public,
-        s3_internal,
-        redis,
-        filename="programme.docx",
-        content=content,
-        content_type=DOCX_MEDIA_TYPE,
-    )
-
-
-@router.get(
-    "/{session_id}/program.pptx",
-    summary="The slides of the programme as a PPTX file",
-    response_model=ProgramExportSchema,
-    responses={
-        401: {"description": "Not authenticated, or session expired/invalid"},
-        403: {"description": "Chat session not found or does not belong to the user"},
-        404: {"description": "The chat holds no programme with slides"},
-        429: {"description": "Rate limit exceeded (max 100 per minute across all chat endpoints)"},
-    },
-)
-async def download_program_pptx(
-    session_id: VerifiedMessageSession,
-    db: DbSession,
-    s3_public: S3PublicClient,
-    s3_internal: S3InternalClient,
-    redis: RedisSession,
-):
-    """Return the slides of the programme as a PPTX file, saved and ready to download.
-
-    Every deck of the programme is in the file. The criterion is the slides of
-    at least one module, and the decks of a programme are written per topic, so
-    the whole set is what there is to hand out.
-    """
-    state = await store.load_from(db, session_id)
-    if state is None or state.materials is None:
-        raise HTTPException(status_code=404, detail="The chat holds no programme with slides")
-    title = state.title or "Презентационные материалы программы"
-    content = await asyncio.to_thread(render_slides, state.materials, programme_title=title)
-    return await _save_export(
-        session_id,
-        db,
-        s3_public,
-        s3_internal,
-        redis,
-        filename="programme-slides.pptx",
-        content=content,
-        content_type=PPTX_MEDIA_TYPE,
-    )
-
-
-async def _save_export(
-    session_id: uuid.UUID,
-    db: AsyncSession,
-    s3_public: S3PublicClient,
-    s3_internal: S3InternalClient,
-    redis: Redis,
-    *,
-    filename: str,
-    content: bytes,
-    content_type: str,
-) -> ProgramExportSchema:
-    """Store an export, register it as an attachment and presign its download.
-
-    The export goes into the bucket the attachments live in and is registered
-    like one, so the client can fetch it by its attachment id and the download
-    route works on it unchanged. A second call replaces the file rather than
-    leaving another one behind: the name identifies the export, and the storage
-    object and the row are the ones the first call made.
-    """
-    existing = await db.scalar(
-        select(Attachment).where(Attachment.session_id == session_id, Attachment.name == filename)
-    )
-    if existing is None:
-        key = get_s3_attachment_key(session_id, filename)
-        attachment = Attachment(name=filename, session_id=session_id, s3_key=key, ready=True)
-        db.add(attachment)
-    else:
-        key = existing.s3_key
-        attachment = existing
-    await s3_internal.put_object(Bucket="uploads", Key=key, Body=content, ContentType=content_type)
-    await db.commit()
-    await db.refresh(attachment)
-    url = await s3_public.generate_presigned_url(
-        ClientMethod="get_object",
-        Params={"Bucket": "uploads", "Key": key},
-        ExpiresIn=3600,
-    )
-    await redis.set(
-        get_attachment_url_key(attachment.id),
-        json.dumps({"url": url, "filename": attachment.name}),
-        nx=False,
-        ex=3600,
-    )
-    return ProgramExportSchema(attachment_id=attachment.id, attachment_url=url, filename=attachment.name)
 
 
 @router.get(

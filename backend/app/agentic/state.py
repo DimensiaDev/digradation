@@ -151,6 +151,17 @@ class ProgramCheck(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict, description="Числа проверки")
 
 
+class ProgramExports(BaseModel):
+    """The files the programme was exported to.
+
+    The exports are attachments of the chat, so the client fetches them with
+    the attachment route it already uses for a file the methodist uploaded.
+    """
+
+    document_attachment_id: int | None = Field(default=None, description="Вложение с документом программы")
+    slides_attachment_id: int | None = Field(default=None, description="Вложение со слайдами программы")
+
+
 class ProgramReport(BaseModel):
     """The checks the programme passed, for the methodist to read.
 
@@ -202,6 +213,8 @@ class ProgramState(BaseModel):
     materials: Materials | None = None
     #: The change the methodist asked for, waiting to be carried out.
     revision: Revision | None = None
+    #: The files the programme was exported to, once it was complete.
+    exports: ProgramExports | None = None
 
     #: True once the draft has been rendered into the chat and may be approved.
     finalized: bool = False
@@ -334,6 +347,10 @@ class ProgramState(BaseModel):
             finalized=False,
             **changes,
         )
+
+    def with_exports(self, exports: ProgramExports) -> Self:
+        """The files the programme was exported to."""
+        return self._replace(exports=exports)
 
     def revision_completed(self, stage: Stage) -> Self:
         """The redone stage is done; the run goes on with what is missing.

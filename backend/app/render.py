@@ -32,7 +32,9 @@ from datetime import datetime
 from io import BytesIO
 
 from docx import Document
+from docx.document import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 
 from app.agentic.models import (
@@ -117,10 +119,15 @@ def render_program_document(
 
 
 # --------------------------------------------------------------------------- style helpers
-def _set_global_style(doc: Document) -> None:
+def _set_global_style(doc: DocxDocument) -> None:
     style = doc.styles["Normal"]
     style.font.name = "Times New Roman"
     style.font.size = Pt(12)
+    # The name alone only covers the ascii and the hAnsi faces; the Russian
+    # text is resolved through the complex-script face in most readers.
+    fonts = style.element.rPr.rFonts
+    fonts.set(qn("w:eastAsia"), "Times New Roman")
+    fonts.set(qn("w:cs"), "Times New Roman")
     for section in doc.sections:
         section.left_margin = Cm(2)
         section.right_margin = Cm(2)
@@ -128,16 +135,16 @@ def _set_global_style(doc: Document) -> None:
         section.bottom_margin = Cm(2)
 
 
-def _page_break(doc: Document) -> None:
+def _page_break(doc: DocxDocument) -> None:
     run = doc.add_paragraph().add_run()
     run.add_break(WD_BREAK.PAGE)
 
 
-def _heading(doc: Document, text: str, *, level: int) -> None:
+def _heading(doc: DocxDocument, text: str, *, level: int) -> None:
     doc.add_heading(text, level=level)
 
 
-def _labeled(doc: Document, label: str, value: str | None) -> None:
+def _labeled(doc: DocxDocument, label: str, value: str | None) -> None:
     if not value:
         return
     p = doc.add_paragraph()
@@ -145,14 +152,14 @@ def _labeled(doc: Document, label: str, value: str | None) -> None:
     p.add_run(f" {value}")
 
 
-def _bullets(doc: Document, items: list[str]) -> None:
+def _bullets(doc: DocxDocument, items: list[str]) -> None:
     for item in items:
         doc.add_paragraph(item, style="List Bullet")
 
 
 # --------------------------------------------------------------------------- title page
 def _render_title_page(
-    doc: Document,
+    doc: DocxDocument,
     draft: ProgramDraft,
     *,
     city: str,
@@ -195,7 +202,7 @@ def _render_title_page(
 
 
 # --------------------------------------------------------------------------- explanatory note
-def _render_explanatory_note(doc: Document, draft: ProgramDraft) -> None:
+def _render_explanatory_note(doc: DocxDocument, draft: ProgramDraft) -> None:
     _heading(doc, "Пояснительная записка", level=1)
     s = draft.summary
 
@@ -211,8 +218,11 @@ def _render_explanatory_note(doc: Document, draft: ProgramDraft) -> None:
         _heading(doc, "Актуальность программы", level=2)
         doc.add_paragraph(s.relevance)
 
+    if s.basis_source_ids:
+        _labeled(doc, "Разработана на основе:", ", ".join(s.basis_source_ids))
 
-def _render_goal_and_tasks(doc: Document, draft: ProgramDraft) -> None:
+
+def _render_goal_and_tasks(doc: DocxDocument, draft: ProgramDraft) -> None:
     s = draft.summary
     _heading(doc, "Цель и задачи программы", level=1)
     _labeled(doc, "Цель:", s.goal)
@@ -221,7 +231,7 @@ def _render_goal_and_tasks(doc: Document, draft: ProgramDraft) -> None:
         _bullets(doc, s.tasks)
 
 
-def _render_target_audience(doc: Document, draft: ProgramDraft) -> None:
+def _render_target_audience(doc: DocxDocument, draft: ProgramDraft) -> None:
     s = draft.summary
     _heading(doc, "Категории обучающихся", level=1)
     doc.add_paragraph(s.target_audience)
@@ -229,7 +239,7 @@ def _render_target_audience(doc: Document, draft: ProgramDraft) -> None:
 
 
 # --------------------------------------------------------------------------- results
-def _render_planned_results(doc: Document, draft: ProgramDraft) -> None:
+def _render_planned_results(doc: DocxDocument, draft: ProgramDraft) -> None:
     _heading(doc, "Планируемые результаты обучения", level=1)
 
     _heading(doc, "Компетенции", level=2)
@@ -247,7 +257,7 @@ def _render_planned_results(doc: Document, draft: ProgramDraft) -> None:
         _bullets(doc, outcomes)
 
 
-def _render_competence(doc: Document, c: Competence) -> None:
+def _render_competence(doc: DocxDocument, c: Competence) -> None:
     p = doc.add_paragraph()
     p.add_run(f"{c.id}.").bold = True
     p.add_run(f" {c.statement}")
@@ -255,18 +265,28 @@ def _render_competence(doc: Document, c: Competence) -> None:
         p.add_run(f" (код трудовой функции {c.code})")
     if c.activity:
         p.add_run(f" Вид деятельности: {c.activity}")
+    if c.standard_source_id:
+        # The competence rests on a professional standard, and the reader has to
+        # see which one: it is what the bibliography entry is checked against.
+        p.add_run(f" Профессиональный стандарт: {c.standard_source_id}")
 
 
 def _outcomes(competencies: list[Competence], attr: str) -> list[str]:
+    """The statements of one kind of outcome, each with its identifier.
+
+    The identifier is what the curriculum and the assessment refer to, so a
+    reader of the document can trace a result back to the topic that teaches
+    it.
+    """
     statements: list[str] = []
     for c in competencies:
         for o in getattr(c, attr):
-            statements.append(o.statement)
+            statements.append(f"{o.id}. {o.statement}")
     return statements
 
 
 # --------------------------------------------------------------------------- schedule
-def _render_schedule(doc: Document, draft: ProgramDraft) -> None:
+def _render_schedule(doc: DocxDocument, draft: ProgramDraft) -> None:
     _heading(doc, "Сроки реализации и календарный учебный график", level=1)
     s = draft.curriculum.schedule
     c = draft.curriculum
@@ -281,7 +301,7 @@ def _render_schedule(doc: Document, draft: ProgramDraft) -> None:
     if s.note:
         doc.add_paragraph(s.note)
 
-    _labeled(doc, "Общая трудоёмкость:", f"{_fmt_hours(c.total_hours)} ч")
+    _labeled(doc, "Общая трудоёмкость:", f"{_fmt_total(c.total_hours)} ч")
     if c.distance_hours is not None:
         _labeled(
             doc,
@@ -303,7 +323,7 @@ CURRICULUM_HEADERS: tuple[str, ...] = (
 )
 
 
-def _render_curriculum(doc: Document, draft: ProgramDraft) -> None:
+def _render_curriculum(doc: DocxDocument, draft: ProgramDraft) -> None:
     _heading(doc, "Учебный план", level=1)
 
     rows: list[list[str]] = []
@@ -408,6 +428,7 @@ def _sum_lab(modules: list[Module]) -> float:
 
 
 def _fmt_hours(value: float) -> str:
+    """An hour count for the tables, where no hours in a column is a dash."""
     if value == 0:
         return "—"
     if value == int(value):
@@ -415,7 +436,18 @@ def _fmt_hours(value: float) -> str:
     return f"{value:g}".replace(".", ",")
 
 
-def _add_table(doc: Document, headers: tuple[str, ...], rows: list[list[str]]) -> None:
+def _fmt_total(value: float) -> str:
+    """An hour count where zero is zero, not a dash.
+
+    A total of zero is a fact; a column of the table with nothing in it is
+    only an absence.
+    """
+    if value == int(value):
+        return str(int(value))
+    return f"{value:g}".replace(".", ",")
+
+
+def _add_table(doc: DocxDocument, headers: tuple[str, ...], rows: list[list[str]]) -> None:
     table = doc.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
 
@@ -433,7 +465,7 @@ def _add_table(doc: Document, headers: tuple[str, ...], rows: list[list[str]]) -
 
 
 # --------------------------------------------------------------------------- sources
-def _render_sources(doc: Document, draft: ProgramDraft) -> None:
+def _render_sources(doc: DocxDocument, draft: ProgramDraft) -> None:
     if not draft.sources:
         return
 
@@ -443,8 +475,11 @@ def _render_sources(doc: Document, draft: ProgramDraft) -> None:
         if not items:
             continue
         _heading(doc, title, level=2)
-        for source in items:
-            doc.add_paragraph(_format_source(source), style="List Number")
+        for number, source in enumerate(items, start=1):
+            # The number is written into the text rather than left to the
+            # "List Number" style: that style keeps one counter for the whole
+            # document, so the second group would start where the first ended.
+            doc.add_paragraph(f"{number}. {_format_source(source)}")
 
 
 def _group_sources(
@@ -481,7 +516,7 @@ def _format_source(source: Source) -> str:
 
 
 # --------------------------------------------------------------------------- content
-def _render_assessment(doc: Document, assessment: AssessmentPlan) -> None:
+def _render_assessment(doc: DocxDocument, assessment: AssessmentPlan) -> None:
     """The means of checking: the attestation, the current control, the questions."""
     _page_break(doc)
     _heading(doc, "Оценочные материалы", level=1)
@@ -529,7 +564,7 @@ def _render_assessment(doc: Document, assessment: AssessmentPlan) -> None:
                 _bullets(doc, task.criteria)
 
 
-def _render_materials(doc: Document, materials: Materials) -> None:
+def _render_materials(doc: DocxDocument, materials: Materials) -> None:
     """The lecture plans and the slides."""
     if materials.lecture_plans:
         _page_break(doc)
@@ -553,7 +588,7 @@ def _render_materials(doc: Document, materials: Materials) -> None:
 
 
 # --------------------------------------------------------------------------- pending
-def _render_pending_sections(doc: Document, document: ProgramDocument) -> None:
+def _render_pending_sections(doc: DocxDocument, document: ProgramDocument) -> None:
     """The sections the document does not carry yet.
 
     A programme that has its assessment and its materials does not say that

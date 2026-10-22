@@ -385,10 +385,11 @@ at construction because GigaChat v2 has no strict mode; the OpenAI client honour
 
 ### The exports are attachments
 
-`GET /chats/{session_id}/program.docx` and `.../program.pptx` write the file into the
-attachments bucket, register it as an attachment of the chat and answer with the attachment
-id and a presigned link — the shape the client already gets for a file the methodist
-uploaded. The attachment route works on them unchanged, and no bucket was added for them.
+A finished programme is written to the attachments bucket as a DOCX document and a PPTX file,
+registered as attachments of the chat, and their ids are recorded on the programme's state.
+`GET /chats/{session_id}/program` carries them in `exports`, and the client fetches them
+through the attachment route it already uses for a file the methodist uploaded. There is no
+download endpoint of their own, and no bucket was added for them.
 
 ### The mock provider
 

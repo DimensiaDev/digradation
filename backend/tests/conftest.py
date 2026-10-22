@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 from collections.abc import AsyncGenerator, Generator
 
 # These must be set before anything under `app` is imported. `app.storage` builds
@@ -295,6 +296,34 @@ async def task_db(monkeypatch, engine: AsyncEngine):
     monkeypatch.setattr(database, "get_session_maker", lambda: maker)
     yield
     cached_session_maker.cache_clear()
+
+
+@pytest_asyncio.fixture()
+async def chat(engine: AsyncEngine) -> AsyncGenerator[uuid.UUID]:
+    """A committed chat, because the tasks open their own connections."""
+    from sqlalchemy import delete
+
+    from app.auth import hash_password
+    from app.models.auth import User
+    from app.models.chat import ChatSession
+
+    maker = async_sessionmaker(bind=engine, expire_on_commit=False)
+    async with maker() as db:
+        user = User(username=f"chat-{uuid.uuid4().hex[:8]}", password_hash=hash_password("password1234"))
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        row = ChatSession(session_id=uuid.uuid4(), user_id=user.id)
+        db.add(row)
+        await db.commit()
+        session_id, user_id = row.session_id, user.id
+    try:
+        yield session_id
+    finally:
+        async with maker() as db:
+            await db.execute(delete(ChatSession).where(ChatSession.session_id == session_id))
+            await db.execute(delete(User).where(User.id == user_id))
+            await db.commit()
 
 
 @pytest_asyncio.fixture()

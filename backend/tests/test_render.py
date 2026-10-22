@@ -279,6 +279,42 @@ def test_render_sources_grouped():
     assert "https://example.test" in text
 
 
+def test_the_bibliography_numbers_restart_in_every_group():
+    """The "List Number" style keeps one counter for the whole document."""
+    draft = _minimal_draft(
+        sources=[
+            Source(id="src-1", kind=SourceKind.NORMATIVE_ACT, title="ФЗ-273"),
+            Source(id="src-2", kind=SourceKind.NORMATIVE_ACT, title="Приказ 499"),
+            Source(id="src-3", kind=SourceKind.LITERATURE, title="Книга", primary=True),
+        ]
+    )
+
+    text = _docx_text(render_program_draft(draft))
+
+    assert "1. ФЗ-273" in text
+    assert "2. Приказ 499" in text
+    assert "1. Книга" in text
+
+
+def test_the_document_shows_the_traceability_of_the_programme():
+    """A reader has to see which standard a competence rests on."""
+    draft = _minimal_draft(
+        competencies=[
+            Competence(
+                id="comp-01",
+                statement="Способен анализировать данные",
+                standard_source_id="profstd-06.001",
+                knowledge=[Outcome(id="ro-k-01", statement="Знает основы статистики")],
+            )
+        ],
+    )
+
+    text = _docx_text(render_program_draft(draft))
+
+    assert "Профессиональный стандарт: profstd-06.001" in text
+    assert "ro-k-01. Знает основы статистики" in text
+
+
 def test_render_no_sources_skips_section():
     text = _docx_text(render_program_draft(_minimal_draft()))
     assert "Литература и источники" not in text
