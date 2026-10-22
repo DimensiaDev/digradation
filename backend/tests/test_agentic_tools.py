@@ -250,6 +250,7 @@ async def test_search_reports_what_the_catalog_does_not_hold(context: ToolContex
     result = await execute_tool(context, call("search_sources", {"query": "квантовая хромодинамика"}))
 
     assert result.ok is True
+    assert result.found is False
     assert "ничего не найдено" in (result.note or "")
 
 
@@ -263,6 +264,7 @@ async def test_search_returns_the_documents_it_found(context: ToolContext, monke
     result = await execute_tool(context, call("search_sources", {"query": "аналитик"}))
 
     assert result.ok is True
+    assert result.found is True
     assert [fragment.source.id for fragment in result.fragments] == [STANDARD_ID]
 
 
@@ -285,6 +287,21 @@ async def test_the_search_reaches_the_corpus_and_the_web(context: ToolContext, m
     assert result.fragments[0].source.id == STANDARD_ID
     assert result.fragments[-1].source.url == "https://ru.wikipedia.org/wiki/ФГОС"
     assert result.fragments[-1].source.confirmed is False
+
+
+async def test_an_unavailable_index_does_not_fail_the_stage(
+    context: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def search(query: str, *, kinds: Any = None, limit: int = 5):
+        raise tools.RagUnavailable("hub is down")
+
+    monkeypatch.setattr(sources, "search", search)
+
+    result = await execute_tool(context, call("search_sources", {"query": "аналитик"}))
+
+    assert result.ok is True
+    assert result.found is False
+    assert "временно недоступен" in (result.note or "")
 
 
 # --------------------------------------------------------------------------------------
@@ -635,6 +652,19 @@ async def test_a_catalog_standard_is_kept_with_the_catalog_record(
     assert context.state.competencies[0].standard_source_id == STANDARD_ID
     assert [source.title for source in context.state.sources] == [STANDARD_TITLE]
     assert [source.confirmed for source in context.state.sources] == [True]
+
+
+async def test_citation_forms_are_canonicalised_and_deduplicated(
+    context: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    catalog(monkeypatch)
+    context.state = at_stage(context.state, Stage.SOURCES)
+
+    result = await execute_tool(context, save(sources_block(STANDARD_ID, "src-1")))
+
+    assert result.ok is True
+    assert context.state is not None
+    assert [source.id for source in context.state.sources] == [STANDARD_ID]
 
 
 async def test_a_standard_must_be_a_professional_standard(

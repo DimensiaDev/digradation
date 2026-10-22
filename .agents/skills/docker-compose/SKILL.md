@@ -13,13 +13,13 @@ application; see the reasoning in `.context/DECISIONS.md`.
 | Service | Image / build | Role |
 |---|---|---|
 | `frontend` | `./frontend`, build arg `BACKEND_URL` | nginx serving the Angular bundle, proxies `/api` |
-| `backend` | context `./backend`, `backend/Dockerfile` | FastAPI + uvicorn on port 3000 |
+| `backend` | context `.`, `backend/Dockerfile` | FastAPI + uvicorn on port 3000 |
 | `migrate` | same image | one-shot `alembic upgrade head` |
 | `scheduler` | same image | TaskIQ scheduler |
 | `worker_default` | same image, x2 replicas | `default` queue |
 | `worker_network` | same image, x2 replicas | `network` queue |
 | `taskiq_dashboard` | `ghcr.io/danfimov/taskiq-dashboard:v0.4.4` | task observability |
-| `db` | `postgres:18-alpine`, `shm_size: 512mb` | application database |
+| `db` | `pgvector/pgvector:pg18`, `shm_size: 512mb` | application database + RAG index |
 | `redis` | `redis:8-alpine` | cache, locks, rate limits, TaskIQ results |
 | `rabbitmq` | `rabbitmq:4-management-alpine`, vhost `taskiq` | task broker |
 | `garage` | `dxflrs/garage:v2.4.1`, `--single-node` | S3 object storage |
@@ -69,10 +69,12 @@ the destructive command at a throwaway project name.
 FROM python:3.14-alpine
 RUN apk add --no-cache libstdc++
 RUN pip install poetry==2.4.3 uvicorn==0.52.4
+COPY backend/pyproject.toml backend/poetry.lock /app/
 WORKDIR /app
-COPY pyproject.toml poetry.lock /app/
+
+COPY rag/ /rag/
 RUN poetry install --only main --no-root
-COPY . .
+COPY backend/ .
 RUN chmod +x entrypoint.sh
 CMD ["./entrypoint.sh"]
 ```
@@ -82,9 +84,10 @@ CMD ["./entrypoint.sh"]
 - `uvicorn` is pinned and `pip`-installed in the image; it is deliberately **not** a project
   dependency.
 - Production installs use `--only main --no-root`; CI uses `poetry install --no-root`.
-- **The build context is `backend/`**, so every `COPY` is relative to it and nothing outside
-  the package enters the image. `backend/.dockerignore` keeps `tests/` out. Nothing builds
-  from the repository root, so there is no root `.dockerignore`.
+- **The backend build context is the repository root**, because the image installs the
+  sibling `rag/` package (`edu-rag`) alongside `backend/`. The root `.dockerignore` keeps
+  `frontend/`, `e2e/`, `parser/` and test code out. `frontend/` and `conf/` still build from
+  their own package directories, each with its own `.dockerignore`.
 - `frontend/Dockerfile` takes `ARG BACKEND_URL` and runs `node docker/rewrite-env.mjs` before
   `npm run build`, which is how the API base URL reaches the bundle.
 

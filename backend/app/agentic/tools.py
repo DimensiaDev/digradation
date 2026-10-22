@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.agentic import sources, websearch
 from app.agentic.models import ProgramStatus, Source, SourceKind, Stage
+from app.agentic.sources import RagUnavailable
 from app.agentic.state import (
     MAX_QUESTION_LENGTH,
     STAGE_ORDER,
@@ -35,6 +36,7 @@ from app.agentic.state import (
     new_state,
 )
 from app.providers.models import FunctionCall, FunctionDefinition, Tool, ToolCall
+from app.rag.catalog import canonical_source_id
 
 log = structlog.stdlib.get_logger(__name__)
 
@@ -78,6 +80,7 @@ class ToolResult(BaseModel):
 
 class SearchSourcesResult(ToolResult):
     query: str
+    found: bool = False
     fragments: list[sources.SourceFragment] = Field(default_factory=list)
 
 
@@ -250,8 +253,24 @@ STAGE_SPECS: dict[Stage, FunctionDefinition] = {
 
 
 async def search_sources(_ctx: ToolContext, arguments: SearchSourcesArguments) -> SearchSourcesResult:
-    """Search the catalog and the web, and remember the documents the model may cite."""
-    fragments = await sources.search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
+    """Search the catalogue, the index and the web.
+
+    Three places hold documents: the curated catalogue, the pgvector index over
+    the parsed corpus, and the web. The search asks the first two together and
+    the third on its own, so a document the corpus holds and a document only the
+    web knows about are both found.
+    """
+    unavailable = False
+    try:
+        fragments = await sources.search(arguments.query, kinds=arguments.kinds or None, limit=arguments.limit)
+    except RagUnavailable as error:
+        log.warning("source_search_unavailable", query=arguments.query, error=str(error))
+        unavailable = True
+        fragments = await sources.search_corpus(
+            arguments.query,
+            kinds=arguments.kinds or None,
+            limit=arguments.limit,
+        )
     for document in await websearch.search_web(arguments.query, limit=arguments.limit):
         fragments.append(
             sources.SourceFragment(
@@ -262,14 +281,23 @@ async def search_sources(_ctx: ToolContext, arguments: SearchSourcesArguments) -
             )
         )
     if not fragments:
-        return SearchSourcesResult(
-            query=arguments.query,
-            note=(
+        note = (
+            "Поиск по источникам временно недоступен. Продолжай без ссылок на документы: "
+            "не выдумывай источники и оставь ссылки пустыми, если поиск не вернул фрагменты."
+            if unavailable
+            else (
                 "По запросу ничего не найдено. Сформулируй запрос иначе или уточни вид деятельности; "
                 "не выдумывай источники и не ссылайся на документы, которых нет в результатах."
-            ),
+            )
         )
-    return SearchSourcesResult(query=arguments.query, fragments=fragments)
+        return SearchSourcesResult(query=arguments.query, found=False, note=note)
+    note = None
+    if unavailable:
+        note = (
+            "Индекс источников недоступен, ответы дал каталог. Если этого мало, скажи методисту: "
+            "ссылаться на документы, которых нет в ответе, нельзя."
+        )
+    return SearchSourcesResult(query=arguments.query, found=True, fragments=fragments, note=note)
 
 
 @dataclass(frozen=True)
@@ -287,21 +315,27 @@ class _Citations:
 
 
 def _resolve_sources(source_ids: Iterable[str], *, standards: Iterable[str] = ()) -> _Citations:
-    """Bind the cited ids to the catalog, collecting what could not be bound.
+    """Bind the cited ids to the catalogue, collecting what could not be bound.
 
-    A source the catalog does not hold is not a refusal: the programme keeps it
+    A source the catalogue does not hold is not a refusal: the programme keeps it
     and marks it as unconfirmed, because the methodist has to see that nobody
     verified the document. A professional standard a competence rests on is a
     refusal, because a competence has to stand on a standard that exists.
     """
     citations = _Citations(sources=[], unknown=[], unknown_standards=[], not_standards=[])
-    for source_id in dict.fromkeys(source_ids):
+    seen: set[str] = set()
+    for raw_source_id in source_ids:
+        source_id = canonical_source_id(raw_source_id)
+        if source_id in seen:
+            continue
+        seen.add(source_id)
         record = sources.get_source(source_id)
         if record is None:
             citations.unknown.append(source_id)
         else:
             citations.sources.append(record)
     for source_id in dict.fromkeys(standards):
+        source_id = canonical_source_id(source_id)
         record = sources.get_source(source_id)
         if record is None:
             citations.unknown_standards.append(source_id)
@@ -332,6 +366,20 @@ def _citation_error(citations: _Citations) -> SaveProgramDraftResult | None:
 
 def _no_ids(_block: Any) -> Iterable[str]:
     return ()
+
+
+def _catalogued(source: Source) -> Source:
+    """The catalogue record of a source, where the catalogue holds one.
+
+    A document the catalogue does not hold keeps what the model wrote about
+    it and is marked as unconfirmed: nobody verified it, and the methodist has
+    to see that.
+    """
+    source_id = canonical_source_id(source.id)
+    record = sources.get_source(source_id)
+    if record is None:
+        return source.model_copy(update={"id": source_id, "confirmed": False})
+    return record.model_copy(update={"primary": source.primary, "url": source.url or record.url})
 
 
 def _no_problems(_state: ProgramState, _block: Any) -> list[str]:
@@ -466,6 +514,11 @@ async def save_program_draft(ctx: ToolContext, arguments: BaseModel) -> SaveProg
     citations = _resolve_sources(rule.cited(arguments), standards=rule.standards(arguments))
     if error := _citation_error(citations):
         return error
+    if isinstance(arguments, SourcesBlock):
+        # Where the catalogue holds the document, its record is what the draft
+        # cites; a document the catalogue does not hold keeps what the model
+        # wrote and is marked as unconfirmed, because nobody verified it.
+        arguments = arguments.model_copy(update={"sources": [_catalogued(source) for source in arguments.sources]})
     ctx.state = rule.apply(state, arguments, citations.sources)
     ctx.dirty = ctx.saved = True
     return SaveProgramDraftResult(

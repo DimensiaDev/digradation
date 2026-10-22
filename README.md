@@ -151,7 +151,7 @@ Splitting them means a slow external API never blocks the local pipeline.
 
 **Frontend** — Angular 21 (standalone, signals) · TypeScript 5.9 · SCSS (BEM + CSS custom properties) · RxJS · Vitest · ESLint · Prettier
 
-**Infrastructure** — Docker Compose · PostgreSQL 18 · Redis 8 · RabbitMQ 4 · Garage
+**Infrastructure** — Docker Compose · PostgreSQL 18 + pgvector · Redis 8 · RabbitMQ 4 · Garage
 
 ---
 
@@ -250,7 +250,7 @@ Open **http://localhost:8080** and log in with the account you just created. �
 | `worker_default` | ×2 replicas on the `default` queue |
 | `worker_network` | ×2 replicas on the `network` queue |
 | `taskiq_dashboard` | task observability |
-| `db` | PostgreSQL 18 (`shm_size: 512mb`) |
+| `db` | PostgreSQL 18 + pgvector (`shm_size: 512mb`) |
 | `redis` | cache + locks + rate limits |
 | `rabbitmq` | task broker, vhost `taskiq` |
 | `garage` | S3-compatible object storage (`--single-node`) |
@@ -406,7 +406,12 @@ You should generally only touch variables marked as **Required**.
 | `OPENAI_URL`                  | Endpoint of the custom OpenAI-compatible hub. Required when `SBER_API_SCOPE=openai`; the public OpenAI endpoint and its models are not supported. | ✅ when `openai` |                     |
 | `OPENAI_MODEL`                | Model on the custom hub used by the OpenAI-compatible client.                                                                               | ❌           | `GigaChat/GigaChat-3-Pro` |
 | `OPENAI_EMBEDDING_MODEL`      | Embedding model served by the OpenAI-compatible router. Only used when `SBER_API_SCOPE=openai`.                                             | ❌           | `ai-sage/Giga-Embeddings-instruct-3B` |
-| `OPENAI_EMBEDDING_DIMENSION`  | Dimension of `OPENAI_EMBEDDING_MODEL` vectors. Must match the model — a mismatch is reported at indexing time.                              | ❌           | `2048`                  |
+| `OPENAI_EMBEDDING_DIMENSION`  | Dimension of `OPENAI_EMBEDDING_MODEL` vectors. Fixed at `2048` to match the `rag_chunks` column; a different value is refused when the embedding provider is built. | ❌ | `2048` |
+| **RAG retrieval**             |                                                                                                                                             |              |                         |
+| `RAG_ENABLED`                 | Enable source search for programme stages. Leave `false` until the one-off indexer has populated `rag_chunks`; the tool still exists but returns nothing. | ❌ | `false` |
+| `RAG_OVERSAMPLE`              | Store candidates fetched per requested fragment before the per-source cap is applied.                                                       | ❌           | `4`                     |
+| `RAG_MIN_SCORE`               | Cosine-similarity floor below which a fragment is discarded.                                                                               | ❌           | `0.15`                  |
+| `RAG_MAX_PER_SOURCE`          | Maximum fragments from one catalog source in a single result.                                                                               | ❌           | `3`                     |
 | **Object storage (Garage)**   |                                                                                                                                             |              |                         |
 | `S3_SECRET_KEY`               | Secret for the application's S3 key. ⚠️ Garage is exposed in production — a weak secret here can cause severe security issues. Generate with `openssl rand -hex 48`. | ✅           |                         |
 | `S3_ACCESS_KEY`               | Key id imported by `garage-bootstrap`. Must be `GK` + 26 hex chars. ⚠️ Cannot be reused with a different secret, so rotating the secret needs a new id. | ❌           | `GKd1a1b2c3d4e5f60718293a4b5c6d` |
@@ -428,27 +433,51 @@ You should generally only touch variables marked as **Required**.
 > backend (`redis://redis:6379`, `amqp://…@rabbitmq:5672/taskiq`, `http://garage:3900`,
 > `http://taskiq_dashboard:8000`). That is another reason the app only runs in Compose.
 
-### 🧬 RAG embeddings
+### 🧬 RAG embeddings and source search
 
-Embedding generation for RAG indexing goes through the school-hub router (an
-OpenAI-compatible endpoint), not through the direct GigaChat client. `PERS`,
-`B2B` and `CORP` scopes have no `/embeddings` endpoint, so indexing is only
-available under `SBER_API_SCOPE=openai` (or `mock` for offline runs).
+Embedding generation for the source index goes through the school-hub router
+(an OpenAI-compatible endpoint), not through the direct GigaChat client.
+`PERS`, `B2B` and `CORP` scopes have no `/embeddings` endpoint, so real indexing
+and retrieval are only available under `SBER_API_SCOPE=openai` (or `mock` for
+offline runs). Vector storage is PostgreSQL with the `pgvector` extension; the
+Compose `db` service uses the `pgvector/pgvector:pg18` image.
 
 | Variable | Required when | Notes |
 |---|---|---|
 | `OPENAI_URL` | `SBER_API_SCOPE=openai` | Base URL of the router, e.g. `https://hub.gigaschool.ru/api/v1/llm/v1` |
 | `OPENAI_EMBEDDING_MODEL` | `SBER_API_SCOPE=openai` | Model name, e.g. `ai-sage/Giga-Embeddings-instruct-3B` |
-| `OPENAI_EMBEDDING_DIMENSION` | `SBER_API_SCOPE=openai` | Must match the model (`2048` for the example above); a mismatch is reported as `EmbeddingError` at indexing time |
+| `OPENAI_EMBEDDING_DIMENSION` | `SBER_API_SCOPE=openai` | Must be `2048`: the `rag_chunks.embedding` column is `halfvec(2048)` and the HNSW index is built for it. A different value is refused when the embedding provider is built, before a vector can be written. |
+| `RAG_ENABLED` | | `false` by default. Set it to `true` only after the index exists. |
 
-Under `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) the three variables are
-ignored: a deterministic in-process mock returns vectors of dimension `1024` and
+Under `SBER_API_KEY=mock` (or `SBER_API_SCOPE=mock`) the embedding variables are
+ignored: a deterministic in-process mock returns vectors of dimension `2048` and
 never opens a socket. That is what keeps `pytest` and e2e offline.
 
-The backend exposes `GET /api/v1/rag/health` to confirm which model is wired
-without triggering an API call. Full indexing (`POST /rag/index`,
-`GET /rag/search`) lands in the next iteration, together with the pgvector
-table and its migration.
+The curated catalog lives in `backend/res/rag-sources.json` and gives each
+source a stable `src-NN` citation id. The parser's own `doc_id` is a content
+hash and cannot satisfy the programme schema, so ingestion joins parser output
+to the catalog by `source_path`. Entries marked `allow_empty` may legitimately
+yield no chunks (for example a scanned PDF before OCR) without failing the
+whole run.
+
+There are **no HTTP indexing or search endpoints yet**. Build the index with the
+one-off CLI from the backend image, after generating parser output under
+`edu_materials/parsed`:
+
+```bash
+docker compose run --rm \
+  -v "$PWD/edu_materials:/materials:ro" \
+  backend python index_rag.py --parsed /materials/parsed
+```
+
+The CLI is idempotent: unchanged chunks are skipped by fingerprint, changed ones
+are re-embedded, and `--prune` removes documents no longer in the catalog. Use
+`--dry-run` to print the plan without calling the hub, and `--strict` to fail on
+a missing or failed source, an empty source without `allow_empty`, or unclaimed
+parser output. An empty document with `allow_empty: true` is reported but does
+not fail the run. `search_sources` is offered only to the programme block
+stages, never to the chat intake; it returns nothing unless `RAG_ENABLED` is
+true.
 
 ### 🧠 Redis database designation
 

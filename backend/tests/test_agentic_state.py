@@ -193,7 +193,7 @@ def test_the_report_names_the_sources_nobody_confirmed(blocks: Blocks) -> None:
     assert sources.details["всего источников"] == 6
     assert sources.details["не подтверждено"] == 4
     assert sources.details["подтверждено"] == 2
-    assert "src-01" in " ".join(sources.problems)
+    assert "act-273-fz" in " ".join(sources.problems)
     assert "profstd-06.001" not in " ".join(sources.problems)
 
 

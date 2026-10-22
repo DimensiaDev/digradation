@@ -1,3 +1,145 @@
+"""Tests for the curated catalog and the RAG search seam."""
+
+from __future__ import annotations
+
+import pytest
+from edu_rag.models import SearchHit
+
+from app.agentic import sources
+from app.agentic.models import SourceKind
+from app.agentic.sources import (
+    RagUnavailable,
+    corpus_entries,
+    get_source,
+    search,
+)
+
+
+@pytest.fixture(autouse=True)
+def _clear_retriever_cache():
+    sources.clear_retriever_cache()
+    yield
+    sources.clear_retriever_cache()
+
+
+def test_the_catalog_has_the_curated_sources() -> None:
+    source = get_source("src-01")
+    assert source is not None
+    assert source.id == "src-01"
+    assert source.kind is SourceKind.NORMATIVE_ACT
+    assert "начального общего" in source.title
+
+
+def test_source_ids_are_canonicalised() -> None:
+    source = get_source("src-1")
+    assert source is not None
+    assert source.id == "src-01"
+
+
+def test_an_unknown_source_is_refused() -> None:
+    assert get_source("src-99") is None
+    assert get_source("not-a-source") is None
+
+
+def test_rag_is_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RAG_ENABLED", "false")
+    assert sources.get_retriever() is None
+
+
+async def test_the_corpus_answers_while_the_index_is_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without an index the corpus still answers, so the agent finds its documents."""
+    monkeypatch.setenv("RAG_ENABLED", "false")
+    sources.clear_retriever_cache()
+
+    fragments = await search("профессиональный стандарт программист")
+
+    assert fragments
+    assert fragments[0].source.id == "src-04"
+
+
+async def test_a_blank_query_never_reaches_the_retriever(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Boom:
+        async def retrieve(self, *_args, **_kwargs):
+            raise AssertionError("blank query reached the retriever")
+
+    monkeypatch.setattr(sources, "get_retriever", lambda: Boom())
+    assert await search("   ") == []
+
+
+async def test_search_maps_hits_to_catalog_sources(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeRetriever:
+        async def retrieve(self, query: str, *, kinds=None, limit: int = 5):
+            assert query == "начальное общее образование"
+            assert kinds == {"normative_act"}
+            assert limit == 3
+            return [
+                SearchHit(
+                    doc_id="abc123",
+                    ordinal=4,
+                    kind="text",
+                    source_id="src-1",
+                    source_kind="normative_act",
+                    section_title="Общие положения",
+                    page_number=7,
+                    content="Фрагмент стандарта",
+                    score=0.91,
+                )
+            ]
+
+    monkeypatch.setattr(sources, "get_retriever", lambda: FakeRetriever())
+    fragments = await search(
+        "начальное общее образование",
+        kinds=[SourceKind.NORMATIVE_ACT],
+        limit=3,
+    )
+
+    assert len(fragments) == 1
+    fragment = fragments[0]
+    assert fragment.fragment_id == "abc123:text:4"
+    assert fragment.source.id == "src-01"
+    assert fragment.section == "Общие положения"
+    assert fragment.page == 7
+    assert fragment.trust == 1.0
+    assert fragment.score == 0.91
+
+
+async def test_a_broken_catalog_is_reported_as_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeRetriever:
+        async def retrieve(self, *_args, **_kwargs):
+            return [
+                SearchHit(
+                    doc_id="abc123",
+                    ordinal=1,
+                    kind="text",
+                    source_id="src-01",
+                    source_kind="normative_act",
+                    section_title=None,
+                    page_number=None,
+                    content="Фрагмент",
+                    score=0.9,
+                )
+            ]
+
+    monkeypatch.setattr(sources, "get_retriever", lambda: FakeRetriever())
+
+    def broken_catalog():
+        raise ValueError("catalog is missing")
+
+    monkeypatch.setattr(sources, "catalog_by_id", broken_catalog)
+    with pytest.raises(RagUnavailable, match="catalog is missing"):
+        await search("anything")
+
+
+async def test_a_retriever_failure_is_reported_as_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    class BrokenRetriever:
+        async def retrieve(self, *_args, **_kwargs):
+            raise RuntimeError("embedding endpoint is down")
+
+    monkeypatch.setattr(sources, "get_retriever", lambda: BrokenRetriever())
+    with pytest.raises(RagUnavailable, match="embedding endpoint is down"):
+        await search("anything")
+
+
 """Tests for the source catalogue in ``app.agentic.sources``.
 
 The catalogue holds the documents of the corpus: the federal educational
@@ -7,26 +149,19 @@ does it say — and the tests pin both, including the honest answer for a query
 the corpus does not cover.
 """
 
-from __future__ import annotations
 
-import pytest
-
-from app.agentic.models import SourceKind
-from app.agentic.sources import CatalogEntry, clear_cache, entries, get_source, search
-
-
-def test_the_catalog_holds_the_documents_of_the_corpus() -> None:
+def test_the_corpus_holds_the_documents_of_the_corpus() -> None:
     """Every corpus directory contributes its documents."""
-    found = {entry.id for entry in entries()}
+    found = {entry.id for entry in corpus_entries()}
 
-    assert "fgos-soo-2026" in found
-    assert "profstd-06.017" in found
-    assert "prog-ba-internship-248h" in found
+    assert "src-03" in found
+    assert "src-05" in found
+    assert "src-10" in found
 
 
 def test_a_catalog_entry_carries_what_the_programme_cites() -> None:
     """The document is cited with its order, its origin and how far it may be trusted."""
-    record = get_source("profstd-06.017")
+    record = get_source("src-05")
 
     assert record is not None
     assert record.kind is SourceKind.PROFESSIONAL_STANDARD
@@ -39,7 +174,7 @@ def test_a_catalog_entry_carries_what_the_programme_cites() -> None:
 
 
 def test_a_document_the_corpus_does_not_hold_is_not_in_the_catalog() -> None:
-    assert get_source("src-01") is None
+    assert get_source("src-99") is None
     assert get_source("273-ФЗ") is None
 
 
@@ -48,7 +183,7 @@ async def test_a_search_finds_the_document_that_answers_the_query() -> None:
     fragments = await search("профессиональный стандарт программист")
 
     assert fragments
-    assert fragments[0].source.id == "profstd-06.001"
+    assert fragments[0].source.id == "src-04"
     assert fragments[0].source.confirmed is True
 
 
@@ -64,57 +199,9 @@ async def test_a_query_the_corpus_does_not_cover_finds_nothing() -> None:
     assert await search("квантовая хромодинамика") == []
 
 
-async def test_a_blank_query_never_reaches_the_catalog() -> None:
-    assert await search("   ") == []
-
-
 async def test_the_fragment_holds_the_lines_that_answer_the_query() -> None:
     fragments = await search("ФГОС среднего общего образования")
 
     assert fragments
-    assert fragments[0].source.id == "fgos-soo-2026"
-    assert "среднего общего" in fragments[0].source.title.lower()
+    assert fragments[0].source.id == "src-03"
     assert fragments[0].text
-
-
-def test_the_catalog_reads_the_description_of_a_document() -> None:
-    """The description is parsed into the fields the programme cites."""
-    from app.agentic.sources import _parse
-
-    parsed = _parse(
-        "ID: doc-1\n"
-        "Название: Название документа\n"
-        "Тип: Профессиональный стандарт\n"
-        "Версия/Дата: Приказ от 01.01.2020 № 1\n"
-        "Происхождение: Реестр\n"
-        "Статус доверия: Утверждённый\n"
-        "\n"
-        "Краткая выжимка:\n"
-        "\n"
-        "Цель: Проверить что поле разобрано\n",
-        SourceKind.PROFESSIONAL_STANDARD,
-    )
-
-    assert len(parsed) == 1
-    entry: CatalogEntry = parsed[0]
-    assert entry.id == "doc-1"
-    assert entry.title == "Название документа"
-    assert entry.identifier == "Приказ от 01.01.2020 № 1"
-    assert entry.origin == "Реестр"
-    assert entry.trust == "Утверждённый"
-    assert entry.summary == "Цель: Проверить что поле разобрано"
-
-
-def test_a_description_without_an_id_is_no_entry() -> None:
-    """A description that names no document contributes nothing."""
-    from app.agentic.sources import _parse
-
-    assert _parse("Просто текст без документа\n", SourceKind.LITERATURE) == []
-
-
-@pytest.fixture(autouse=True)
-def _clear_the_catalog():
-    """The catalogue is read once; a test that changes the corpus clears it."""
-    clear_cache()
-    yield
-    clear_cache()

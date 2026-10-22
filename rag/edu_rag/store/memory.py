@@ -8,7 +8,7 @@ the hood.
 """
 
 import copy
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 
 import numpy as np
@@ -129,6 +129,8 @@ class InMemoryVectorStore:
         self,
         query_vec: list[float],
         top_k: int = 10,
+        *,
+        kinds: Collection[str] | None = None,
     ) -> list[SearchHit]:
         if top_k <= 0:
             return []
@@ -145,6 +147,11 @@ class InMemoryVectorStore:
         entries: list[_Entry] = []
         for bucket in self._docs.values():
             entries.extend(bucket.values())
+        if kinds is not None:
+            wanted = set(kinds)
+            entries = [entry for entry in entries if entry.chunk.source_kind in wanted]
+        if not entries:
+            return []
 
         matrix = np.stack([e.vector for e in entries])
         norms = np.linalg.norm(matrix, axis=1)
@@ -161,6 +168,8 @@ class InMemoryVectorStore:
                 doc_id=entries[i].chunk.doc_id,
                 ordinal=entries[i].chunk.ordinal,
                 kind=entries[i].chunk.kind,
+                source_id=entries[i].chunk.source_id,
+                source_kind=entries[i].chunk.source_kind,
                 section_title=entries[i].chunk.section_title,
                 page_number=entries[i].chunk.page_number,
                 content=entries[i].chunk.content,

@@ -70,7 +70,7 @@ def test_the_fabricated_materials_belong_to_the_plan() -> None:
 def test_the_fabricated_sources_are_documents_of_the_corpus() -> None:
     block = SourcesBlock(sources=[_catalog_source()])
 
-    assert block.sources[0].id == "profstd-06.001"
+    assert block.sources[0].id == "src-04"
     assert block.sources[0].kind.value == "professional_standard"
 
 

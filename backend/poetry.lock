@@ -1207,6 +1207,7 @@ develop = false
 
 [package.dependencies]
 asyncpg = ">=0.31.0,<0.32.0"
+greenlet = "^3.5.6"
 httpx = ">=0.28.1,<0.29.0"
 numpy = ">=2.0.0,<3.0.0"
 pgvector = ">=0.3.0,<0.4.0"
@@ -5255,4 +5256,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.14,<4"
-content-hash = "8eab270d9e32703641d7c99c86717f126cf9cb3efe95ebf7931f733c5c0954a0"
+content-hash = "7e89c6c584e8c1d3ed3c8234817b16cc5b05e70655bf2d608a67066c711ac5d7"

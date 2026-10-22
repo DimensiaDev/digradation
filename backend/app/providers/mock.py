@@ -130,7 +130,7 @@ def _curriculum(total: float) -> dict:
 def _catalog_source() -> dict:
     """A document of the corpus, the way the agent would cite it."""
     return {
-        "id": "profstd-06.001",
+        "id": "src-04",
         "kind": "professional_standard",
         "title": "Профессиональный стандарт «Программист»",
         "identifier": "Приказ Минтруда России от 20.07.2022 № 424н",
