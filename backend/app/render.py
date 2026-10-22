@@ -38,17 +38,22 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 
 from app.agentic.models import (
+    ApprovalInfo,
     AssessmentPlan,
+    CaseStudy,
     Competence,
+    Conditions,
     Hours,
     Materials,
     Module,
     ProgramDraft,
+    ProgramFormat,
     ProgramKind,
     Source,
     SourceKind,
+    StaffSlot,
 )
-from app.agentic.state import ProgramDocument
+from app.agentic.state import ProgramDocument, ProgramReport
 
 ORGANIZATION_LINES: tuple[str, ...] = (
     "Автономная некоммерческая организация",
@@ -60,9 +65,45 @@ DEFAULT_CITY = "Магас"
 DEFAULT_YEAR = datetime.now().year
 
 KIND_TITLES: dict[ProgramKind, str] = {
-    ProgramKind.PROFESSIONAL_DEVELOPMENT: "ПРОГРАММА ПОВЫШЕНИЯ КВАЛИФИКАЦИИ",
+    ProgramKind.PROFESSIONAL_DEVELOPMENT: "ДОПОЛНИТЕЛЬНАЯ ПРОФЕССИОНАЛЬНАЯ ПРОГРАММА ПОВЫШЕНИЯ КВАЛИФИКАЦИИ",
     ProgramKind.GENERAL_DEVELOPMENT: "ДОПОЛНИТЕЛЬНАЯ ОБЩЕРАЗВИВАЮЩАЯ ПРОГРАММА",
 }
+
+INTERNSHIP_SUFFIX = "В ФОРМЕ СТАЖИРОВКИ"
+
+_MONTHS = (
+    "",
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
+)
+
+
+def _kind_title(draft: ProgramDraft) -> str:
+    """The programme's title line on the cover."""
+    title = KIND_TITLES[draft.kind]
+    if draft.format is ProgramFormat.INTERNSHIP:
+        return f"{title} {INTERNSHIP_SUFFIX}"
+    return title
+
+
+def _approval_line(approval: ApprovalInfo, year: int) -> str:
+    """The order line, filled in where the methodist has filled it."""
+    number = approval.order_number or "____"
+    if approval.order_date is not None:
+        date = f"«{approval.order_date.day:02d}» {_MONTHS[approval.order_date.month]} {approval.order_date.year}"
+    else:
+        date = f"«___» __________ {year}"
+    return f"Приказом № {number}-ОБР от {date} г."
 
 
 # --------------------------------------------------------------------------- entry point
@@ -99,7 +140,14 @@ def render_program_document(
     doc = Document()
     _set_global_style(doc)
 
-    _render_title_page(doc, draft, city=city, year=year, organization_lines=organization_lines)
+    _render_title_page(
+        doc,
+        draft,
+        approval=document.approval,
+        city=city,
+        year=year,
+        organization_lines=organization_lines,
+    )
     _render_explanatory_note(doc, draft)
     _render_goal_and_tasks(doc, draft)
     _render_target_audience(doc, draft)
@@ -111,6 +159,15 @@ def render_program_document(
         _render_assessment(doc, document.assessment)
     if document.materials is not None:
         _render_materials(doc, document.materials)
+        if document.materials.conditions.equipment or document.materials.conditions.teaching_materials:
+            _render_conditions(doc, document.materials.conditions)
+        if document.materials.staffing:
+            _render_staffing(doc, document.materials.staffing)
+        if document.materials.cases:
+            _render_cases(doc, document.materials.cases)
+    _render_signatures(doc, document.approval)
+    if document.report is not None:
+        _render_report(doc, document.report)
     _render_pending_sections(doc, document)
 
     buf = BytesIO()
@@ -162,6 +219,7 @@ def _render_title_page(
     doc: DocxDocument,
     draft: ProgramDraft,
     *,
+    approval: ApprovalInfo,
     city: str,
     year: int,
     organization_lines: tuple[str, ...],
@@ -175,14 +233,14 @@ def _render_title_page(
 
     p = doc.add_paragraph("УТВЕРЖДЕНО")
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p = doc.add_paragraph(f"Приказом № ____-ОБР от «___» __________ {year} г.")
+    p = doc.add_paragraph(_approval_line(approval, year))
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
     doc.add_paragraph("")
     doc.add_paragraph("")
     doc.add_paragraph("")
 
-    p = doc.add_paragraph(KIND_TITLES[draft.kind])
+    p = doc.add_paragraph(_kind_title(draft))
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     p = doc.add_paragraph(f"«{draft.title}»")
@@ -587,40 +645,122 @@ def _render_materials(doc: DocxDocument, materials: Materials) -> None:
                 _bullets(doc, slide.bullets)
 
 
+# --------------------------------------------------------------------------- conditions and staff
+def _render_conditions(doc: DocxDocument, conditions: Conditions) -> None:
+    """Material, methodical and staffing requirements of the programme."""
+    _page_break(doc)
+    _heading(doc, "Условия реализации программы", level=1)
+    if conditions.equipment:
+        _heading(doc, "Материально-техническое обеспечение", level=2)
+        _bullets(doc, conditions.equipment)
+    if conditions.teaching_materials:
+        _heading(doc, "Учебно-методическое обеспечение", level=2)
+        _bullets(doc, conditions.teaching_materials)
+    if conditions.staffing_requirements:
+        _heading(doc, "Требования к кадровому обеспечению", level=2)
+        _bullets(doc, conditions.staffing_requirements)
+
+
+def _render_staffing(doc: DocxDocument, staffing: list[StaffSlot]) -> None:
+    """The staff of the programme, with empty cells the methodist fills in."""
+    _page_break(doc)
+    _heading(doc, "Кадровое обеспечение программы", level=1)
+    headers = ("№", "Модуль/дисциплина", "Должность", "ФИО", "Учёная степень/звание")
+    rows: list[list[str]] = [
+        [
+            str(index),
+            slot.module_id or "—",
+            slot.position,
+            slot.fio or "",
+            slot.degree or "",
+        ]
+        for index, slot in enumerate(staffing, start=1)
+    ]
+    _add_table(doc, headers, rows)
+
+
+def _render_cases(doc: DocxDocument, cases: list[CaseStudy]) -> None:
+    """The partner-company cases of the programme."""
+    _page_break(doc)
+    _heading(doc, "Приложение № 1. Перечень кейсов", level=1)
+    headers = ("№", "Компания-владелец", "Кейс", "Бизнес-задача", "Данные", "Ответственный")
+    rows: list[list[str]] = [
+        [
+            str(index),
+            case.company or "",
+            case.title,
+            case.task or "",
+            case.data or "",
+            case.owner or "",
+        ]
+        for index, case in enumerate(cases, start=1)
+    ]
+    _add_table(doc, headers, rows)
+
+
+def _render_signatures(doc: DocxDocument, approval: ApprovalInfo) -> None:
+    """The signature block: blank lines the methodist signs by hand."""
+    doc.add_paragraph("")
+    _heading(doc, "Подписи", level=1)
+    _labeled(doc, "Разработчик:", "______________ / ______________")
+    _labeled(
+        doc,
+        "Руководитель организации:",
+        (approval.signatory + " / ______________") if approval.signatory else "______________ / ______________",
+    )
+
+
+def _render_report(doc: DocxDocument, report: ProgramReport) -> None:
+    """The self-check report: what the backend verified and what it found."""
+    _page_break(doc)
+    _heading(doc, "Отчёт автопроверки программы", level=1)
+    p = doc.add_paragraph()
+    p.add_run("Итог: ").bold = True
+    p.add_run("все проверки пройдены" if report.ok else "есть замечания")
+    for check in report.checks:
+        _heading(doc, check.name, level=2)
+        p = doc.add_paragraph()
+        p.add_run("Статус: ").bold = True
+        p.add_run("пройдена" if check.ok else "есть проблемы")
+        if check.problems:
+            _bullets(doc, check.problems)
+        if check.details:
+            for key, value in check.details.items():
+                _labeled(doc, f"{key}:", str(value))
+
+
 # --------------------------------------------------------------------------- pending
 def _render_pending_sections(doc: DocxDocument, document: ProgramDocument) -> None:
     """The sections the document does not carry yet.
 
-    A programme that has its assessment and its materials does not say that
-    they are still to be written; only the sections nothing was written for
-    are listed.
+    A programme that has its assessment, its materials, its conditions and its
+    staff does not say that they are still to be written; only the sections
+    nothing was written for are listed.
     """
+    materials = document.materials
     missing: list[str] = []
     if document.assessment is None:
         missing.append("Оценочные материалы")
-    if document.materials is None:
+    if materials is None or not materials.lecture_plans:
         missing.append("Методические материалы")
-    missing += [
-        "Условия реализации программы",
-        "Кадровое обеспечение",
-        "Приложение № 1. Перечень кейсов",
-    ]
+    if materials is None or not materials.conditions.equipment:
+        missing.append("Условия реализации программы")
+    if materials is None or not materials.staffing:
+        missing.append("Кадровое обеспечение")
+    if materials is None or not materials.cases:
+        missing.append("Приложение № 1. Перечень кейсов")
+    if not missing:
+        return
     _page_break(doc)
-    _heading(
-        doc,
-        "Разделы, заполняемые на следующем этапе генерации",
-        level=1,
-    )
+    _heading(doc, "Разделы, заполняемые на следующем этапе генерации", level=1)
     p = doc.add_paragraph()
     p.add_run(
         "Следующие разделы формируются из полного документа программы "
         "(EducationalProgram) и в этой заготовке намеренно оставлены "
         "пустыми:"
     ).italic = True
-
     for title in missing:
         doc.add_paragraph(title, style="List Bullet")
-
     doc.add_paragraph("")
     p = doc.add_paragraph()
     p.add_run("Данная заготовка предназначена для ручной доработки методистом.").italic = True

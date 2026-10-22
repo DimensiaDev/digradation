@@ -161,6 +161,7 @@ class ProgramExportsSchema(BaseModel):
 
     document_attachment_id: int | None = Field(default=None, description="Вложение с документом программы")
     slides_attachment_id: int | None = Field(default=None, description="Вложение со слайдами программы")
+    json_attachment_id: int | None = Field(default=None, description="Вложение с данными программы в JSON")
 
 
 class ProgramRevisionSchema(BaseModel):

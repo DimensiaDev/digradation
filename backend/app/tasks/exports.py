@@ -1,15 +1,22 @@
-"""Write the finished programme to storage, as a document and as slides.
+"""Write the finished programme to storage, as a document, as slides and as JSON.
 
 The exports are attachments of the chat, so the client fetches them with the
 attachment route it already uses for a file the methodist uploaded: the
 programme's state carries their ids, and the client asks that route for the
 link. There is no separate download endpoint, because the attachment route
 already is one.
+
+The JSON is the whole document, not the draft: a client that reconstructs the
+programme from it does not have to know which blocks the state has and which
+it does not. The slides are written only when the programme has at least one
+deck, because a title-only PPTX is not the "слайды хотя бы для одного модуля"
+the criterion asks for.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 
 import structlog.stdlib
@@ -30,17 +37,19 @@ log = structlog.stdlib.get_logger(__name__)
 #: a second export replaces the first instead of adding another file.
 DOCUMENT_NAME = "programme.docx"
 SLIDES_NAME = "programme-slides.pptx"
+JSON_NAME = "programme.json"
 
 #: The bucket the exports live in: the one the attachments live in, so the
 #: attachment route finds them where it looks.
 BUCKET = "uploads"
 DOCUMENT_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 SLIDES_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+JSON_MEDIA_TYPE = "application/json"
 
 
 @broker.task(queue_name="default")
 async def export_program(session_id: uuid.UUID, run_id: uuid.UUID) -> None:
-    """Write the programme to storage and record the ids of the two files.
+    """Write the programme to storage and record the ids of the exports.
 
     The task runs once the programme is complete, and again whenever a
     revision changes it: the exports are the programme, so they are as stale
@@ -50,11 +59,11 @@ async def export_program(session_id: uuid.UUID, run_id: uuid.UUID) -> None:
     if state is None:
         return
     try:
-        document, slides = await asyncio.to_thread(_render, state)
+        document, slides, payload = await asyncio.to_thread(_render, state)
     except IncompleteDraft as error:
         log.warning("program_export_incomplete", error=str(error))
         return
-    exports = await _store(session_id, document, slides)
+    exports = await _store(session_id, document, slides, payload)
     try:
         await store_save(state, exports, run_id)
     except Exception as error:
@@ -74,35 +83,58 @@ async def _load(session_id: uuid.UUID, run_id: uuid.UUID) -> ProgramState | None
     return state
 
 
-def _render(state: ProgramState) -> tuple[bytes, bytes]:
-    """The document and the slides of a finished programme."""
+def _render(state: ProgramState) -> tuple[bytes, bytes | None, bytes]:
+    """The document, the slides and the JSON of a finished programme.
+
+    The slides are ``None`` when the programme has no deck: a title-only PPTX
+    is not the criterion's "слайды хотя бы для одного модуля", so it is left
+    out rather than written and handed on as if it were one.
+    """
     document = state.to_document()
     title = state.title or "Презентационные материалы программы"
-    return (
-        render_program_document(document),
-        render_slides(state.materials, programme_title=title),
-    )
+    slides = render_slides(state.materials, programme_title=title) if state.materials.slide_decks else None
+    payload = json.dumps(
+        document.model_dump(mode="json"),
+        ensure_ascii=False,
+        indent=2,
+    ).encode("utf-8")
+    return render_program_document(document), slides, payload
 
 
-async def _store(session_id: uuid.UUID, document: bytes, slides: bytes) -> ProgramExports:
-    """Store both exports and register them as attachments of the chat."""
+async def _store(
+    session_id: uuid.UUID,
+    document: bytes,
+    slides: bytes | None,
+    payload: bytes,
+) -> ProgramExports:
+    """Store the exports and register them as attachments of the chat."""
     async with storage.internal_client() as s3:
         document_key = get_s3_attachment_key(session_id, DOCUMENT_NAME)
-        slides_key = get_s3_attachment_key(session_id, SLIDES_NAME)
-        await s3.put_object(
-            Bucket=BUCKET,
-            Key=document_key,
-            Body=document,
-            ContentType=DOCUMENT_MEDIA_TYPE,
-        )
-        await s3.put_object(Bucket=BUCKET, Key=slides_key, Body=slides, ContentType=SLIDES_MEDIA_TYPE)
+        await s3.put_object(Bucket=BUCKET, Key=document_key, Body=document, ContentType=DOCUMENT_MEDIA_TYPE)
+        slides_key = None
+        if slides is not None:
+            slides_key = get_s3_attachment_key(session_id, SLIDES_NAME)
+            await s3.put_object(Bucket=BUCKET, Key=slides_key, Body=slides, ContentType=SLIDES_MEDIA_TYPE)
+        json_key = get_s3_attachment_key(session_id, JSON_NAME)
+        await s3.put_object(Bucket=BUCKET, Key=json_key, Body=payload, ContentType=JSON_MEDIA_TYPE)
 
     async with db_session() as db:
         document_id = await _register(db, session_id, DOCUMENT_NAME, document_key)
-        slides_id = await _register(db, session_id, SLIDES_NAME, slides_key)
+        slides_id = await _register(db, session_id, SLIDES_NAME, slides_key) if slides_key is not None else None
+        json_id = await _register(db, session_id, JSON_NAME, json_key)
         await db.commit()
-    log.info("program_exported", chat_session_id=str(session_id), document=document_id, slides=slides_id)
-    return ProgramExports(document_attachment_id=document_id, slides_attachment_id=slides_id)
+    log.info(
+        "program_exported",
+        chat_session_id=str(session_id),
+        document=document_id,
+        slides=slides_id,
+        json=json_id,
+    )
+    return ProgramExports(
+        document_attachment_id=document_id,
+        slides_attachment_id=slides_id,
+        json_attachment_id=json_id,
+    )
 
 
 async def _register(db, session_id: uuid.UUID, name: str, key: str) -> int:

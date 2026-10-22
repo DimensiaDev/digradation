@@ -311,13 +311,15 @@ class MockProvider(AIClient):
             return self._call(SAVE_PROGRAM_DRAFT, self._block(spec.parameters, message_history), fingerprint)
         if BEGIN_PROGRAM in names:
             text = _last_text(message_history).strip() or "Программа (mock)"
-            arguments: dict = {"requirements": text[:4000]}
+            arguments: dict = {
+                "requirements": text[:4000],
+                "kind": "professional_development",
+                "format": "course",
+            }
             hours = _requested_hours(text)
             if hours is not None:
                 arguments["requested_hours"] = hours
             else:
-                # Without a volume the curriculum cannot be built, so the mock
-                # asks the methodist instead of inventing one.
                 arguments["questions"] = [MOCK_QUESTION]
             return self._call(BEGIN_PROGRAM, arguments, fingerprint)
         return self._wrap([Message(role=Role.ASSISTANT, content=[Content(text=self._reply(fingerprint))])], fingerprint)
@@ -366,6 +368,7 @@ class MockProvider(AIClient):
         if "competencies" in properties:
             return {
                 "kind": "professional_development",
+                "format": "course",
                 "title": "Программа (mock)",
                 "competencies": [
                     {
