@@ -16,6 +16,7 @@ import {
 } from '@angular/core';
 import {
   LucideArrowRight,
+  LucideArrowUp,
   LucideCheckCheck,
   LucideDownload,
   LucideDynamicIcon,
@@ -26,7 +27,6 @@ import {
   LucidePanelRightClose,
   LucidePanelRightOpen,
   LucidePaperclip,
-  LucideSendHorizontal,
   LucideTrash2
 } from '@lucide/angular';
 import type { LucideIconData } from '@lucide/angular';
@@ -51,7 +51,6 @@ import { SpeechRecognitionService } from '../../core/services/speech-recognition
 import { extractApiErrorMessage } from '../../shared/utils/api-error';
 import { speechErrorNotice } from '../../shared/utils/speech-error';
 import { Router } from '@angular/router';
-import { InputComponent } from '../../shared/components/input/input.component';
 import { fileTypeStyleFor } from '../../shared/utils/file-types';
 import { getFileExtension } from '../../shared/utils/upload-format';
 import { DragOverlayComponent } from '../../shared/components/drag-n-drop/drag-overlay.component';
@@ -67,7 +66,6 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
     LucidePanelRightClose,
     LucidePanelRightOpen,
     LucidePaperclip,
-    LucideSendHorizontal,
     LucideDownload,
     LucideEye,
     LucideDynamicIcon,
@@ -75,6 +73,7 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
     DragOverlayComponent,
     LucideTrash2,
     LucideArrowRight,
+    LucideArrowUp,
     LucideCheckCheck,
     LucideFileCheck2,
     LucideLayoutTemplate,
@@ -82,7 +81,6 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
     ChatMessageComponent,
     AgentStatusComponent,
     FilePreviewComponent,
-    InputComponent,
     ChatQuestionFormComponent
   ],
   standalone: true,
@@ -249,6 +247,7 @@ export class ChatComponent implements OnInit {
   }
 
   private readonly chatMessages = viewChild<ElementRef<HTMLUListElement>>('chatMessages');
+  private readonly messageTextarea = viewChild<ElementRef<HTMLTextAreaElement>>('messageTextarea');
   private readonly dragNDrop = viewChild(DragNDropComponent);
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -307,6 +306,18 @@ export class ChatComponent implements OnInit {
         }
         const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         log.scrollTo({ top: log.scrollHeight, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+      }
+    });
+
+    afterRenderEffect({
+      write: () => {
+        const textarea = this.messageTextarea()?.nativeElement;
+        if (!textarea) {
+          return;
+        }
+        this.messageInputValue();
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
       }
     });
   }
@@ -450,6 +461,13 @@ export class ChatComponent implements OnInit {
   onMessageInput(event: Event) {
     const target = event.target as HTMLTextAreaElement;
     this.messageInputValue.set(target.value);
+  }
+
+  focusMessageInput(event: MouseEvent): void {
+    if ((event.target as HTMLElement).closest('button, input, textarea, a, label')) {
+      return;
+    }
+    this.messageTextarea()?.nativeElement.focus();
   }
 
   onMessageKeydown(event: KeyboardEvent) {
