@@ -141,6 +141,12 @@
   }
 }
 
+app-input {
+  --input-wrapper-padding: 10px;
+  --input-textarea-min-height: 24px;
+  --input-textarea-padding: 0 5px;
+}
+
 @media (max-width: 600px) {
   .question-form {
     max-height: 70vh;
