@@ -1,0 +1,113 @@
+<section class="decision" aria-labelledby="program-decision-title">
+  <header class="decision__header">
+    <span class="decision__icon" aria-hidden="true">
+      <svg size="20" lucideClipboardCheck></svg>
+    </span>
+    <div class="decision__heading">
+      <p id="program-decision-title" class="decision__eyebrow">Каркас программы готов</p>
+      <p class="decision__hint">
+        Проверьте каркас программы — от вашего решения зависит, будет ли написано содержание.
+      </p>
+    </div>
+  </header>
+
+  @if (lastRevision(); as revision) {
+    <p class="decision__last">Прошлая правка: {{ revision.stageLabel }} — «{{ revision.notes }}»</p>
+  }
+
+  <div class="decision__cards">
+    @if (mode() !== 'revise') {
+      <article class="decision__card">
+        <div class="decision__card-heading">
+          <svg size="18" lucideCircleCheck aria-hidden="true"></svg>
+          <p class="decision__card-title">Утвердить каркас</p>
+        </div>
+        <p class="decision__card-text">
+          Агент напишет оценочные средства и материалы по этому каркасу.
+        </p>
+        <button
+          type="button"
+          class="button button--main decision__action"
+          [disabled]="submitting()"
+          (click)="startApproval()"
+        >
+          <svg size="16" lucideCheck aria-hidden="true"></svg>
+          {{ submitting() ? 'Утверждаем…' : 'Утвердить каркас' }}
+        </button>
+      </article>
+    }
+
+    @if (mode() !== 'approve') {
+      <article class="decision__card">
+        <div class="decision__card-heading">
+          <svg size="18" lucidePencilLine aria-hidden="true"></svg>
+          <p class="decision__card-title">Запросить доработку</p>
+        </div>
+        <p class="decision__card-text">Выберите блок и опишите, что в нём изменить.</p>
+
+        @if (mode() === 'choose') {
+          <button
+            type="button"
+            class="button button--outline decision__action"
+            [disabled]="submitting() || blocks().length === 0"
+            (click)="startRevision()"
+          >
+            Выбрать блок
+          </button>
+        } @else {
+          <div class="decision__blocks" role="radiogroup" aria-label="Блок программы">
+            @for (block of blocks(); track block.id) {
+              <button
+                type="button"
+                role="radio"
+                class="decision__block"
+                [class.decision__block--active]="selectedStage() === block.id"
+                [attr.aria-checked]="selectedStage() === block.id"
+                [disabled]="submitting()"
+                (click)="selectedStage.set(block.id)"
+              >
+                {{ block.label }}
+              </button>
+            }
+          </div>
+
+          <app-input
+            [asTextarea]="true"
+            [autoResize]="true"
+            [rows]="2"
+            [maxLength]="maxNotes"
+            [counterVisibleFrom]="1000"
+            [placeholder]="'Что именно изменить…'"
+            [ariaLabel]="
+              selectedLabel() ? 'Что изменить в блоке «' + selectedLabel() + '»' : 'Что изменить'
+            "
+            [value]="notes()"
+            [disabled]="submitting()"
+            (valueChange)="notes.set($event)"
+            (keydown)="onNotesKeydown($event)"
+          />
+
+          <footer class="decision__footer">
+            <button
+              type="button"
+              class="button button--outline decision__cancel"
+              [disabled]="submitting()"
+              (click)="cancelRevision()"
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              class="button button--main decision__submit"
+              [disabled]="!canSubmitRevision() || submitting()"
+              (click)="submitRevision()"
+            >
+              <svg size="16" lucideSend aria-hidden="true"></svg>
+              {{ submitting() ? 'Отправляем…' : 'На доработку' }}
+            </button>
+          </footer>
+        }
+      </article>
+    }
+  </div>
+</section>

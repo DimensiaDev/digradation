@@ -1,0 +1,97 @@
+@use '../../../mixins' as *;
+
+:host {
+  display: block;
+  overflow: hidden;
+
+  border: 1px solid var(--color-outline);
+  border-radius: 11px;
+
+  transition: background 180ms ease;
+
+  @include reduced-motion;
+}
+
+.accordion {
+  &__heading {
+    margin: 0;
+  }
+
+  &__toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+
+    width: 100%;
+    padding: 11px 12px;
+
+    font: inherit;
+    color: inherit;
+    text-align: left;
+
+    background: none;
+    border: 0;
+
+    cursor: pointer;
+
+    &:focus-visible {
+      outline: 2px solid var(--color-main);
+      outline-offset: -2px;
+    }
+  }
+
+  &__title {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+
+    min-width: 0;
+  }
+
+  &__end {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__chevron {
+    flex-shrink: 0;
+
+    color: var(--color-main);
+
+    transition: transform 180ms ease;
+
+    @include reduced-motion;
+
+    &--open {
+      transform: rotate(180deg);
+    }
+  }
+
+  &__panel {
+    display: grid;
+    grid-template-rows: 1fr;
+
+    transition: grid-template-rows 220ms ease;
+
+    @include reduced-motion;
+
+    &--collapsed {
+      grid-template-rows: 0fr;
+    }
+  }
+
+  &__panel-inner {
+    min-height: 0;
+
+    overflow: hidden;
+  }
+
+  &__panel-content {
+    padding: 10px 12px 12px;
+
+    border-top: 1px solid var(--color-outline);
+  }
+}

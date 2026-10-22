@@ -3,9 +3,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 
-import { ChatService, CHATS_PAGE_SIZE } from './chat.service';
+import { ChatService } from './chat.service';
 import { environment } from '../../../environments/environment';
-import type { PaginatedResponse, UserChat } from '../models/models';
 
 const SESSION_ID = 'd0a3f1e2-0000-4000-8000-123456789abc';
 
@@ -38,59 +37,6 @@ describe('ChatService', () => {
     req.flush({ session_id: SESSION_ID }, { status: 202, statusText: 'Accepted' });
 
     expect(result?.session_id).toBe(SESSION_ID);
-  });
-
-  it('loads the first page of chats with the server-side defaults', () => {
-    let result: PaginatedResponse<UserChat> | undefined;
-
-    service.list().subscribe((page) => {
-      result = page;
-    });
-
-    const req = http.expectOne((r) => r.url === `${environment.apiUrl}/chats/`);
-    expect(req.request.method).toBe('GET');
-    expect(req.request.params.get('page')).toBe('0');
-    expect(req.request.params.get('items_per_page')).toBe(String(CHATS_PAGE_SIZE));
-    expect(req.request.params.get('sort')).toBe('date');
-    expect(req.request.params.get('order')).toBe('desc');
-    req.flush({ items: [], total: 0, page: 0, items_per_page: CHATS_PAGE_SIZE });
-
-    expect(result).toEqual({ items: [], total: 0, page: 0, items_per_page: CHATS_PAGE_SIZE });
-  });
-
-  it('passes the requested page, size and ordering as query parameters', () => {
-    let result: PaginatedResponse<UserChat> | undefined;
-
-    service.list({ page: 2, itemsPerPage: 5, sort: 'number', order: 'asc' }).subscribe((page) => {
-      result = page;
-    });
-
-    const req = http.expectOne((r) => r.url === `${environment.apiUrl}/chats/`);
-    expect(req.request.params.get('page')).toBe('2');
-    expect(req.request.params.get('items_per_page')).toBe('5');
-    expect(req.request.params.get('sort')).toBe('number');
-    expect(req.request.params.get('order')).toBe('asc');
-    req.flush({
-      items: [
-        {
-          session_id: SESSION_ID,
-          last_message: {
-            id: 1,
-            role: 'user',
-            content: 'привет',
-            attachments: [],
-            timestamp: 'now'
-          },
-          name: 'Заметки по проекту'
-        }
-      ],
-      total: 11,
-      page: 2,
-      items_per_page: 5
-    });
-
-    expect(result?.total).toBe(11);
-    expect(result?.items[0].session_id).toBe(SESSION_ID);
   });
 
   it('loads chat messages', () => {
@@ -148,6 +94,91 @@ describe('ChatService', () => {
     req.flush({ running: true, result: null });
 
     expect(result?.running).toBe(true);
+  });
+
+  it('sends answers together with an empty message', () => {
+    let result: { message: string } | undefined;
+
+    service
+      .send(SESSION_ID, '', [{ question_id: 'question-1', text: 'Для руководителей' }])
+      .subscribe((response) => {
+        result = response;
+      });
+
+    const req = http.expectOne(`${environment.apiUrl}/chats/${SESSION_ID}`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({
+      content: '',
+      answers: [{ question_id: 'question-1', text: 'Для руководителей' }]
+    });
+    req.flush({ message: 'Message accepted' }, { status: 202, statusText: 'Accepted' });
+
+    expect(result?.message).toBe('Message accepted');
+  });
+
+  it('fetches the programme state of a chat', () => {
+    let result: { status: string; questions: readonly { id: string }[] } | undefined;
+
+    service.program(SESSION_ID).subscribe((program) => {
+      result = program;
+    });
+
+    const req = http.expectOne(`${environment.apiUrl}/chats/${SESSION_ID}/program`);
+    expect(req.request.method).toBe('GET');
+    req.flush({
+      status: 'awaiting_answers',
+      current_stage: 'competences',
+      stages: {},
+      running: false,
+      busy: false,
+      error: null,
+      updated_at: '2026-10-21T12:00:00Z',
+      version: 2,
+      questions: [{ id: 'question-1', text: 'Для кого программа?' }],
+      draft: {
+        kind: null,
+        title: null,
+        competencies: [],
+        curriculum: null,
+        sources: [],
+        summary: null
+      }
+    });
+
+    expect(result?.status).toBe('awaiting_answers');
+    expect(result?.questions[0].id).toBe('question-1');
+  });
+
+  it('approves the programme draft', () => {
+    let result: { status: string } | undefined;
+
+    service.approveProgram(SESSION_ID).subscribe((program) => {
+      result = program;
+    });
+
+    const req = http.expectOne(`${environment.apiUrl}/chats/${SESSION_ID}/program/approve`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({});
+    req.flush({ status: 'generating' });
+
+    expect(result?.status).toBe('generating');
+  });
+
+  it('requests a revision of one block with the notes', () => {
+    let result: { status: string } | undefined;
+
+    service
+      .reviseProgram(SESSION_ID, { stage: 'hours', notes: 'Добавить кейс в тему 2.3' })
+      .subscribe((program) => {
+        result = program;
+      });
+
+    const req = http.expectOne(`${environment.apiUrl}/chats/${SESSION_ID}/program/revision`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ stage: 'hours', notes: 'Добавить кейс в тему 2.3' });
+    req.flush({ status: 'generating' });
+
+    expect(result?.status).toBe('generating');
   });
 
   it('performs the attachment upload pipeline requests', () => {

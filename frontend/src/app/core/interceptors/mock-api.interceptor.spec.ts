@@ -6,7 +6,15 @@ import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { environment as mockEnvironment } from '../../../environments/environment.mock';
 import { mockApiInterceptor } from './mock-api.interceptor';
-import type { AdminUser, InstanceSettings, UserChat } from '../../core/models/models';
+import type {
+  AdminUser,
+  ChatAttachmentUrl,
+  ChatMessageApi,
+  InstanceSettings,
+  ProgramPageApi,
+  ProgramStateApi,
+  UserChat
+} from '../../core/models/models';
 
 const API = environment.apiUrl;
 
@@ -218,6 +226,134 @@ describe('mockApiInterceptor', () => {
     // The mock only writes on PATCH, so the stored value is untouched.
     const reread = await firstValueFrom(http.get<InstanceSettings>(`${API}/admin/settings`));
     expect(reread.prompt_extension).toBe('тест');
+  });
+
+  it('creates a chat, accepts a message and reports the answer', async () => {
+    await login();
+    const before = await firstValueFrom(
+      http.get<{ items: UserChat[]; total: number }>(`${API}/chats`)
+    );
+
+    const created = await firstValueFrom(http.post<{ session_id: string }>(`${API}/chats/`, {}));
+    expect(created.session_id).toBeTruthy();
+    await expect(
+      firstValueFrom(http.get<ChatMessageApi[]>(`${API}/chats/${created.session_id}`))
+    ).resolves.toEqual([]);
+    await expect(
+      firstValueFrom(http.get<ProgramStateApi>(`${API}/chats/${created.session_id}/program`))
+    ).resolves.toMatchObject({ status: 'none', questions: [] });
+
+    await firstValueFrom(
+      http.post(`${API}/chats/${created.session_id}`, { content: 'Собери программу' })
+    );
+
+    const messages = await firstValueFrom(
+      http.get<ChatMessageApi[]>(`${API}/chats/${created.session_id}`)
+    );
+    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant']);
+
+    const result = await firstValueFrom(
+      http.get<{ running: boolean; result: { content: string } | null }>(
+        `${API}/chats/${created.session_id}/result`
+      )
+    );
+    expect(result.running).toBe(false);
+    expect(result.result?.content).toContain('Принято');
+
+    const after = await firstValueFrom(
+      http.get<{ items: UserChat[]; total: number }>(`${API}/chats`)
+    );
+    expect(after.total).toBe(before.total + 1);
+    expect(after.items[0].session_id).toBe(created.session_id);
+  });
+
+  it('serves the chat and state of a catalog programme', async () => {
+    await login();
+    const page = await firstValueFrom(
+      http.get<ProgramPageApi>(`${API}/chats/programmes?page=0&items_per_page=20`)
+    );
+    const programme = page.items[0];
+
+    const messages = await firstValueFrom(
+      http.get<ChatMessageApi[]>(`${API}/chats/${programme.session_id}`)
+    );
+    expect(messages.length).toBe(2);
+    expect(messages[1].role).toBe('assistant');
+
+    const state = await firstValueFrom(
+      http.get<ProgramStateApi>(`${API}/chats/${programme.session_id}/program`)
+    );
+    expect(state.draft.title).toBe(programme.title);
+    expect(state.draft.summary?.goal).toBeTruthy();
+  });
+
+  it('reports programme checks and exports for a finished programme', async () => {
+    await login();
+    const state = await firstValueFrom(
+      http.get<ProgramStateApi>(`${API}/chats/mock-programme-4/program`)
+    );
+    expect(state.report?.ok).toBe(true);
+    expect(state.report?.checks.length).toBe(4);
+    expect(state.exports).toEqual({
+      document_attachment_id: 4001,
+      slides_attachment_id: 4002
+    });
+  });
+
+  it('serves a programme export as an attachment URL', async () => {
+    await login();
+    const document = await firstValueFrom(
+      http.get<ChatAttachmentUrl>(`${API}/chats/mock-programme-4/attachments/4001`)
+    );
+    expect(document.filename).toBe('programme.docx');
+    expect(document.attachment_url).toContain('data:text/plain');
+
+    const slides = await firstValueFrom(
+      http.get<ChatAttachmentUrl>(`${API}/chats/mock-programme-4/attachments/4002`)
+    );
+    expect(slides.filename).toBe('programme-slides.pptx');
+  });
+
+  it('clears the open questions of a waiting programme after answers', async () => {
+    await login();
+    const sessionId = 'mock-programme-6';
+    const before = await firstValueFrom(
+      http.get<ProgramStateApi>(`${API}/chats/${sessionId}/program`)
+    );
+    expect(before.status).toBe('awaiting_answers');
+    expect(before.questions.length).toBeGreaterThan(0);
+
+    await firstValueFrom(
+      http.post(`${API}/chats/${sessionId}`, {
+        content: '',
+        answers: before.questions.map((question) => ({
+          question_id: question.id,
+          text: 'Ответ'
+        }))
+      })
+    );
+
+    const after = await firstValueFrom(
+      http.get<ProgramStateApi>(`${API}/chats/${sessionId}/program`)
+    );
+    expect(after.status).toBe('pending_approval');
+    expect(after.questions).toEqual([]);
+  });
+
+  it('shows a mixed soft-skills programme with one passing check', async () => {
+    await login();
+    const state = await firstValueFrom(
+      http.get<ProgramStateApi>(`${API}/chats/mock-programme-6/program`)
+    );
+
+    expect(state.draft.title).toBe('Soft skills для руководителей');
+    expect(state.draft.competencies.length).toBeGreaterThan(0);
+    expect(state.draft.sources.length).toBeGreaterThan(0);
+    expect(state.draft.curriculum).toBeNull();
+
+    const passed = state.report?.checks.filter((check) => check.ok) ?? [];
+    expect(passed).toHaveLength(1);
+    expect(passed[0].name).toBe('источники');
   });
 
   it('rejects unknown routes with 404', async () => {

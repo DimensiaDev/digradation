@@ -148,8 +148,11 @@ export class AuthDialogComponent {
   }
 
   private completeLogin(): void {
+    // `refresh`, not `fetchMe`: the initial session check may still be in flight,
+    // and it was issued as a guest — joining it would answer 401 and sign the
+    // methodist in on the backend while the app stayed a guest.
     this.profile
-      .fetchMe()
+      .refresh()
       .pipe(catchError(() => of(null)))
       .subscribe(() => this.finishLogin());
   }

@@ -1,20 +1,23 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter, Router } from '@angular/router';
-import { By } from '@angular/platform-browser';
 import { vi } from 'vitest';
 
 import { ChatComponent } from './chat.component';
 import { environment } from '../../../environments/environment';
 import { NotificationService } from '../../core/services/notification.service';
 import { InitialChatStateService } from '../../core/services/initial-chat-state.service';
+import { SpeechRecognitionService } from '../../core/services/speech-recognition.service';
 
 const SESSION_ID = 'd0a3f1e2-0000-4000-8000-123456789abc';
 const HISTORY_URL = `${environment.apiUrl}/chats/${SESSION_ID}`;
 const RESULT_URL = `${environment.apiUrl}/chats/${SESSION_ID}/result`;
 const SEND_URL = `${environment.apiUrl}/chats/${SESSION_ID}`;
 const ATTACHMENTS_URL = `${environment.apiUrl}/chats/${SESSION_ID}/attachments`;
+const APPROVE_URL = `${environment.apiUrl}/chats/${SESSION_ID}/program/approve`;
+const REVISION_URL = `${environment.apiUrl}/chats/${SESSION_ID}/program/revision`;
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
@@ -40,6 +43,24 @@ const successResult = (overrides: Record<string, unknown> = {}) => ({
     ...overrides
   }
 });
+
+const speechListening = signal(false);
+const speechTranscript = signal<{ final: string; interim: string }>({ final: '', interim: '' });
+let speechErrorHandler: ((code: string) => void) | null = null;
+
+const speechMock = {
+  isSupported: true,
+  isListening: speechListening.asReadonly(),
+  transcript: speechTranscript.asReadonly(),
+  start: vi.fn((options: { onError?: (code: string) => void } = {}) => {
+    speechListening.set(true);
+    speechErrorHandler = options.onError ?? null;
+  }),
+  stop: vi.fn(() => speechListening.set(false)),
+  stopAndWait: vi.fn(async () => {
+    speechListening.set(false);
+  })
+};
 
 /**
  * Behaviour of the chat view: sending, the 2 s polling loop, its 5-minute
@@ -94,10 +115,22 @@ describe('Chat behaviour', () => {
     }
     TestBed.configureTestingModule({
       imports: [ChatComponent],
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()]
+      providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: SpeechRecognitionService, useValue: speechMock }
+      ]
     });
     http = TestBed.inject(HttpTestingController);
     notifications = TestBed.inject(NotificationService);
+    speechMock.isSupported = true;
+    speechListening.set(false);
+    speechTranscript.set({ final: '', interim: '' });
+    speechErrorHandler = null;
+    speechMock.start.mockClear();
+    speechMock.stop.mockClear();
+    speechMock.stopAndWait.mockClear();
     vi.spyOn(notifications, 'error');
     vi.spyOn(notifications, 'success');
     vi.spyOn(notifications, 'info');
@@ -386,7 +419,7 @@ describe('Chat behaviour', () => {
     expect(notifications.success).toHaveBeenCalledWith('Сессия удалена', {
       description: 'Чат и его сообщения удалены безвозвратно.'
     });
-    expect(navigate).toHaveBeenCalledWith(['/create']);
+    expect(navigate).toHaveBeenCalledWith(['/home']);
   });
 
   it('explains a delete failure differently for a missing session', () => {
@@ -397,26 +430,15 @@ describe('Chat behaviour', () => {
       .expectOne(SEND_URL)
       .flush({ detail: 'Invalid session' }, { status: 403, statusText: 'Forbidden' });
     expect(notifications.error).toHaveBeenCalledWith('Сессия не найдена или уже удалена', {
-      description: 'Чат не был удалён — обновите список чатов и попробуйте снова.'
+      description: 'Чат не был удалён — откройте программу и попробуйте снова.'
     });
 
     // A 5xx is normalised to a generic message by extractApiErrorMessage.
     component.deleteSession();
     http.expectOne(SEND_URL).flush({ detail: 'oops' }, { status: 500, statusText: 'Server Error' });
     expect(notifications.error).toHaveBeenCalledWith('Не удалось удалить сессию: Ошибка сервера', {
-      description: 'Чат не был удалён — обновите список чатов и попробуйте снова.'
+      description: 'Чат не был удалён — откройте программу и попробуйте снова.'
     });
-  });
-
-  it('toggles the files panel', () => {
-    openSession();
-    expect(fixture.nativeElement.classList.contains('files-open')).toBe(false);
-    component.handleFilesOpen();
-    fixture.detectChanges();
-    expect(component.isFilesOpen()).toBe(true);
-    expect(fixture.nativeElement.classList.contains('files-open')).toBe(true);
-    component.handleFilesOpen();
-    expect(component.isFilesOpen()).toBe(false);
   });
 
   // --- files being uploaded -------------------------------------------------
@@ -424,7 +446,7 @@ describe('Chat behaviour', () => {
   it('loads the files still being uploaded when the files panel opens', () => {
     openSession();
 
-    component.handleFilesOpen();
+    component.loadPendingFiles();
     const req = http.expectOne(ATTACHMENTS_URL);
     expect(req.request.method).toBe('GET');
     req.flush([
@@ -449,16 +471,12 @@ describe('Chat behaviour', () => {
 
     // Only the staged file belongs in this list; the other is already in the log.
     expect(component.pendingAttachments().map((a) => a.filename)).toEqual(['деталь.pdf']);
-    expect(component.attachmentStatusLabel(component.pendingAttachments()[0])).toBe('Загружается');
-    expect(fixture.nativeElement.textContent).toContain('Загруженные файлы');
-    const pendingRows = fixture.debugElement.queryAll(By.css('.session-files__file'));
-    expect(pendingRows.length).toBe(1);
-    expect(pendingRows[0].nativeElement.textContent).toContain('деталь.pdf');
+    expect(component.visiblePendingAttachments().map((a) => a.filename)).toEqual(['деталь.pdf']);
   });
 
   it('previews and downloads a staged file through the same actions', () => {
     openSession();
-    component.handleFilesOpen();
+    component.loadPendingFiles();
     http.expectOne(ATTACHMENTS_URL).flush([
       {
         id: 7,
@@ -477,54 +495,20 @@ describe('Chat behaviour', () => {
       component as unknown as { attachmentDownload: { fetchFile: typeof fetchFile } }
     ).attachmentDownload.fetchFile = fetchFile;
 
-    const row = fixture.debugElement.queryAll(By.css('.session-files__file'))[0];
-    row.query(By.css('[aria-label="Предпросмотр"]')).nativeElement.click();
-    row.query(By.css('[aria-label="Скачать"]')).nativeElement.click();
+    const attachment = { name: 'деталь.pdf', attachmentId: 7 };
+    component.openAttachmentPreview(attachment);
+    component.downloadAttachment(attachment);
 
     expect(fetchFile).toHaveBeenCalledTimes(2);
     expect(fetchFile).toHaveBeenCalledWith(SESSION_ID, 7);
   });
 
-  it('does not re-fetch when the files panel is closed again', () => {
+  it('keeps programme exports out of the staged files and refuses to delete them', () => {
     openSession();
+    fixture.componentRef.setInput('exportAttachmentIds', [8]);
+    fixture.detectChanges();
 
-    component.handleFilesOpen();
-    http.expectOne(ATTACHMENTS_URL).flush([]);
-    component.handleFilesOpen();
-
-    expect(http.match((r) => r.url === ATTACHMENTS_URL)).toEqual([]);
-  });
-
-  it('maps every upload state to a label', () => {
-    openSession();
-    const attachment = {
-      id: 1,
-      filename: 'a.pdf',
-      ready: false,
-      chat_message_id: null,
-      timestamp: '2026-09-12T12:18:35.689095Z'
-    };
-
-    expect(component.attachmentStatusLabel({ ...attachment, status: 'uploading' })).toBe(
-      'Загружается'
-    );
-    expect(component.attachmentStatusLabel({ ...attachment, status: 'processing' })).toBe(
-      'Обрабатывается'
-    );
-    expect(component.attachmentStatusLabel({ ...attachment, status: 'error' })).toBe('Ошибка');
-    expect(component.attachmentStatusLabel({ ...attachment, status: 'completed' })).toBe('Готово');
-    // The Redis status key has a TTL; `ready` is what survives it.
-    expect(component.attachmentStatusLabel({ ...attachment, status: 'unknown' })).toBe(
-      'Статус неизвестен'
-    );
-    expect(component.attachmentStatusLabel({ ...attachment, status: 'unknown', ready: true })).toBe(
-      'Готово'
-    );
-  });
-
-  it('deletes a staged file from the panel', () => {
-    openSession();
-    component.handleFilesOpen();
+    component.loadPendingFiles();
     http.expectOne(ATTACHMENTS_URL).flush([
       {
         id: 7,
@@ -533,48 +517,24 @@ describe('Chat behaviour', () => {
         ready: true,
         chat_message_id: null,
         timestamp: '2026-09-12T12:18:35.689095Z'
-      }
-    ]);
-    fixture.detectChanges();
-
-    const button = fixture.debugElement.query(By.css('[aria-label="Удалить файл"]'));
-    button.nativeElement.click();
-    const req = http.expectOne(`${ATTACHMENTS_URL}/7`);
-    expect(req.request.method).toBe('DELETE');
-    req.flush({ deleted: true });
-    fixture.detectChanges();
-
-    expect(component.pendingAttachments()).toEqual([]);
-    expect(notifications.success).toHaveBeenCalledWith('Файл «деталь.pdf» удалён', {
-      description: 'Файл убран из списка вложений.'
-    });
-    expect(fixture.debugElement.query(By.css('[aria-label="Удалить файл"]'))).toBeNull();
-  });
-
-  it('keeps the row and reports a failed delete', () => {
-    openSession();
-    component.handleFilesOpen();
-    http.expectOne(ATTACHMENTS_URL).flush([
+      },
       {
-        id: 7,
-        filename: 'деталь.pdf',
-        status: 'uploading',
-        ready: false,
+        id: 8,
+        filename: 'programme.docx',
+        status: 'unknown',
+        ready: true,
         chat_message_id: null,
-        timestamp: '2026-09-12T12:18:35.689095Z'
+        timestamp: '2026-09-12T12:20:00.000000Z'
       }
     ]);
     fixture.detectChanges();
 
-    fixture.debugElement.query(By.css('[aria-label="Удалить файл"]')).nativeElement.click();
-    http
-      .expectOne(`${ATTACHMENTS_URL}/7`)
-      .flush({ detail: 'nope' }, { status: 500, statusText: 'Server Error' });
-
-    expect(component.pendingAttachments().length).toBe(1);
-    expect(notifications.error).toHaveBeenCalledWith('Не удалось удалить файл: Ошибка сервера', {
-      description: 'Файл остался в чате — попробуйте ещё раз.'
-    });
+    expect(component.visiblePendingAttachments().map((file) => file.filename)).toEqual([
+      'деталь.pdf'
+    ]);
+    component.deletePendingAttachment(component.pendingAttachments()[1]);
+    expect(http.match((request) => request.method === 'DELETE')).toEqual([]);
+    expect(component.pendingAttachments().length).toBe(2);
   });
 
   it('reloads the staged files once an upload batch finishes', () => {
@@ -594,7 +554,7 @@ describe('Chat behaviour', () => {
   it('reports a failed request for the staged files', () => {
     openSession();
 
-    component.handleFilesOpen();
+    component.loadPendingFiles();
     http
       .expectOne(ATTACHMENTS_URL)
       .flush({ detail: 'nope' }, { status: 500, statusText: 'Server Error' });
@@ -633,18 +593,14 @@ describe('Chat behaviour', () => {
 
   // --- attachments --------------------------------------------------------
 
-  it('describes a file by type', () => {
-    openSession();
-    expect(component.fileIconFor('drawing.pdf')).toBeTruthy();
-    expect(component.fileColorFor('drawing.pdf')).toBeTruthy();
-  });
-
   it('previews and downloads a local file without a request', () => {
     openSession();
     const file = new File(['x'], 'a.pdf', { type: 'application/pdf' });
 
+    const preview = vi.fn();
+    component.previewFile.subscribe(preview);
     component.openAttachmentPreview({ name: 'a.pdf', attachmentId: 1, file });
-    expect(component.previewedFile()).toBe(file);
+    expect(preview).toHaveBeenCalledWith(file);
 
     const save = vi.fn();
     (
@@ -657,6 +613,8 @@ describe('Chat behaviour', () => {
   it('fetches a server-side attachment before previewing it', () => {
     openSession();
     const fetched = new File(['x'], 'server.pdf', { type: 'application/pdf' });
+    const preview = vi.fn();
+    component.previewFile.subscribe(preview);
     const fetchFile = vi
       .fn()
       .mockReturnValue({ subscribe: (o: { next: (f: File) => void }) => o.next(fetched) });
@@ -666,7 +624,7 @@ describe('Chat behaviour', () => {
 
     component.openAttachmentPreview({ name: 'server.pdf', attachmentId: 5 });
     expect(fetchFile).toHaveBeenCalledWith(SESSION_ID, 5);
-    expect(component.previewedFile()).toBe(fetched);
+    expect(preview).toHaveBeenCalledWith(fetched);
   });
 
   it('does nothing for an attachment without an id', () => {
@@ -728,5 +686,259 @@ describe('Chat behaviour', () => {
     component.openFilePicker();
     // The view child is absent in this fixture; the optional chain must not throw.
     expect(true).toBe(true);
+  });
+  // --- programme questions and voice ---------------------------------------
+
+  it('renders open questions and sends every answer in one request', () => {
+    vi.useFakeTimers();
+    openSession();
+    fixture.componentRef.setInput('questions', [
+      { id: 'q1', text: 'Сколько часов?' },
+      { id: 'q2', text: 'Какой срок?' }
+    ]);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('app-chat-question-form')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.chat-input-panel__form')).toBeNull();
+
+    const started = vi.fn();
+    component.turnStarted.subscribe(started);
+    component.sendAnswers([
+      { question_id: 'q1', text: '72' },
+      { question_id: 'q2', text: 'до декабря' }
+    ]);
+
+    const request = http.expectOne(SEND_URL);
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({
+      content: '',
+      answers: [
+        { question_id: 'q1', text: '72' },
+        { question_id: 'q2', text: 'до декабря' }
+      ]
+    });
+    request.flush({ message: 'ok' });
+    fixture.detectChanges();
+
+    const text = component.messages().at(-1)?.text;
+    expect(text).toContain('Ответы на уточняющие вопросы по программе:');
+    expect(text).toContain('— Сколько часов?: 72');
+    expect(text).toContain('— Какой срок?: до декабря');
+    expect(component.messages().at(-1)?.answers).toEqual([
+      { question: 'Сколько часов?', text: '72' },
+      { question: 'Какой срок?', text: 'до декабря' }
+    ]);
+    expect(component.answersSubmitted()).toBe(true);
+    expect(component.agentStatus()).toBe('thinking');
+    expect(started).toHaveBeenCalled();
+  });
+
+  it('keeps the questions after a failed answer request and asks the page to refresh', () => {
+    openSession();
+    fixture.componentRef.setInput('questions', [{ id: 'q1', text: 'Сколько часов?' }]);
+    fixture.detectChanges();
+
+    const refreshed = vi.fn();
+    component.refreshProgram.subscribe(refreshed);
+    component.sendAnswers([{ question_id: 'q1', text: '72' }]);
+    http.expectOne(SEND_URL).flush({ detail: 'nope' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(component.answersSubmitted()).toBe(false);
+    expect(component.answersSubmitting()).toBe(false);
+    expect(component.messages().some((message) => message.text.startsWith('Ответы на'))).toBe(
+      false
+    );
+    expect(refreshed).toHaveBeenCalled();
+    expect(notifications.error).toHaveBeenCalledWith(
+      'Не удалось отправить ответы: Ошибка сервера',
+      { description: 'Ответы сохранены в форме — попробуйте ещё раз.' }
+    );
+  });
+
+  it('shows the question form again when the next set of questions arrives', () => {
+    vi.useFakeTimers();
+    openSession();
+    fixture.componentRef.setInput('questions', [{ id: 'q1', text: 'Сколько часов?' }]);
+    fixture.detectChanges();
+
+    component.sendAnswers([{ question_id: 'q1', text: '72' }]);
+    http.expectOne(SEND_URL).flush({ message: 'ok' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-chat-question-form')).toBeNull();
+
+    fixture.componentRef.setInput('questions', [{ id: 'q2', text: 'Какой срок?' }]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-chat-question-form')).not.toBeNull();
+    expect(component.answersSubmitted()).toBe(false);
+  });
+
+  it('shows the decision panel in place of the composer and approves the draft', () => {
+    openSession();
+    fixture.componentRef.setInput('decision', {
+      blocks: [{ id: 'competences' as const, label: 'Компетенции' }],
+      lastRevision: null
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('app-program-decision')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.chat-input-panel__form')).toBeNull();
+
+    const refreshed = vi.fn();
+    component.refreshProgram.subscribe(refreshed);
+    component.approveProgramme();
+
+    const request = http.expectOne(APPROVE_URL);
+    expect(request.request.method).toBe('POST');
+    request.flush({ status: 'approved' });
+    fixture.detectChanges();
+
+    expect(component.decisionSubmitting()).toBe(false);
+    expect(refreshed).toHaveBeenCalled();
+    expect(notifications.success).toHaveBeenCalledWith('Каркас утверждён', {
+      description: 'Агент пишет оценочные средства и материалы.'
+    });
+  });
+
+  it('sends the chosen block and the notes when a revision is requested', () => {
+    openSession();
+    fixture.componentRef.setInput('decision', {
+      blocks: [{ id: 'hours' as const, label: 'Учебный план и часы' }],
+      lastRevision: null
+    });
+    fixture.detectChanges();
+
+    const refreshed = vi.fn();
+    component.refreshProgram.subscribe(refreshed);
+    component.reviseProgramme({ stage: 'hours', notes: 'Добавить кейс в тему 2.3' });
+
+    const request = http.expectOne(REVISION_URL);
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({
+      stage: 'hours',
+      notes: 'Добавить кейс в тему 2.3'
+    });
+    request.flush({ status: 'generating' });
+    fixture.detectChanges();
+
+    expect(refreshed).toHaveBeenCalled();
+    expect(notifications.success).toHaveBeenCalledWith('Программа отправлена на доработку', {
+      description: 'Агент переделает выбранный блок и обновит документ.'
+    });
+  });
+
+  it('reports a refused decision and asks the page to re-read the programme', () => {
+    openSession();
+    fixture.componentRef.setInput('decision', {
+      blocks: [{ id: 'competences' as const, label: 'Компетенции' }],
+      lastRevision: null
+    });
+    fixture.detectChanges();
+
+    const refreshed = vi.fn();
+    component.refreshProgram.subscribe(refreshed);
+    component.approveProgramme();
+    http
+      .expectOne(APPROVE_URL)
+      .flush(
+        { detail: 'Черновик ещё не готов к подтверждению' },
+        { status: 409, statusText: 'Conflict' }
+      );
+    fixture.detectChanges();
+
+    expect(component.decisionSubmitting()).toBe(false);
+    expect(refreshed).toHaveBeenCalled();
+    expect(notifications.error).toHaveBeenCalledWith(
+      'Не удалось утвердить каркас: Черновик ещё не готов к подтверждению',
+      { description: 'Состояние программы обновлено — проверьте его и повторите решение.' }
+    );
+  });
+
+  it('does nothing without a pending decision', () => {
+    openSession();
+
+    component.approveProgramme();
+    component.reviseProgramme({ stage: 'hours', notes: 'что-то' });
+
+    expect(http.match(() => true)).toEqual([]);
+  });
+
+  it('starts and replaces the live speech transcript without duplicating it', async () => {
+    openSession();
+    component.toggleSpeech();
+
+    expect(speechMock.start).toHaveBeenCalledWith(expect.objectContaining({ lang: 'ru-RU' }));
+    expect(component.isRecording()).toBe(true);
+
+    speechTranscript.set({ final: '', interim: 'Нужна' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(component.messageInputValue()).toBe('Нужна');
+
+    speechTranscript.set({ final: 'Нужна', interim: 'программа' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(component.messageInputValue()).toBe('Нужна программа');
+
+    speechTranscript.set({ final: 'Нужна программа', interim: '' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(component.messageInputValue()).toBe('Нужна программа');
+
+    component.toggleSpeech();
+    expect(speechMock.stop).toHaveBeenCalled();
+    expect(component.isRecording()).toBe(false);
+  });
+
+  it('reports speech errors and warns when the browser cannot record', () => {
+    openSession();
+    component.toggleSpeech();
+    speechErrorHandler?.('not-allowed');
+    expect(notifications.error).toHaveBeenCalledWith('Разрешите доступ к микрофону', {
+      description: 'Разрешите микрофон в настройках браузера и попробуйте снова.'
+    });
+
+    speechErrorHandler?.('no-speech');
+    expect(notifications.info).toHaveBeenCalledWith('Речь не распознана', {
+      description: 'Попробуйте ещё раз.'
+    });
+
+    (component as unknown as { isSpeechSupported: boolean }).isSpeechSupported = false;
+    component.toggleSpeech();
+    expect(notifications.warning).toHaveBeenCalledWith(
+      'Голосовой ввод не поддерживается в этом браузере',
+      { description: 'Попробуйте Chrome или Safari.' }
+    );
+  });
+
+  it('stops recording before sending the spoken text', async () => {
+    openSession();
+    speechListening.set(true);
+    component.onMessageInput({ target: { value: 'привет' } } as unknown as Event);
+
+    await component.sendMessage();
+
+    expect(speechMock.stopAndWait).toHaveBeenCalled();
+    expect(component.isRecording()).toBe(false);
+    const request = http.expectOne(SEND_URL);
+    expect(request.request.body).toEqual({ content: 'привет' });
+    request.flush({ message: 'ok' });
+  });
+
+  it('emits turnFinished once the poll stops', async () => {
+    vi.useFakeTimers();
+    openSession();
+    const finished = vi.fn();
+    component.turnFinished.subscribe(finished);
+
+    component.onMessageInput({ target: { value: 'привет' } } as unknown as Event);
+    component.sendMessage();
+    http.expectOne(SEND_URL).flush({ message: 'ok' });
+
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    http.expectOne(RESULT_URL).flush(successResult());
+    fixture.detectChanges();
+
+    expect(finished).toHaveBeenCalledTimes(1);
   });
 });

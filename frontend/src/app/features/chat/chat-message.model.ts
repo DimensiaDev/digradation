@@ -2,6 +2,11 @@ export type ChatMessageDirection = 'incoming' | 'outgoing';
 
 export type ChatMessageStatus = 'sending' | 'sent';
 
+export interface ChatMessageAnswer {
+  question: string;
+  text: string;
+}
+
 export interface ChatMessageAttachment {
   name: string;
   size?: number;
@@ -17,4 +22,5 @@ export interface ChatMessage {
   timestamp?: string;
   status?: ChatMessageStatus;
   attachments?: ChatMessageAttachment[];
+  answers?: readonly ChatMessageAnswer[];
 }

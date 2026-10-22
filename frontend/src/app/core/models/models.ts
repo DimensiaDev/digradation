@@ -54,16 +54,6 @@ export interface PaginatedResponse<T> {
   items_per_page: number;
 }
 
-export type ChatSortKey = 'date' | 'number';
-export type SortOrder = 'asc' | 'desc';
-
-export interface ChatListQuery {
-  page?: number;
-  itemsPerPage?: number;
-  sort?: ChatSortKey;
-  order?: SortOrder;
-}
-
 export interface ChatResultContent {
   type: 'error' | 'success';
   content: string;
@@ -161,6 +151,11 @@ export const MAX_FILE_SIZE = 30 * 1024 * 1024;
 
 export const MAX_MESSAGE_LENGTH = 5000;
 
+export const MAX_ANSWER_LENGTH = 4000;
+
+/** The backend caps the notes of a revision request at 2000 characters. */
+export const MAX_REVISION_NOTES_LENGTH = 2000;
+
 export const VISIBLE_FILES_LIMIT = 5;
 
 export type ProgramViewStatus =
@@ -173,16 +168,11 @@ export type ProgramViewStatus =
   | 'verified'
   | 'failed';
 
-export type ProgramStatus = ProgramViewStatus | 'in_progress' | 'review' | 'published' | 'archived';
+export type ProgramStatus = ProgramViewStatus;
 
 export type ProgramKind = 'professional_development' | 'general_development';
 
 export type ProgramTheme = 'it' | 'analytics' | 'soft-skills' | 'agile' | 'management' | 'security';
-
-export interface ProgramAuthor {
-  name: string;
-  avatarUrl: string | null;
-}
 
 export interface ProgramModule {
   id: string;
@@ -197,10 +187,8 @@ export interface Program {
   type: string;
   direction: string;
   hours: number;
-  tags: readonly string[];
   status: ProgramStatus;
   theme: ProgramTheme;
-  author: ProgramAuthor;
   updatedAt: string;
   description: string;
   goals: readonly string[];
@@ -218,16 +206,6 @@ export interface ProgramApiItem {
   title: string;
   status: ProgramViewStatus;
   updated_at: string | null;
-  /** Optional fields the catalogue may expose later. */
-  kind?: ProgramKind | null;
-  type?: string | null;
-  direction?: string | null;
-  hours?: number | null;
-  tags?: readonly string[] | null;
-  author?: ProgramAuthor | null;
-  description?: string | null;
-  goals?: readonly string[] | null;
-  theme?: ProgramTheme | null;
 }
 
 export interface ProgramPageApi {
@@ -258,6 +236,10 @@ export interface ProgramModuleApi {
 
 export interface ProgramCurriculumApi {
   modules: readonly ProgramModuleApi[];
+  /** Hours of the final attestation, counted into the programme's volume. */
+  attestation_hours?: number;
+  /** Hours delivered remotely; absent when the programme is fully in person. */
+  distance_hours?: number | null;
 }
 
 export interface ProgramCompetenceApi {
@@ -270,9 +252,45 @@ export interface ProgramSummaryApi {
   goal: string;
   tasks: readonly string[];
   target_audience: string;
+  admission_requirements?: string | null;
   annotation?: string | null;
   relevance?: string | null;
+  form?: string | null;
+  issued_document?: string | null;
   focus?: string | null;
+  level?: string | null;
+}
+
+export type ProgramSourceKind =
+  'normative_act' | 'professional_standard' | 'literature' | 'internet_resource' | 'reference';
+
+export interface ProgramSourceApi {
+  id: string;
+  kind: ProgramSourceKind;
+  title: string;
+  identifier?: string | null;
+  url?: string | null;
+  primary?: boolean | null;
+  confirmed: boolean;
+  trust?: string | null;
+  origin?: string | null;
+}
+
+export interface ProgramCheckApi {
+  name: string;
+  ok: boolean;
+  problems: readonly string[];
+  details: Record<string, unknown>;
+}
+
+export interface ProgramReportApi {
+  ok: boolean;
+  checks: readonly ProgramCheckApi[];
+}
+
+export interface ProgramExportsApi {
+  document_attachment_id: number | null;
+  slides_attachment_id: number | null;
 }
 
 export interface ProgramBlocksApi {
@@ -280,13 +298,35 @@ export interface ProgramBlocksApi {
   title: string | null;
   competencies: readonly ProgramCompetenceApi[];
   curriculum: ProgramCurriculumApi | null;
-  sources: readonly unknown[];
+  sources: readonly ProgramSourceApi[];
   summary: ProgramSummaryApi | null;
 }
+
+export type ProgramStage =
+  'competences' | 'hours' | 'assessment' | 'materials' | 'sources' | 'summary';
 
 export interface ProgramQuestionApi {
   id: string;
   text: string;
+}
+
+export interface ProgramAnswerApi {
+  question_id: string;
+  text: string;
+}
+
+/** A change the methodist asked for in one part of the programme. */
+export interface ProgramRevisionApi {
+  stage: ProgramStage;
+  notes: string;
+  requested_by: string | null;
+  requested_at: string | null;
+}
+
+/** The body of `POST /chats/{session_id}/program/revision`. */
+export interface ProgramRevisionRequest {
+  stage: ProgramStage;
+  notes: string;
 }
 
 export interface ProgramStateApi {
@@ -300,9 +340,15 @@ export interface ProgramStateApi {
   version: number;
   questions: readonly ProgramQuestionApi[];
   draft: ProgramBlocksApi;
+  report: ProgramReportApi | null;
+  exports: ProgramExportsApi | null;
+  /** The change being carried out right now, while one is pending. */
+  revision: ProgramRevisionApi | null;
+  /** The last change that was carried out, so the methodist can see who asked. */
+  last_revision: ProgramRevisionApi | null;
+  approved_by: string | null;
+  approved_at: string | null;
 }
-
-export type ProgramAction = 'duplicate' | 'archive' | 'unarchive' | 'delete';
 
 export const PROGRAM_STATUS_LABELS: Record<ProgramStatus, string> = {
   none: 'Нет программы',
@@ -312,9 +358,5 @@ export const PROGRAM_STATUS_LABELS: Record<ProgramStatus, string> = {
   pending_approval: 'На согласовании',
   approved: 'Согласована',
   verified: 'Проверена',
-  failed: 'Ошибка',
-  in_progress: 'В работе',
-  review: 'На проверке',
-  published: 'Опубликовано',
-  archived: 'Архив'
+  failed: 'Ошибка'
 };

@@ -1,0 +1,81 @@
+<section class="chat-page">
+  <header class="chat-page__header">
+    <div class="chat-page__heading">
+      <a class="chat-page__breadcrumb" routerLink="/programs" aria-label="Назад к программам">
+        <svg size="16" lucideArrowLeft aria-hidden="true"></svg>
+        Мои программы
+      </a>
+
+      <div class="chat-page__title-row">
+        <h1 class="h2 chat-page__title">Создание образовательной программы</h1>
+
+        <div class="chat-page__view-switch" role="group" aria-label="Вид рабочей области">
+          <button
+            type="button"
+            class="chat-page__view-button"
+            [class.chat-page__view-button--active]="mobileView() === 'chat'"
+            [attr.aria-pressed]="mobileView() === 'chat'"
+            (click)="showChat()"
+          >
+            <svg size="16" lucideMessageSquareText aria-hidden="true"></svg>
+            Чат
+          </button>
+          <button
+            type="button"
+            class="chat-page__view-button"
+            [class.chat-page__view-button--active]="mobileView() === 'preview'"
+            [attr.aria-pressed]="mobileView() === 'preview'"
+            (click)="showPreview()"
+          >
+            <svg size="16" lucideLayoutTemplate aria-hidden="true"></svg>
+            Каркас
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <app-program-stepper class="chat-page__stepper" [state]="program()" />
+  </header>
+
+  <div class="chat-page__workspace">
+    <div
+      class="chat-page__pane chat-page__pane--chat"
+      [class.chat-page__pane--mobile-hidden]="mobileView() !== 'chat'"
+    >
+      <app-chat
+        [id]="id()"
+        [questions]="questions()"
+        [decision]="decision()"
+        [exportAttachmentIds]="exportAttachmentIds()"
+        (turnStarted)="onTurnStarted()"
+        (turnFinished)="onTurnFinished()"
+        (refreshProgram)="refreshProgram()"
+        (previewFile)="previewedFile.set($event)"
+      />
+    </div>
+
+    <div
+      class="chat-page__pane chat-page__pane--preview"
+      [class.chat-page__pane--mobile-hidden]="mobileView() !== 'preview'"
+    >
+      <app-program-preview
+        [sessionId]="id()"
+        [state]="program()"
+        [loading]="programLoading()"
+        [error]="programError()"
+        [sessionFiles]="sessionFiles()"
+        [pendingFiles]="pendingFiles()"
+        (reload)="refreshProgram()"
+        (filesOpened)="loadFiles()"
+        (previewRequested)="previewFile($event)"
+        (downloadRequested)="downloadFile($event)"
+        (deletePendingRequested)="deletePendingFile($event)"
+        (deleteSessionRequested)="deleteSession()"
+      />
+    </div>
+  </div>
+
+  @if (previewedFile(); as file) {
+    <app-file-preview [file]="file" (closed)="previewedFile.set(null)" />
+  }
+</section>

@@ -1,22 +1,9 @@
-<section class="section chat-section">
-  <header class="section__header chat-section-header">
-    <h1 class="h2">Чат с агентом</h1>
-    <button
-      type="button"
-      class="chat-section-header__toggle"
-      aria-label="Панель файлов"
-      [attr.aria-expanded]="isFilesOpen()"
-      [attr.aria-controls]="id()"
-      (click)="handleFilesOpen()"
-    >
-      @if (isFilesOpen()) {
-        <svg size="18" lucidePanelRightClose aria-hidden="true"></svg>
-      } @else {
-        <svg size="18" lucidePanelRightOpen aria-hidden="true"></svg>
-      }
-    </button>
+<section class="chat-panel">
+  <header class="chat-panel__header">
+    <h2 class="h3 chat-panel__title">Чат с агентом</h2>
   </header>
-  <div class="chat-container">
+
+  <div class="chat-body">
     <ul #chatMessages class="chat-messages" role="log" aria-label="История сообщений">
       @for (message of messages(); track message.id; let last = $last) {
         <li>
@@ -29,6 +16,7 @@
           />
         </li>
       }
+
       @if (agentStatus()) {
         <li>
           <app-agent-status />
@@ -37,151 +25,87 @@
     </ul>
 
     <footer class="chat-input-panel">
-      <form class="chat-input-panel__form" (submit)="sendMessage($event)">
-        <app-drag-n-drop
-          [sessionId]="id()"
-          variant="compact"
-          (filesChange)="onFilesChange($event)"
-          (uploadingChange)="onUploadingChange($event)"
+      @if (questions().length > 0 && !answersSubmitted()) {
+        <app-chat-question-form
+          [questions]="questions()"
+          [submitting]="answersSubmitting()"
+          (answersSubmitted)="sendAnswers($event)"
         />
-        <app-input
-          #messageInput
-          [asTextarea]="true"
-          [autoResize]="true"
-          [rows]="1"
-          placeholder="Введите сообщение..."
-          ariaLabel="Введите сообщение"
-          autocomplete="off"
-          [value]="messageInputValue()"
-          (inputEvent)="onMessageInput($event)"
-          (keydown)="onMessageKeydown($event)"
-        >
-          <button
-            appInputPrefix
-            type="button"
-            aria-label="Прикрепить файл"
-            class="button button--outline chat-input-panel__attach-button"
-            (click)="openFilePicker()"
-          >
-            <svg size="20" lucidePaperclip aria-hidden="true"></svg>
-          </button>
-        </app-input>
-        <button
-          type="submit"
-          aria-label="Отправить"
-          class="button button--main button--squared chat-input-panel__send-button"
-          [disabled]="
-            !messageInputValue().trim() || isUploading() || isSending() || agentStatus() !== null
-          "
-        >
-          <svg size="18" lucideSendHorizontal aria-hidden="true"></svg>
-        </button>
-      </form>
+      } @else if (decision(); as decision) {
+        <app-program-decision
+          [blocks]="decision.blocks"
+          [lastRevision]="decision.lastRevision"
+          [submitting]="decisionSubmitting()"
+          (approved)="approveProgramme()"
+          (revised)="reviseProgramme($event)"
+        />
+      } @else {
+        <form class="chat-input-panel__form" (submit)="sendMessage($event)">
+          <app-drag-n-drop
+            [sessionId]="id()"
+            variant="compact"
+            (filesChange)="onFilesChange($event)"
+            (uploadingChange)="onUploadingChange($event)"
+          />
+
+          <div class="chat-composer" role="presentation" (click)="focusMessageInput($event)">
+            <textarea
+              #messageTextarea
+              class="chat-composer__textarea"
+              rows="1"
+              placeholder="Введите сообщение..."
+              aria-label="Введите сообщение"
+              autocomplete="off"
+              [value]="messageInputValue()"
+              (input)="onMessageInput($event)"
+              (keydown)="onMessageKeydown($event)"
+            ></textarea>
+
+            <div class="chat-composer__actions">
+              <button
+                type="button"
+                aria-label="Прикрепить файл"
+                class="chat-composer__attach"
+                (click)="openFilePicker()"
+              >
+                <svg size="18" lucidePaperclip aria-hidden="true"></svg>
+                <span>Прикрепить</span>
+              </button>
+
+              <div class="chat-composer__submit">
+                <button
+                  type="button"
+                  class="chat-composer__mic"
+                  [class.chat-composer__mic--recording]="isRecording()"
+                  [attr.aria-label]="speechLabel()"
+                  [title]="isSpeechSupported ? speechLabel() : 'Голосовой ввод не поддерживается'"
+                  [disabled]="isSending() || isStoppingSpeech() || agentStatus() !== null"
+                  (click)="toggleSpeech()"
+                >
+                  <svg size="20" lucideMic aria-hidden="true"></svg>
+                </button>
+
+                <button
+                  type="submit"
+                  aria-label="Отправить"
+                  class="button button--main button--squared chat-composer__send"
+                  [disabled]="
+                    !messageInputValue().trim() ||
+                    isUploading() ||
+                    isSending() ||
+                    isStoppingSpeech() ||
+                    agentStatus() !== null
+                  "
+                >
+                  <svg size="20" lucideArrowUp aria-hidden="true"></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </form>
+      }
     </footer>
   </div>
 </section>
-<aside class="section card files-aside" [attr.id]="id()">
-  <header class="section__header">
-    <h2 class="h2">Файлы</h2>
-  </header>
-
-  <section class="session-files__section">
-    <h3 class="session-files__subtitle">Файлы в сообщениях</h3>
-    @if (sessionFiles().length > 0) {
-      <ul class="session-files__files">
-        @for (file of sessionFiles(); track file.attachmentId) {
-          <li class="session-files__file">
-            <span class="session-files__file-icon" [style.color]="fileColorFor(file.name)">
-              <svg size="18" [lucideIcon]="fileIconFor(file.name)" aria-hidden="true"></svg>
-            </span>
-            <span class="session-files__file-name">{{ file.name }}</span>
-            <button
-              type="button"
-              class="button button--outline button--centered"
-              aria-label="Предпросмотр"
-              (click)="openAttachmentPreview(file)"
-            >
-              <svg size="16" lucideEye aria-hidden="true"></svg>
-            </button>
-            <button
-              type="button"
-              class="button button--outline button--centered"
-              aria-label="Скачать"
-              (click)="downloadAttachment(file)"
-            >
-              <svg size="16" lucideDownload aria-hidden="true"></svg>
-            </button>
-          </li>
-        }
-      </ul>
-    } @else {
-      <p class="session-files__files-placeholder h4">Пока нет файлов</p>
-    }
-  </section>
-
-  <section class="session-files__section">
-    <h3 class="session-files__subtitle">Загруженные файлы</h3>
-    @if (pendingAttachments().length > 0) {
-      <ul class="session-files__files">
-        @for (file of pendingAttachments(); track file.id) {
-          <li class="session-files__file">
-            <span class="session-files__file-icon" [style.color]="fileColorFor(file.filename)">
-              <svg size="18" [lucideIcon]="fileIconFor(file.filename)" aria-hidden="true"></svg>
-            </span>
-            <span class="session-files__file-name">{{ file.filename }}</span>
-            <span
-              class="session-files__file-status"
-              [class.session-files__file-status--error]="file.status === 'error'"
-              [title]="attachmentStatusLabel(file)"
-            >
-              {{ attachmentStatusLabel(file) }}
-            </span>
-            <button
-              type="button"
-              class="button button--outline button--centered"
-              aria-label="Предпросмотр"
-              (click)="openAttachmentPreview({ name: file.filename, attachmentId: file.id })"
-            >
-              <svg size="16" lucideEye aria-hidden="true"></svg>
-            </button>
-            <button
-              type="button"
-              class="button button--outline button--centered"
-              aria-label="Скачать"
-              (click)="downloadAttachment({ name: file.filename, attachmentId: file.id })"
-            >
-              <svg size="16" lucideDownload aria-hidden="true"></svg>
-            </button>
-            <button
-              type="button"
-              class="button button--outline button--centered"
-              aria-label="Удалить файл"
-              (click)="deletePendingAttachment(file)"
-            >
-              <svg size="16" lucideTrash2 aria-hidden="true"></svg>
-            </button>
-          </li>
-        }
-      </ul>
-    } @else {
-      <p class="session-files__files-placeholder h4">Нет файлов в загрузке</p>
-    }
-  </section>
-
-  <footer class="session-files__actions">
-    <button
-      type="button"
-      class="button button--outline button--danger button--centered h3 button__remove-session"
-      (click)="deleteSession()"
-    >
-      <svg size="18" lucideTrash2 aria-hidden="true"></svg>
-      Удалить сессию
-    </button>
-  </footer>
-</aside>
-
-@if (previewedFile(); as file) {
-  <app-file-preview [file]="file" (closed)="previewedFile.set(null)" />
-}
 
 <app-drag-overlay (filesDropped)="onFilesDropped($event)" />

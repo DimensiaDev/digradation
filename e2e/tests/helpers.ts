@@ -198,27 +198,17 @@ export async function login(page: Page): Promise<void> {
  * Create a chat session and land inside it.
  *
  * Several features live only on the chat view, so a spec has to get into a real
- * session rather than stopping on the create page that `login` lands on.
+ * session rather than stopping on the composer. `/home` is the only place that
+ * creates a chat: its send button starts the run and routes into it.
  */
 export async function createChat(
   page: Page,
   description = "Собери основные тезисы из документа",
 ): Promise<string> {
-  await page.goto("/create");
-  await expect(
-    page.getByRole("heading", { name: "Новый чат" }),
-  ).toBeVisible();
-  await page.locator("#description").fill(description);
-  await page.getByRole("button", { name: /Создать чат/ }).click();
+  await page.goto("/home");
+  await page.getByLabel("Сообщение").fill(description);
+  await page.getByRole("button", { name: "Отправить" }).click();
   await expect(page).toHaveURL(/\/chats\/.+/);
   await expect(page.getByText(description)).toBeVisible();
   return new URL(page.url()).pathname.split("/").pop() as string;
-}
-
-/** Open the new-chat page. */
-export async function gotoCreate(page: Page): Promise<void> {
-  await page.goto("/create");
-  await expect(
-    page.getByRole("heading", { name: "Новый чат" }),
-  ).toBeVisible();
 }

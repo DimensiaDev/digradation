@@ -84,6 +84,23 @@ export class ProfileService {
     return request;
   }
 
+  /**
+   * Re-read the profile for a session that has just changed.
+   *
+   * `fetchMe` hands back a request that is already in flight, which is what keeps
+   * two callers from asking twice, and that reuse is wrong the moment the session
+   * identity changes: the request in flight was issued without the new cookie, so
+   * joining it answers 401 and the caller's own `catchError` turns a successful
+   * sign-in into one that never reached the app. Retiring the request here does
+   * for a sign-in what `clear` does for a sign-out, and the read that follows
+   * carries the new session.
+   */
+  refresh(): Observable<User> {
+    this.requestGeneration++;
+    this.meRequest$ = null;
+    return this.fetchMe();
+  }
+
   loadAvatar(): void {
     if (!this.userState()) {
       this.avatarLoadingState.set(false);

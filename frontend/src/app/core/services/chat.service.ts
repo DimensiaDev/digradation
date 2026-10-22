@@ -1,23 +1,20 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import {
   ChatAttachmentStatus,
   ChatAttachmentUrl,
   ChatCreated,
-  ChatListQuery,
   ChatMessageApi,
   ChatResult,
   ChatSessionAttachment,
   ChatUploadParams,
   MessageResponse,
-  PaginatedResponse,
-  UserChat
+  ProgramAnswerApi,
+  ProgramRevisionRequest,
+  ProgramStateApi
 } from '../models/models';
-
-/** Page size the chat list is requested with unless a caller asks for another. */
-export const CHATS_PAGE_SIZE = 20;
 
 @Injectable({
   providedIn: 'root'
@@ -30,16 +27,6 @@ export class ChatService {
     return this.http.post<ChatCreated>(`${this.baseUrl}/`, {});
   }
 
-  list(query: ChatListQuery = {}): Observable<PaginatedResponse<UserChat>> {
-    const params = new HttpParams()
-      .set('page', query.page ?? 0)
-      .set('items_per_page', query.itemsPerPage ?? CHATS_PAGE_SIZE)
-      .set('sort', query.sort ?? 'date')
-      .set('order', query.order ?? 'desc');
-
-    return this.http.get<PaginatedResponse<UserChat>>(`${this.baseUrl}/`, { params });
-  }
-
   messages(sessionId: string): Observable<ChatMessageApi[]> {
     return this.http.get<ChatMessageApi[]>(`${this.baseUrl}/${sessionId}`);
   }
@@ -48,8 +35,30 @@ export class ChatService {
     return this.http.get<ChatResult>(`${this.baseUrl}/${sessionId}/result`);
   }
 
-  send(sessionId: string, content: string): Observable<MessageResponse> {
-    return this.http.post<MessageResponse>(`${this.baseUrl}/${sessionId}`, { content });
+  program(sessionId: string): Observable<ProgramStateApi> {
+    return this.http.get<ProgramStateApi>(`${this.baseUrl}/${sessionId}/program`);
+  }
+
+  /** Approve the rendered draft, releasing the content stages. */
+  approveProgram(sessionId: string): Observable<ProgramStateApi> {
+    return this.http.post<ProgramStateApi>(`${this.baseUrl}/${sessionId}/program/approve`, {});
+  }
+
+  /** Ask for one block of the programme to be redone, with the methodist's notes. */
+  reviseProgram(sessionId: string, request: ProgramRevisionRequest): Observable<ProgramStateApi> {
+    return this.http.post<ProgramStateApi>(
+      `${this.baseUrl}/${sessionId}/program/revision`,
+      request
+    );
+  }
+
+  send(
+    sessionId: string,
+    content: string,
+    answers: readonly ProgramAnswerApi[] = []
+  ): Observable<MessageResponse> {
+    const body = answers.length > 0 ? { content, answers } : { content };
+    return this.http.post<MessageResponse>(`${this.baseUrl}/${sessionId}`, body);
   }
 
   remove(sessionId: string): Observable<{ deleted: boolean }> {

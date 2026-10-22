@@ -49,10 +49,6 @@
   border-radius: 4px;
 }
 
-.skeleton-item--static::after {
-  content: none;
-}
-
 .skeleton-item--users-table {
   display: flex;
   flex-direction: column;

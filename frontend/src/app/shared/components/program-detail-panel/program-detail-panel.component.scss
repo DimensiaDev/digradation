@@ -28,7 +28,7 @@
 
   &__header {
     display: grid;
-    grid-template-columns: 36px minmax(0, 1fr) auto 36px;
+    grid-template-columns: 36px minmax(0, 1fr) auto;
     align-items: center;
     gap: 12px;
 
@@ -155,7 +155,7 @@
     align-items: center;
     gap: 6px;
 
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 400;
     color: var(--color-gray);
   }
@@ -163,16 +163,16 @@
   &__meta-value {
     margin-top: 6px;
 
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     overflow-wrap: anywhere;
   }
 
   &__tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
 
-    overflow-x: auto;
     border-bottom: 1px solid var(--color-outline);
   }
 
@@ -183,7 +183,7 @@
     padding: 10px 12px;
 
     font: inherit;
-    font-size: 14px;
+    font-size: 15px;
     color: var(--color-gray);
     white-space: nowrap;
 
@@ -217,7 +217,7 @@
 
     margin-bottom: 12px;
 
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 600;
 
     &:not(:first-child) {
@@ -231,9 +231,15 @@
   }
 
   &__text {
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.7;
     color: color-mix(in srgb, var(--color-text) 88%, var(--color-gray));
+  }
+
+  &__empty {
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--color-gray);
   }
 
   &__goals {
@@ -246,7 +252,7 @@
     align-items: flex-start;
     gap: 10px;
 
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.55;
   }
 
@@ -261,9 +267,6 @@
     margin-top: 1px;
 
     color: var(--color-success);
-
-    background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
-    border-radius: 50%;
   }
 
   &__modules {
@@ -291,7 +294,7 @@
     width: 26px;
     height: 26px;
 
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     color: var(--color-main);
 
@@ -315,7 +318,7 @@
   }
 
   &__module-title {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     line-height: 1.4;
   }
@@ -323,14 +326,14 @@
   &__module-hours {
     flex-shrink: 0;
 
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--color-main);
     white-space: nowrap;
   }
 
   &__module-summary {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 400;
     line-height: 1.5;
     color: var(--color-gray);
@@ -339,7 +342,7 @@
   &__total {
     margin-top: 10px;
 
-    font-size: 13px;
+    font-size: 14px;
     color: var(--color-gray);
   }
 
@@ -355,7 +358,7 @@
 
     padding: 12px 14px;
 
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.55;
 
     background: var(--color-surface);
@@ -367,63 +370,6 @@
       margin-top: 2px;
       color: var(--color-main);
     }
-  }
-
-  &__materials {
-    display: grid;
-    gap: 8px;
-  }
-
-  &__material {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-
-    padding: 12px;
-
-    background: var(--color-surface);
-    border: 1px solid var(--color-outline);
-    border-radius: 12px;
-  }
-
-  &__material-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 auto;
-
-    width: 40px;
-    height: 40px;
-
-    background: var(--color-secondary);
-    border-radius: 10px;
-
-    & > svg {
-      width: 22px;
-      height: 22px;
-    }
-  }
-
-  &__material-main {
-    display: grid;
-    gap: 2px;
-
-    min-width: 0;
-  }
-
-  &__material-name {
-    overflow: hidden;
-
-    font-size: 14px;
-    font-weight: 600;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  &__material-meta {
-    font-size: 12px;
-    font-weight: 400;
-    color: var(--color-gray);
   }
 
   &__footer {
@@ -444,19 +390,8 @@
 
     padding: 12px 16px;
 
-    font-size: 14px;
+    font-size: 16px;
     white-space: nowrap;
-  }
-
-  &__menu {
-    position: relative;
-    flex: 0 0 auto;
-  }
-
-  &__menu-button {
-    --icon-button-size: 38px;
-
-    color: var(--color-gray);
   }
 }
 
@@ -493,7 +428,7 @@
 @media (max-width: 560px) {
   .program-panel {
     &__header {
-      grid-template-columns: 36px minmax(0, 1fr) 36px;
+      grid-template-columns: 36px minmax(0, 1fr);
       row-gap: 8px;
 
       padding: 12px 16px;
@@ -513,11 +448,6 @@
       grid-column: 2;
       grid-row: 2;
       justify-self: start;
-    }
-
-    &__menu--header {
-      grid-column: 3;
-      grid-row: 1;
     }
 
     &__hero {
@@ -546,7 +476,7 @@
 
       padding: 11px 12px;
 
-      font-size: 13px;
+      font-size: 14px;
     }
   }
 }

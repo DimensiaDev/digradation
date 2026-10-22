@@ -57,6 +57,7 @@ describe('previewKindFor', () => {
   it('returns null for formats without browser rendering', () => {
     expect(previewKindFor('.dwg')).toBeNull();
     expect(previewKindFor('.doc')).toBeNull();
+    expect(previewKindFor('.pptx')).toBeNull();
     expect(previewKindFor('.exe')).toBeNull();
     expect(previewKindFor('')).toBeNull();
   });
@@ -65,6 +66,7 @@ describe('previewKindFor', () => {
     expect(mimeTypeFor('.pdf')).toBe('application/pdf');
     expect(mimeTypeFor('.png')).toBe('image/png');
     expect(mimeTypeFor('.docx')).toContain('wordprocessingml');
+    expect(mimeTypeFor('.pptx')).toContain('presentationml');
     expect(mimeTypeFor('.xyz')).toBe('application/octet-stream');
   });
 });
@@ -102,6 +104,67 @@ describe('FilePreviewComponent', () => {
     expect(fixture.nativeElement.querySelector('.file-preview__sheet-table table')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('.file-preview__warning')).toBeNull();
   }, 15000);
+
+  it('renders a spreadsheet whose cells are formulas', async () => {
+    // A plan priced by formulas, and a merged header whose text sits in a cell
+    // the merge swallows: both are shapes a real workbook has, and both render
+    // blank or as raw formula text without the two normalisers this covers.
+    const XLSX = await import('xlsx');
+    const input = XLSX.utils.aoa_to_sheet([[2], [3]]);
+    const total: import('xlsx').WorkSheet = {
+      '!ref': 'A1',
+      A1: { t: 'n', v: 0, f: 'СУММ(Ввод!A1:A2)' }
+    };
+    const merged: import('xlsx').WorkSheet = {
+      '!ref': 'A1:B1',
+      B1: { t: 's', v: 'итого' }
+    };
+    merged['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, input, 'Ввод');
+    XLSX.utils.book_append_sheet(workbook, total, 'Итог');
+    XLSX.utils.book_append_sheet(workbook, merged, 'Свод');
+    const bytes = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
+
+    const fixture = compile(makeFile('plan.xlsx', bytes));
+    await waitForPhase(fixture, 'ready');
+
+    const tabs = () =>
+      Array.from(
+        fixture.nativeElement.querySelectorAll('.file-preview__sheet-tab')
+      ) as HTMLButtonElement[];
+    expect(tabs().map((tab) => tab.textContent)).toEqual(['Ввод', 'Итог', 'Свод']);
+    expect(tabs()[0].classList).toContain('file-preview__sheet-tab--active');
+
+    const tableText = () =>
+      (fixture.nativeElement.querySelector('.file-preview__sheet-table table') as HTMLElement)
+        .textContent ?? '';
+
+    tabs()[1].click();
+    fixture.detectChanges();
+
+    // The cross-sheet total is computed, and the Russian function name was
+    // translated rather than left for the engine to reject.
+    expect(tableText()).toContain('5');
+    expect(tableText()).not.toContain('СУММ');
+    expect(tableText()).not.toContain('SUM(');
+    expect(tabs()[1].classList).toContain('file-preview__sheet-tab--active');
+    expect(tabs()[0].classList).not.toContain('file-preview__sheet-tab--active');
+    expect(tabs()[0].getAttribute('aria-selected')).toBe('false');
+
+    tabs()[2].click();
+    fixture.detectChanges();
+
+    expect(tableText()).toContain('итого');
+  }, 15000);
+
+  it('warns instead of rendering a format with no renderer', async () => {
+    const fixture = compile(makeFile('чертёж.dwg', 'bytes'));
+    await waitForPhase(fixture, 'error');
+
+    expect(fixture.nativeElement.querySelector('.file-preview__warning')).not.toBeNull();
+  });
 
   it('creates a blob URL for images and revokes it on destroy', async () => {
     const stub = blobUrlStub();
@@ -268,6 +331,11 @@ describe('DragNDropComponent preview integration', () => {
 
     expect(component.previewItem()).toBeNull();
     expect(fixture.debugElement.query(By.css('app-file-preview'))).toBeNull();
+  });
+
+  it('accepts exactly the formats the backend takes, including docx', () => {
+    expect(ACCEPTED_EXTENSIONS).toEqual(['.pdf', '.png', '.jpeg', '.jpg', '.docx']);
+    expect(ACCEPTED_EXTENSIONS).not.toContain('.pptx');
   });
 
   it('offers a preview for every accepted upload type', () => {

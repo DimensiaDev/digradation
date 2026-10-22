@@ -86,6 +86,39 @@
   animation: message-element-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1) 80ms both;
 }
 
+.message__answers {
+  display: grid;
+  gap: 10px;
+}
+
+.message__answer {
+  display: grid;
+  gap: 5px;
+
+  padding: 9px 11px;
+
+  background: var(--color-surface);
+  border: 1px solid color-mix(in srgb, var(--color-main) 18%, var(--color-outline));
+  border-radius: 10px;
+}
+
+.message__answer-question {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--color-gray);
+
+  overflow-wrap: anywhere;
+}
+
+.message__answer-text {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--color-text);
+
+  overflow-wrap: anywhere;
+}
+
 .message__meta {
   position: absolute;
   right: 9px;

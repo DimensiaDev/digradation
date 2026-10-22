@@ -1,0 +1,51 @@
+// A block that has just taken new data, flashed once and forgotten. The tint is
+// painted over the finished block instead of baked into it, so whatever carries
+// the class keeps its own background, its own hover state and its own open or
+// closed state while the backdrop fades.
+//
+// The programme aside uses it on every region a stage writes to — the accordion
+// sections, the metadata row and the results footer — because the run reports a
+// new version but not which block moved.
+.update-flash {
+  position: relative;
+
+  &::after {
+    content: '';
+
+    position: absolute;
+    inset: 0;
+
+    z-index: 3;
+
+    border-radius: inherit;
+
+    background: color-mix(in srgb, var(--color-main) 14%, transparent);
+
+    pointer-events: none;
+
+    animation: update-flash 1.4s ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &::after {
+      animation: none;
+
+      opacity: 0.5;
+    }
+  }
+}
+
+@keyframes update-flash {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  62% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}

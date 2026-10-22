@@ -1561,8 +1561,8 @@ that lives in the chat worker's turn.
 - **`generate_chat_message` stays exactly as `main` has it.** The intake half of #3 — offering
   `INTAKE_TOOLS`, committing the state a `begin_program` call started and answering a chat that
   already holds a run — is not in this change, and neither is its test block.
-  *Superseded on 2026-10-21, when the chat turn became a tool loop — see "The chat turn became
-  a tool loop, and the programme got an API".*
+  _Superseded on 2026-10-21, when the chat turn became a tool loop — see "The chat turn became
+  a tool loop, and the programme got an API"._
 - **The seam is what this branch owes that worker.** `INTAKE_TOOLS`, `ToolContext`,
   `execute_tool`/`call_executor`, `store.save` and `program_stage.kiq(session_id, stage, run_id)`
   are usable from `api.py` as written; the worker needs no new module, only the wiring.
@@ -1681,7 +1681,7 @@ two together and gives the client something to poll.
   gone with it; the tools' specifications are the contract the model answers against.
 - **The model no longer names the chat.** Naming a chat from a model's own words was a
   structured-output side effect, and structured output is gone. `app/naming.py` holds the
-  rule instead — *a programme's title wins, otherwise the first thing the methodist said* —
+  rule instead — _a programme's title wins, otherwise the first thing the methodist said_ —
   and the intake, the finalise and the failure path all go through it, so a chat is named
   once and the frontend sees one name. The title may replace the name the first message
   gave, because a programme's own title is the better name.
@@ -1769,9 +1769,90 @@ catalogue does not return yet keep their elements.
   the e2e user. The list endpoint needs only title, status and `updated_at`; the detail
   endpoint accepts the model's defaults for the rest.
 
+## The chat route is a programme workspace, and its preview is the API's state (2026-10-22)
+
+Issue #45 turned `/chats/:id` from a bare chat into the place where a programme is created
+and watched. The workspace is a shell around the existing chat, not a replacement for it.
+
+- **The preview renders the programme state, never a demo draft.** `GET /chats/{id}/program`
+  is the only source; the existing `formatProgramHours` was reused, but the mock module and
+  competency builders were not. A fabricated blueprint would look complete before the model
+  saved anything, and the methodist could not tell what was real.
+- **`draft` is always an object.** The backend guarantees a `ProgramBlocksApi`, so the client
+  does not branch on `null`; every block is simply empty until a stage saves it. Making it
+  nullable would spread a contract the API does not have through every preview getter.
+- **The page polls on `busy` plus a local turn flag.** `busy` covers every stage and the
+  finalisation, while a chat turn in flight covers the intake before the run exists. The poll
+  stops on `awaiting_answers` when no turn is running: the run cannot move until the
+  methodist answers, so polling would only produce identical responses.
+- **Questions come from `/program`.** `/result` also exposes them, but the workspace already
+  polls `/program` for the preview, and reading the run's questions from the run's own view
+  keeps one response as the source. The chat client does not add a second question channel
+  that could disagree with the preview.
+- **The answer form shows one question, the request carries all of them.** The backend
+  requires exactly one answer per open question and refuses an answer to a question nobody
+  asked. Submitting the whole set in one message keeps one user action in one turn, and the
+  form's Back/Next is presentation only.
+- **The optimistic answer bubble mirrors `render_answers()`.** The server repeats the answers
+  in the transcript, so the client builds the same heading and bullet lines locally. A
+  different local shape would make the transcript jump when the real message arrives.
+- **The stepper is a projection, not a stored stage.** `status` plus `current_stage` map onto
+  brief / structure / content / review / done; a failed run keeps the step it failed on and
+  marks it failed. The backend has no notion of a five-step wizard, so the client must not
+  persist one.
+- **The files panel overlays the workspace.** Keeping it as a third column squeezed the chat
+  and the preview below readability, and the preview is the point of the page. The chat keeps
+  its width; the drawer covers the preview while open, and `overflow: hidden` on the page
+  clips it.
+- **`/chats/:id` is lazy-loaded.** Routing directly to `ChatPage` added enough component code
+  to push the initial bundle over its 1 MB budget. The flagging is the build's, not a guess:
+  `ng build` reported the budget overrun until the route used `loadComponent`.
+- **Speech notices are shared.** The chat mic and `/home` use one `speechErrorNotice` mapping;
+  two copies would drift on browser-specific error codes.
+- **The populated preview is unit-tested, the empty one is e2e-tested.** The offline mock
+  cannot produce a rendered programme, and seeding `program_state` would test the seed rather
+  than the workspace's contract with the API. E2E checks the shell, stepper, empty state and
+  microphone; the preview's populated states are covered by component specs.
+
+## Mock mode is a stateful chat fixture, not a read-only catalogue (2026-10-22)
+
+The mock interceptor used to serve only seeded reads, which was enough for browsing but not
+for the primary action: `/home` creates a chat and sends a message before it navigates, so
+`start:mock` looked broken. The mock now mirrors the backend's write path.
+
+- **The mock owns a mutable chat store.** `POST /chats` creates an empty session, and
+  `POST /chats/{id}` appends the user message plus a deterministic reply. History, `/result`
+  and the chat list read that store, so a created chat survives navigation and appears in
+  history rather than being a throwaway id.
+- **A catalogue programme is already a chat session.** «Открыть программу» navigates to
+  `/chats/{session_id}`, and the interceptor serves that session's transcript from
+  `PROGRAMMES` instead of inventing a second programme-chat route. This matches the backend,
+  where the catalogue row and the chat are the same `chat_sessions` row.
+- **An ordinary chat reports programme status `none`.** Chat preview code polls `/program` on
+  every chat, so the mock answers with an empty state for any created or seeded chat; only a
+  catalogue session returns a draft.
+- **The waiting programme demonstrates the answer form.** `mock-programme-6` starts
+  `awaiting_answers` with two questions; posting answers clears them and moves it to
+  `pending_approval`. Without this, the status would advertise a question flow the mock could
+  not complete.
+
+## Completion cards are not chat messages (2026-10-22)
+
+The workspace no longer renders `chat-milestone` cards. They were derived on the client from
+`GET /chats/{id}/program`; the API has no milestone entity.
+
+- **They duplicated the stepper and the preview.** All three projected the same `status` and
+  saved blocks, so the chat carried a third, competing explanation of progress.
+- **They sat at the end of the transcript without belonging to it.** The cards were rendered
+  after `messages()`, not stored in history, so a card for an old stage stayed below newer
+  messages and a reload rewrote the sequence.
+- **Readiness needs a real event.** `pending_approval` is the only point where the draft is
+  complete; a card at the end of the list cannot mark the moment a stage finished. If those
+  moments are wanted later, the backend must persist them as system messages.
+
 ## The programme is written in two halves (2026-10-22)
 
-The criteria ask the methodist to approve the goal, the competences and the hours *before* the
+The criteria ask the methodist to approve the goal, the competences and the hours _before_ the
 agent writes any content. The pipeline therefore has two groups of stages, not one.
 
 - **`SKELETON_ORDER` is what the methodist approves.** Competences, hours, sources and the
@@ -2083,6 +2164,158 @@ and the stages refuse a block that is empty: a curriculum with no lecture plan a
 slides is a curriculum with nothing in it, and the criterion asks for the slides of at
 least one module.
 
+## A catalogue shows only what the API returns (2026-10-22)
+
+The programmes page filled the gaps in `GET /chats/programmes` with invented data: type, hours,
+tags and author on every card, type/tag filters over values only the frontend knew, duplicate /
+archive / delete that mutated the loaded array, a detail-panel materials tab built from
+blueprints, and a chat-preview "Тип аттестации — уточняется". All of it looked like a feature
+and none of it survived a reload.
+
+- **Unsupported controls are removed, not disabled.** A disabled control still promises a
+  capability; an absent one does not. The catalogue keeps the real update-month filter, paging,
+  and the real detail blocks.
+- **The list model matches the list endpoint.** `ProgramApiItem` holds only `session_id`,
+  `title`, `status` and `updated_at`; type, hours, description, modules and competencies arrive
+  with the detail request. The card grows into them once the panel has loaded them.
+- **Empty is a truthful state.** The detail panel says a block has not been formed yet instead
+  of showing invented modules, competencies or materials.
+
+## The programme aside collapses its blocks and pins the downloads (2026-10-22)
+
+The aside stacked five heterogeneous blocks — the goal, competences, modules, sources and the
+self-check report — and pushed the DOCX and PPTX buttons below all of them. A methodist who
+wanted the download had to scroll past the whole programme every time.
+
+- **One section is open at a time.** The accordion opens the goal by default and closes it when
+  another section opens, so the aside shows the shape of the programme without turning its
+  length into the main thing. A section with no content still opens onto its truthful empty
+  note.
+- **Status, metadata and downloads do not collapse.** The header, badge, volume and format, and
+  the export buttons are the actions a methodist reaches for repeatedly; hiding them behind a
+  toggle would trade one scroll for another. Downloads are a footer only when an export exists.
+- **The accordion is a shared component.** `shared/components/accordion-section` owns the
+  button, the `aria-expanded` / `aria-controls` wiring and the panel, so the next long aside
+  gets the same behaviour without copying it. The chat preview keeps the block-specific styles.
+- **The panel stays in the DOM so it can animate.** `grid-template-rows` goes from `0fr` to
+  `1fr`; removing the content with `@if` would make the opening jump. While collapsed the
+  panel carries `aria-hidden` and `inert`, so the invisible content is neither announced nor
+  focusable. The transition is disabled under `prefers-reduced-motion`.
+- **The focus handoff expands its target.** `focusSection` still scrolls and highlights, and now
+  also opens the section, because scrolling to a collapsed header would highlight a closed
+  panel instead of its contents.
+
+## The stepper mirrors the two-phase programme pipeline (2026-10-22)
+
+The five UI steps used to smear four backend stages into one and call the approval wait
+"Проверка", so the stepper could not tell a skeleton being written from content being written.
+
+- **The labels follow the work:** Запрос → Каркас программы → Согласование каркаса →
+  Содержание и материалы → Готово.
+- **Skeleton stages map to step 2.** `competences`, `hours`, `sources` and `summary` all fill
+  the skeleton, even though they run as separate tasks.
+- **`pending_approval` is step 3.** The methodist is not waiting for a check to finish; the run
+  is waiting for them to agree the skeleton.
+- **Content stages map to step 4.** Only `assessment` and `materials` belong there; they start
+  after the approval, so the stepper moves back to step 4 rather than staying on "Готово".
+
+## The self-check is a grouped checklist, not a card stack (2026-10-22)
+
+The report used to render every check as a card with its own icon, outline and background,
+inside the accordion card, so five checks looked like five equally important boxes and a
+failed check was hard to spot.
+
+- **A score and a progress bar sit above the list.** Passed and total are visible before any
+  detail; the bar is red while the report is not OK and green when it is.
+- **Failures come first, successes second.** The groups are `Требует внимания` and `Пройдено`,
+  and an empty group is dropped. Successful checks no longer compete with failures for space.
+- **Every check gets the same padded row.** The padding and radius are uniform, so a failed
+  check does not shift its text against the successful ones.
+- **Only the conflicting sentence is red.** The check row stays neutral; each problem message
+  is its own tinted callout, because the backend names the mismatch but not which detail value
+  is wrong.
+
+## Files live in the programme aside (2026-10-22)
+
+The chat had a second right-hand panel for files, opened by its own header button, while the
+programme aside already owned the right column. Two panels competed for the same edge and the
+file button duplicated navigation.
+
+- **The files list is a `Файлы` accordion in the programme aside**, below the draft blocks,
+  and the chat header no longer has a panel toggle.
+- **The chat still owns the file state.** The page passes the chat's session files and pending
+  uploads into the aside and routes preview, download, delete and session deletion back to the
+  chat, so the attachment API is loaded once and the two panes see the same upload state.
+- **Opening the section reloads pending uploads.** A file can be uploaded while the accordion
+  is closed, and the chat reloads the list when a batch finishes, so stale rows are not kept.
+
+## The aside marks the block a stage just wrote (2026-10-22)
+
+The programme aside is watched while it polls, and the run reports only a new `version` — which
+says that something moved, never what.
+
+- **The client settles it by comparing the blocks, not the version.** `programChangedSections`
+  holds a signature per region of the aside (the volume and format, the summary, the
+  competences, the curriculum, the sources, the self-check, the exports) and flashes exactly
+  the regions whose content differs from the previous state.
+- **The backdrop is a shared global utility, not a component rule.** `.update-flash` in
+  `_flash.scss` is a tinted overlay that fades once; it carries the metadata row, the accordion
+  sections and the pinned results footer alike, because a region that is not an accordion must
+  be markable the same way.
+- **The files arrive out of band and flash without the badge.** Session and staged files are an
+  input rather than part of the state, so a second effect watches their ids and statuses and
+  marks the section only: the badge speaks for the programme.
+- **The stepper spins on `busy`, not on `running`.** `busy` survives the finalisation, which
+  holds no stage lock, and turns false exactly while the run waits for the methodist, so the
+  ring means "the run is working" and its absence means "it is your turn".
+
+## Dead code leaves the frontend (2026-10-22)
+
+A sweep from `main.ts` along the import graph, plus a template check for every selector and a
+token check for every stylesheet, found the frontend otherwise clean: every page is routed and
+linked, and every shared component is rendered somewhere.
+
+- **`app-check-control` is gone, with its spec.** The control was already unused when it was
+  built — its own decision entry says so — and after the admin forms moved to `app-input` and
+  `app-select` nothing imported it at all.
+- **`shared/utils/menu-keyboard.ts` is gone, with its spec.** It implemented the arrow-key
+  pattern of the programme action menus, and the menus themselves were removed when the
+  catalogue went read-only, so the helper outlived its only caller.
+- **`_menu.scss` and its `@use` are gone.** The popover styles were extracted there for the same
+  action menus; `header__dropdown` replaced them, and no template ever carried `popover-menu`.
+- **Unused fragments went with them:** the `circle` mixin, `skeleton-item--static`, the
+  `programs-page__filter--type` and `--tag` widths, `file-preview__spinner`, and the two Lucide
+  imports (`LucideSearch`, `LucideArrowLeft`) that only exist to be passed as icon _data_ and
+  were producing `NG8113` on every build.
+- **`/programs/new` stays.** Nothing links to it, but it is the documented entry point for the
+  create form and it renders the shared placeholder, so it costs a route and no code.
+
+## The chat list and the standalone create page are gone (2026-10-22)
+
+`/chats` listed the user's chats with search, sorting and pagination, and `/create` was a form
+of its own. Both predate the product that exists now: a chat is a programme workspace, `/home`
+is the only place one is started, and `/programs` is the catalogue that reaches a finished one.
+The list was the last caller of `GET /chats` and of the `Table`-in-a-card layout; the form was
+the last caller of nothing at all.
+
+- **A chat starts from `/home` and nowhere else.** The composer takes the brief, the files and
+  the guest redirect; `/create` duplicated all three, and its own `POST /chats/` plus
+  `POST /chats/{id}` handshake is what `ChatStarterService` does for the home composer too.
+  Deleting a session now returns to `/home` instead of asking for a new brief.
+- **The catalogue replaced the list.** `/programs` answers what the list answered — reach a
+  chat by name, focusing the results region — and adds the programme's own status and hours,
+  which the list could not know. The list is therefore a smaller version of a page that came
+  later, and it was the only route a regular user could not reach: its link was an admin's
+  "back to the user menu" chip.
+- **`GET /chats` keeps its endpoint, the client loses its method.** `ChatService.list`,
+  `CHATS_PAGE_SIZE`, `ChatListQuery`, `ChatSortKey` and `SortOrder` are gone with the page; the
+  backend list, the mock interceptor's handler for it and `UserChat` stay, because the endpoint
+  still exists and the mock mirrors the API rather than the client.
+- **The e2e suite creates chats through the home composer.** `createChat` fills
+  `getByLabel('Сообщение')` and clicks "Отправить", so the helper now covers the same path a
+  user takes; the guest tests that asked for `/create` or `/chats` ask for `/settings`, and the
+  card action-menu test went with the menu it asserted.
+
 ## The methodist's decisions are endpoints, and the rules are shared (2026-10-22)
 
 The frontend asked for endpoints to approve a draft and to ask for a revision, because the
@@ -2194,3 +2427,83 @@ numbers, so a wrong volume is still a refusal the model can act on.
 
 The report still checks the volumes of a state stored before this change; only new saves are
 normalised. Found 2026-10-22 on a live programme.
+
+## The methodist's decision is taken from the chat, not from the aside
+
+The approval and the revision were reachable only through the model (`approve_program_draft`,
+`revise_program`), which is a guess: the methodist has to phrase a decision as a message and
+hope the model calls the right tool. The endpoints made the decision a request of its own, and
+the client needs a control that takes it.
+
+**The panel takes the composer's place, exactly as the question form does.** While `status` is
+`pending_approval` and `busy` is false the footer shows the decision instead of the message
+box. The two are the same kind of thing — a moment when the run cannot move without the
+methodist — so they use the same slot and the methodist learns one pattern. It also means the
+decision cannot be missed: it is where the eye already is while typing. The alternative, a
+button in the programme aside, would have left the methodist free to type a message that the
+model might answer with prose while the run stays blocked.
+
+**Only `pending_approval` asks anything, and only then.** The approval gate is the one place
+the pipeline is stopped without a way forward; after the approval the content stages run on
+their own and the programme finishes. Replacing the composer once the programme is complete
+would be permanent and would take the chat away for good, so a content revision after the
+approval is left to the model's `revise_program` tool, which the methodist already reaches by
+asking. The gate is a decision the client owes; a completed programme is not.
+
+**The revision lists the blocks that already exist.** `programDecision` builds the picker from
+`stages` where the stage is `completed`, in pipeline order, rather than naming all six stages.
+A stage that was not written has no block to redo, and the backend refuses that revision with
+409 `StageNotReady` — so the client offers only what the rules accept, instead of offering a
+choice that fails on submit. The picker therefore holds the skeleton at the approval gate and
+would hold the whole programme if the panel ever opened after it.
+
+**The refused decision is shown with the backend's own words.** The backend's `reason`
+sentences (in `app/agentic/errors.py`) are written for the methodist, so the failure path
+passes `detail` through unchanged and re-reads the programme, rather than inventing a message.
+A decision is a rule of the programme, not a broken request.
+
+The decision lives on `ChatComponent` because it makes its own request, next to `sendAnswers`,
+and `ChatPage` derives it from the programme state it already polls. The `revision` and
+`last_revision` records the backend added are carried in `ProgramStateApi`; the panel shows
+the last one so a methodist who asked for a change can see that it was taken and by whom.
+
+**The panel shows one card at a time.** Picking either action hides the other card, so opening
+the revision does not leave the approval stranded above it, and confirming hides the revision.
+This is deliberate, not a rendering bug: the panel is one decision, and both cards at once
+invite a second click on an action that is already being taken. A refused approval is the
+exception — when the request settles without the programme moving, the choice comes back,
+because the methodist still owes the programme a decision and the only card left would be the
+one that just failed.
+
+**The panel is not closed by the click.** A revision or an approval disappears from the panel
+only once the programme is re-read: a revision moves the run to `generating`, an approval
+leaves `pending_approval`, and a decision is due in neither. Hiding the panel optimistically
+would destroy the component and the methodist's typed notes with it, and a refusal — the
+backend refuses a revision for five separate reasons — would then have to be re-entered by
+hand. The cost is one round trip during which the action is clickable again, and a second
+click is answered with 409 `RevisionPending`.
+Added 2026-10-22.
+
+## The message is the only HTML the client renders, and it is sanitized at the boundary
+
+A review flagged "`innerHTML` without explicit sanitization" as an XSS risk. The audit says the
+risk was already closed, but the finding is fair about the *source*: a grep cannot tell an
+Angular binding from a raw assignment.
+
+- **There is one HTML sink in the whole application**, `[innerHTML]="renderedText()"` in
+  `chat-message.component.html`, and **no `bypassSecurityTrust*` call exists anywhere**. Angular
+  sanitizes an `[innerHTML]` binding on its own, so the sink was never unsanitized.
+- **The spreadsheet preview does not assign HTML at all.** `file-preview.component.ts` calls
+  `DomSanitizer.sanitize(SecurityContext.HTML, …)` and then builds nodes with `DOMParser`, so a
+  cell whose text looks like markup cannot become markup.
+- **The message text is untrusted twice over**, which is why the step is now named in the
+  component instead of being left to the binding: the model wrote the assistant's half, and the
+  methodist's half is echoed back from the API, and `marked` turns either into HTML. The explicit
+  `sanitize` is therefore a second pass over the same sanitizer — a no-op on the output, and the
+  thing a reviewer can point at. `AGENTS.md` names the same rule for new code.
+
+Two tests hold it: a message carrying `<script>` never reaches the document, and an `onerror`
+handler and a `javascript:` link are stripped while markdown and highlighted code survive.
+Verified in a browser too, on the mock stack: a message with an `img onerror` and a script tag
+rendered with the handler gone, the script dropped, `window.__xss` unset, and `<strong>` plus a
+highlighted `pre code` intact. Added 2026-10-23.

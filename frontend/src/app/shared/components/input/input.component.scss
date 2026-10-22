@@ -17,7 +17,7 @@
     align-items: center;
   }
 
-  padding: 15px;
+  padding: var(--input-wrapper-padding, 15px);
 
   border: 1px solid var(--color-outline);
   border-radius: 15px;
@@ -155,10 +155,10 @@
   &--textarea {
     resize: none;
     overflow-y: auto;
-    min-height: 40px;
+    min-height: var(--input-textarea-min-height, 40px);
     line-height: 1.5;
 
-    padding: 8px 5px;
+    padding: var(--input-textarea-padding, 8px 5px);
 
     justify-self: flex-start;
     @include app-scrollbar;

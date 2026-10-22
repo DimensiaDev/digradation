@@ -1,0 +1,101 @@
+@if (report(); as report) {
+  <div class="program-preview__report-summary" role="status">
+    <div class="program-preview__report-head">
+      <div>
+        <p class="program-preview__report-score">
+          <strong>{{ report.passed }}</strong>
+          <span>из {{ report.checks.length }} проверок</span>
+        </p>
+        <p class="program-preview__report-caption">пройдено</p>
+      </div>
+
+      <span
+        class="program-preview__badge program-preview__report-verdict"
+        [attr.data-tone]="report.ok ? 'success' : 'danger'"
+      >
+        @if (report.ok) {
+          <svg size="13" lucideCheck aria-hidden="true"></svg>
+        } @else {
+          <svg size="13" lucideTriangleAlert aria-hidden="true"></svg>
+        }
+        {{ report.ok ? 'Проверки пройдены' : 'Нельзя утверждать' }}
+      </span>
+    </div>
+
+    <div
+      class="program-preview__report-progress"
+      role="progressbar"
+      aria-label="Пройдено проверок"
+      aria-valuemin="0"
+      [attr.aria-valuemax]="report.checks.length"
+      [attr.aria-valuenow]="report.passed"
+    >
+      <span
+        class="program-preview__report-progress-fill"
+        [attr.data-tone]="report.ok ? 'success' : 'danger'"
+        [style.width.%]="progress()"
+      ></span>
+    </div>
+  </div>
+
+  <div class="program-preview__report-groups">
+    @for (group of groups(); track group.id) {
+      <section
+        class="program-preview__report-group"
+        [attr.data-group]="group.id"
+        [attr.aria-labelledby]="'program-preview-report-' + group.id"
+      >
+        <h4 class="program-preview__report-group-title" [id]="'program-preview-report-' + group.id">
+          {{ group.label }}
+          <span class="program-preview__count">{{ group.checks.length }}</span>
+        </h4>
+
+        <ul class="program-preview__checks">
+          @for (check of group.checks; track check.name) {
+            <li class="program-preview__check" [class.program-preview__check--problem]="!check.ok">
+              <span class="program-preview__check-icon" aria-hidden="true">
+                @if (check.ok) {
+                  <svg size="18" lucideCheck></svg>
+                } @else {
+                  <svg size="18" lucideTriangleAlert></svg>
+                }
+              </span>
+
+              <div class="program-preview__check-body">
+                <header class="program-preview__check-head">
+                  <h5 class="program-preview__check-name">{{ check.label }}</h5>
+                  <span class="visually-hidden">
+                    {{ check.ok ? 'Пройдено' : 'Есть замечания' }}
+                  </span>
+                </header>
+
+                @if (check.problems.length) {
+                  <ul class="program-preview__check-problems">
+                    @for (problem of check.problems; track problem) {
+                      <li>{{ problem }}</li>
+                    }
+                  </ul>
+                }
+
+                @if (check.details.length) {
+                  <dl class="program-preview__check-details">
+                    @for (detail of check.details; track detail.label) {
+                      <div class="program-preview__check-detail">
+                        <dt>{{ detail.label }}</dt>
+                        <dd>{{ detail.value }}</dd>
+                      </div>
+                    }
+                  </dl>
+                }
+              </div>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+  </div>
+} @else {
+  <p class="program-preview__empty-note">
+    Самопроверка появится, когда программа соберёт первые блоки.
+  </p>
+}
