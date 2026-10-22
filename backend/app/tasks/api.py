@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agentic import store
 from app.agentic.errors import AnswersDoNotMatch
 from app.agentic.loop import run_tool_loop
-from app.agentic.models import ProgramStatus
+from app.agentic.models import ProgramStatus, StageStatus
 from app.agentic.state import ClarificationAnswer, ProgramState, apply_answers
 from app.agentic.tools import INTAKE_TOOLS, ToolContext, call_executor
 from app.cache import get_deletion_key, get_generation_key, get_redis_client
@@ -206,8 +206,11 @@ async def _commit_tool_state(ctx: ToolContext, previous: ProgramState | None, se
     elif not started and saved.status is ProgramStatus.GENERATING:
         # The methodist approved the skeleton: the content may be written now.
         # The attempt is spent here, so the stage has the same budget as every
-        # other one.
-        queued = await store.save(saved.enqueued(saved.current_stage), expected_run_id=saved.run_id)
+        # other one, and a stage that is already complete is not run again.
+        stage = saved.current_stage
+        if saved.stage_status(stage) is StageStatus.COMPLETED:
+            return
+        queued = await store.save(saved.enqueued(stage), expected_run_id=saved.run_id)
         await program_stage.kiq(session, queued.current_stage.value, queued.run_id)
 
 

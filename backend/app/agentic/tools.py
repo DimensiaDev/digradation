@@ -422,18 +422,35 @@ def _hours_problems(state: ProgramState, block: HoursBlock) -> list[str]:
 
 
 def _assessment_problems(state: ProgramState, block: AssessmentBlock) -> list[str]:
-    """The assessment has to check the programme that is already committed."""
+    """The assessment has to check the programme that is already committed.
+
+    It also has to be something: an assessment without a question, without a
+    seminar task and without a form of control checks nothing.
+    """
     if state.curriculum is None:
         return ["учебный план ещё не собран"]
-    return state.assessment_problems(block.assessment, state.curriculum)
+    assessment = block.assessment
+    problems = state.assessment_problems(assessment, state.curriculum)
+    if not (assessment.questions or assessment.seminar_tasks or assessment.tools):
+        problems.append("оценочные средства не содержат ни вопросов, ни заданий, ни форм контроля")
+    return problems
 
 
 def _materials_problems(state: ProgramState, block: MaterialsBlock) -> list[str]:
-    """Every plan and every deck has to belong to a topic of the plan."""
+    """Every plan and every deck has to belong to a topic of the plan.
+
+    The materials also have to be there: a curriculum with no lecture plan and
+    no slides is a curriculum with nothing in it, and the criterion asks for
+    the slides of at least one module.
+    """
     if state.curriculum is None:
         return ["учебный план ещё не собран"]
     topics = {topic.id for module in state.curriculum.modules for topic in module.topics}
     problems = []
+    if not block.materials.lecture_plans:
+        problems.append("материалы не содержат ни одного плана лекции")
+    if not block.materials.slide_decks:
+        problems.append("материалы не содержат ни одного набора слайдов")
     for plan in block.materials.lecture_plans:
         if plan.topic_id not in topics:
             problems.append(f"план лекции {plan.id} ссылается на несуществующую тему {plan.topic_id}")

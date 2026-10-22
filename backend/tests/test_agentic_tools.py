@@ -849,6 +849,36 @@ async def test_there_is_nothing_to_revise_without_a_programme() -> None:
     assert "нет программы" in (result.error or "")
 
 
+async def test_materials_without_a_plan_or_a_deck_are_refused(context: ToolContext) -> None:
+    """A curriculum with no lecture plan and no slides is a curriculum with nothing in it."""
+    await with_a_plan(context)
+    context.state = at_stage(context.state, Stage.MATERIALS)
+    block = materials_block()
+    block["materials"]["lecture_plans"] = []
+    block["materials"]["slide_decks"] = []
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert "ни одного плана лекции" in " ".join(result.details or [])
+    assert "ни одного набора слайдов" in " ".join(result.details or [])
+
+
+async def test_an_assessment_without_means_is_refused(context: ToolContext) -> None:
+    """An assessment without a question, a task or a form of control checks nothing."""
+    await with_a_plan(context)
+    context.state = at_stage(context.state, Stage.ASSESSMENT)
+    block = assessment_block()
+    block["assessment"]["questions"] = []
+    block["assessment"]["seminar_tasks"] = []
+    block["assessment"]["tools"] = []
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert "ни вопросов, ни заданий" in " ".join(result.details or [])
+
+
 # --------------------------------------------------------------------------------------
 # the dispatcher boundary
 # --------------------------------------------------------------------------------------

@@ -353,21 +353,22 @@ class ProgramState(BaseModel):
         return self._replace(exports=exports)
 
     def revision_completed(self, stage: Stage) -> Self:
-        """The redone stage is done; the run goes on with what is missing.
+        """The redone stage is done; the programme is back where it was.
 
         A revision reruns one stage and drops the parts that were written
-        from it, so the run continues with the first part that is still
-        missing — the skeleton first, and the content only after the methodist
-        has approved it again.
+        from it. A redone skeleton waits for the methodist again; a redone part
+        of the content leaves the programme complete, and the exports are
+        written again.
         """
         stages = self.stages.model_copy(update={stage.value: StageStatus.COMPLETED})
         pending = [item for item in STAGE_ORDER if getattr(stages, item.value) is not StageStatus.COMPLETED]
-        if pending and pending[0] in SKELETON_ORDER:
-            # The skeleton is not whole again; the run keeps working on it.
-            status = ProgramStatus.GENERATING
-            current = pending[0]
+        if stage in CONTENT_ORDER:
+            # The content was redone: the programme is complete when nothing of
+            # it is missing, and its exports are written again.
+            status = ProgramStatus.APPROVED if not pending else ProgramStatus.GENERATING
+            current = pending[0] if pending else stage
         else:
-            # The skeleton is whole; the methodist has to see it again.
+            # The skeleton was redone; the methodist has to see it again.
             status = ProgramStatus.PENDING_APPROVAL
             current = stage
         return self._replace(stages=stages, status=status, current_stage=current, revision=None)
@@ -583,14 +584,22 @@ class ProgramState(BaseModel):
         )
 
     def _sections_check(self) -> ProgramCheck:
-        """Every section of the programme is filled."""
+        """Every section of the programme is filled.
+
+        A section counts as filled when it holds something, not when it exists:
+        an assessment without a question and a set of materials without a
+        slide are empty sections that a report would otherwise call filled.
+        """
+        assessment = self.assessment
+        materials = self.materials
         sections = {
             "компетенции": bool(self.competencies),
-            "учебный план": self.curriculum is not None,
-            "паспорт": self.summary is not None,
+            "учебный план": self.curriculum is not None and bool(self.curriculum.modules),
+            "паспорт": self.summary is not None and bool(self.summary.goal),
             "источники": bool(self.sources),
-            "оценочные средства": self.assessment is not None,
-            "материалы": self.materials is not None,
+            "оценочные средства": assessment is not None
+            and bool(assessment.questions or assessment.seminar_tasks or assessment.tools),
+            "материалы": materials is not None and bool(materials.lecture_plans or materials.slide_decks),
         }
         problems = [f"раздел «{name}» не заполнен" for name, filled in sections.items() if not filled]
         return ProgramCheck(

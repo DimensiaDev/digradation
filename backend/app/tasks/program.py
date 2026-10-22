@@ -57,6 +57,12 @@ log = structlog.stdlib.get_logger(__name__)
 #: whose message was lost while no worker held the stage at all.
 STALLED_AFTER = timedelta(minutes=10)
 
+#: What the parts of the content are called in the chat.
+CONTENT_NAMES: dict[Stage, str] = {
+    Stage.ASSESSMENT: "оценочные средства",
+    Stage.MATERIALS: "материалы",
+}
+
 #: Releases a stage lock only if it still holds the token of the worker that took
 #: it, so an expired-and-retaken lock is not deleted by the previous owner.
 _UNLOCK = """
@@ -169,6 +175,13 @@ async def _run_stage(
         return
 
     stage_log.info("program_stage_completed", version=saved.version)
+    if revision is not None and revision.stage in CONTENT_ORDER:
+        # The content was redone: the methodist is told, because the chat still
+        # shows the draft they approved before the change.
+        await _notify(
+            session_id,
+            "Готово: " + CONTENT_NAMES[revision.stage] + " переработаны по вашей правке. Документ и слайды обновлены.",
+        )
     await _advance(saved)
 
 

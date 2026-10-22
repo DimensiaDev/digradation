@@ -2056,3 +2056,28 @@ document has one id.
 - **The score floor is 0.30, measured.** On this corpus an unrelated query scores about 0.18
   and a related one about 0.44, and the two distributions do not overlap. The default of 0.15
   sat below the junk the measurement excludes, so it was raised.
+
+## A revision drops what was written from the part that changed (2026-10-22)
+
+The first version of the revision kept the dependent blocks, and the programme then failed
+its own checks: the assessment still named a topic the new hours no longer had, and the
+finalisation reported a broken document over a part the methodist never touched.
+
+- **What a revision invalidates is written down**, in `REVISION_INVALIDATES`: the competences
+  invalidate the curriculum and the content, the hours invalidate the content, the sources
+  invalidate the passport. The block is dropped and the stage that writes it goes back to
+  pending, so it is written again from the part that changed.
+- **The run continues with what is missing.** A revised skeleton waits for the methodist
+  again; a revised part of the content leaves the programme complete, and the exports are
+  written again so the document and the slides match the change. The chat is told, because
+  the transcript still shows the draft the methodist approved before the change.
+- **A revision gives the stage its budget again.** The three attempts of a stage are there
+  for the agent's own failures, and a change the methodist asked for is not one.
+
+## A section is filled when it holds something (2026-10-22)
+
+The self-check asked whether a section existed, and an assessment without a question and a
+set of materials without a slide passed it. The report now looks at what a section holds,
+and the stages refuse a block that is empty: a curriculum with no lecture plan and no
+slides is a curriculum with nothing in it, and the criterion asks for the slides of at
+least one module.

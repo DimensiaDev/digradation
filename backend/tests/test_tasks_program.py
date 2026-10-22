@@ -412,6 +412,32 @@ async def test_the_approval_releases_the_content_and_the_programme_ends_complete
     assert saved.terminal
 
 
+async def test_a_revision_of_the_content_after_the_approval_refreshes_the_export(
+    chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
+) -> None:
+    """A change to the content of a finished programme is written and exported again.
+
+    The content is already complete here, so the revision must not re-run a
+    finished stage and must not leave the run working with nothing to do.
+    """
+    state = await store.save(complete_state(chat))
+    assert state.status is ProgramStatus.APPROVED
+
+    await store.save(state.request_revision(Stage.ASSESSMENT, "усложни тест"))
+    raw = example()
+    provider.answers.extend([save_turn({"assessment": raw["assessment"]}), answer("готово")])
+
+    await run_task(program.program_stage, chat, Stage.ASSESSMENT.value, state.run_id)
+
+    saved = await store.load(chat)
+    assert saved is not None
+    assert saved.revision is None
+    assert saved.status is ProgramStatus.APPROVED
+    assert saved.assessment is not None
+    _, _, exports = enqueued
+    exports.assert_awaited_once_with(chat, state.run_id)
+
+
 async def test_a_revision_of_the_skeleton_leads_to_the_content_being_written(
     chat: uuid.UUID, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:

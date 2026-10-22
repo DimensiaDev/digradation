@@ -21,6 +21,7 @@ from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.state import (
     SKELETON_ORDER,
     STAGE_ORDER,
+    AssessmentBlock,
     ClarificationAnswer,
     ProgramState,
     SourcesBlock,
@@ -195,6 +196,24 @@ def test_the_report_names_the_sources_nobody_confirmed(blocks: Blocks) -> None:
     assert sources.details["подтверждено"] == 2
     assert "act-273-fz" in " ".join(sources.problems)
     assert "profstd-06.001" not in " ".join(sources.problems)
+
+
+def test_the_report_calls_an_empty_assessment_an_empty_section(blocks: Blocks) -> None:
+    """A section that exists but holds nothing is not filled."""
+    state = make_state(blocks)
+    state = state.with_assessment(
+        AssessmentBlock(
+            assessment={
+                "final": {"form": "экзамен", "hours": 0, "outcome_ids": ["ro-k-01"]},
+            }
+        )
+    )
+
+    report = state.report()
+
+    sections = report.checks[3]
+    assert sections.details["оценочные средства"] is False
+    assert "оценочные средства" in " ".join(sections.problems)
 
 
 def test_the_report_says_which_sections_are_empty(blocks: Blocks) -> None:
