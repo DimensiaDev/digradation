@@ -172,6 +172,8 @@ export type ProgramStatus = ProgramViewStatus;
 
 export type ProgramKind = 'professional_development' | 'general_development';
 
+export type ProgramMode = 'new' | 'actualization' | 'adaptation';
+
 export type ProgramTheme = 'it' | 'analytics' | 'soft-skills' | 'agile' | 'management' | 'security';
 
 export interface ProgramModule {
@@ -286,20 +288,26 @@ export interface ProgramCheckApi {
 export interface ProgramReportApi {
   ok: boolean;
   checks: readonly ProgramCheckApi[];
+  notes?: readonly string[];
 }
 
 export interface ProgramExportsApi {
   document_attachment_id: number | null;
   slides_attachment_id: number | null;
+  json_attachment_id?: number | null;
+  lms_attachment_id?: number | null;
 }
 
 export interface ProgramBlocksApi {
   kind: ProgramKind | null;
+  mode?: ProgramMode | null;
   title: string | null;
   competencies: readonly ProgramCompetenceApi[];
   curriculum: ProgramCurriculumApi | null;
   sources: readonly ProgramSourceApi[];
   summary: ProgramSummaryApi | null;
+  assessment?: Record<string, unknown> | null;
+  materials?: Record<string, unknown> | null;
 }
 
 export type ProgramStage =
@@ -331,11 +339,14 @@ export interface ProgramRevisionRequest {
 
 export interface ProgramStateApi {
   status: ProgramViewStatus;
+  mode?: ProgramMode;
   current_stage: string | null;
   stages: Record<string, string>;
   running: boolean;
   busy: boolean;
   error: string | null;
+  expectations?: string | null;
+  sample_issues?: readonly string[];
   updated_at: string | null;
   version: number;
   questions: readonly ProgramQuestionApi[];

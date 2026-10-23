@@ -67,9 +67,12 @@ export class ChatPage {
 
   readonly exportAttachmentIds = computed(() => {
     const exports = this.program()?.exports;
-    return [exports?.document_attachment_id, exports?.slides_attachment_id].filter(
-      (id): id is number => typeof id === 'number'
-    );
+    return [
+      exports?.document_attachment_id,
+      exports?.slides_attachment_id,
+      exports?.json_attachment_id,
+      exports?.lms_attachment_id
+    ].filter((id): id is number => typeof id === 'number');
   });
 
   readonly sessionFiles = computed(() => this.chatView()?.sessionFiles() ?? []);

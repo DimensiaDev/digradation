@@ -1,4 +1,4 @@
-"""Write the finished programme to storage, as a document, as slides and as JSON.
+"""Write the finished programme to storage, as a document, slides, JSON and an LMS test.
 
 The exports are attachments of the chat, so the client fetches them with the
 attachment route it already uses for a file the methodist uploaded: the
@@ -10,7 +10,8 @@ The JSON is the whole document, not the draft: a client that reconstructs the
 programme from it does not have to know which blocks the state has and which
 it does not. The slides are written only when the programme has at least one
 deck, because a title-only PPTX is not the "слайды хотя бы для одного модуля"
-the criterion asks for.
+the criterion asks for. The LMS export is a Moodle XML question bank: the
+questions with their keys and the seminar tasks with their criteria.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from sqlalchemy import select
 from app.agentic.errors import IncompleteDraft
 from app.agentic.state import ProgramExports, ProgramState
 from app.database import db_session
+from app.lms import render_lms
 from app.models.chat import Attachment
 from app.render import render_program_document
 from app.slides import render_slides
@@ -38,6 +40,7 @@ log = structlog.stdlib.get_logger(__name__)
 DOCUMENT_NAME = "programme.docx"
 SLIDES_NAME = "programme-slides.pptx"
 JSON_NAME = "programme.json"
+LMS_NAME = "programme-lms.xml"
 
 #: The bucket the exports live in: the one the attachments live in, so the
 #: attachment route finds them where it looks.
@@ -45,6 +48,7 @@ BUCKET = "uploads"
 DOCUMENT_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 SLIDES_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 JSON_MEDIA_TYPE = "application/json"
+LMS_MEDIA_TYPE = "application/xml"
 
 
 @broker.task(queue_name="default")
@@ -59,11 +63,11 @@ async def export_program(session_id: uuid.UUID, run_id: uuid.UUID) -> None:
     if state is None:
         return
     try:
-        document, slides, payload = await asyncio.to_thread(_render, state)
+        document, slides, payload, lms = await asyncio.to_thread(_render, state)
     except IncompleteDraft as error:
         log.warning("program_export_incomplete", error=str(error))
         return
-    exports = await _store(session_id, document, slides, payload)
+    exports = await _store(session_id, document, slides, payload, lms)
     try:
         await store_save(state, exports, run_id)
     except Exception as error:
@@ -83,13 +87,18 @@ async def _load(session_id: uuid.UUID, run_id: uuid.UUID) -> ProgramState | None
     return state
 
 
-def _render(state: ProgramState) -> tuple[bytes, bytes | None, bytes]:
-    """The document, the slides and the JSON of a finished programme.
+def _render(state: ProgramState) -> tuple[bytes, bytes | None, bytes, bytes]:
+    """The document, the slides, the JSON and the LMS test of a programme.
 
     The slides are ``None`` when the programme has no deck: a title-only PPTX
     is not the criterion's "слайды хотя бы для одного модуля", so it is left
     out rather than written and handed on as if it were one.
     """
+    if state.assessment is None or state.materials is None:
+        # The LMS bank is built from the assessment and the slides from the
+        # materials; a run that reached the export without them is not a
+        # finished programme, and exporting the other files would hide it.
+        raise IncompleteDraft(["оценочные средства и материалы ещё не собраны"])
     document = state.to_document()
     title = state.title or "Презентационные материалы программы"
     slides = render_slides(state.materials, programme_title=title) if state.materials.slide_decks else None
@@ -98,7 +107,8 @@ def _render(state: ProgramState) -> tuple[bytes, bytes | None, bytes]:
         ensure_ascii=False,
         indent=2,
     ).encode("utf-8")
-    return render_program_document(document), slides, payload
+    lms = render_lms(state.assessment, programme_title=state.title or "Образовательная программа")
+    return render_program_document(document), slides, payload, lms
 
 
 async def _store(
@@ -106,6 +116,7 @@ async def _store(
     document: bytes,
     slides: bytes | None,
     payload: bytes,
+    lms: bytes,
 ) -> ProgramExports:
     """Store the exports and register them as attachments of the chat."""
     async with storage.internal_client() as s3:
@@ -117,11 +128,14 @@ async def _store(
             await s3.put_object(Bucket=BUCKET, Key=slides_key, Body=slides, ContentType=SLIDES_MEDIA_TYPE)
         json_key = get_s3_attachment_key(session_id, JSON_NAME)
         await s3.put_object(Bucket=BUCKET, Key=json_key, Body=payload, ContentType=JSON_MEDIA_TYPE)
+        lms_key = get_s3_attachment_key(session_id, LMS_NAME)
+        await s3.put_object(Bucket=BUCKET, Key=lms_key, Body=lms, ContentType=LMS_MEDIA_TYPE)
 
     async with db_session() as db:
         document_id = await _register(db, session_id, DOCUMENT_NAME, document_key)
         slides_id = await _register(db, session_id, SLIDES_NAME, slides_key) if slides_key is not None else None
         json_id = await _register(db, session_id, JSON_NAME, json_key)
+        lms_id = await _register(db, session_id, LMS_NAME, lms_key)
         await db.commit()
     log.info(
         "program_exported",
@@ -129,11 +143,13 @@ async def _store(
         document=document_id,
         slides=slides_id,
         json=json_id,
+        lms=lms_id,
     )
     return ProgramExports(
         document_attachment_id=document_id,
         slides_attachment_id=slides_id,
         json_attachment_id=json_id,
+        lms_attachment_id=lms_id,
     )
 
 

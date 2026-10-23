@@ -1341,3 +1341,23 @@ to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALF
   entry in the document's table of contents opened the app a second time in a new tab instead of
   scrolling the preview. A target that starts with `#` resolves against the current document and needs
   no `rel`/`target` at all. Found 2026-10-23.
+- **Two `ng test` processes at once corrupt the coverage report and can make the gate look red.** The
+  Angular builder writes the compiled specs, the report and `coverage/` into the same directories, and
+  the second process overwrites the first's output while both vitest workers run. A parallel run during
+  this change reported a collapsed, moving total for the same tree; a single run reported the real
+  figure and passed. Run `npm test` and `npx ng test --coverage` one after the other, never together.
+  Found 2026-10-23.
+- **A Russian substring parser has to survive the genitive case.** "Повышение квалификации" and
+  "повышения квалификации" are the same template, but a check for the nominative phrase returns
+  `None` for the wording the requests actually use. Match stems ("повышени" + "квалификаци"), and
+  check the general-development phrase first, because "общеразвивающая ... профессиональные навыки"
+  is still a general programme. Found 2026-10-23.
+- **The finished-state example puts `conditions` and `staffing` beside `materials`, while the model
+  nests them inside `materials`.** A test or fixture that builds a `MaterialsBlock` from
+  `raw["materials"]` alone silently gets empty conditions and staff, and the materials stage then
+  refuses a document that looked complete. Merge the top-level fields when reconstructing the block.
+  Found 2026-10-23.
+- **A preset model id can be delisted between releases.** `Qwen/Qwen2.5-72B-Instruct` was a reasonable
+  Cloud.ru default when it was written and was absent from the provider's overview a few months later.
+  A deployment that pins a model by id inherits a first-turn failure; check the provider's current list
+  when the preset is used for a demo, and leave the environment override in place. Found 2026-10-23.

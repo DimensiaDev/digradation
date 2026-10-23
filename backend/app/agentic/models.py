@@ -63,6 +63,28 @@ class ProgramFormat(StrEnum):
     INTERNSHIP = "internship"
 
 
+class ProgramMode(StrEnum):
+    """Why the programme is being written.
+
+    A new programme is built from the brief. An actualization takes an existing
+    programme and updates its content and sources; an adaptation takes one and
+    changes it for another audience, level or delivery format. Both keep the
+    structure of the programme they start from instead of inventing a new one.
+    """
+
+    NEW = "new"
+    ACTUALIZATION = "actualization"
+    ADAPTATION = "adaptation"
+
+
+#: The range of academic hours a programme may take. The lower bound is the
+#: smallest volume the АЦР templates accept; the upper bound keeps a run within
+#: the pipeline's budget and matches the largest programmes the organisers ask
+#: for.
+MIN_PROGRAM_HOURS = 16
+MAX_PROGRAM_HOURS = 500
+
+
 class ProgramStatus(StrEnum):
     """Lifecycle of the document; per-stage progress lives in StageStatuses."""
 
@@ -574,6 +596,10 @@ class ProgramDraft(SchemaModel):
     format: ProgramFormat = Field(
         default=ProgramFormat.COURSE,
         description="Формат: обычный курс или профессиональная программа в форме стажировки",
+    )
+    mode: ProgramMode = Field(
+        default=ProgramMode.NEW,
+        description="Новая программа, актуализация существующей или адаптация под другую аудиторию",
     )
     title: str = Field(min_length=1, max_length=500, description="Название программы")
     summary: ProgramSummary = Field(description="Паспорт программы: цель, аудитория, форма обучения")

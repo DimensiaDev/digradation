@@ -57,6 +57,29 @@ def test_provider_selection(monkeypatch):
     assert isinstance(build("mock"), MockProvider)
 
 
+def test_the_cloudru_preset_names_a_documented_model(monkeypatch):
+    """The preset is a convenience, and its default has to be a served model."""
+    import importlib
+
+    from app.providers.openai import OpenAIProvider
+
+    monkeypatch.setenv("SBER_API_KEY", "real-key")
+    monkeypatch.setenv("SBER_API_SCOPE", "PERS")
+    monkeypatch.setenv("LLM_PROVIDER", "cloudru")
+    for name in ("OPENAI_URL", "OPENAI_MODEL", "CLOUDRU_URL", "CLOUDRU_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    module = importlib.reload(importlib.import_module("app.providers.containers"))
+
+    assert isinstance(module.provider, OpenAIProvider)
+    assert module.provider._model() == "ai-sage/GigaChat3.5-432B-A28B"
+    assert str(module.provider._client.base_url).rstrip("/") == "https://foundation-models.api.cloud.ru/v1"
+
+    # Leave the module holding the offline provider for the tests that follow.
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.setenv("SBER_API_KEY", "mock")
+    importlib.reload(module)
+
+
 def test_embedding_provider_requires_the_index_dimension(monkeypatch):
     import asyncio
     import importlib

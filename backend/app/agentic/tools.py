@@ -22,7 +22,17 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.agentic import actions, sources, websearch
 from app.agentic.errors import ProgramError
-from app.agentic.models import ProgramFormat, ProgramKind, ProgramStatus, Source, SourceKind, Stage
+from app.agentic.models import (
+    MAX_PROGRAM_HOURS,
+    MIN_PROGRAM_HOURS,
+    ProgramFormat,
+    ProgramKind,
+    ProgramMode,
+    ProgramStatus,
+    Source,
+    SourceKind,
+    Stage,
+)
 from app.agentic.sources import RagUnavailable
 from app.agentic.state import (
     MAX_QUESTION_LENGTH,
@@ -131,9 +141,12 @@ class BeginProgramArguments(BaseModel):
     )
     requested_hours: float | None = Field(
         default=None,
-        gt=0,
-        le=1000,
-        description="Объём программы в академических часах, если методист его назвал",
+        ge=MIN_PROGRAM_HOURS,
+        le=MAX_PROGRAM_HOURS,
+        description=(
+            f"Объём программы в академических часах, если методист его назвал: "
+            f"от {MIN_PROGRAM_HOURS} до {MAX_PROGRAM_HOURS}"
+        ),
     )
     kind: ProgramKind | None = Field(
         default=None,
@@ -142,6 +155,29 @@ class BeginProgramArguments(BaseModel):
     format: ProgramFormat | None = Field(
         default=None,
         description="Формат: course или internship. Заполняется только для professional_development",
+    )
+    mode: ProgramMode = Field(
+        default=ProgramMode.NEW,
+        description=(
+            "Режим: new для новой программы, actualization для актуализации существующей, "
+            "adaptation для адаптации под другую аудиторию или формат"
+        ),
+    )
+    expectations: str | None = Field(
+        default=None,
+        max_length=4000,
+        description=(
+            "Что заказчик ждёт сверх того, что даёт заявленный объём: например, «после курса "
+            "можно пойти работать». Это попадёт в отчёт, а не в обещание программы."
+        ),
+    )
+    sample_issues: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "Расхождения в приложенном образце программы, которые нельзя переносить в новую "
+            "программу: например, итоговая строка учебного плана не сходится с часами."
+        ),
     )
     expected_test_questions: int | None = Field(
         default=None,
@@ -265,7 +301,11 @@ _SAVE_DESCRIPTIONS: dict[Stage, str] = {
         "Сохранить оценочные средства: тестовые вопросы с ключами, задания для семинаров с критериями "
         "оценки, формы текущего контроля и итоговую аттестацию."
     ),
-    Stage.MATERIALS: "Сохранить планы лекций и слайды к темам учебного плана.",
+    Stage.MATERIALS: (
+        "Сохранить методические материалы, условия реализации и кадровое обеспечение: планы лекций "
+        "и слайды к темам, у которых есть лекционные часы, оборудование и учебно-методические "
+        "материалы, требования к преподавателям и должности."
+    ),
 }
 
 #: The save specification of each stage, built from that stage's block model, so
@@ -478,20 +518,41 @@ def _assessment_problems(state: ProgramState, block: AssessmentBlock) -> list[st
 
 
 def _materials_problems(state: ProgramState, block: MaterialsBlock) -> list[str]:
-    """Every plan and every deck has to belong to a topic of the plan.
+    """The materials have to teach the plan that was already committed.
 
-    The materials also have to be there: a curriculum with no lecture plan and
-    no slides is a curriculum with nothing in it, and the criterion asks for
-    the slides of at least one module.
+    Every plan and every deck belongs to a topic of the plan. A programme with
+    lecture hours needs at least one plan and one deck; an internship with no
+    lectures at all is not refused for lacking them, because its teaching is
+    the supervised practice. Conditions and staff are required either way: a
+    programme that does not say where it runs or who runs it is incomplete.
+
+    The criterion asks for the slides of at least one module rather than one
+    deck anywhere, and that cross-check stays in :meth:`ProgramState.report`.
     """
     if state.curriculum is None:
         return ["учебный план ещё не собран"]
     topics = {topic.id for module in state.curriculum.modules for topic in module.topics}
+    has_lectures = any(topic.hours.lecture > 0 for module in state.curriculum.modules for topic in module.topics)
+    plans = {plan.topic_id for plan in block.materials.lecture_plans}
+    decks = {deck.topic_id for deck in block.materials.slide_decks}
     problems = []
-    if not block.materials.lecture_plans:
+    if has_lectures and not plans:
         problems.append("материалы не содержат ни одного плана лекции")
-    if not block.materials.slide_decks:
+    if has_lectures and not decks:
         problems.append("материалы не содержат ни одного набора слайдов")
+    if has_lectures and plans and decks:
+        covered = any(
+            all(topic.id in plans and topic.id in decks for topic in module.topics if topic.hours.lecture > 0)
+            for module in state.curriculum.modules
+            if any(topic.hours.lecture > 0 for topic in module.topics)
+        )
+        if not covered:
+            problems.append("ни один модуль не покрыт планами лекций и слайдами полностью")
+    conditions = block.materials.conditions
+    if not (conditions.equipment or conditions.teaching_materials):
+        problems.append("не заполнены условия реализации программы")
+    if not conditions.staffing_requirements and not block.materials.staffing:
+        problems.append("не заполнено кадровое обеспечение программы")
     for plan in block.materials.lecture_plans:
         if plan.topic_id not in topics:
             problems.append(f"план лекции {plan.id} ссылается на несуществующую тему {plan.topic_id}")
@@ -653,8 +714,11 @@ async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> B
         questions=arguments.questions,
         kind=arguments.kind,
         format=arguments.format or ProgramFormat.COURSE,
+        mode=arguments.mode,
         expected_test_questions=arguments.expected_test_questions,
         min_practice_share=arguments.min_practice_share,
+        expectations=arguments.expectations,
+        sample_issues=arguments.sample_issues,
     )
     ctx.dirty = True
     log.info(
@@ -663,6 +727,7 @@ async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> B
         requested_hours=arguments.requested_hours,
         kind=arguments.kind.value if arguments.kind else None,
         format=arguments.format.value if arguments.format else None,
+        mode=arguments.mode.value,
         questions=len(ctx.state.pending_questions),
     )
     if ctx.state.awaiting_answers:

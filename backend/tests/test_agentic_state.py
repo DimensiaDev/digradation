@@ -17,7 +17,15 @@ import pytest
 from pydantic import ValidationError
 
 from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
-from app.agentic.models import ProgramKind, ProgramStatus, Stage, StageStatus, StageStatuses
+from app.agentic.models import (
+    ProgramFormat,
+    ProgramKind,
+    ProgramMode,
+    ProgramStatus,
+    Stage,
+    StageStatus,
+    StageStatuses,
+)
 from app.agentic.state import (
     SKELETON_ORDER,
     STAGE_ORDER,
@@ -77,6 +85,29 @@ def test_new_state_queues_the_first_stage() -> None:
     assert state.stage_status(Stage.COMPETENCES) is StageStatus.PENDING
     assert state.version == 0
     assert not state.finalized and not state.failed
+
+
+@pytest.mark.parametrize("hours", [8, 501])
+def test_a_volume_outside_the_templates_is_refused(hours: float) -> None:
+    """The programme volume is the range the organisers actually accept."""
+    with pytest.raises(ValidationError):
+        new_state(SESSION_ID, requested_hours=hours, requirements="Программа")
+
+
+@pytest.mark.parametrize("hours", [16, 500])
+def test_the_edges_of_the_volume_range_are_accepted(hours: float) -> None:
+    state = new_state(SESSION_ID, requested_hours=hours, requirements="Программа")
+
+    assert state.requested_hours == hours
+
+
+def test_the_mode_travels_from_the_run_to_the_document(blocks: Blocks) -> None:
+    """An actualization or an adaptation is a property of the programme, not a note."""
+    state = make_state(blocks, mode=ProgramMode.ACTUALIZATION)
+
+    draft = state.to_draft()
+
+    assert draft.mode is ProgramMode.ACTUALIZATION
 
 
 def test_enqueued_spends_an_attempt_and_returns_the_stage_to_pending() -> None:
@@ -301,6 +332,65 @@ def test_the_answers_start_the_programme() -> None:
     assert answered.pending_questions == []
     assert [answer.text for answer in answered.answers] == ["72 часа"]
     assert answered.attempts == {Stage.COMPETENCES: 1}
+    assert answered.requested_hours == 72
+
+
+def test_the_answers_backfill_every_limit_they_name() -> None:
+    """Prose answers carry numbers, and the stages are checked against them."""
+    state = new_state(
+        SESSION_ID,
+        requested_hours=None,
+        requirements="Программа",
+        questions=["Какой объём и тип?", "Что с практикой и тестом?", "Формат?"],
+    )
+    answers = [
+        ClarificationAnswer(question_id=state.questions[0].id, text="72 часа, повышение квалификации"),
+        ClarificationAnswer(question_id=state.questions[1].id, text="10 вопросов, практики не меньше половины"),
+        ClarificationAnswer(question_id=state.questions[2].id, text="в форме стажировки"),
+    ]
+
+    answered = apply_answers(state, answers)
+
+    assert answered.requested_hours == 72
+    assert answered.kind is ProgramKind.PROFESSIONAL_DEVELOPMENT
+    assert answered.format is ProgramFormat.INTERNSHIP
+    assert answered.expected_test_questions == 10
+    assert answered.min_practice_share == 0.5
+
+
+def test_a_bare_number_answer_is_read_against_its_question() -> None:
+    """The question supplies the unit when the methodist types only the number."""
+    state = new_state(
+        SESSION_ID,
+        requested_hours=None,
+        requirements="Программа",
+        questions=["Сколько академических часов?", "Сколько тестовых вопросов?", "Какая доля практики?"],
+    )
+    answers = [
+        ClarificationAnswer(question_id=state.questions[0].id, text="72"),
+        ClarificationAnswer(question_id=state.questions[1].id, text="10"),
+        ClarificationAnswer(question_id=state.questions[2].id, text="50"),
+    ]
+
+    answered = apply_answers(state, answers)
+
+    assert answered.requested_hours == 72
+    assert answered.expected_test_questions == 10
+    assert answered.min_practice_share == pytest.approx(0.5)
+
+
+def test_a_question_about_an_internship_does_not_set_it_when_the_answer_is_no() -> None:
+    """The question's wording is not the methodist's decision."""
+    state = new_state(
+        SESSION_ID,
+        requested_hours=None,
+        requirements="Программа",
+        questions=["Нужна ли программа в форме стажировки?"],
+    )
+
+    answered = apply_answers(state, [ClarificationAnswer(question_id=state.questions[0].id, text="Нет")])
+
+    assert answered.format is ProgramFormat.COURSE
 
 
 def test_answers_to_questions_nobody_asked_are_refused() -> None:
@@ -654,6 +744,20 @@ def test_the_report_notes_a_slow_run(blocks: Blocks) -> None:
 def test_a_fast_run_has_no_timing_notes(blocks: Blocks) -> None:
     report = make_state(blocks).report()
     assert report.notes == []
+
+
+def test_the_report_shows_the_expectations_and_the_sample_issues(blocks: Blocks) -> None:
+    """A promise beyond the volume and a broken sample are notes, not refusals."""
+    state = make_state(
+        blocks,
+        expectations="После курса можно пойти работать аналитиком",
+        sample_issues=["в образце сумма часов не сходится с итогом"],
+    )
+
+    report = state.report()
+
+    assert any("Ожидание сверх объёма" in note for note in report.notes)
+    assert any("Замечание к образцу" in note for note in report.notes)
 
 
 def test_the_issued_document_is_normalised_for_a_professional_programme(blocks: Blocks) -> None:

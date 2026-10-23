@@ -83,6 +83,11 @@ COMPETENCES_BLOCK: dict[str, Any] = {
 }
 
 
+def materials(raw: dict[str, Any]) -> dict[str, Any]:
+    """The example's materials with the conditions and staff stored beside them."""
+    return {**raw["materials"], "conditions": raw["conditions"], "staffing": raw["staffing"]}
+
+
 def answer(
     text: str = "",
     *,
@@ -182,7 +187,7 @@ def complete_state(session_id: uuid.UUID) -> ProgramState:
         if stage is Stage.ASSESSMENT:
             state = state.with_assessment(AssessmentBlock(assessment=raw["assessment"]))
         else:
-            state = state.with_materials(MaterialsBlock(materials=raw["materials"]))
+            state = state.with_materials(MaterialsBlock(materials=materials(raw)))
         state = state.completed(stage)
     return state
 
@@ -438,7 +443,7 @@ async def test_the_approval_releases_the_content_and_the_programme_ends_complete
         [
             save_turn({"assessment": raw["assessment"]}),
             answer("Оценочные средства сохранены."),
-            save_turn({"materials": raw["materials"]}),
+            save_turn({"materials": materials(raw)}),
             answer("Материалы сохранены."),
         ]
     )
@@ -518,7 +523,7 @@ async def test_a_revision_of_the_skeleton_leads_to_the_content_being_written(
         [
             save_turn({"assessment": raw["assessment"]}),
             answer("Оценочные средства сохранены."),
-            save_turn({"materials": raw["materials"]}),
+            save_turn({"materials": materials(raw)}),
             answer("Материалы сохранены."),
         ]
     )
@@ -1218,11 +1223,12 @@ def test_a_long_programme_title_is_cut_to_the_column_length() -> None:
 async def test_the_offline_mock_carries_a_run_through_every_stage(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, mock_mode, enqueued
 ) -> None:
-    """The whole cycle on the mock provider: four stages, then a rendered draft.
+    """The whole cycle on the mock provider, through both halves.
 
     This is what ``MOCK_PROVIDER_MODE=stage`` exists for, and what the Docker and
-    e2e stacks rely on. It is also the only test that proves the mock's fabricated
-    blocks pass the cross-block checks of :meth:`ProgramState.to_draft`.
+    e2e stacks rely on. It proves the mock's fabricated blocks pass the
+    cross-block checks of :meth:`ProgramState.to_draft` and, after the approval,
+    the materials checks as well.
     """
     mock_mode("stage")
     await store.save(new_state(chat, requested_hours=40, requirements="Анализ данных"))
@@ -1247,6 +1253,22 @@ async def test_the_offline_mock_carries_a_run_through_every_stage(
     assert result is not None
     assert "Программа (mock)" in result.content
     assert "подтверждаю" in result.content
+
+    # The methodist approves the rendered skeleton; the content stages run on
+    # the same offline blocks and must not be refused for missing conditions.
+    await store.save(final.approved())
+    for stage in CONTENT_ORDER:
+        current = await store.load(chat)
+        assert current is not None
+        await run_task(program.program_stage, chat, stage.value, current.run_id)
+
+    complete = await store.load(chat)
+    assert complete is not None
+    assert complete.status is ProgramStatus.APPROVED
+    assert complete.assessment is not None
+    assert complete.materials is not None
+    assert complete.materials.conditions.equipment
+    assert complete.materials.staffing
 
 
 async def test_finalising_replaces_the_result_the_intake_left(

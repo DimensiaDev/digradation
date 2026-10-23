@@ -1,8 +1,9 @@
 """Tests for the export of a finished programme.
 
-The programme leaves the system as two files: the document and the slides.
-They are attachments of the chat, so the client fetches them with the
-attachment route it already uses — there is no separate download endpoint.
+The programme leaves the system as a document, slides, JSON and a Moodle XML
+question bank. They are attachments of the chat, so the client fetches them
+with the attachment route it already uses — there is no separate download
+endpoint.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from tests.helpers import run_task
 async def test_a_finished_programme_is_exported(
     chat: uuid.UUID, task_db: None, redis_client, s3: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The document and the slides are written and their ids are recorded."""
+    """The document, the slides, the JSON and the LMS test are all recorded."""
     state = _a_finished_run(chat)
     await _save(state)
 
@@ -33,6 +34,8 @@ async def test_a_finished_programme_is_exported(
     assert saved.exports is not None
     assert saved.exports.document_attachment_id is not None
     assert saved.exports.slides_attachment_id is not None
+    assert saved.exports.json_attachment_id is not None
+    assert saved.exports.lms_attachment_id is not None
 
 
 async def test_the_export_is_an_attachment_of_the_chat(chat: uuid.UUID, task_db: None, redis_client, s3: None) -> None:
@@ -44,7 +47,12 @@ async def test_the_export_is_an_attachment_of_the_chat(chat: uuid.UUID, task_db:
 
     async with exports.db_session() as db:
         rows = list(await db.scalars(select(Attachment).where(Attachment.session_id == chat)))
-    assert sorted(row.name for row in rows) == ["programme-slides.pptx", "programme.docx", "programme.json"]
+    assert sorted(row.name for row in rows) == [
+        "programme-lms.xml",
+        "programme-slides.pptx",
+        "programme.docx",
+        "programme.json",
+    ]
     assert all(row.ready for row in rows)
     assert all(row.s3_key for row in rows)
 
@@ -75,7 +83,7 @@ async def test_a_second_export_replaces_the_first(chat: uuid.UUID, task_db: None
 
     async with exports.db_session() as db:
         rows = list(await db.scalars(select(Attachment).where(Attachment.session_id == chat)))
-    assert len(rows) == 3
+    assert len(rows) == 4
     saved = await _state(chat)
     assert saved is not None
     assert saved.exports is not None
@@ -124,7 +132,12 @@ def _a_finished_run(chat: uuid.UUID) -> ProgramState:
     state = state.with_sources(SourcesBlock(sources=raw["sources"]))
     state = state.with_summary(SummaryBlock(summary=raw["summary"]), [])
     state = state.with_assessment(AssessmentBlock(assessment=raw["assessment"]))
-    state = state.with_materials(MaterialsBlock(materials=raw["materials"]))
+    materials = {
+        **raw["materials"],
+        "conditions": raw["conditions"],
+        "staffing": raw["staffing"],
+    }
+    state = state.with_materials(MaterialsBlock(materials=materials))
     from app.agentic.state import STAGE_ORDER
 
     for stage in STAGE_ORDER:
@@ -170,6 +183,46 @@ async def test_a_finished_programme_is_exported_as_json(chat: uuid.UUID, task_db
     assert payload["draft"]["kind"] == "professional_development"
 
 
+async def test_the_lms_export_keeps_the_keys_and_the_criteria(
+    chat: uuid.UUID, task_db: None, redis_client, s3: None
+) -> None:
+    """A Moodle import has to receive the right answer, not only the question."""
+    from xml.etree import ElementTree as ET
+
+    from app.storage import storage
+
+    state = _a_finished_run(chat)
+    await _save(state)
+
+    await run_task(export_program, chat, state.run_id)
+
+    saved = await _state(chat)
+    assert saved is not None and saved.exports is not None
+    assert saved.exports.lms_attachment_id is not None
+    async with exports.db_session() as db:
+        row = await db.get(Attachment, saved.exports.lms_attachment_id)
+    assert row is not None and row.name == "programme-lms.xml"
+    async with storage.internal_client() as s3:
+        response = await s3.get_object(Bucket="uploads", Key=row.s3_key)
+        async with response["Body"] as body:
+            xml = await body.read()
+
+    root = ET.fromstring(xml)
+    assert root.tag == "quiz"
+    types = {question.get("type") for question in root.findall("question")}
+    assert {"category", "multichoice", "essay"} <= types
+
+    choice = root.find("question[@type='multichoice']")
+    assert choice is not None
+    correct = [answer for answer in choice.findall("answer") if float(answer.get("fraction", "0")) > 0]
+    assert len(correct) == 1
+    assert correct[0].findtext("text")
+
+    essay = root.find("question[@type='essay']")
+    assert essay is not None
+    assert essay.findtext("graderinfo/text")
+
+
 async def test_a_programme_without_slides_is_exported_without_a_pptx(
     chat: uuid.UUID, task_db: None, redis_client, s3: None
 ) -> None:
@@ -189,4 +242,4 @@ async def test_a_programme_without_slides_is_exported_without_a_pptx(
     assert saved.exports.slides_attachment_id is None
     async with exports.db_session() as db:
         rows = list(await db.scalars(select(Attachment).where(Attachment.session_id == chat)))
-    assert sorted(row.name for row in rows) == ["programme.docx", "programme.json"]
+    assert sorted(row.name for row in rows) == ["programme-lms.xml", "programme.docx", "programme.json"]

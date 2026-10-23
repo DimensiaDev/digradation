@@ -19,14 +19,13 @@ from app.rag.config import EMBEDDING_DIMENSION
 LLM_PROVIDER_ENV = "LLM_PROVIDER"
 LLM_PROVIDERS = frozenset({"sber", "openai", "cloudru", "mock"})
 
-#: Cloud.ru's OpenAI-compatible endpoint. The organisers publish the exact URL
-#: and the model list; both can be overridden with ``CLOUDRU_URL`` and
-#: ``CLOUDRU_MODEL``. Model id is the one the Cloud.ru docs list for Foundation
-#: Models; verify it with the organisers before the demo.
-#:
-#: TODO verify at https://cloud.ru/docs/foundation-models
+#: Cloud.ru's OpenAI-compatible endpoint and a documented Foundation Models id.
+#: Both can be overridden with ``CLOUDRU_URL`` and ``CLOUDRU_MODEL``. The default
+#: is the GigaChat model on Cloud.ru that advertises function calling and
+#: structured output, which is what the stage tools need:
+#: https://cloud.ru/docs/foundation-models/ug/topics/overview__available__models
 CLOUDRU_URL = "https://foundation-models.api.cloud.ru/v1"
-CLOUDRU_DEFAULT_MODEL = "Qwen/Qwen2.5-72B-Instruct"
+CLOUDRU_DEFAULT_MODEL = "ai-sage/GigaChat3.5-432B-A28B"
 
 
 def _preset() -> str | None:
@@ -63,7 +62,6 @@ else:
     provider = SberProvider(api_key=api_key, scope=scope, tools=TOOLS)
 
 
-@cache
 @cache
 def get_embedding_provider() -> EmbeddingProvider:
     """Build (once) the embedding provider for the current scope.

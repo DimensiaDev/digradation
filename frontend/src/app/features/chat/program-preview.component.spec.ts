@@ -126,7 +126,9 @@ const EXPORTED = state({
   ...REVIEWED,
   exports: {
     document_attachment_id: 41,
-    slides_attachment_id: 42
+    slides_attachment_id: 42,
+    json_attachment_id: 43,
+    lms_attachment_id: 44
   }
 });
 
@@ -362,11 +364,13 @@ describe('ProgramPreviewComponent', () => {
     expect(text).toContain('Результаты программы');
     expect(text).toContain('Скачать DOCX');
     expect(text).toContain('Скачать PPTX');
+    expect(text).toContain('Скачать JSON');
+    expect(text).toContain('Скачать тест для LMS');
 
     const buttons = fixture.nativeElement.querySelectorAll(
       '.program-preview__results button'
     ) as NodeListOf<HTMLButtonElement>;
-    expect(buttons.length).toBe(2);
+    expect(buttons.length).toBe(4);
 
     buttons[0].click();
     fixture.detectChanges();
@@ -374,18 +378,33 @@ describe('ProgramPreviewComponent', () => {
     expect(fetchFile).toHaveBeenCalledWith('mock-programme-4', 41);
     expect(save).toHaveBeenCalledWith(file, 'programme.docx');
     expect(component.downloading()).toBeNull();
+
+    buttons[2].click();
+    fixture.detectChanges();
+    expect(fetchFile).toHaveBeenCalledWith('mock-programme-4', 43);
+
+    buttons[3].click();
+    fixture.detectChanges();
+    expect(fetchFile).toHaveBeenCalledWith('mock-programme-4', 44);
   });
 
   it('shows only the exports that exist', () => {
     fixture.componentRef.setInput('state', {
       ...EXPORTED,
-      exports: { document_attachment_id: null, slides_attachment_id: 42 }
+      exports: {
+        document_attachment_id: null,
+        slides_attachment_id: 42,
+        json_attachment_id: null,
+        lms_attachment_id: null
+      }
     });
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent as string;
     expect(text).not.toContain('Скачать DOCX');
     expect(text).toContain('Скачать PPTX');
+    expect(text).not.toContain('Скачать JSON');
+    expect(text).not.toContain('Скачать тест для LMS');
   });
 
   it('downloads one export at a time', () => {

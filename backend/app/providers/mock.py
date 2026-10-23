@@ -2,12 +2,12 @@ import hashlib
 import json
 import math
 import os
-import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import get_args
 
+from app.agentic.intake import requested_hours as _requested_hours
 from app.providers.client import AIClient, Scope
 from app.providers.models import (
     Content,
@@ -93,14 +93,6 @@ def _last_text(message_history: list[Message]) -> str:
         ),
         "",
     )
-
-
-def _requested_hours(text: str) -> float | None:
-    """The volume named in a stage brief or in the methodist's own message."""
-    match = re.search(r"Заявленный объём программы:\s*(\d+(?:[.,]\d+)?)", text)
-    if match is None:
-        match = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:академических\s+)?час", text)
-    return float(match.group(1).replace(",", ".")) if match is not None else None
 
 
 def _curriculum(total: float) -> dict:
@@ -205,6 +197,21 @@ def _materials() -> dict:
                     {"title": "О чём лекция", "bullets": ["Область применения", "Ключевые понятия"]},
                     {"title": "Пример", "bullets": ["Разбор типовой задачи"]},
                 ],
+            }
+        ],
+        # The stage refuses a block without delivery conditions and staff, so
+        # the offline provider has to supply them or it cannot carry a run
+        # through the materials stage.
+        "conditions": {
+            "equipment": ["Ноутбук", "Проектор"],
+            "teaching_materials": ["Раздаточные материалы"],
+            "staffing_requirements": ["Высшее образование", "Опыт преподавания"],
+        },
+        "staffing": [
+            {
+                "id": "ts-01",
+                "position": "Преподаватель",
+                "module_id": "m-01",
             }
         ],
     }

@@ -275,9 +275,24 @@ const programmeSummary = (programme: ProgramApiItem) => {
 };
 
 const PROGRAMME_EXPORTS: Record<string, NonNullable<ProgramStateApi['exports']>> = {
-  'mock-programme-4': { document_attachment_id: 4001, slides_attachment_id: 4002 },
-  'mock-programme-7': { document_attachment_id: 7001, slides_attachment_id: 7002 },
-  'mock-programme-8': { document_attachment_id: 8001, slides_attachment_id: 8002 }
+  'mock-programme-4': {
+    document_attachment_id: 4001,
+    slides_attachment_id: 4002,
+    json_attachment_id: 4003,
+    lms_attachment_id: 4004
+  },
+  'mock-programme-7': {
+    document_attachment_id: 7001,
+    slides_attachment_id: 7002,
+    json_attachment_id: 7003,
+    lms_attachment_id: 7004
+  },
+  'mock-programme-8': {
+    document_attachment_id: 8001,
+    slides_attachment_id: 8002,
+    json_attachment_id: 8003,
+    lms_attachment_id: 8004
+  }
 };
 
 const programmeReport = (
@@ -693,7 +708,11 @@ export const mockApiInterceptor: HttpInterceptorFn = (req, next) => {
           ? 'programme.docx'
           : exports?.slides_attachment_id === attachmentId
             ? 'programme-slides.pptx'
-            : (sent?.name ?? null);
+            : exports?.json_attachment_id === attachmentId
+              ? 'programme.json'
+              : exports?.lms_attachment_id === attachmentId
+                ? 'programme-lms.xml'
+                : (sent?.name ?? null);
       if (!filename) {
         return fail(404, 'Вложение не найдено');
       }

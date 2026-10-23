@@ -2584,3 +2584,133 @@ spec can test them on real injected CSS: an end-to-end render cannot prove a rew
 never produced.
 
 Added 2026-10-23.
+
+## A programme is 16 to 500 hours, and the rule is enforced at both entrances (2026-10-23)
+
+The templates cover both a short general-development course and a long professional programme, but
+the pipeline had accepted any positive volume. A request for 4 hours or 1000 hours would start a run
+the stage prompts could not fill honestly, and the state would hold a number the report could never
+match.
+
+- **`MIN_PROGRAM_HOURS` and `MAX_PROGRAM_HOURS` live in `app/agentic/models.py`** and are used by
+  `BeginProgramArguments`, `ProgramState.requested_hours` and `new_state`. The intake tool refuses an
+  out-of-range call before a run exists; the state refuses a restored or hand-built envelope with the
+  same bounds.
+- **The intake fallback reads prose only inside the range.** `app/agentic/intake.py` is a fallback
+  for a model that left a field unset and for a clarifying answer that named the number in words. It
+  leaves an out-of-range value unset rather than writing it into a state that validates.
+- **A value read from an answer fills only an unset field.** The structured value the intake turn
+  already supplied wins, and the original words still travel in the stage brief, so nothing is lost
+  when the parser cannot read a phrasing.
+- **The parser uses stems rather than nominative phrases.** Russian requests say "повышения
+  квалификации" and "в форме стажировки"; matching only the dictionary form missed the professional
+  template. The general-development phrase is checked first, because a general programme may still
+  talk about professional skills.
+
+Added 2026-10-23.
+
+## Actualization and adaptation are a mode, not a sentence in the prompt (2026-10-23)
+
+A methodist may ask to update an existing programme or adapt it for another audience. Both tasks keep
+the source programme's structure and volume, but they change different things: an actualization
+brings the content and the normative references up to date, while an adaptation changes the audience,
+the entry requirements, the level and the delivery form.
+
+- **`ProgramMode` travels with the run.** `new`, `actualization` and `adaptation` are stored on the
+  state, copied into the draft, named in the DOCX explanatory note and exposed by `GET /program`.
+  The client labels a non-new programme in the aside; a new programme adds no noise.
+- **The stage brief carries the instruction, not only the enum.** The model needs to know what to
+  preserve and what to change, so `stage_brief` states it in Russian for the two non-new modes.
+- **The prompt asks for the existing programme, not a blank page.** The intake prompt tells the model
+  to pass the mode instead of starting a new run; the stage prompt tells it to take the structure and
+  volume from the attached file or the already saved blocks.
+
+## A promise beyond the volume and a broken sample are notes, not refusals (2026-10-23)
+
+A request may say "after this 72-hour course I can work as an analyst", and an attached sample may
+have a total that does not add up. Neither is a reason to fail the run: the first is a mismatch the
+methodist has to see, and the second is a mistake to avoid copying.
+
+- **`expectations` and `sample_issues` travel on the state.** The intake tool accepts both, the stage
+  brief repeats them, and `ProgramReport.notes` shows them next to the checks. They do not change
+  `report.ok`.
+- **The report distinguishes a note from a failed check.** The six checks stay the gate; the notes
+  explain what the gate cannot express.
+
+## Conditions and staffing are required; plans and decks follow the lecture hours (2026-10-23)
+
+The criterion "all mandatory sections are filled" applies to an internship as much as to a course,
+but the two do not have the same teaching materials. An internship's teaching is supervised
+practice, so demanding a lecture plan would force the model to invent a lecture that does not exist.
+
+- **Every programme needs delivery conditions and staff.** The materials block carries equipment,
+  teaching materials, staffing requirements and staff slots. The tool refuses a block without them,
+  and the report has separate "условия реализации" and "кадровое обеспечение" checks.
+- **Lecture plans and decks are required only where the curriculum has lecture hours.** The tool,
+  the report's materials check and the DOCX pending list use the same rule. A practice-only
+  internship passes without them; a course with lectures still needs at least one module whose every
+  lecture has both a plan and a deck.
+- **The DOCX pending list mirrors that rule.** A section is not called complete because one artefact
+  exists; a module is covered only when every lecture in it has both. The renderer and the report
+  would otherwise disagree about the same programme.
+
+## The DOCX is built from code and follows the section order of the examples (2026-10-23)
+
+The two example АЦР documents do not share a binary template: one is a general-development programme
+and the other a professional one, and their section numbering and headings differ. Shipping one as a
+`.dotx` would make the other render into the wrong structure.
+
+- **`app/render.py` builds the document from the model.** The section order follows the examples:
+  explanatory note, goal and tasks, audience, competencies, schedule and hours, curriculum, sources,
+  assessment, materials, conditions, staffing, cases, signatures and the self-check report.
+- **A draft that has no content still renders.** The missing sections are listed as pending rather
+  than silently dropped, and the list uses the same coverage rules as the report.
+- **A 500-hour scale test bounds local rendering.** It builds twenty-five 20-hour modules and asserts
+  the render stays under a deliberately loose ten seconds. The bound is there to catch an accidental
+  quadratic loop, not to measure the model, which dominates a real run.
+
+## The LMS export is a Moodle XML question bank, not a SCORM package (2026-10-23)
+
+The criterion asks for an LMS export and for the test keys to survive it. A SCORM package would add a
+ZIP, an imsmanifest and a player; Moodle XML is one text file that imports into Moodle and its forks
+without a plugin, and it carries the answer fractions and the seminar criteria directly.
+
+- **`app/lms.py` renders the assessment with `xml.etree.ElementTree`**, so a question containing `<`
+  or `&` cannot break the import. A closed question becomes `multichoice`, an open one
+  `shortanswer`, and a seminar task an `essay` whose `graderinfo` holds the criteria.
+- **The JSON export is the whole document, not the draft.** It is rendered from `to_document()`, so a
+  client that reconstructs the programme gets the assessment, the materials, the report and the
+  approval with it.
+- **Both are attachments of the chat.** They are stored in `uploads` and registered like the DOCX and
+  the PPTX, so there is no download endpoint of their own and no bucket for exports.
+
+## Strict sources is on by default, and the web is opt-in (2026-10-23)
+
+The earlier entry "The online search reaches the web" described the behaviour when the search was
+first added: the encyclopedia answered by default because the corpus alone could not find current
+acts. That default is wrong for a demo that has to defend every citation. The corpus is the only set
+of documents the organisation has confirmed, and an unconfirmed encyclopedia article is not a
+substitute for an act.
+
+- **`STRICT_SOURCES` is on when it is unset.** A deployment that has not chosen a trusted search
+  service cites the corpus only. Setting it to `false` (or `0`, `no`, `off`) turns the web back on;
+  the deployment's own `WEB_SEARCH_URL` is the intended way to use it.
+- **The mock provider stays offline regardless.** The e2e suite never depends on the internet.
+- **`.env.example` states the same default** so a fresh Compose stack inherits it. The entry of
+  2026-10-22 is superseded on this point, not on the shape of the search result or on the
+  confirmation rule.
+
+## The Cloud.ru preset names a model the current documentation lists (2026-10-23)
+
+The preset default was `Qwen/Qwen2.5-72B-Instruct`, which the Cloud.ru Foundation Models overview no
+longer lists. A model id that is not served cannot be verified by the organisers and fails at the
+first turn rather than at build time.
+
+- **The default is `ai-sage/GigaChat3.5-432B-A28B`**, a documented Cloud.ru model with Function
+  Calling and Structure Output, which is what the stage tools and the intake require.
+- **`CLOUDRU_URL` and `CLOUDRU_MODEL` still override both.** The preset remains a convenience, not a
+  hard-coded deployment; `OPENAI_URL` and `OPENAI_MODEL` already set win over it.
+- **A duplicate `@cache` on `get_embedding_provider` was removed** while the container was open. The
+  second decorator was harmless but made the function look conditionally cached.
+
+Added 2026-10-23.

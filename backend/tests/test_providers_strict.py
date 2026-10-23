@@ -56,10 +56,16 @@ async def test_strict_sources_turns_the_web_search_off(monkeypatch: pytest.Monke
     assert await websearch.search_web("ФГОС НОО") == []
 
 
-async def test_web_search_still_runs_without_the_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_web_is_off_when_the_flag_is_unset() -> None:
+    """A deployment that has not chosen its sources cites the corpus only."""
+    assert websearch.strict_sources() is True
+
+
+async def test_an_explicit_false_turns_the_web_back_on(monkeypatch: pytest.MonkeyPatch) -> None:
     """The corpus fallback keeps working; only the web is refused."""
     monkeypatch.setenv("SBER_API_KEY", "a-real-key")
     monkeypatch.setenv("SBER_API_SCOPE", "PERS")
+    monkeypatch.setenv("STRICT_SOURCES", "false")
 
     async def answer(*_a, **_k):
         return {"query": {"search": [{"title": "ФГОС", "snippet": "текст"}]}}

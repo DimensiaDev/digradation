@@ -65,6 +65,10 @@ def test_the_fabricated_materials_belong_to_the_plan() -> None:
     topics = {topic.id for module in state.curriculum.modules for topic in module.topics}
     assert all(plan.topic_id in topics for plan in block.materials.lecture_plans)
     assert all(deck.topic_id in topics for deck in block.materials.slide_decks)
+    # The offline provider has to model the conditions and staff the stage
+    # refuses to save without, or a stage-mode run cannot finish.
+    assert block.materials.conditions.equipment
+    assert block.materials.staffing
 
 
 def test_the_fabricated_sources_are_documents_of_the_corpus() -> None:

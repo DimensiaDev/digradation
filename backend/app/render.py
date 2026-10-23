@@ -2,28 +2,29 @@
 
 :func:`render_program_draft` takes the approved draft — the early blocks a
 methodist confirms before full generation — and returns the bytes of a
-DOCX file. The document is built from code, not from a template:
-Times New Roman 12pt, 2 cm margins, 'Table Grid' for the curriculum.
+DOCX file. The document is built from code rather than from a binary template
+file, but it follows the sections of the АЦР template: Times New Roman 12pt,
+2 cm margins, 'Table Grid' for the curriculum.
 
-Rendered from the draft:
+Rendered from the full document:
 
-- title page (organisation, order placeholder, programme kind and title,
-  city and year);
+- title page (organisation, order placeholder, programme kind, title, city
+  and year);
 - explanatory note (focus, level, form, issued document, annotation,
-  relevance);
+  relevance, and the actualization/adaptation mode when it is not a new one);
 - goal and tasks;
 - target audience and admission requirements;
 - competencies with their experience / skills / knowledge;
 - schedule and total hours;
 - curriculum as a table;
 - sources grouped by kind (normative acts, professional standards,
-  primary and secondary literature, internet resources, references).
+  primary and secondary literature, internet resources, references);
+- assessment, lecture plans and slides;
+- delivery conditions, staffing and the cases appendix;
+- signatures and the self-check report.
 
-Not rendered — sections that live in :class:`EducationalProgram`, not in
-the draft: assessment materials, teaching materials, delivery
-conditions, staffing, cases appendix. They appear as an explicit
-"pending" block so a methodist can fill them in by hand or regenerate
-once the full document exists.
+A draft that has no content yet still renders: the sections that are not there
+are listed as pending rather than silently omitted.
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ from app.agentic.models import (
     ProgramDraft,
     ProgramFormat,
     ProgramKind,
+    ProgramMode,
     Source,
     SourceKind,
     StaffSlot,
@@ -70,6 +72,12 @@ KIND_TITLES: dict[ProgramKind, str] = {
 }
 
 INTERNSHIP_SUFFIX = "В ФОРМЕ СТАЖИРОВКИ"
+
+MODE_TITLES: dict[ProgramMode, str] = {
+    ProgramMode.NEW: "новая программа",
+    ProgramMode.ACTUALIZATION: "актуализация действующей программы",
+    ProgramMode.ADAPTATION: "адаптация действующей программы",
+}
 
 _MONTHS = (
     "",
@@ -159,10 +167,11 @@ def render_program_document(
         _render_assessment(doc, document.assessment)
     if document.materials is not None:
         _render_materials(doc, document.materials)
-        if document.materials.conditions.equipment or document.materials.conditions.teaching_materials:
-            _render_conditions(doc, document.materials.conditions)
-        if document.materials.staffing:
-            _render_staffing(doc, document.materials.staffing)
+        conditions = document.materials.conditions
+        if conditions.equipment or conditions.teaching_materials:
+            _render_conditions(doc, conditions)
+        if conditions.staffing_requirements or document.materials.staffing:
+            _render_staffing(doc, conditions.staffing_requirements, document.materials.staffing)
         if document.materials.cases:
             _render_cases(doc, document.materials.cases)
     _render_signatures(doc, document.approval)
@@ -268,6 +277,8 @@ def _render_explanatory_note(doc: DocxDocument, draft: ProgramDraft) -> None:
     _labeled(doc, "Уровень освоения:", s.level)
     _labeled(doc, "Форма обучения:", s.form)
     _labeled(doc, "Документ по итогам обучения:", s.issued_document)
+    if draft.mode is not ProgramMode.NEW:
+        _labeled(doc, "Режим разработки:", MODE_TITLES[draft.mode])
 
     if s.annotation:
         doc.add_paragraph(s.annotation)
@@ -647,7 +658,7 @@ def _render_materials(doc: DocxDocument, materials: Materials) -> None:
 
 # --------------------------------------------------------------------------- conditions and staff
 def _render_conditions(doc: DocxDocument, conditions: Conditions) -> None:
-    """Material, methodical and staffing requirements of the programme."""
+    """The material and methodical conditions of the programme."""
     _page_break(doc)
     _heading(doc, "Условия реализации программы", level=1)
     if conditions.equipment:
@@ -656,15 +667,20 @@ def _render_conditions(doc: DocxDocument, conditions: Conditions) -> None:
     if conditions.teaching_materials:
         _heading(doc, "Учебно-методическое обеспечение", level=2)
         _bullets(doc, conditions.teaching_materials)
-    if conditions.staffing_requirements:
-        _heading(doc, "Требования к кадровому обеспечению", level=2)
-        _bullets(doc, conditions.staffing_requirements)
 
 
-def _render_staffing(doc: DocxDocument, staffing: list[StaffSlot]) -> None:
-    """The staff of the programme, with empty cells the methodist fills in."""
+def _render_staffing(doc: DocxDocument, requirements: list[str], staffing: list[StaffSlot]) -> None:
+    """The staff requirements and the staff of the programme.
+
+    The requirements say what a teacher has to be; the table lists the positions
+    the programme actually has, with empty cells the methodist fills in. Both
+    belong to the one section the report checks as «кадровое обеспечение».
+    """
     _page_break(doc)
     _heading(doc, "Кадровое обеспечение программы", level=1)
+    if requirements:
+        _heading(doc, "Требования к кадровому обеспечению", level=2)
+        _bullets(doc, requirements)
     headers = ("№", "Модуль/дисциплина", "Должность", "ФИО", "Учёная степень/звание")
     rows: list[list[str]] = [
         [
@@ -733,6 +749,24 @@ def _render_report(doc: DocxDocument, report: ProgramReport) -> None:
 
 
 # --------------------------------------------------------------------------- pending
+def _materials_cover_a_module(document: ProgramDocument) -> bool:
+    """Whether every lecture of at least one module has its plan and its deck.
+
+    The report's materials check uses the same rule. A module with one artefact
+    missing is not covered, so the document must not call it complete either.
+    """
+    materials = document.materials
+    if materials is None:
+        return False
+    plans = {plan.topic_id for plan in materials.lecture_plans}
+    decks = {deck.topic_id for deck in materials.slide_decks}
+    for module in document.draft.curriculum.modules:
+        lectures = [topic.id for topic in module.topics if topic.hours.lecture > 0]
+        if lectures and all(topic_id in plans and topic_id in decks for topic_id in lectures):
+            return True
+    return False
+
+
 def _render_pending_sections(doc: DocxDocument, document: ProgramDocument) -> None:
     """The sections the document does not carry yet.
 
@@ -742,13 +776,16 @@ def _render_pending_sections(doc: DocxDocument, document: ProgramDocument) -> No
     """
     materials = document.materials
     missing: list[str] = []
+    has_lectures = any(
+        topic.hours.lecture > 0 for module in document.draft.curriculum.modules for topic in module.topics
+    )
     if document.assessment is None:
         missing.append("Оценочные материалы")
-    if materials is None or not materials.lecture_plans:
+    if has_lectures and not _materials_cover_a_module(document):
         missing.append("Методические материалы")
-    if materials is None or not materials.conditions.equipment:
+    if materials is None or not (materials.conditions.equipment or materials.conditions.teaching_materials):
         missing.append("Условия реализации программы")
-    if materials is None or not materials.staffing:
+    if materials is None or not (materials.conditions.staffing_requirements or materials.staffing):
         missing.append("Кадровое обеспечение")
     if materials is None or not materials.cases:
         missing.append("Приложение № 1. Перечень кейсов")

@@ -51,6 +51,18 @@
           <dd>{{ formLabel() }}</dd>
         </div>
       </div>
+
+      @if (modeLabel(); as modeLabel) {
+        <div class="program-preview__meta-item">
+          <span class="program-preview__meta-icon" aria-hidden="true">
+            <svg size="17" lucideRefreshCw></svg>
+          </span>
+          <div>
+            <dt>Режим разработки</dt>
+            <dd>{{ modeLabel }}</dd>
+          </div>
+        </div>
+      }
     </dl>
 
     @if (loading() && !state()) {
@@ -395,7 +407,12 @@
     </app-accordion-section>
   </div>
 
-  @if (documentExportId() !== null || slidesExportId() !== null) {
+  @if (
+    documentExportId() !== null ||
+    slidesExportId() !== null ||
+    jsonExportId() !== null ||
+    lmsExportId() !== null
+  ) {
     <footer
       class="program-preview__footer"
       data-section="results"
@@ -430,6 +447,30 @@
           >
             <svg size="16" lucidePresentation aria-hidden="true"></svg>
             {{ downloading() === 'slides' ? 'Скачиваем PPTX…' : 'Скачать PPTX' }}
+          </button>
+        }
+        @if (jsonExportId() !== null) {
+          <button
+            type="button"
+            class="button button--outline button--centered"
+            [disabled]="downloading() !== null"
+            [attr.aria-busy]="downloading() === 'json'"
+            (click)="downloadExport('json')"
+          >
+            <svg size="16" lucideFileText aria-hidden="true"></svg>
+            {{ downloading() === 'json' ? 'Скачиваем JSON…' : 'Скачать JSON' }}
+          </button>
+        }
+        @if (lmsExportId() !== null) {
+          <button
+            type="button"
+            class="button button--outline button--centered"
+            [disabled]="downloading() !== null"
+            [attr.aria-busy]="downloading() === 'lms'"
+            (click)="downloadExport('lms')"
+          >
+            <svg size="16" lucideClipboardCheck aria-hidden="true"></svg>
+            {{ downloading() === 'lms' ? 'Скачиваем тест для LMS…' : 'Скачать тест для LMS' }}
           </button>
         }
       </div>

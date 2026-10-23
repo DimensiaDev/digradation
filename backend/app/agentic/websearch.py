@@ -43,6 +43,11 @@ log = structlog.stdlib.get_logger(__name__)
 #: search answers.
 WEB_SEARCH_ENV = "WEB_SEARCH_URL"
 
+#: The switch that keeps citations inside the corpus. It is on when unset:
+#: a deployment that has not decided where its sources come from should not
+#: reach an encyclopedia by default. Set it to ``false`` to allow the web.
+STRICT_SOURCES_ENV = "STRICT_SOURCES"
+
 #: The encyclopedia search, which needs no credentials.
 WIKIPEDIA_SEARCH_URL = "https://ru.wikipedia.org/w/api.php"
 
@@ -129,12 +134,16 @@ def offline() -> bool:
 def strict_sources() -> bool:
     """Whether the deployment accepts only the corpus as sources.
 
-    A strict deployment refuses the web search outright: the corpus is what the
-    methodist trusts, and a document from outside it is unconfirmed at best.
-    The switch is what closes the Wikipedia fallback in a demo that has to
-    stand behind every citation.
+    The corpus is what the methodist trusts, and a document from outside it is
+    unconfirmed at best. The switch is therefore on unless it is explicitly
+    turned off: a deployment that has not decided where its sources come from
+    must not reach an encyclopedia by default. A demo that stands behind every
+    citation leaves it alone; one that wants the web sets it to ``false``.
     """
-    return os.getenv("STRICT_SOURCES", "").strip().lower() in {"1", "true", "yes", "on"}
+    raw = os.getenv(STRICT_SOURCES_ENV)
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
 async def _search_service(endpoint: str, query: str, limit: int) -> list[WebDocument]:

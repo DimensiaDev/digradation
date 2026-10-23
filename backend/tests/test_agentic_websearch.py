@@ -21,9 +21,11 @@ def _no_configured_service(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(websearch.WEB_SEARCH_ENV, raising=False)
     # The suite runs on the mock provider, where the search is off; these
     # tests are about the search itself, so it is switched on by the
-    # environment rather than by patching the switch.
+    # environment rather than by patching the switch. Strict sources is on by
+    # default, and these tests exercise the web path deliberately.
     monkeypatch.setenv("SBER_API_KEY", "a-real-key")
     monkeypatch.setenv("SBER_API_SCOPE", "PERS")
+    monkeypatch.setenv(websearch.STRICT_SOURCES_ENV, "false")
 
 
 def answer(payload: dict) -> None:
