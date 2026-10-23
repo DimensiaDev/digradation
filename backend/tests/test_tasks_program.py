@@ -27,6 +27,7 @@ from app.agentic.loop import MAX_TOOL_ROUNDS
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.state import (
     CONTENT_ORDER,
+    MAX_STAGE_ATTEMPTS,
     SKELETON_ORDER,
     STAGE_ORDER,
     AssessmentBlock,
@@ -195,6 +196,17 @@ def complete_state(session_id: uuid.UUID) -> ProgramState:
 def aged(state: ProgramState, delta: timedelta = timedelta(hours=1)) -> ProgramState:
     """The same state, untouched for ``delta``."""
     return state.model_copy(update={"updated_at": datetime.now(UTC) - delta})
+
+
+def at_last_attempt(state: ProgramState, stage: Stage) -> ProgramState:
+    """The same state with ``stage`` at its last allowed attempt.
+
+    ``new_state`` enqueues the first stage, so the count is one short of the
+    budget and the loop must not repeat an enqueue the state already holds.
+    """
+    for _ in range(MAX_STAGE_ATTEMPTS - 1):
+        state = state.enqueued(stage)
+    return state
 
 
 @pytest.fixture()
@@ -378,7 +390,7 @@ async def test_the_last_attempt_ends_the_run_and_tells_the_methodist(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:
     state = await store.save(new_state(chat, requested_hours=None, requirements=None))
-    spent = await store.save(state.enqueued(Stage.COMPETENCES).enqueued(Stage.COMPETENCES))
+    spent = await store.save(at_last_attempt(state, Stage.COMPETENCES))
     provider.answers.append(answer(""))
 
     await run_task(program.program_stage, chat, Stage.COMPETENCES.value, spent.run_id)
@@ -775,7 +787,7 @@ async def test_recovery_gives_up_when_the_attempts_are_spent(
     chat: uuid.UUID, task_db: None, redis_client: Redis, enqueued
 ) -> None:
     state = await store.save(new_state(chat, requested_hours=None, requirements=None))
-    spent = state.enqueued(Stage.COMPETENCES).enqueued(Stage.COMPETENCES)
+    spent = await store.save(at_last_attempt(state, Stage.COMPETENCES))
     await store.save(aged(spent.started(Stage.COMPETENCES)))
 
     await run_task(program.recover_stalled_programs)
@@ -1178,7 +1190,7 @@ async def test_a_failure_replaces_the_result_the_intake_left(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:
     state = await store.save(new_state(chat, requested_hours=None, requirements=None))
-    spent = await store.save(state.enqueued(Stage.COMPETENCES).enqueued(Stage.COMPETENCES))
+    spent = await store.save(at_last_attempt(state, Stage.COMPETENCES))
     async with async_sessionmaker(bind=engine, expire_on_commit=False)() as db:
         db.add(
             GenerationResult(
@@ -1304,7 +1316,7 @@ async def test_a_replayed_stage_does_not_spend_an_attempt_on_its_successor(
 ) -> None:
     """The successor was enqueued before the worker died, so the replay must not repeat it.
 
-    Enqueueing it again would burn one of the successor's three attempts on a
+    Enqueueing it again would burn one of the successor's attempts on a
     duplicate the queue never lost, and the run would fail a stage it never got
     to try properly.
     """

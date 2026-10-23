@@ -27,6 +27,7 @@ from app.agentic.models import (
     StageStatuses,
 )
 from app.agentic.state import (
+    MAX_STAGE_ATTEMPTS,
     SKELETON_ORDER,
     STAGE_ORDER,
     AssessmentBlock,
@@ -442,8 +443,9 @@ def test_a_completed_stage_clears_the_error_of_its_failed_attempt() -> None:
 
 def test_the_last_attempt_failing_ends_the_run() -> None:
     state = new_state(SESSION_ID, requested_hours=None, requirements=None)
-    state = state.enqueued(Stage.COMPETENCES).enqueued(Stage.COMPETENCES)
-    assert state.attempts[Stage.COMPETENCES.value] == 3
+    for _ in range(MAX_STAGE_ATTEMPTS - 1):
+        state = state.enqueued(Stage.COMPETENCES)
+    assert state.attempts[Stage.COMPETENCES.value] == MAX_STAGE_ATTEMPTS
 
     failed = state.failed_stage(Stage.COMPETENCES, "провайдер не ответил")
 

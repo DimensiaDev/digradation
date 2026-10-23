@@ -366,7 +366,7 @@ async def release_content(state: ProgramState) -> ProgramState:
     """Put the first content stage that is still missing on the queue.
 
     The approval releases the content, and the release is a stage like any
-    other: it spends one of that stage's three attempts, so a stage that is
+    other: it spends one of that stage's attempts, so a stage that is
     already complete is not run again and a stage that fails has a budget.
 
     A programme whose content is already whole has nothing to release. Its
@@ -454,7 +454,7 @@ async def _advance(state: ProgramState) -> None:
         return
     if state.attempts.get(next_stage):
         # The successor was enqueued already: enqueueing again would spend one of
-        # its three attempts on a duplicate the queue never lost.
+        # its attempts on a duplicate the queue never lost.
         return
     await _enqueue_stage(state, next_stage)
 

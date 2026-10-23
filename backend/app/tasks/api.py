@@ -12,6 +12,7 @@ from app.agentic.models import ProgramStatus
 from app.agentic.state import ClarificationAnswer, ProgramState, apply_answers
 from app.agentic.tools import INTAKE_TOOLS, ToolContext, call_executor
 from app.cache import get_deletion_key, get_generation_key, get_redis_client
+from app.harness import INTAKE_QUESTION_NOTE
 from app.models.auth import User
 from app.models.chat import (
     ChatMessage,
@@ -133,12 +134,25 @@ async def run_chat_turn(session: uuid.UUID, answers: list[dict[str, str]] | None
                 await _commit_tool_state(ctx, state, session)
                 ctx.dirty = False
 
+        def nudge(text: str) -> str | None:
+            """Send a clarifying question back through ``begin_program``.
+
+            The client renders the questions of a run and nothing else, so a
+            question written as text has no form to answer it and the programme
+            never starts. A turn that already started a run is not nudged: its
+            prose is the answer the methodist reads.
+            """
+            if ctx.state is not None or "?" not in text:
+                return None
+            return INTAKE_QUESTION_NOTE
+
         try:
             reply = await run_tool_loop(
                 messages,
                 generate=generate,
                 call_tool=call_executor(ctx, offered),
                 checkpoint=checkpoint,
+                nudge=nudge,
             )
         except Exception as e:
             log.error("run_chat_turn_error", session=session, error=e)

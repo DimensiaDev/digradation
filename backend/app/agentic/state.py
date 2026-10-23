@@ -17,6 +17,7 @@ from typing import Any, Self
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agentic import sources
+from app.agentic.diagnostics import ids, short
 from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
 from app.agentic.intake import (
     expected_test_questions,
@@ -80,8 +81,10 @@ REVISION_INVALIDATES: dict[Stage, tuple[tuple[str, Stage], ...]] = {
 STAGE_ORDER: tuple[Stage, ...] = SKELETON_ORDER + CONTENT_ORDER
 
 #: Enqueues a stage may spend before the run is given up on. The counter moves
-#: when a stage is put on the queue, not when a worker picks it up.
-MAX_STAGE_ATTEMPTS = 3
+#: when a stage is put on the queue, not when a worker picks it up. A refusal
+#: from a validator is cheap to repair, so the budget leaves room for several
+#: corrections rather than failing a run the model could still fix.
+MAX_STAGE_ATTEMPTS = 5
 
 #: How long a question the methodist is asked may be.
 MAX_QUESTION_LENGTH = 1000
@@ -943,31 +946,53 @@ class ProgramState(BaseModel):
         actually has. The final attestation has to name declared outcomes too,
         but it is the programme's conclusion and not one of the means, so it
         does not count towards the two.
+
+        Every finding names the allowed ids: a model that invented ``at-07``
+        could otherwise only guess what to replace it with, and each guess costs
+        a tool round.
         """
         problems: list[str] = []
         declared = set(self.declared_outcomes())
         topics = {topic.id for module in curriculum.modules for topic in module.topics}
         tools = {tool.id for tool in assessment.tools}
+        allowed_outcomes = ids(sorted(declared))
+        allowed_topics = ids(sorted(topics))
+        allowed_tools = ids(sorted(tools))
 
         def unknown(outcome_ids: list[str], what: str) -> None:
             missing = [item for item in outcome_ids if item not in declared]
             if missing:
-                problems.append(f"{what} ссылается на необъявленные результаты обучения: {', '.join(missing)}")
+                problems.append(
+                    f"{what} ссылается на необъявленные результаты обучения: {', '.join(missing)}; "
+                    f"допустимые: {allowed_outcomes}"
+                )
 
         for question in assessment.questions:
             if question.tool_id not in tools:
-                problems.append(f"вопрос {question.id} ссылается на несуществующую форму контроля {question.tool_id}")
+                problems.append(
+                    f"вопрос {question.id} ссылается на несуществующую форму контроля {question.tool_id}; "
+                    f"допустимые формы контроля: {allowed_tools}"
+                )
             unknown(question.outcome_ids, f"вопрос {question.id}")
         for task in assessment.seminar_tasks:
-            if task.tool_id not in tools:
-                problems.append(f"задание {task.id} ссылается на несуществующую форму контроля {task.tool_id}")
+            if task.tool_id is not None and task.tool_id not in tools:
+                problems.append(
+                    f"задание {task.id} ссылается на несуществующую форму контроля {task.tool_id}; "
+                    f"допустимые формы контроля: {allowed_tools}"
+                )
             if task.topic_id not in topics:
-                problems.append(f"задание {task.id} ссылается на несуществующую тему {task.topic_id}")
+                problems.append(
+                    f"задание {task.id} ссылается на несуществующую тему {task.topic_id}; "
+                    f"допустимые темы: {allowed_topics}"
+                )
             unknown(task.outcome_ids, f"задание {task.id}")
         for tool in assessment.tools:
             missing = [item for item in tool.topic_ids if item not in topics]
             if missing:
-                problems.append(f"форма контроля {tool.id} ссылается на несуществующие темы: {', '.join(missing)}")
+                problems.append(
+                    f"форма контроля {tool.id} ссылается на несуществующие темы: {', '.join(missing)}; "
+                    f"допустимые темы: {allowed_topics}"
+                )
             unknown(tool.outcome_ids, f"форма контроля {tool.id}")
         unknown(assessment.final.outcome_ids, "итоговая аттестация")
         return problems
@@ -978,8 +1003,17 @@ class ProgramState(BaseModel):
         The means are the questions, the seminar tasks and the forms of
         control. The final attestation is the programme's conclusion and not
         one of them.
+
+        Every finding carries the statement of the outcome, so the model knows
+        which result it is leaving unchecked without re-reading the whole
+        competences block it wrote several turns ago.
         """
         declared = set(self.declared_outcomes())
+        statements = {
+            outcome.id: outcome.statement
+            for competence in self.competencies
+            for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
+        }
         checked: dict[str, int] = dict.fromkeys(declared, 0)
         for outcome_ids in (
             [question.outcome_ids for question in assessment.questions]
@@ -990,7 +1024,9 @@ class ProgramState(BaseModel):
                 if outcome_id in checked:
                     checked[outcome_id] += 1
         problems = [
-            f"результат обучения {outcome_id} проверяется только {count} средствами — нужно хотя бы два"
+            f"результат обучения {outcome_id} «{short(statements.get(outcome_id), 100)}» проверяется только "
+            f"{count} средствами — нужно хотя бы два; добавь этот id в outcome_ids вопроса, задания "
+            f"или формы контроля"
             for outcome_id, count in sorted(checked.items())
             if count < 2
         ]
@@ -1008,12 +1044,14 @@ class ProgramState(BaseModel):
         produced it, where :meth:`to_draft` could only discard the whole run.
         """
         problems: list[str] = []
+        allowed = ids(sorted(declared))
         for module in curriculum.modules:
             for topic in module.topics:
                 missing = [outcome_id for outcome_id in topic.outcome_ids if outcome_id not in declared]
                 if missing:
                     problems.append(
-                        f"тема {topic.id} ссылается на необъявленные результаты обучения: {', '.join(missing)}"
+                        f"тема {topic.id} ссылается на необъявленные результаты обучения: {', '.join(missing)}; "
+                        f"допустимые: {allowed}"
                     )
         return problems
 
@@ -1028,8 +1066,11 @@ class ProgramState(BaseModel):
         covered = {
             outcome_id for module in curriculum.modules for topic in module.topics for outcome_id in topic.outcome_ids
         }
+        topics = ids([topic.id for module in curriculum.modules for topic in module.topics])
         return [
-            f"результат обучения {outcome_id} не раскрыт ни в одной теме" for outcome_id in sorted(declared - covered)
+            f"результат обучения {outcome_id} не раскрыт ни в одной теме; добавь его id в outcome_ids темы, "
+            f"например: {topics}"
+            for outcome_id in sorted(declared - covered)
         ]
 
     def curriculum_problems(self, curriculum: Curriculum) -> list[str]:
@@ -1037,10 +1078,12 @@ class ProgramState(BaseModel):
         problems: list[str] = []
         total = curriculum.total_hours
         if self.requested_hours is not None and not math.isclose(total, self.requested_hours, abs_tol=1e-6):
+            delta = total - self.requested_hours
+            gap = f"не хватает {abs(delta):g} ч" if delta < 0 else f"лишние {abs(delta):g} ч"
             problems.append(
                 f"объём программы {total:g} ч (темы {curriculum.topic_hours:g} ч "
                 f"+ итоговая аттестация {curriculum.attestation_hours:g} ч) "
-                f"не совпадает с заявленным объёмом {self.requested_hours:g} ч"
+                f"не совпадает с заявленным объёмом {self.requested_hours:g} ч: {gap}"
             )
         problems += self.module_hours_problems(curriculum)
         problems += self.schedule_problems(curriculum)

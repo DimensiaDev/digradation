@@ -159,6 +159,7 @@ async def run_tool_loop(
     checkpoint: Callable[[], Awaitable[None]] | None = None,
     first_response: GenerationResponse | None = None,
     complete: Callable[[], bool] | None = None,
+    nudge: Callable[[str], str | None] | None = None,
 ) -> str:
     """Run the model until it answers with text instead of calling a tool.
 
@@ -171,6 +172,12 @@ async def run_tool_loop(
     text answer does not end the loop: a model that was refused a block tends to
     write "I fixed it" instead of calling again, and the caller would throw the
     whole attempt away. The model is told so and gets another round instead.
+
+    ``nudge`` is the same second chance for a turn that has nothing to save: it
+    receives the answer and returns a note when the answer cannot end the turn.
+    It fires at most once, because the caller cannot tell whether a second text
+    answer is a mistake or the methodist's actual answer, and repeating the
+    nudge would make the model insist instead of speaking.
     """
     messages = list(message_history)
     if first_response is None:
@@ -186,12 +193,21 @@ async def run_tool_loop(
             # A truncated reply is refused before it can be nudged: the model
             # did not finish writing, so there is nothing to act on.
             text = _answer(response)
-            if complete is not None and not complete() and round_number < MAX_TOOL_ROUNDS:
-                messages.extend(_assistant_messages(response))
-                messages.append(Message(role=Role.USER, content=[Content(text=UNFINISHED_NOTE)]))
-                log.info("tool_loop_unfinished", round=round_number)
-                response = await _generate_turn(generate, messages)
-                continue
+            if round_number < MAX_TOOL_ROUNDS:
+                note: str | None = None
+                event = "tool_loop_unfinished"
+                if complete is not None and not complete():
+                    note = UNFINISHED_NOTE
+                elif nudge is not None:
+                    note = nudge(text)
+                    event = "tool_loop_nudged"
+                if note is not None:
+                    messages.extend(_assistant_messages(response))
+                    messages.append(Message(role=Role.USER, content=[Content(text=note)]))
+                    log.info(event, round=round_number)
+                    nudge = None
+                    response = await _generate_turn(generate, messages)
+                    continue
             return text
 
         _normalise_call_ids(calls)

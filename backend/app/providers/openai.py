@@ -19,7 +19,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
-from openai import AsyncOpenAI, AuthenticationError
+from openai import AsyncOpenAI, AuthenticationError, BadRequestError
 from openai.types import CompletionUsage
 from openai.types.chat import ChatCompletion
 
@@ -36,6 +36,7 @@ from app.providers.models import (
     ToolCall,
     Usage,
 )
+from app.providers.strict_schema import strict_schema
 
 #: Default model on the school hub. The hub also exposes
 #: ``ai-sage/GigaChat3.5-432B-A28B-Reasoning`` and
@@ -54,6 +55,32 @@ ALLOWED_LLM_HOSTS_DEFAULT: tuple[str, ...] = (
 
 def _strict() -> bool:
     return os.getenv("STRICT_PROVIDER", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _strict_tools() -> bool:
+    """Whether tool arguments are decoded under a strict schema.
+
+    On unless the deployment turns it off: the hub accepts ``strict`` and
+    constrains generation to the schema, which is what stops a stage from
+    spending a tool round on arguments pydantic has to refuse. An endpoint that
+    rejects the flag is detected at the first completion and remembered, so the
+    switch is a fallback rather than a requirement.
+    """
+    return os.getenv("OPENAI_STRICT_TOOLS", "").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _refused_strict(error: BadRequestError) -> bool:
+    """Whether a 400 is about the strict schema rather than the request itself.
+
+    The body is not part of the SDK's message in every version, so both are read
+    and the check stays case-insensitive. A 400 that names neither ``strict``
+    nor the schema is a real request error and is not retried.
+    """
+    text = str(error).lower()
+    body = getattr(getattr(error, "response", None), "text", "")
+    if isinstance(body, str):
+        text = f"{text} {body.lower()}"
+    return "strict" in text or "schema" in text
 
 
 def _allowed_hosts() -> tuple[str, ...]:
@@ -99,6 +126,9 @@ class OpenAIProvider(AIClient):
             raise ValueError("OPENAI_URL must be set when SBER_API_SCOPE=openai")
         _reject_foreign_host(url)
         self._client = AsyncOpenAI(api_key=api_key, base_url=url)
+        #: Cleared for the life of this client if the endpoint refuses a strict
+        #: schema, so the next request does not spend a round on it again.
+        self._strict_tools = _strict_tools()
 
     def _model(self) -> str:
         return os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
@@ -189,8 +219,25 @@ class OpenAIProvider(AIClient):
         return {"role": message.role, "content": parts if parts is not None else cls._text(message.content)}
 
     @staticmethod
-    def _tools_payload(tools: list[Tool]) -> list[dict]:
-        return [{"type": tool.type, "function": tool.function.model_dump(exclude_none=True)} for tool in tools]
+    def _tools_payload(tools: list[Tool], *, strict: bool | None = None) -> list[dict]:
+        """The tools as the wire takes them.
+
+        In strict mode the schema is closed and every property is required, so
+        the decoder cannot omit a field the block needs or invent one it does
+        not have. The shared tool definitions stay untouched: the flag is a
+        property of the endpoint, not of the tool, and the GigaChat v2 client
+        refuses a strict tool outright.
+        """
+        close = _strict_tools() if strict is None else strict
+        payload: list[dict] = []
+        for tool in tools:
+            function = tool.function.model_dump(exclude_none=True)
+            parameters = function.get("parameters")
+            if close and parameters is not None:
+                function["strict"] = True
+                function["parameters"] = strict_schema(parameters)
+            payload.append({"type": tool.type, "function": function})
+        return payload
 
     @staticmethod
     def _response_format(response_format: ResponseFormat) -> dict | None:
@@ -326,8 +373,9 @@ class OpenAIProvider(AIClient):
         if fmt is not None:
             kwargs["response_format"] = fmt
         active_tools = self.tools if tools is None else tools
+        strict_used = bool(active_tools) and self._strict_tools
         if active_tools:
-            kwargs["tools"] = self._tools_payload(active_tools)
+            kwargs["tools"] = self._tools_payload(active_tools, strict=self._strict_tools)
             kwargs["tool_choice"] = "auto"
 
         try:
@@ -335,6 +383,21 @@ class OpenAIProvider(AIClient):
         except AuthenticationError as e:
             log.error("auth_token_refresh_failed", exc=e)
             raise AuthorizationError() from e
+        except BadRequestError as e:
+            if not (strict_used and _refused_strict(e)):
+                log.error("completion_failure", exc=e)
+                return None
+            # The schema is the only part of the request that changes shape, so
+            # the request is retried once without it rather than failing a stage
+            # on a flag. The client remembers the refusal for its lifetime.
+            log.warning("strict_tools_rejected", exc=e)
+            self._strict_tools = False
+            kwargs["tools"] = self._tools_payload(active_tools, strict=False)
+            try:
+                completion = await self._client.chat.completions.create(**kwargs)
+            except Exception as retry_error:
+                log.error("completion_failure", exc=retry_error)
+                return None
         except Exception as e:
             log.error("completion_failure", exc=e)
             return None
