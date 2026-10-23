@@ -541,8 +541,27 @@ class ProgramState(BaseModel):
         return self._replace(sources=self._merged_sources([_confirmed(source) for source in block.sources]))
 
     def with_summary(self, block: SummaryBlock, sources: list[Source]) -> Self:
-        """Save the passport and the documents it is based on."""
-        return self._replace(summary=block.summary, sources=self._merged_sources(sources))
+        """Save the passport and the documents it is based on.
+
+        The issued document is normalised against the programme kind: a
+        professional programme issues an удостоверение, a general one a
+        сертификат. The model writes the wrong string often enough that the
+        methodist should not pay for it with a failed run; the DOCX and the
+        report show the corrected value.
+        """
+        return self._replace(
+            summary=self._normalize_issued_document(block.summary),
+            sources=self._merged_sources(sources),
+        )
+
+    def _normalize_issued_document(self, summary: ProgramSummary) -> ProgramSummary:
+        """Force ``issued_document`` to match the programme kind."""
+        issued = summary.issued_document.lower()
+        if self.kind is ProgramKind.PROFESSIONAL_DEVELOPMENT and "удостоверение" not in issued:
+            return summary.model_copy(update={"issued_document": "Удостоверение о повышении квалификации"})
+        if self.kind is ProgramKind.GENERAL_DEVELOPMENT and "сертификат" not in issued:
+            return summary.model_copy(update={"issued_document": "Сертификат об освоении программы"})
+        return summary
 
     def with_assessment(self, block: AssessmentBlock) -> Self:
         """Save the means of checking the outcomes."""
@@ -601,28 +620,8 @@ class ProgramState(BaseModel):
         problems += self.uncovered_outcome_problems(draft.curriculum, set(outcomes))
         problems += self.curriculum_problems(draft.curriculum)
         problems += self.citation_problems([*draft.summary.basis_source_ids, *standards])
-        problems += self._issued_document_problems(draft.summary)
         if self.assessment is not None:
             problems += self.assessment_problems(self.assessment, draft.curriculum)
-        return problems
-
-    def _issued_document_problems(self, summary: ProgramSummary) -> list[str]:
-        """The document the programme issues, against the programme's kind.
-
-        A professional programme issues an удостоверение and a general one a
-        сертификат; a document that says the other thing would be signed and
-        handed out, so it is refused where the draft is assembled.
-        """
-        issued = summary.issued_document.lower()
-        problems: list[str] = []
-        if self.kind is ProgramKind.PROFESSIONAL_DEVELOPMENT and "удостоверение" not in issued:
-            problems.append(
-                f"повышение квалификации выдаёт удостоверение, " f"а в паспорте указано «{summary.issued_document}»"
-            )
-        if self.kind is ProgramKind.GENERAL_DEVELOPMENT and "сертификат" not in issued:
-            problems.append(
-                f"общеразвивающая программа выдаёт сертификат, " f"а в паспорте указано «{summary.issued_document}»"
-            )
         return problems
 
     def declared_outcomes(self) -> list[str]:
@@ -999,12 +998,26 @@ class ProgramState(BaseModel):
         return problems
 
     def module_hours_problems(self, curriculum: Curriculum) -> list[str]:
-        """A module states its own volume, and it has to add up."""
-        return [
-            f"модуль {module.id} заявлен на {module.hours:g} ч, а его темы дают {module.topic_hours:g} ч"
-            for module in curriculum.modules
-            if not math.isclose(module.hours, module.topic_hours, abs_tol=1e-6)
-        ]
+        """Every module states its own volume, and the volume has to add up.
+
+        An empty module is accepted by the schema only when its title says
+        it is the final attestation. Here it is a finding all the same: a
+        teaching module with nothing in it is not a plan, and the
+        attestation belongs in ``attestation_hours``.
+        """
+        problems: list[str] = []
+        for module in curriculum.modules:
+            if not module.topics:
+                problems.append(
+                    f"модуль {module.id} «{module.title}» пуст: "
+                    f"аттестацию указывай в attestation_hours, а не отдельным модулем"
+                )
+                continue
+            if not math.isclose(module.hours, module.topic_hours, abs_tol=1e-6):
+                problems.append(
+                    f"модуль {module.id} заявлен на {module.hours:g} ч, а его темы дают " f"{module.topic_hours:g} ч"
+                )
+        return problems
 
     def schedule_problems(self, curriculum: Curriculum) -> list[str]:
         """The schedule has to hold the volume it is given."""

@@ -134,13 +134,41 @@ class Topic(SchemaModel):
     control_form: str | None = Field(default=None, max_length=500, description="Форма текущего контроля по теме")
     outcome_ids: list[OutcomeId] = Field(default_factory=list, description="Learning outcomes the topic covers")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_bare_hours(cls, data: Any) -> Any:
+        """A topic that declares a bare number of hours keeps it as self-study.
+
+        The model writes ``hours: 4`` for a topic with no breakdown — a defence
+        at the end, for instance. The number is the total, and the schema has
+        nothing to invent a split from; keeping it as self-study means the
+        arithmetic still adds up and the contact-hour total stays honest. An
+        explicit breakdown passes through unchanged.
+        """
+        if isinstance(data, dict) and isinstance(data.get("hours"), (int, float)):
+            return {**data, "hours": {"self_study": float(data["hours"])}}
+        return data
+
 
 class Module(SchemaModel):
     """Section of the curriculum."""
 
     id: ModuleId
     title: str = Field(min_length=1, max_length=500)
-    topics: list[Topic] = Field(min_length=1)
+    topics: list[Topic] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _reject_empty_topics(self) -> Self:
+        """Only the final-attestation module may stand empty.
+
+        The model writes the attestation as a sixth module often enough that
+        the schema has to tolerate the shape. The curriculum check later
+        reports it as a finding, but the plan itself is not refused.
+        """
+        if not self.topics and "аттестац" not in self.title.lower():
+            raise ValueError(f"module {self.id}: no topics; a teaching module needs at least one")
+        return self
+
     #: The module states its own volume, and the plan checks it against the
     #: topics. A module that leaves it empty is refused by that check rather
     #: than by the schema, so the model is told what to fix.
@@ -151,20 +179,23 @@ class Module(SchemaModel):
     def _fill_the_hours(cls, data: Any) -> Any:
         """A module that declares no hours gets the sum of its topics.
 
-        A curriculum written before the field existed has no hours at all, and
-        the plan it belongs to has to keep adding up after a deploy. The sum is
-        computed from the raw payload, before ``Topic`` is validated, because a
-        model validator of another model may not be called yet.
+        A topic may carry its hours as a bare number (``hours: 4``) — the
+        model writes that when it has no breakdown — so both shapes are
+        summed here. A malformed ``hours`` is left untouched; the ``Topic``
+        validator below rejects it with a message the dispatcher hands back
+        to the model.
         """
         if not isinstance(data, dict) or "hours" in data:
             return data
         total = 0.0
         for topic in data.get("topics") or []:
-            hours = topic.get("hours") if isinstance(topic, dict) else getattr(topic, "hours", None)
+            if not isinstance(topic, dict):
+                continue
+            hours = topic.get("hours")
             if isinstance(hours, dict):
                 total += sum(float(hours.get(key) or 0) for key in ("lecture", "practice", "lab", "self_study"))
-            elif hours is not None:
-                total += hours.lecture + hours.practice + hours.lab + hours.self_study
+            elif isinstance(hours, (int, float)):
+                total += float(hours)
         return {**data, "hours": total}
 
     @property
