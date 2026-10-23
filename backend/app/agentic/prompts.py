@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.agentic.models import Stage
+from app.agentic.models import ProgramMode, Stage
 from app.agentic.state import ClarificationAnswer, ClarificationQuestion, ProgramState
 from app.providers.models import Content, FileSchema, Message
 
@@ -62,9 +62,14 @@ STAGE_TASKS: dict[Stage, str] = {
         "часами, отведёнными на неё в учебном плане. Сохрани блок вызовом save_program_draft."
     ),
     Stage.MATERIALS: (
-        "Подготовь материалы к занятиям: план лекции со слайдами для каждой темы учебного плана. "
-        "Планы лекций и слайды готовятся хотя бы для одного модуля, но лучше для всех тем, "
-        "у которых есть часы лекций. Сохрани блок вызовом save_program_draft."
+        "Подготовь материалы к занятиям. Для каждой темы с часами лекций нужен план лекции. "
+        "Слайды нужны для всех тем хотя бы одного модуля: модуль считается покрытым, только когда "
+        "у каждой его лекции есть и план, и слайды. Если лекционных часов нет (например, программа "
+        "в форме стажировки), планы и слайды не выдумывай. В любом случае заполни условия "
+        "реализации: оборудование, учебно-методические материалы и требования к кадровому "
+        "обеспечению, а также список должностей staffing. Для программы с практикой или "
+        "стажировки добавь кейсы компаний-партнёров, если они есть. Сохрани блок вызовом "
+        "save_program_draft."
     ),
     Stage.SOURCES: (
         "Подбери источники программы: нормативные акты, профессиональные стандарты, литературу. "
@@ -89,6 +94,8 @@ STAGE_TASKS: dict[Stage, str] = {
 def saved_blocks(state: ProgramState) -> dict[str, Any]:
     """The blocks the earlier stages committed, as the model should see them."""
     blocks: dict[str, Any] = {}
+    if state.mode is not ProgramMode.NEW:
+        blocks["режим разработки"] = state.mode.value
     if state.kind is not None:
         blocks["вид программы"] = state.kind.value
     if state.title:
@@ -107,8 +114,29 @@ def saved_blocks(state: ProgramState) -> dict[str, Any]:
 def stage_brief(state: ProgramState) -> str:
     """The user turn of a stage: the task, the volume and what is already saved."""
     parts = [f"Задание методиста:\n{state.requirements or 'не задано'}"]
+    if state.mode is ProgramMode.ACTUALIZATION:
+        parts.append(
+            "Это актуализация существующей программы. Возьми её структуру и объём из приложенного "
+            "файла или уже сохранённых блоков, обнови содержание, инструменты и нормативные ссылки "
+            "под текущие требования. Не выдавай старую программу за новую и не меняй объём без "
+            "просьбы методиста."
+        )
+    elif state.mode is ProgramMode.ADAPTATION:
+        parts.append(
+            "Это адаптация существующей программы. Сохрани её основу и объём, но измени целевую "
+            "аудиторию, входные требования, уровень и форму подачи под новую аудиторию или формат. "
+            "Не копируй текст старой программы дословно."
+        )
     if state.requested_hours is not None:
         parts.append(f"Заявленный объём программы: {state.requested_hours:g} академических часов.")
+    if state.expectations:
+        parts.append(
+            "Заказчик ждёт сверх того, что даёт объём, — не обещай этого в программе, "
+            f"но учти в отчёте: {state.expectations}"
+        )
+    if state.sample_issues:
+        listed = "; ".join(state.sample_issues)
+        parts.append(f"В приложенном образце есть расхождения, не переноси их: {listed}")
     if state.answers:
         answered = "\n".join(f"- {question.text}: {answer.text}" for question, answer in _answered_questions(state))
         parts.append(f"Ответы методиста на уточняющие вопросы:\n{answered}")

@@ -2,28 +2,29 @@
 
 :func:`render_program_draft` takes the approved draft — the early blocks a
 methodist confirms before full generation — and returns the bytes of a
-DOCX file. The document is built from code, not from a template:
-Times New Roman 12pt, 2 cm margins, 'Table Grid' for the curriculum.
+DOCX file. The document is built from code rather than from a binary template
+file, but it follows the sections of the АЦР template: Times New Roman 12pt,
+2 cm margins, 'Table Grid' for the curriculum.
 
-Rendered from the draft:
+Rendered from the full document:
 
-- title page (organisation, order placeholder, programme kind and title,
-  city and year);
+- title page (organisation, order placeholder, programme kind, title, city
+  and year);
 - explanatory note (focus, level, form, issued document, annotation,
-  relevance);
+  relevance, and the actualization/adaptation mode when it is not a new one);
 - goal and tasks;
 - target audience and admission requirements;
 - competencies with their experience / skills / knowledge;
 - schedule and total hours;
 - curriculum as a table;
 - sources grouped by kind (normative acts, professional standards,
-  primary and secondary literature, internet resources, references).
+  primary and secondary literature, internet resources, references);
+- assessment, lecture plans and slides;
+- delivery conditions, staffing and the cases appendix;
+- signatures and the self-check report.
 
-Not rendered — sections that live in :class:`EducationalProgram`, not in
-the draft: assessment materials, teaching materials, delivery
-conditions, staffing, cases appendix. They appear as an explicit
-"pending" block so a methodist can fill them in by hand or regenerate
-once the full document exists.
+A draft that has no content yet still renders: the sections that are not there
+are listed as pending rather than silently omitted.
 """
 
 from __future__ import annotations
@@ -33,9 +34,11 @@ from io import BytesIO
 
 from docx import Document
 from docx.document import Document as DocxDocument
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm, Pt
+from docx.shared import Cm, Pt, RGBColor
 
 from app.agentic.models import (
     ApprovalInfo,
@@ -49,6 +52,7 @@ from app.agentic.models import (
     ProgramDraft,
     ProgramFormat,
     ProgramKind,
+    ProgramMode,
     Source,
     SourceKind,
     StaffSlot,
@@ -70,6 +74,12 @@ KIND_TITLES: dict[ProgramKind, str] = {
 }
 
 INTERNSHIP_SUFFIX = "В ФОРМЕ СТАЖИРОВКИ"
+
+MODE_TITLES: dict[ProgramMode, str] = {
+    ProgramMode.NEW: "новая программа",
+    ProgramMode.ACTUALIZATION: "актуализация действующей программы",
+    ProgramMode.ADAPTATION: "адаптация действующей программы",
+}
 
 _MONTHS = (
     "",
@@ -159,10 +169,11 @@ def render_program_document(
         _render_assessment(doc, document.assessment)
     if document.materials is not None:
         _render_materials(doc, document.materials)
-        if document.materials.conditions.equipment or document.materials.conditions.teaching_materials:
-            _render_conditions(doc, document.materials.conditions)
-        if document.materials.staffing:
-            _render_staffing(doc, document.materials.staffing)
+        conditions = document.materials.conditions
+        if conditions.equipment or conditions.teaching_materials:
+            _render_conditions(doc, conditions)
+        if conditions.staffing_requirements or document.materials.staffing:
+            _render_staffing(doc, conditions.staffing_requirements, document.materials.staffing)
         if document.materials.cases:
             _render_cases(doc, document.materials.cases)
     _render_signatures(doc, document.approval)
@@ -176,20 +187,99 @@ def render_program_document(
 
 
 # --------------------------------------------------------------------------- style helpers
-def _set_global_style(doc: DocxDocument) -> None:
-    style = doc.styles["Normal"]
-    style.font.name = "Times New Roman"
-    style.font.size = Pt(12)
-    # The name alone only covers the ascii and the hAnsi faces; the Russian
-    # text is resolved through the complex-script face in most readers.
+BODY_FONT = "Times New Roman"
+
+#: A pale fill behind the header and the module rows of a table. The document
+#: is printed, so the fill is light enough to survive a grayscale printer.
+HEADER_FILL = "D9E2F3"
+MODULE_FILL = "EDF2F9"
+
+#: Usable width of the page, in centimetres: A4 minus the two 2 cm margins.
+TEXT_WIDTH = 17.0
+
+
+def _set_font(style, name: str = BODY_FONT) -> None:
+    """Set every face of a style's font, not just the Latin one.
+
+    The name alone only covers the ascii and the hAnsi faces; the Russian text
+    is resolved through the complex-script face in most readers.
+    """
+    style.font.name = name
     fonts = style.element.rPr.rFonts
-    fonts.set(qn("w:eastAsia"), "Times New Roman")
-    fonts.set(qn("w:cs"), "Times New Roman")
+    fonts.set(qn("w:eastAsia"), name)
+    fonts.set(qn("w:cs"), name)
+
+
+def _set_global_style(doc: DocxDocument) -> None:
+    """Give the whole document one typographic system.
+
+    The stock template carries Calibri at 11 pt and blue headings, which reads
+    as an office draft rather than as the АЦР document this renders. Body text
+    is justified with the conventional Russian first-line indent, headings are
+    black Times New Roman, and the cover carries no page number.
+    """
+    normal = doc.styles["Normal"]
+    normal.font.size = Pt(12)
+    _set_font(normal)
+    normal.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    normal.paragraph_format.first_line_indent = Cm(1.25)
+    normal.paragraph_format.line_spacing = 1.15
+    normal.paragraph_format.space_before = Pt(0)
+    normal.paragraph_format.space_after = Pt(0)
+
+    for name, size, align, before, after in (
+        ("Heading 1", 16, WD_ALIGN_PARAGRAPH.CENTER, 14, 8),
+        ("Heading 2", 14, WD_ALIGN_PARAGRAPH.LEFT, 10, 6),
+        ("Heading 3", 12, WD_ALIGN_PARAGRAPH.LEFT, 8, 4),
+    ):
+        style = doc.styles[name]
+        style.font.size = Pt(size)
+        style.font.bold = True
+        style.font.italic = name == "Heading 3"
+        style.font.color.rgb = RGBColor(0, 0, 0)
+        _set_font(style)
+        style.paragraph_format.alignment = align
+        style.paragraph_format.first_line_indent = Cm(0)
+        style.paragraph_format.left_indent = Cm(0)
+        style.paragraph_format.line_spacing = 1.15
+        style.paragraph_format.space_before = Pt(before)
+        style.paragraph_format.space_after = Pt(after)
+        style.paragraph_format.keep_with_next = True
+
+    bullet = doc.styles["List Bullet"]
+    bullet.font.size = Pt(12)
+    _set_font(bullet)
+    bullet.paragraph_format.first_line_indent = Cm(0)
+    bullet.paragraph_format.line_spacing = 1.15
+    bullet.paragraph_format.space_after = Pt(2)
+
     for section in doc.sections:
         section.left_margin = Cm(2)
         section.right_margin = Cm(2)
         section.top_margin = Cm(2)
         section.bottom_margin = Cm(2)
+        section.footer_distance = Cm(1)
+        # The cover is not numbered, so numbering starts on the second page.
+        section.different_first_page_header_footer = True
+        _add_page_number(section.footer.paragraphs[0])
+
+
+def _add_page_number(paragraph) -> None:
+    """Put a PAGE field in the footer, right-aligned and in the body face."""
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    paragraph.paragraph_format.first_line_indent = Cm(0)
+    run = paragraph.add_run()
+    run.font.name = BODY_FONT
+    run.font.size = Pt(10)
+    begin = OxmlElement("w:fldChar")
+    begin.set(qn("w:fldCharType"), "begin")
+    field = OxmlElement("w:instrText")
+    field.set(qn("xml:space"), "preserve")
+    field.text = "PAGE"
+    end = OxmlElement("w:fldChar")
+    end.set(qn("w:fldCharType"), "end")
+    for element in (begin, field, end):
+        run._r.append(element)
 
 
 def _page_break(doc: DocxDocument) -> None:
@@ -197,7 +287,17 @@ def _page_break(doc: DocxDocument) -> None:
     run.add_break(WD_BREAK.PAGE)
 
 
-def _heading(doc: DocxDocument, text: str, *, level: int) -> None:
+def _heading(doc: DocxDocument, text: str, *, level: int, numbered: bool = True) -> None:
+    """A heading, with the section number that the АЦР order expects.
+
+    The number is written as text rather than left to Word's list numbering:
+    the pending-sections page is conditional, so a static list would leave a
+    gap in the sequence, and a field would read as a placeholder until the
+    reader updates it.
+    """
+    if level == 1 and numbered:
+        index = sum(1 for paragraph in doc.paragraphs if paragraph.style.name == "Heading 1") + 1
+        text = f"{index}. {text}"
     doc.add_heading(text, level=level)
 
 
@@ -205,6 +305,8 @@ def _labeled(doc: DocxDocument, label: str, value: str | None) -> None:
     if not value:
         return
     p = doc.add_paragraph()
+    p.paragraph_format.first_line_indent = Cm(0)
+    p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p.add_run(label).bold = True
     p.add_run(f" {value}")
 
@@ -215,6 +317,29 @@ def _bullets(doc: DocxDocument, items: list[str]) -> None:
 
 
 # --------------------------------------------------------------------------- title page
+def _cover_line(
+    doc: DocxDocument,
+    text: str,
+    *,
+    size: int = 12,
+    bold: bool = False,
+    align=WD_ALIGN_PARAGRAPH.CENTER,
+    before: int = 0,
+    after: int = 0,
+):
+    """One line of the cover, free of the body's indent and justification."""
+    p = doc.add_paragraph()
+    p.paragraph_format.first_line_indent = Cm(0)
+    p.paragraph_format.alignment = align
+    p.paragraph_format.line_spacing = 1.15
+    p.paragraph_format.space_before = Pt(before)
+    p.paragraph_format.space_after = Pt(after)
+    run = p.add_run(text)
+    run.font.size = Pt(size)
+    run.font.bold = bold
+    return p
+
+
 def _render_title_page(
     doc: DocxDocument,
     draft: ProgramDraft,
@@ -225,36 +350,15 @@ def _render_title_page(
     organization_lines: tuple[str, ...],
 ) -> None:
     for line in organization_lines:
-        p = doc.add_paragraph(line)
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _cover_line(doc, line, size=12)
 
-    doc.add_paragraph("")
-    doc.add_paragraph("")
+    _cover_line(doc, "УТВЕРЖДЕНО", bold=True, align=WD_ALIGN_PARAGRAPH.RIGHT, before=84)
+    _cover_line(doc, _approval_line(approval, year), size=11, align=WD_ALIGN_PARAGRAPH.RIGHT, after=12)
 
-    p = doc.add_paragraph("УТВЕРЖДЕНО")
-    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p = doc.add_paragraph(_approval_line(approval, year))
-    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    _cover_line(doc, _kind_title(draft), size=14, bold=True, before=84, after=18)
+    _cover_line(doc, f"«{draft.title}»", size=20, bold=True, after=18)
 
-    doc.add_paragraph("")
-    doc.add_paragraph("")
-    doc.add_paragraph("")
-
-    p = doc.add_paragraph(_kind_title(draft))
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    p = doc.add_paragraph(f"«{draft.title}»")
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.runs[0].bold = True
-
-    doc.add_paragraph("")
-    doc.add_paragraph("")
-    doc.add_paragraph("")
-    doc.add_paragraph("")
-    doc.add_paragraph("")
-
-    p = doc.add_paragraph(f"{city} {year}")
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _cover_line(doc, f"{city} {year}", before=228)
 
     _page_break(doc)
 
@@ -268,6 +372,8 @@ def _render_explanatory_note(doc: DocxDocument, draft: ProgramDraft) -> None:
     _labeled(doc, "Уровень освоения:", s.level)
     _labeled(doc, "Форма обучения:", s.form)
     _labeled(doc, "Документ по итогам обучения:", s.issued_document)
+    if draft.mode is not ProgramMode.NEW:
+        _labeled(doc, "Режим разработки:", MODE_TITLES[draft.mode])
 
     if s.annotation:
         doc.add_paragraph(s.annotation)
@@ -385,7 +491,9 @@ def _render_curriculum(doc: DocxDocument, draft: ProgramDraft) -> None:
     _heading(doc, "Учебный план", level=1)
 
     rows: list[list[str]] = []
+    module_rows: set[int] = set()
     for i, module in enumerate(draft.curriculum.modules, start=1):
+        module_rows.add(len(rows))
         rows.append(_module_row(i, module))
         for topic in module.topics:
             rows.append(_topic_row(topic))
@@ -419,7 +527,15 @@ def _render_curriculum(doc: DocxDocument, draft: ProgramDraft) -> None:
         ]
     )
 
-    _add_table(doc, CURRICULUM_HEADERS, rows)
+    _add_table(
+        doc,
+        CURRICULUM_HEADERS,
+        rows,
+        widths=(1.0, 6.0, 1.5, 1.9, 1.4, 1.7, 1.9, 1.6),
+        bold_rows=module_rows | {len(rows) - 1},
+        shade_rows=module_rows,
+        right_columns=frozenset(range(2, 8)),
+    )
 
 
 def _module_row(index: int, module: Module) -> list[str]:
@@ -505,21 +621,98 @@ def _fmt_total(value: float) -> str:
     return f"{value:g}".replace(".", ",")
 
 
-def _add_table(doc: DocxDocument, headers: tuple[str, ...], rows: list[list[str]]) -> None:
+def _add_table(
+    doc: DocxDocument,
+    headers: tuple[str, ...],
+    rows: list[list[str]],
+    *,
+    widths: tuple[float, ...] | None = None,
+    bold_rows: set[int] | frozenset[int] = frozenset(),
+    shade_rows: set[int] | frozenset[int] = frozenset(),
+    right_columns: frozenset[int] = frozenset(),
+    font_size: int = 10,
+) -> None:
+    """A table with a repeated shaded header and readable cell geometry.
+
+    Word repeats a header row on the next page only when the row itself says
+    so, and a number column reads as a column only when its cells are aligned
+    on the right; both are written here because every table of the document
+    shares them.
+    """
     table = doc.add_table(rows=1, cols=len(headers))
     table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
 
-    header_cells = table.rows[0].cells
-    for i, text in enumerate(headers):
-        header_cells[i].text = text
-        for paragraph in header_cells[i].paragraphs:
-            for run in paragraph.runs:
-                run.bold = True
+    _fill_row(
+        table.rows[0].cells,
+        headers,
+        font_size=font_size,
+        bold=True,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+        fill=HEADER_FILL,
+    )
+    _repeat_header(table.rows[0])
 
-    for row in rows:
-        cells = table.add_row().cells
-        for i, text in enumerate(row):
-            cells[i].text = text
+    for index, row in enumerate(rows):
+        _fill_row(
+            table.add_row().cells,
+            row,
+            font_size=font_size,
+            bold=index in bold_rows,
+            align=WD_ALIGN_PARAGRAPH.LEFT,
+            right_columns=right_columns,
+            fill=MODULE_FILL if index in shade_rows else None,
+        )
+
+    if widths is not None:
+        for column, width in zip(table.columns, widths, strict=False):
+            column.width = Cm(width)
+        for row in table.rows:
+            for cell, width in zip(row.cells, widths, strict=False):
+                cell.width = Cm(width)
+
+
+def _fill_row(
+    cells,
+    values: list[str] | tuple[str, ...],
+    *,
+    font_size: int,
+    bold: bool,
+    align,
+    right_columns: frozenset[int] = frozenset(),
+    fill: str | None = None,
+) -> None:
+    for index, text in enumerate(values):
+        cell = cells[index]
+        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        p = cell.paragraphs[0]
+        p.paragraph_format.first_line_indent = Cm(0)
+        p.paragraph_format.line_spacing = 1
+        p.paragraph_format.space_before = Pt(1)
+        p.paragraph_format.space_after = Pt(1)
+        p.alignment = WD_ALIGN_PARAGRAPH.RIGHT if index in right_columns else align
+        run = p.add_run(text)
+        run.font.name = BODY_FONT
+        run.font.size = Pt(font_size)
+        run.font.bold = bold
+        if fill is not None:
+            _shade(cell, fill)
+
+
+def _repeat_header(row) -> None:
+    """Mark a row as the table's header, so Word repeats it on a new page."""
+    header = OxmlElement("w:tblHeader")
+    header.set(qn("w:val"), "true")
+    row._tr.get_or_add_trPr().append(header)
+
+
+def _shade(cell, fill: str) -> None:
+    shading = OxmlElement("w:shd")
+    shading.set(qn("w:val"), "clear")
+    shading.set(qn("w:color"), "auto")
+    shading.set(qn("w:fill"), fill)
+    cell._tc.get_or_add_tcPr().append(shading)
 
 
 # --------------------------------------------------------------------------- sources
@@ -537,7 +730,11 @@ def _render_sources(doc: DocxDocument, draft: ProgramDraft) -> None:
             # The number is written into the text rather than left to the
             # "List Number" style: that style keeps one counter for the whole
             # document, so the second group would start where the first ended.
-            doc.add_paragraph(f"{number}. {_format_source(source)}")
+            p = doc.add_paragraph()
+            p.paragraph_format.left_indent = Cm(0.75)
+            p.paragraph_format.first_line_indent = Cm(-0.75)
+            p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p.add_run(f"{number}. {_format_source(source)}")
 
 
 def _group_sources(
@@ -647,7 +844,7 @@ def _render_materials(doc: DocxDocument, materials: Materials) -> None:
 
 # --------------------------------------------------------------------------- conditions and staff
 def _render_conditions(doc: DocxDocument, conditions: Conditions) -> None:
-    """Material, methodical and staffing requirements of the programme."""
+    """The material and methodical conditions of the programme."""
     _page_break(doc)
     _heading(doc, "Условия реализации программы", level=1)
     if conditions.equipment:
@@ -656,15 +853,20 @@ def _render_conditions(doc: DocxDocument, conditions: Conditions) -> None:
     if conditions.teaching_materials:
         _heading(doc, "Учебно-методическое обеспечение", level=2)
         _bullets(doc, conditions.teaching_materials)
-    if conditions.staffing_requirements:
-        _heading(doc, "Требования к кадровому обеспечению", level=2)
-        _bullets(doc, conditions.staffing_requirements)
 
 
-def _render_staffing(doc: DocxDocument, staffing: list[StaffSlot]) -> None:
-    """The staff of the programme, with empty cells the methodist fills in."""
+def _render_staffing(doc: DocxDocument, requirements: list[str], staffing: list[StaffSlot]) -> None:
+    """The staff requirements and the staff of the programme.
+
+    The requirements say what a teacher has to be; the table lists the positions
+    the programme actually has, with empty cells the methodist fills in. Both
+    belong to the one section the report checks as «кадровое обеспечение».
+    """
     _page_break(doc)
     _heading(doc, "Кадровое обеспечение программы", level=1)
+    if requirements:
+        _heading(doc, "Требования к кадровому обеспечению", level=2)
+        _bullets(doc, requirements)
     headers = ("№", "Модуль/дисциплина", "Должность", "ФИО", "Учёная степень/звание")
     rows: list[list[str]] = [
         [
@@ -676,13 +878,13 @@ def _render_staffing(doc: DocxDocument, staffing: list[StaffSlot]) -> None:
         ]
         for index, slot in enumerate(staffing, start=1)
     ]
-    _add_table(doc, headers, rows)
+    _add_table(doc, headers, rows, widths=(1.2, 4.0, 4.0, 4.0, 3.8))
 
 
 def _render_cases(doc: DocxDocument, cases: list[CaseStudy]) -> None:
     """The partner-company cases of the programme."""
     _page_break(doc)
-    _heading(doc, "Приложение № 1. Перечень кейсов", level=1)
+    _heading(doc, "Приложение № 1. Перечень кейсов", level=1, numbered=False)
     headers = ("№", "Компания-владелец", "Кейс", "Бизнес-задача", "Данные", "Ответственный")
     rows: list[list[str]] = [
         [
@@ -695,7 +897,12 @@ def _render_cases(doc: DocxDocument, cases: list[CaseStudy]) -> None:
         ]
         for index, case in enumerate(cases, start=1)
     ]
-    _add_table(doc, headers, rows)
+    _add_table(
+        doc,
+        headers,
+        rows,
+        widths=(1.0, 3.0, 3.5, 4.0, 3.0, 2.5),
+    )
 
 
 def _render_signatures(doc: DocxDocument, approval: ApprovalInfo) -> None:
@@ -733,6 +940,24 @@ def _render_report(doc: DocxDocument, report: ProgramReport) -> None:
 
 
 # --------------------------------------------------------------------------- pending
+def _materials_cover_a_module(document: ProgramDocument) -> bool:
+    """Whether every lecture of at least one module has its plan and its deck.
+
+    The report's materials check uses the same rule. A module with one artefact
+    missing is not covered, so the document must not call it complete either.
+    """
+    materials = document.materials
+    if materials is None:
+        return False
+    plans = {plan.topic_id for plan in materials.lecture_plans}
+    decks = {deck.topic_id for deck in materials.slide_decks}
+    for module in document.draft.curriculum.modules:
+        lectures = [topic.id for topic in module.topics if topic.hours.lecture > 0]
+        if lectures and all(topic_id in plans and topic_id in decks for topic_id in lectures):
+            return True
+    return False
+
+
 def _render_pending_sections(doc: DocxDocument, document: ProgramDocument) -> None:
     """The sections the document does not carry yet.
 
@@ -742,13 +967,16 @@ def _render_pending_sections(doc: DocxDocument, document: ProgramDocument) -> No
     """
     materials = document.materials
     missing: list[str] = []
+    has_lectures = any(
+        topic.hours.lecture > 0 for module in document.draft.curriculum.modules for topic in module.topics
+    )
     if document.assessment is None:
         missing.append("Оценочные материалы")
-    if materials is None or not materials.lecture_plans:
+    if has_lectures and not _materials_cover_a_module(document):
         missing.append("Методические материалы")
-    if materials is None or not materials.conditions.equipment:
+    if materials is None or not (materials.conditions.equipment or materials.conditions.teaching_materials):
         missing.append("Условия реализации программы")
-    if materials is None or not materials.staffing:
+    if materials is None or not (materials.conditions.staffing_requirements or materials.staffing):
         missing.append("Кадровое обеспечение")
     if materials is None or not materials.cases:
         missing.append("Приложение № 1. Перечень кейсов")

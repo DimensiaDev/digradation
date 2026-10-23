@@ -329,6 +329,55 @@ async def test_a_response_without_an_assistant_message_still_produces_a_tool_rou
     assert tool_message.role == "tool"
 
 
+async def test_a_nudge_is_sent_at_most_once() -> None:
+    """A prose question that the caller rejects gets one second chance, not a loop."""
+    generate = Script(answer("Какой объём?"), answer("Хорошо, жду ответа."), answer("третий ответ"))
+    seen: list[str] = []
+
+    def nudge(text: str) -> str | None:
+        seen.append(text)
+        return "Вызови begin_program с вопросами."
+
+    text = await run_tool_loop([], generate=generate, call_tool=Dispatcher(), nudge=nudge)
+
+    assert text == "Хорошо, жду ответа."
+    assert seen == ["Какой объём?"]
+    assert len(generate.requests) == 2
+    assert generate.requests[1][-1].role == "user"
+    assert generate.requests[1][-1].content[0].text == "Вызови begin_program с вопросами."
+
+
+async def test_a_nudge_that_declines_ends_the_turn() -> None:
+    """The caller decides: a note of ``None`` leaves the answer as the turn's result."""
+    generate = Script(answer("Просто ответ без вопроса"))
+
+    text = await run_tool_loop(
+        [],
+        generate=generate,
+        call_tool=Dispatcher(),
+        nudge=lambda _text: None,
+    )
+
+    assert text == "Просто ответ без вопроса"
+    assert len(generate.requests) == 1
+
+
+async def test_a_nudge_does_not_fire_after_the_round_bound() -> None:
+    turns = [answer(calls=(call(call_id=f"call-{number}"),)) for number in range(MAX_TOOL_ROUNDS)]
+    turns.append(answer("Какой объём?"))
+    generate = Script(*turns)
+
+    text = await run_tool_loop(
+        [],
+        generate=generate,
+        call_tool=Dispatcher(),
+        nudge=lambda _text: "ещё раз",
+    )
+
+    assert text == "Какой объём?"
+    assert len(generate.requests) == MAX_TOOL_ROUNDS + 1
+
+
 async def test_a_first_response_that_failed_its_call_is_refused() -> None:
     with pytest.raises(ToolCallFailed):
         await run_tool_loop(

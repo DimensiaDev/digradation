@@ -130,11 +130,16 @@ describe('ChatPage', () => {
       state({
         busy: false,
         running: false,
-        exports: { document_attachment_id: 12, slides_attachment_id: 13 }
+        exports: {
+          document_attachment_id: 12,
+          slides_attachment_id: 13,
+          json_attachment_id: 14,
+          lms_attachment_id: 15
+        }
       })
     );
 
-    expect(chat.exportAttachmentIds()).toEqual([12, 13]);
+    expect(chat.exportAttachmentIds()).toEqual([12, 13, 14, 15]);
   });
 
   it('polls the programme while it is busy and stops once it settles', async () => {

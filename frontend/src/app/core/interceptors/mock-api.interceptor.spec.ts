@@ -296,7 +296,9 @@ describe('mockApiInterceptor', () => {
     expect(state.report?.checks.length).toBe(4);
     expect(state.exports).toEqual({
       document_attachment_id: 4001,
-      slides_attachment_id: 4002
+      slides_attachment_id: 4002,
+      json_attachment_id: 4003,
+      lms_attachment_id: 4004
     });
   });
 
@@ -312,6 +314,16 @@ describe('mockApiInterceptor', () => {
       http.get<ChatAttachmentUrl>(`${API}/chats/mock-programme-4/attachments/4002`)
     );
     expect(slides.filename).toBe('programme-slides.pptx');
+
+    const json = await firstValueFrom(
+      http.get<ChatAttachmentUrl>(`${API}/chats/mock-programme-4/attachments/4003`)
+    );
+    expect(json.filename).toBe('programme.json');
+
+    const lms = await firstValueFrom(
+      http.get<ChatAttachmentUrl>(`${API}/chats/mock-programme-4/attachments/4004`)
+    );
+    expect(lms.filename).toBe('programme-lms.xml');
   });
 
   it('clears the open questions of a waiting programme after answers', async () => {

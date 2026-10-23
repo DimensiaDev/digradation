@@ -27,6 +27,7 @@ from app.agentic.loop import MAX_TOOL_ROUNDS
 from app.agentic.models import ProgramStatus, Stage, StageStatus
 from app.agentic.state import (
     CONTENT_ORDER,
+    MAX_STAGE_ATTEMPTS,
     SKELETON_ORDER,
     STAGE_ORDER,
     AssessmentBlock,
@@ -81,6 +82,11 @@ COMPETENCES_BLOCK: dict[str, Any] = {
         }
     ],
 }
+
+
+def materials(raw: dict[str, Any]) -> dict[str, Any]:
+    """The example's materials with the conditions and staff stored beside them."""
+    return {**raw["materials"], "conditions": raw["conditions"], "staffing": raw["staffing"]}
 
 
 def answer(
@@ -182,7 +188,7 @@ def complete_state(session_id: uuid.UUID) -> ProgramState:
         if stage is Stage.ASSESSMENT:
             state = state.with_assessment(AssessmentBlock(assessment=raw["assessment"]))
         else:
-            state = state.with_materials(MaterialsBlock(materials=raw["materials"]))
+            state = state.with_materials(MaterialsBlock(materials=materials(raw)))
         state = state.completed(stage)
     return state
 
@@ -190,6 +196,17 @@ def complete_state(session_id: uuid.UUID) -> ProgramState:
 def aged(state: ProgramState, delta: timedelta = timedelta(hours=1)) -> ProgramState:
     """The same state, untouched for ``delta``."""
     return state.model_copy(update={"updated_at": datetime.now(UTC) - delta})
+
+
+def at_last_attempt(state: ProgramState, stage: Stage) -> ProgramState:
+    """The same state with ``stage`` at its last allowed attempt.
+
+    ``new_state`` enqueues the first stage, so the count is one short of the
+    budget and the loop must not repeat an enqueue the state already holds.
+    """
+    for _ in range(MAX_STAGE_ATTEMPTS - 1):
+        state = state.enqueued(stage)
+    return state
 
 
 @pytest.fixture()
@@ -373,7 +390,7 @@ async def test_the_last_attempt_ends_the_run_and_tells_the_methodist(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:
     state = await store.save(new_state(chat, requested_hours=None, requirements=None))
-    spent = await store.save(state.enqueued(Stage.COMPETENCES).enqueued(Stage.COMPETENCES))
+    spent = await store.save(at_last_attempt(state, Stage.COMPETENCES))
     provider.answers.append(answer(""))
 
     await run_task(program.program_stage, chat, Stage.COMPETENCES.value, spent.run_id)
@@ -438,7 +455,7 @@ async def test_the_approval_releases_the_content_and_the_programme_ends_complete
         [
             save_turn({"assessment": raw["assessment"]}),
             answer("Оценочные средства сохранены."),
-            save_turn({"materials": raw["materials"]}),
+            save_turn({"materials": materials(raw)}),
             answer("Материалы сохранены."),
         ]
     )
@@ -518,7 +535,7 @@ async def test_a_revision_of_the_skeleton_leads_to_the_content_being_written(
         [
             save_turn({"assessment": raw["assessment"]}),
             answer("Оценочные средства сохранены."),
-            save_turn({"materials": raw["materials"]}),
+            save_turn({"materials": materials(raw)}),
             answer("Материалы сохранены."),
         ]
     )
@@ -770,7 +787,7 @@ async def test_recovery_gives_up_when_the_attempts_are_spent(
     chat: uuid.UUID, task_db: None, redis_client: Redis, enqueued
 ) -> None:
     state = await store.save(new_state(chat, requested_hours=None, requirements=None))
-    spent = state.enqueued(Stage.COMPETENCES).enqueued(Stage.COMPETENCES)
+    spent = await store.save(at_last_attempt(state, Stage.COMPETENCES))
     await store.save(aged(spent.started(Stage.COMPETENCES)))
 
     await run_task(program.recover_stalled_programs)
@@ -1173,7 +1190,7 @@ async def test_a_failure_replaces_the_result_the_intake_left(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, provider: FakeProvider, enqueued
 ) -> None:
     state = await store.save(new_state(chat, requested_hours=None, requirements=None))
-    spent = await store.save(state.enqueued(Stage.COMPETENCES).enqueued(Stage.COMPETENCES))
+    spent = await store.save(at_last_attempt(state, Stage.COMPETENCES))
     async with async_sessionmaker(bind=engine, expire_on_commit=False)() as db:
         db.add(
             GenerationResult(
@@ -1218,11 +1235,12 @@ def test_a_long_programme_title_is_cut_to_the_column_length() -> None:
 async def test_the_offline_mock_carries_a_run_through_every_stage(
     chat: uuid.UUID, engine: AsyncEngine, task_db: None, redis_client: Redis, mock_mode, enqueued
 ) -> None:
-    """The whole cycle on the mock provider: four stages, then a rendered draft.
+    """The whole cycle on the mock provider, through both halves.
 
     This is what ``MOCK_PROVIDER_MODE=stage`` exists for, and what the Docker and
-    e2e stacks rely on. It is also the only test that proves the mock's fabricated
-    blocks pass the cross-block checks of :meth:`ProgramState.to_draft`.
+    e2e stacks rely on. It proves the mock's fabricated blocks pass the
+    cross-block checks of :meth:`ProgramState.to_draft` and, after the approval,
+    the materials checks as well.
     """
     mock_mode("stage")
     await store.save(new_state(chat, requested_hours=40, requirements="Анализ данных"))
@@ -1247,6 +1265,22 @@ async def test_the_offline_mock_carries_a_run_through_every_stage(
     assert result is not None
     assert "Программа (mock)" in result.content
     assert "подтверждаю" in result.content
+
+    # The methodist approves the rendered skeleton; the content stages run on
+    # the same offline blocks and must not be refused for missing conditions.
+    await store.save(final.approved())
+    for stage in CONTENT_ORDER:
+        current = await store.load(chat)
+        assert current is not None
+        await run_task(program.program_stage, chat, stage.value, current.run_id)
+
+    complete = await store.load(chat)
+    assert complete is not None
+    assert complete.status is ProgramStatus.APPROVED
+    assert complete.assessment is not None
+    assert complete.materials is not None
+    assert complete.materials.conditions.equipment
+    assert complete.materials.staffing
 
 
 async def test_finalising_replaces_the_result_the_intake_left(
@@ -1282,7 +1316,7 @@ async def test_a_replayed_stage_does_not_spend_an_attempt_on_its_successor(
 ) -> None:
     """The successor was enqueued before the worker died, so the replay must not repeat it.
 
-    Enqueueing it again would burn one of the successor's three attempts on a
+    Enqueueing it again would burn one of the successor's attempts on a
     duplicate the queue never lost, and the run would fail a stage it never got
     to try properly.
     """

@@ -234,6 +234,8 @@ async def main():
                 for name, state_field in (
                     ("programme.docx", "document_attachment_id"),
                     ("programme-slides.pptx", "slides_attachment_id"),
+                    ("programme.json", "json_attachment_id"),
+                    ("programme-lms.xml", "lms_attachment_id"),
                 ):
                     s3_key = get_s3_attachment_key(session_id, name)
                     attachment = Attachment(

@@ -40,11 +40,14 @@ def programme_blocks(state: ProgramState) -> ProgramBlocksSchema:
     """The document as it stands: the blocks that are already saved."""
     return ProgramBlocksSchema(
         kind=state.kind,
+        mode=state.mode,
         title=state.title,
         competencies=state.competencies,
         curriculum=state.curriculum,
         sources=state.sources,
         summary=state.summary,
+        assessment=state.assessment,
+        materials=state.materials,
     )
 
 
@@ -80,11 +83,14 @@ def programme_state(state: ProgramState | None, *, running: bool = False) -> Pro
         )
     return ProgramStateSchema(
         status=programme_status(state),
+        mode=state.mode,
         current_stage=state.current_stage,
         stages=state.stages,
         running=running,
         busy=state.status is ProgramStatus.GENERATING,
         error=state.error,
+        expectations=state.expectations,
+        sample_issues=state.sample_issues,
         updated_at=state.updated_at,
         version=state.version,
         questions=programme_questions(state),

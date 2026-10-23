@@ -774,6 +774,58 @@ async def test_run_chat_turn_starts_a_programme_and_enqueues_the_first_stage(
     assert stages.await_args.args[1] == Stage.COMPETENCES.value
 
 
+async def test_a_question_in_prose_is_sent_back_through_the_tool(task_db, rows, redis_keys, kiq_spy, monkeypatch):
+    """The client answers questions from the run, so a prose question starts one."""
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Сделай программу по аналитике")
+    arguments = json.dumps(
+        {"requirements": "Сделай программу по аналитике", "questions": ["Какой объём в часах?"]},
+        ensure_ascii=False,
+    )
+    scripted = ScriptedProvider(
+        [
+            answer("Подскажите, какой объём в часах?"),
+            answer(calls=(ToolCall(id="call-1", function=FunctionCall(name="begin_program", arguments=arguments)),)),
+            answer("Программа начнётся после ваших ответов."),
+        ]
+    )
+    monkeypatch.setattr(api, "provider", scripted)
+    stages = AsyncMock(name="program_stage.kiq")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(api.program_stage, "kiq", stages)
+        await run_task(api.run_chat_turn, session.session_id)
+
+    async with rows.session() as db:
+        stored = await db.scalar(select(ChatSession).where(ChatSession.session_id == session.session_id))
+    state = store.parse(stored.program_state)
+    assert state is not None
+    assert state.awaiting_answers
+    assert [question.text for question in state.pending_questions] == ["Какой объём в часах?"]
+    stages.assert_not_awaited()
+    kiq_spy.assert_awaited_once()
+    assert kiq_spy.await_args.args[2] == "Программа начнётся после ваших ответов."
+
+
+async def test_a_turn_that_already_has_a_run_is_not_nudged(task_db, rows, redis_keys, kiq_spy, monkeypatch):
+    """Once a run exists, a question mark in the answer is the answer itself."""
+    user = await rows.user()
+    session = await rows.chat_session(user)
+    await rows.message(session.session_id, "Что ещё нужно?")
+    state = new_state(session.session_id, requested_hours=72, requirements="Программа по аналитике")
+    for stage in (Stage.COMPETENCES, Stage.HOURS, Stage.SOURCES, Stage.SUMMARY):
+        state = state.completed(stage)
+    await rows.program_state(session.session_id, state.mark_finalized())
+    reply = "Программа готова. Подтверждаете?"
+    scripted = ScriptedProvider([answer(reply)])
+    monkeypatch.setattr(api, "provider", scripted)
+
+    await run_task(api.run_chat_turn, session.session_id)
+
+    kiq_spy.assert_awaited_once()
+    assert kiq_spy.await_args.args[2] == reply
+
+
 async def test_run_chat_turn_releases_the_content_after_the_approval(task_db, rows, redis_keys, kiq_spy, mock_mode):
     """The approval of the skeleton is what puts the first content stage on the queue."""
     mock_mode("approve")

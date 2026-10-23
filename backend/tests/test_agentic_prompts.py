@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 
-from app.agentic.models import ProgramKind, ProgramSummary, Source, SourceKind, Stage
+from app.agentic.models import ProgramKind, ProgramMode, ProgramSummary, Source, SourceKind, Stage
 from app.agentic.prompts import STAGE_TASKS, saved_blocks, stage_brief, stage_messages
 from app.agentic.state import CompetencesBlock, ProgramState, SourcesBlock, SummaryBlock, new_state
 
@@ -55,6 +55,29 @@ def test_the_brief_carries_the_blocks_the_earlier_stages_committed() -> None:
     assert "Анализ данных" in brief
     assert "Способен анализировать данные" in brief
     assert "ro-k-01" in brief
+
+
+def test_the_brief_explains_an_actualization_or_an_adaptation() -> None:
+    actualized = run_at(Stage.HOURS).model_copy(update={"mode": ProgramMode.ACTUALIZATION})
+    adapted = run_at(Stage.HOURS).model_copy(update={"mode": ProgramMode.ADAPTATION})
+
+    assert "актуализация" in stage_brief(actualized).lower()
+    assert "адаптация" in stage_brief(adapted).lower()
+    assert "режим разработки" in saved_blocks(actualized)
+
+
+def test_the_brief_carries_the_expectations_and_the_sample_issues() -> None:
+    state = run_at(Stage.HOURS).model_copy(
+        update={
+            "expectations": "после курса можно пойти работать",
+            "sample_issues": ["сумма часов не сходится"],
+        }
+    )
+
+    brief = stage_brief(state)
+
+    assert "можно пойти работать" in brief
+    assert "сумма часов не сходится" in brief
 
 
 def test_the_brief_carries_the_methodists_change() -> None:

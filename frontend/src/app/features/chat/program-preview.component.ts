@@ -53,6 +53,7 @@ import {
   programGoal,
   programHours,
   programHoursLabel,
+  programModeLabel,
   programModules,
   programReport,
   programSources,
@@ -120,6 +121,7 @@ export class ProgramPreviewComponent {
   readonly hours = computed(() => programHours(this.state()?.draft.curriculum));
   readonly hoursLabel = computed(() => programHoursLabel(this.hours()));
   readonly formLabel = computed(() => programFormLabel(this.state()));
+  readonly modeLabel = computed(() => programModeLabel(this.state()));
   readonly goal = computed(() => programGoal(this.state()));
   readonly competencies = computed(() => programCompetencies(this.state()));
   readonly modules = computed(() => programModules(this.state()?.draft.curriculum));
@@ -127,6 +129,8 @@ export class ProgramPreviewComponent {
   readonly report = computed(() => programReport(this.state()));
   readonly documentExportId = computed(() => this.state()?.exports?.document_attachment_id ?? null);
   readonly slidesExportId = computed(() => this.state()?.exports?.slides_attachment_id ?? null);
+  readonly jsonExportId = computed(() => this.state()?.exports?.json_attachment_id ?? null);
+  readonly lmsExportId = computed(() => this.state()?.exports?.lms_attachment_id ?? null);
   readonly hasContent = computed(
     () =>
       Boolean(this.title()) ||
@@ -137,13 +141,15 @@ export class ProgramPreviewComponent {
       Boolean(this.report()) ||
       this.documentExportId() !== null ||
       this.slidesExportId() !== null ||
+      this.jsonExportId() !== null ||
+      this.lmsExportId() !== null ||
       Boolean(this.state()?.draft.summary)
   );
   readonly justUpdated = signal(false);
   readonly focused = signal<ProgramPreviewSection | null>(null);
   readonly updated = signal<ReadonlySet<ProgramHighlightSection>>(new Set());
   readonly expandedSection = signal<ProgramAccordionSection | null>('summary');
-  readonly downloading = signal<'document' | 'slides' | null>(null);
+  readonly downloading = signal<'document' | 'slides' | 'json' | 'lms' | null>(null);
 
   private readonly scroll = viewChild<ElementRef<HTMLElement>>('scroll');
   private readonly attachmentDownload = inject(AttachmentDownloadService);
@@ -235,8 +241,13 @@ export class ProgramPreviewComponent {
     return programTopicCountLabel(count);
   }
 
-  downloadExport(kind: 'document' | 'slides'): void {
-    const attachmentId = kind === 'document' ? this.documentExportId() : this.slidesExportId();
+  downloadExport(kind: 'document' | 'slides' | 'json' | 'lms'): void {
+    const attachmentId = {
+      document: this.documentExportId(),
+      slides: this.slidesExportId(),
+      json: this.jsonExportId(),
+      lms: this.lmsExportId()
+    }[kind];
     if (attachmentId === null || this.downloading() !== null) {
       return;
     }

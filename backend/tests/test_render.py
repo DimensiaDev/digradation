@@ -1,6 +1,7 @@
 """Tests for the DOCX renderer."""
 
 import io
+import time
 
 from docx import Document
 
@@ -13,6 +14,7 @@ from app.agentic.models import (
     ProgramDraft,
     ProgramFormat,
     ProgramKind,
+    ProgramMode,
     ProgramSummary,
     Schedule,
     Source,
@@ -93,6 +95,49 @@ def test_render_professional_development_kind():
     draft = _minimal_draft(kind=ProgramKind.PROFESSIONAL_DEVELOPMENT)
     text = _docx_text(render_program_draft(draft))
     assert "ПОВЫШЕНИЯ КВАЛИФИКАЦИИ" in text
+
+
+def test_render_names_an_actualization_or_an_adaptation() -> None:
+    actualized = _docx_text(render_program_draft(_minimal_draft(mode=ProgramMode.ACTUALIZATION)))
+    adapted = _docx_text(render_program_draft(_minimal_draft(mode=ProgramMode.ADAPTATION)))
+
+    assert "актуализация действующей программы" in actualized
+    assert "адаптация действующей программы" in adapted
+
+
+def test_a_five_hundred_hour_programme_renders_without_losing_modules() -> None:
+    """The large end of the template range stays a document, not a timeout.
+
+    The model work dominates a real run, but the local render must not grow
+    quadratically with the number of modules. The bound is deliberately loose:
+    it catches an accidental O(n^2) loop, not a slow CI machine.
+    """
+    modules = [
+        Module(
+            id=f"m-{index}",
+            title=f"Модуль {index}",
+            topics=[
+                Topic(
+                    id=f"t-{index}.1",
+                    title=f"Тема {index}",
+                    hours=_hours(self_study=20),
+                    outcome_ids=["ro-k-1"],
+                )
+            ],
+        )
+        for index in range(1, 26)
+    ]
+    draft = _minimal_draft(
+        curriculum=Curriculum(modules=modules, schedule=Schedule(days=125, hours_per_day=4)),
+    )
+
+    started = time.perf_counter()
+    data = render_program_draft(draft)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 10
+    text = _docx_text(data)
+    assert all(f"Модуль {index}" in text for index in range(1, 26))
 
 
 def test_render_contains_summary():
@@ -336,7 +381,36 @@ def test_render_has_pending_sections_note():
     text = _docx_text(render_program_draft(_minimal_draft()))
     assert "следующем этапе генерации" in text
     assert "Оценочные материалы" in text
+    assert "Методические материалы" in text
     assert "Кадровое обеспечение" in text
+
+
+def test_a_practice_only_programme_has_no_pending_lecture_materials():
+    """An internship with no lectures does not owe a lecture plan."""
+    draft = _minimal_draft(
+        curriculum=Curriculum(
+            modules=[
+                Module(
+                    id="m-1",
+                    title="Практика",
+                    topics=[
+                        Topic(
+                            id="t-1.1",
+                            title="Стажировка",
+                            hours=_hours(self_study=16),
+                            outcome_ids=["ro-k-1"],
+                        )
+                    ],
+                )
+            ],
+            schedule=Schedule(days=4, hours_per_day=4),
+        )
+    )
+
+    text = _docx_text(render_program_draft(draft))
+
+    assert "Методические материалы" not in text
+    assert "Оценочные материалы" in text
 
 
 # --------------------------------------------------------------------------- overrides

@@ -14,9 +14,20 @@ import uuid
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from app.agentic import sources, tools, websearch
-from app.agentic.models import ProgramFormat, ProgramKind, ProgramStatus, Source, SourceKind, Stage, StageStatus
+from app.agentic.models import (
+    Hours,
+    ProgramFormat,
+    ProgramKind,
+    ProgramStatus,
+    Source,
+    SourceKind,
+    Stage,
+    StageStatus,
+    Topic,
+)
 from app.agentic.state import ClarificationQuestion, ProgramState, new_state
 from app.agentic.tools import (
     ApproveProgramDraftResult,
@@ -42,7 +53,7 @@ def context() -> ToolContext:
     session_id = uuid.uuid4()
     return ToolContext(
         session_id=session_id,
-        state=new_state(session_id, requested_hours=2, requirements="Курс для аналитиков"),
+        state=new_state(session_id, requested_hours=16, requirements="Курс для аналитиков"),
     )
 
 
@@ -77,18 +88,18 @@ def hours_block(**overrides: Any) -> dict:
                 {
                     "id": "m-01",
                     "title": "Модуль",
-                    "hours": 2,
+                    "hours": 16,
                     "topics": [
                         {
                             "id": "t-01.1",
                             "title": "Тема",
-                            "hours": {"lecture": 2},
+                            "hours": {"lecture": 16},
                             "outcome_ids": ["ro-k-01"],
                         }
                     ],
                 }
             ],
-            "schedule": {"days": 1, "hours_per_day": 2},
+            "schedule": {"days": 2, "hours_per_day": 8},
         }
     }
     block.update(overrides)
@@ -166,6 +177,18 @@ def materials_block(**overrides: Any) -> dict:
                     "topic_id": "t-01.1",
                     "title": "Основное содержание программы",
                     "slides": [{"title": "О чём лекция", "bullets": ["Область применения"]}],
+                }
+            ],
+            "conditions": {
+                "equipment": ["Ноутбук", "Проектор"],
+                "teaching_materials": ["Раздаточные материалы"],
+                "staffing_requirements": ["Высшее образование", "Опыт преподавания"],
+            },
+            "staffing": [
+                {
+                    "id": "ts-01",
+                    "position": "Преподаватель",
+                    "module_id": "m-01",
                 }
             ],
         }
@@ -473,7 +496,7 @@ async def test_a_declared_module_volume_is_replaced_by_its_topics(context: ToolC
 
     assert result.ok is True
     assert context.state is not None and context.state.curriculum is not None
-    assert context.state.curriculum.modules[0].hours == 2
+    assert context.state.curriculum.modules[0].hours == 16
 
 
 async def test_the_arguments_follow_the_stage_the_run_is_on(context: ToolContext) -> None:
@@ -622,6 +645,71 @@ async def test_the_materials_stage_saves_the_lecture_plans(context: ToolContext)
     assert context.state is not None
     assert context.state.materials is not None
     assert context.state.materials.lecture_plans[0].topic_id == "t-01.1"
+
+
+@pytest.mark.parametrize("hours", [8, 501])
+def test_the_intake_refuses_a_volume_outside_the_templates(hours: float) -> None:
+    with pytest.raises(ValidationError):
+        BeginProgramArguments(requirements="Программа", requested_hours=hours)
+
+
+async def test_materials_require_conditions_and_staffing(context: ToolContext) -> None:
+    """A programme has to say where it runs and who runs it."""
+    await with_a_plan(context)
+    context.state = at_stage(context.state, Stage.MATERIALS)
+    block = materials_block()
+    del block["materials"]["conditions"]
+    del block["materials"]["staffing"]
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is False
+    assert any("условия реализации" in line for line in (result.details or []))
+    assert any("кадровое обеспечение" in line for line in (result.details or []))
+
+
+async def test_an_internship_without_lectures_needs_no_plans_or_decks(context: ToolContext) -> None:
+    """An internship's teaching is supervised practice, not a lecture course."""
+    await execute_tool(context, save(competences_block(kind="professional_development")))
+    context.state = at_stage(context.state, Stage.HOURS)
+    practice_only = {
+        "curriculum": {
+            "modules": [
+                {
+                    "id": "m-01",
+                    "title": "Практика",
+                    "hours": 16,
+                    "topics": [
+                        {
+                            "id": "t-01.1",
+                            "title": "Стажировка",
+                            "hours": {"self_study": 16},
+                            "outcome_ids": ["ro-k-01"],
+                        }
+                    ],
+                }
+            ],
+            "schedule": {"days": 2, "hours_per_day": 8},
+        }
+    }
+    await execute_tool(context, save(practice_only))
+    context.state = at_stage(context.state, Stage.MATERIALS)
+    block = {
+        "materials": {
+            "conditions": {
+                "equipment": ["Рабочее место"],
+                "staffing_requirements": ["Опыт в профессии"],
+            },
+            "staffing": [{"id": "ts-01", "position": "Руководитель стажировки"}],
+        }
+    }
+
+    result = await execute_tool(context, save(block))
+
+    assert result.ok is True
+    assert context.state is not None
+    assert context.state.materials is not None
+    assert context.state.materials.lecture_plans == []
 
 
 async def test_a_plan_pointing_at_an_unknown_topic_is_refused(context: ToolContext) -> None:
@@ -880,6 +968,24 @@ async def test_there_is_nothing_to_revise_without_a_programme() -> None:
 
     assert result.ok is False
     assert "нет программы" in (result.error or "")
+
+
+async def test_materials_that_leave_a_lecture_topic_uncovered_are_refused(context: ToolContext) -> None:
+    """One plan and one deck somewhere do not cover a module with two lectures."""
+    await with_a_plan(context)
+    context.state = at_stage(context.state, Stage.MATERIALS)
+    assert context.state is not None and context.state.curriculum is not None
+    module = context.state.curriculum.modules[0]
+    extra = Topic(id="t-01.2", title="Вторая тема", hours=Hours(lecture=2))
+    patched = module.model_copy(update={"topics": [*module.topics, extra]})
+    context.state = context.state.model_copy(
+        update={"curriculum": context.state.curriculum.model_copy(update={"modules": [patched]})}
+    )
+
+    result = await execute_tool(context, save(materials_block()))
+
+    assert result.ok is False
+    assert "ни один модуль не покрыт" in " ".join(result.details or [])
 
 
 async def test_materials_without_a_plan_or_a_deck_are_refused(context: ToolContext) -> None:

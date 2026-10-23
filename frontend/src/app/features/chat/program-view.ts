@@ -66,6 +66,7 @@ export interface ProgramReportView {
   readonly ok: boolean;
   readonly passed: number;
   readonly checks: readonly ProgramCheckView[];
+  readonly notes: readonly string[];
 }
 
 export const PROGRAM_SOURCE_KIND_LABELS: Record<ProgramSourceKind, string> = {
@@ -80,7 +81,9 @@ const PROGRAM_CHECK_LABELS: Record<string, string> = {
   часы: 'Часы',
   покрытие: 'Покрытие результатов',
   источники: 'Источники',
-  разделы: 'Разделы программы'
+  разделы: 'Разделы программы',
+  требования: 'Требования методиста',
+  материалы: 'Материалы'
 };
 
 const PROGRAM_DETAIL_LABELS: Record<string, string> = {
@@ -88,6 +91,12 @@ const PROGRAM_DETAIL_LABELS: Record<string, string> = {
   всего: 'Всего',
   темы: 'Темы',
   'итоговая аттестация': 'Итоговая аттестация',
+  'вопросов в тесте': 'Вопросов в тесте',
+  'заявлено вопросов': 'Заявлено вопросов',
+  'доля практики': 'Доля практики',
+  'заявлено минимум': 'Заявлено минимум',
+  'модулей покрыто': 'Модулей покрыто',
+  'модулей с лекциями': 'Модулей с лекциями',
   аудиторных: 'Аудиторных',
   'самостоятельной работы': 'Самостоятельная работа',
   'результатов обучения': 'Результатов обучения',
@@ -101,7 +110,10 @@ const PROGRAM_DETAIL_LABELS: Record<string, string> = {
   паспорт: 'Паспорт',
   источники: 'Источники',
   'оценочные средства': 'Оценочные средства',
-  материалы: 'Материалы'
+  материалы: 'Материалы',
+  'условия реализации': 'Условия реализации',
+  'кадровое обеспечение': 'Кадровое обеспечение',
+  'профессиональный стандарт': 'Профессиональный стандарт'
 };
 
 export const PROGRAM_WIZARD_STEPS: readonly ProgramWizardStepView[] = [
@@ -251,7 +263,11 @@ const PROGRAM_BLOCK_SIGNATURES: Record<
   (state: ProgramStateApi | null) => string
 > = {
   meta: (state) =>
-    JSON.stringify([programHours(state?.draft.curriculum), state?.draft.summary?.form ?? null]),
+    JSON.stringify([
+      programHours(state?.draft.curriculum),
+      state?.draft.summary?.form ?? null,
+      state?.mode ?? state?.draft.mode ?? 'new'
+    ]),
   summary: (state) =>
     JSON.stringify([
       state?.draft.summary?.goal ?? null,
@@ -380,6 +396,17 @@ export function programModules(
   }));
 }
 
+export function programModeLabel(state: ProgramStateApi | null): string | null {
+  const mode = state?.mode ?? state?.draft.mode ?? 'new';
+  if (mode === 'actualization') {
+    return 'Актуализация';
+  }
+  if (mode === 'adaptation') {
+    return 'Адаптация';
+  }
+  return null;
+}
+
 export function programFormLabel(state: ProgramStateApi | null): string {
   return state?.draft.summary?.form?.trim() || '—';
 }
@@ -424,7 +451,7 @@ export function programReport(state: ProgramStateApi | null): ProgramReportView 
     problems: [...check.problems],
     details: Object.entries(check.details)
       .map(([key, value]) => {
-        const formatted = formatReportDetail(check.name, value);
+        const formatted = formatReportDetail(check.name, key, value);
         return formatted === null
           ? null
           : { label: PROGRAM_DETAIL_LABELS[key] ?? capitalize(key), value: formatted };
@@ -434,18 +461,23 @@ export function programReport(state: ProgramStateApi | null): ProgramReportView 
   return {
     ok: report.ok,
     passed: checks.filter((check) => check.ok).length,
-    checks
+    checks,
+    notes: [...(report.notes ?? [])]
   };
 }
 
-function formatReportDetail(checkName: string, value: unknown): string | null {
+function formatReportDetail(checkName: string, key: string, value: unknown): string | null {
   if (typeof value === 'boolean') {
     return value ? 'есть' : 'нет';
   }
   if (typeof value === 'number') {
-    return checkName === 'часы'
-      ? formatProgramHours(value)
-      : value.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+    if (checkName === 'часы') {
+      return formatProgramHours(value);
+    }
+    if (checkName === 'требования' && (key === 'доля практики' || key === 'заявлено минимум')) {
+      return `${Math.round(value * 100)}%`;
+    }
+    return value.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
   }
   if (typeof value === 'string') {
     return value.trim() || null;

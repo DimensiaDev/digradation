@@ -8,9 +8,12 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.agentic.models import (
+    AssessmentPlan,
     Competence,
     Curriculum,
+    Materials,
     ProgramKind,
+    ProgramMode,
     ProgramSummary,
     Source,
     Stage,
@@ -136,11 +139,14 @@ class ProgramBlocksSchema(BaseModel):
     """
 
     kind: ProgramKind | None = Field(default=None, description="Тип программы, если он уже определён")
+    mode: ProgramMode | None = Field(default=None, description="Режим разработки программы")
     title: str | None = Field(default=None, description="Название программы, если оно уже определено")
     competencies: list[Competence] = Field(default_factory=list, description="Компетенции с результатами освоения")
     curriculum: Curriculum | None = Field(default=None, description="Учебный план, если он уже сохранён")
     sources: list[Source] = Field(default_factory=list, description="Источники, уже сохранённые в программе")
     summary: ProgramSummary | None = Field(default=None, description="Паспорт программы, если он уже сохранён")
+    assessment: AssessmentPlan | None = Field(default=None, description="Оценочные средства, если они уже сохранены")
+    materials: Materials | None = Field(default=None, description="Материалы, условия и кадры, если они уже сохранены")
 
 
 class ProgramCheckSchema(BaseModel):
@@ -162,6 +168,7 @@ class ProgramExportsSchema(BaseModel):
     document_attachment_id: int | None = Field(default=None, description="Вложение с документом программы")
     slides_attachment_id: int | None = Field(default=None, description="Вложение со слайдами программы")
     json_attachment_id: int | None = Field(default=None, description="Вложение с данными программы в JSON")
+    lms_attachment_id: int | None = Field(default=None, description="Вложение с тестом для LMS в Moodle XML")
 
 
 class ProgramRevisionSchema(BaseModel):
@@ -229,6 +236,7 @@ class ProgramStateSchema(BaseModel):
     """Where the programme of a chat stands."""
 
     status: ProgramViewStatus = Field(description="Состояние программы")
+    mode: ProgramMode = Field(default=ProgramMode.NEW, description="Режим разработки программы")
     current_stage: Stage | None = Field(default=None, description="Этап, над которым идёт работа")
     stages: StageStatuses = Field(description="Состояние каждого этапа")
     running: bool = Field(
@@ -245,6 +253,12 @@ class ProgramStateSchema(BaseModel):
         )
     )
     error: str | None = Field(default=None, description="Причина, по которой программа не собралась")
+    expectations: str | None = Field(
+        default=None, description="Что заказчик просил сверх того, что даёт заявленный объём"
+    )
+    sample_issues: list[str] = Field(
+        default_factory=list, description="Расхождения, найденные в приложенном образце программы"
+    )
     updated_at: datetime | None = Field(default=None, description="Когда состояние менялось в последний раз")
     version: int = Field(description="Счётчик изменений состояния")
     questions: list[ClarificationQuestionSchema] = Field(
@@ -252,7 +266,9 @@ class ProgramStateSchema(BaseModel):
     )
     draft: ProgramBlocksSchema | None = Field(default=None, description="Документ в том виде, в каком он уже есть")
     report: ProgramReportSchema | None = Field(default=None, description="Отчёт автопроверки программы")
-    exports: ProgramExportsSchema | None = Field(default=None, description="Выгрузки программы: документ и слайды")
+    exports: ProgramExportsSchema | None = Field(
+        default=None, description="Выгрузки программы: документ, слайды, JSON и тест для LMS"
+    )
     revision: ProgramRevisionSchema | None = Field(
         default=None, description="Правка, которую методист попросил внести, пока она не сделана"
     )
@@ -266,6 +282,7 @@ class ProgramStateSchema(BaseModel):
         json_schema_extra={
             "example": {
                 "status": "generating",
+                "mode": "new",
                 "current_stage": "hours",
                 "stages": {
                     "competences": "completed",
@@ -289,7 +306,12 @@ class ProgramStateSchema(BaseModel):
                     "sources": [],
                     "summary": None,
                 },
-                "exports": {"document_attachment_id": 12, "slides_attachment_id": 13},
+                "exports": {
+                    "document_attachment_id": 12,
+                    "slides_attachment_id": 13,
+                    "json_attachment_id": 14,
+                    "lms_attachment_id": 15,
+                },
                 "report": {
                     "ok": False,
                     "checks": [

@@ -410,6 +410,15 @@ e2e stacks set. The OpenAI-compatible client takes its token from `SBER_API_KEY`
 endpoint from `OPENAI_URL` (required when the scope is `openai`; there is no implicit public
 endpoint) and its model from `OPENAI_MODEL`.
 
+`LLM_PROVIDER` overrides that selection with a preset: `sber`, `openai`, `cloudru` or
+`mock`. The `cloudru` preset points the OpenAI-compatible client at
+`https://foundation-models.api.cloud.ru/v1` and defaults to
+`ai-sage/GigaChat3.5-432B-A28B`, a model the Cloud.ru Foundation Models list documents with
+Function Calling and Structure Output. `CLOUDRU_URL` and `CLOUDRU_MODEL` override the URL and
+the model; an `OPENAI_URL` / `OPENAI_MODEL` already set wins. The id is a deployment default,
+not a protocol constant: check the provider's current list before a demo and override it
+rather than editing the code.
+
 `OpenAIProvider` and `SberProvider` implement tools; each advertises the offered set on every
 request and maps the model's requests onto `GenerationResponse.tool_calls`. A provider may be
 constructed with a default set, and a caller narrows it per turn with `generate(..., tools=)`.
@@ -440,11 +449,28 @@ at construction because GigaChat v2 has no strict mode; the OpenAI client honour
 
 ### The exports are attachments
 
-A finished programme is written to the attachments bucket as a DOCX document and a PPTX file,
-registered as attachments of the chat, and their ids are recorded on the programme's state.
-`GET /chats/{session_id}/program` carries them in `exports`, and the client fetches them
-through the attachment route it already uses for a file the methodist uploaded. There is no
-download endpoint of their own, and no bucket was added for them.
+A finished programme is written to the attachments bucket as four files, registered as
+attachments of the chat, and their ids are recorded on the programme's state:
+
+| Name | Content |
+|---|---|
+| `programme.docx` | the programme in the АЦР section order, built by `app/render.py` |
+| `programme-slides.pptx` | the slides the materials stage wrote |
+| `programme.json` | the whole document, including the report |
+| `programme-lms.xml` | a Moodle XML question bank with keys and seminar criteria |
+
+The DOCX is built from code rather than filled into a shipped `.dotx`: the two example АЦР
+documents do not share a binary template, and one would render the other into the wrong
+section numbering.
+
+The LMS export is Moodle XML rather than SCORM: it is one text file, imports into Moodle and
+its forks without a plugin, and keeps the answer fractions and the criteria.
+`app/lms.py` builds it with `xml.etree.ElementTree`, so a question containing `<` or `&`
+cannot break the import.
+
+`GET /chats/{session_id}/program` carries the four ids in `exports`, and the client fetches
+each through the attachment route it already uses for a file the methodist uploaded. There is
+no download endpoint of their own, and no bucket was added for them.
 
 ### The mock provider
 
@@ -486,11 +512,13 @@ organisation — and turns each corpus description into a record the programme c
 - **The search is lexical** — a keyword match over the descriptions, with the title counting
   double. The semantic index over the corpus arrives with the vector store; the seam is
   `search()`, and both answers are the same shape.
-- **The online search is `app/agentic/websearch.py`.** The corpus search is lexical and offline;
-  the web search asks the encyclopedia by default (`WEB_SEARCH_URL` points it at a search
-  service of the deployment's own). It is off on the mock provider, so the end-to-end suite
-  never needs the internet. What it finds is marked as unconfirmed: the corpus alone confirms
-  a document.
+- **The online search is `app/agentic/websearch.py`.** The corpus search is lexical and offline.
+  **`STRICT_SOURCES` is on unless it is explicitly set to `false`**, so a deployment that has
+  not chosen a trusted search service cites the corpus only. Setting it to `false` allows the
+  web; `WEB_SEARCH_URL` points the search at a service of the deployment's own and the
+  encyclopedia answers when it is unset. The search is off on the mock provider regardless,
+  so the end-to-end suite never needs the internet. What the web finds is marked as
+  unconfirmed: the corpus alone confirms a document.
 
 ### The programme pipeline
 
@@ -510,6 +538,19 @@ completeness gate that a partial state cannot pass.
   renders it; the content (`CONTENT_ORDER`: assessment, materials) is written only after the
   methodist has approved it, and the approval is what puts the first content stage on the
   queue. Nothing is generated from an unapproved skeleton.
+- **The volume is 16–500 academic hours.** `MIN_PROGRAM_HOURS` and `MAX_PROGRAM_HOURS` in
+  `app/agentic/models.py` are shared by `BeginProgramArguments`, `ProgramState.requested_hours`
+  and `new_state`, so an out-of-range request is refused before a run exists as well as at
+  restore time. A clarifying answer that names the volume in prose is read back by
+  `app/agentic/intake.py` only when the structured field is still unset.
+- **Actualization and adaptation are a mode.** `ProgramMode` (`new`, `actualization`,
+  `adaptation`) travels state → draft → DOCX → API → client label. The stage brief tells the
+  model what to preserve and what to change; it is not only a note in the transcript.
+- **Every programme needs conditions and staff.** The materials block carries equipment,
+  teaching materials, staffing requirements and staff slots, and the tool refuses a block
+  without them. Lecture plans and slide decks are required only where the curriculum has
+  lecture hours, so a practice-only internship is valid without inventing a lecture. The
+  report and the DOCX pending list use the same rule.
 - **The state is `chat_sessions.program_state` (JSONB)**, mirrored to
   `program:state:{session_id}` in Redis for `PROGRAM_STATE_TTL`. PostgreSQL is canonical and
   a mirror that cannot be written never fails a task.
@@ -595,7 +636,7 @@ for one part to be redone), or simply answer in prose.
   the stage to redo and the notes: the stage runs again with the methodist's notes in its
   brief, the blocks that are already committed stay, and the run goes straight back to where
   the methodist left it instead of walking the pipeline again. The revision resets the stage's
-  budget, and the run it queues is the first of the three attempts: a change is not a failure,
+  budget, and the run it queues is the first of the stage's attempts: a change is not a failure,
   but a stage that keeps failing while it is redone still has a limit.
 - **The model no longer names the chat.** `HARNESS_STRUCTURED_SCHEMA` and
   `HarnessStructuredOutput` are gone: the reply is prose, and the name comes from
@@ -619,8 +660,13 @@ The endpoints the client uses:
 | `POST /chats/{session_id}/program/approve` | approves a rendered draft: releases the content stages and records who approved |
 | `POST /chats/{session_id}/program/revision` | asks for one part of the programme to be redone, with the notes |
 | `GET /chats/programmes` | the user's programmes, paginated with `page` and `items_per_page` |
-| `GET /chats/{session_id}/program.docx` | the programme as a DOCX document |
-| `GET /chats/{session_id}/program.pptx` | the slides of the programme as a PPTX file |
+| `exports.document_attachment_id` | the programme as a DOCX document |
+| `exports.slides_attachment_id` | the slides of the programme as a PPTX file |
+| `exports.json_attachment_id` | the whole document as JSON |
+| `exports.lms_attachment_id` | the assessment as a Moodle XML question bank |
+
+The export ids come from `GET /program`; the files themselves are attachments and are
+fetched through the ordinary attachment route, not through a `program.*` endpoint.
 
 The approval and the revision are the methodist's own decisions, and the model can reach the
 same two through its intake tools. The rules that decide whether a decision is allowed live

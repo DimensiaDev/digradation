@@ -17,8 +17,23 @@ from typing import Any, Self
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agentic import sources
+from app.agentic.diagnostics import ids, short
 from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
+from app.agentic.intake import (
+    expected_test_questions,
+    format_from_answer,
+    hours_from_answer,
+    kind_from_answer,
+    min_practice_share,
+    practice_share_from_answer,
+    programme_format,
+    programme_kind,
+    questions_from_answer,
+    requested_hours,
+)
 from app.agentic.models import (
+    MAX_PROGRAM_HOURS,
+    MIN_PROGRAM_HOURS,
     ApprovalInfo,
     AssessmentPlan,
     Competence,
@@ -27,6 +42,7 @@ from app.agentic.models import (
     ProgramDraft,
     ProgramFormat,
     ProgramKind,
+    ProgramMode,
     ProgramStatus,
     ProgramSummary,
     Source,
@@ -65,8 +81,10 @@ REVISION_INVALIDATES: dict[Stage, tuple[tuple[str, Stage], ...]] = {
 STAGE_ORDER: tuple[Stage, ...] = SKELETON_ORDER + CONTENT_ORDER
 
 #: Enqueues a stage may spend before the run is given up on. The counter moves
-#: when a stage is put on the queue, not when a worker picks it up.
-MAX_STAGE_ATTEMPTS = 3
+#: when a stage is put on the queue, not when a worker picks it up. A refusal
+#: from a validator is cheap to repair, so the budget leaves room for several
+#: corrections rather than failing a run the model could still fix.
+MAX_STAGE_ATTEMPTS = 5
 
 #: How long a question the methodist is asked may be.
 MAX_QUESTION_LENGTH = 1000
@@ -175,6 +193,7 @@ class ProgramExports(BaseModel):
     document_attachment_id: int | None = Field(default=None, description="Вложение с документом программы")
     slides_attachment_id: int | None = Field(default=None, description="Вложение со слайдами программы")
     json_attachment_id: int | None = Field(default=None, description="Вложение с данными программы в JSON")
+    lms_attachment_id: int | None = Field(default=None, description="Вложение с тестом для LMS в Moodle XML")
 
 
 class ProgramReport(BaseModel):
@@ -219,8 +238,16 @@ class ProgramState(BaseModel):
     current_stage: Stage = Stage.COMPETENCES
     stages: StageStatuses = Field(default_factory=StageStatuses)
     attempts: dict[Stage, int] = Field(default_factory=dict)
-    requested_hours: float | None = Field(default=None, gt=0, description="Заявленный объём программы в часах")
+    requested_hours: float | None = Field(
+        default=None,
+        ge=MIN_PROGRAM_HOURS,
+        le=MAX_PROGRAM_HOURS,
+        description="Заявленный объём программы в часах",
+    )
     requirements: str | None = Field(default=None, description="Требования методиста из вступительного сообщения")
+    #: Why the programme is being written: a new one, an actualization of an
+    #: existing one, or an adaptation of one for another audience.
+    mode: ProgramMode = Field(default=ProgramMode.NEW, description="Режим разработки программы")
 
     kind: ProgramKind | None = None
     title: str | None = None
@@ -596,6 +623,7 @@ class ProgramState(BaseModel):
         draft = ProgramDraft(
             kind=self.kind,
             format=self.format,
+            mode=self.mode,
             title=self.title,
             summary=self.summary,
             competencies=self.competencies,
@@ -664,7 +692,8 @@ class ProgramState(BaseModel):
             self._request_constraints_check(),
             self._materials_check(),
         ]
-        return ProgramReport(ok=all(check.ok for check in checks), checks=checks, notes=self._timing_notes())
+        notes = [*self._timing_notes(), *self._expectation_notes()]
+        return ProgramReport(ok=all(check.ok for check in checks), checks=checks, notes=notes)
 
     def _hours_check(self) -> ProgramCheck:
         """The hours add up to the volume that was asked for."""
@@ -759,12 +788,16 @@ class ProgramState(BaseModel):
         slide are empty sections that a report would otherwise call filled.
 
         A professional programme additionally needs a professional standard a
-        competence rests on, and an internship needs the staff that runs it:
-        the standard is what makes the programme professional and the
-        supervisor is what makes an internship an internship.
+        competence rests on: the standard is what makes the programme
+        professional. Every programme, an internship included, needs the
+        conditions it runs under and the staff who run it.
         """
         assessment = self.assessment
         materials = self.materials
+        has_conditions = materials is not None and bool(
+            materials.conditions.equipment or materials.conditions.teaching_materials
+        )
+        has_staffing = materials is not None and bool(materials.conditions.staffing_requirements or materials.staffing)
         sections = {
             "компетенции": bool(self.competencies),
             "учебный план": self.curriculum is not None and bool(self.curriculum.modules),
@@ -772,14 +805,19 @@ class ProgramState(BaseModel):
             "источники": bool(self.sources),
             "оценочные средства": assessment is not None
             and bool(assessment.questions or assessment.seminar_tasks or assessment.tools),
-            "материалы": materials is not None and bool(materials.lecture_plans or materials.slide_decks),
+            # An internship has no lectures, so its teaching materials are the
+            # delivery conditions and the staff who run it. A course may have
+            # plans and decks, but a programme is not empty just because its
+            # teaching is a supervised practice.
+            "материалы": materials is not None
+            and bool(materials.lecture_plans or materials.slide_decks or has_conditions or has_staffing),
+            "условия реализации": has_conditions,
+            "кадровое обеспечение": has_staffing,
         }
         if self.kind is ProgramKind.PROFESSIONAL_DEVELOPMENT:
             sections["профессиональный стандарт"] = any(
                 competence.standard_source_id for competence in self.competencies
             )
-        if self.format is ProgramFormat.INTERNSHIP:
-            sections["кадровое обеспечение"] = materials is not None and bool(materials.staffing)
         problems = [f"раздел «{name}» не заполнен" for name, filled in sections.items() if not filled]
         return ProgramCheck(
             name="разделы",
@@ -873,6 +911,21 @@ class ProgramState(BaseModel):
             notes.append(f"скелет собран за {skeleton:.0f} с, бюджет {SKELETON_BUDGET_SECONDS} с")
         return notes
 
+    def _expectation_notes(self) -> list[str]:
+        """What the request promised beyond the volume, and what the sample got wrong.
+
+        These are notes, not failures: a methodist asking for a job after a
+        72-hour course is asking for something the volume cannot deliver, and
+        a sample with a broken total is a sample the agent has to avoid copying
+        rather than a reason to refuse the run. The report has to show both so
+        the methodist can decide what to do about them.
+        """
+        notes: list[str] = []
+        if self.expectations:
+            notes.append(f"Ожидание сверх объёма: {self.expectations}")
+        notes.extend(f"Замечание к образцу: {issue}" for issue in self.sample_issues)
+        return notes
+
     def assessment_problems(self, assessment: AssessmentPlan, curriculum: Curriculum) -> list[str]:
         """The assessment has to check the programme, and only the programme.
 
@@ -893,31 +946,53 @@ class ProgramState(BaseModel):
         actually has. The final attestation has to name declared outcomes too,
         but it is the programme's conclusion and not one of the means, so it
         does not count towards the two.
+
+        Every finding names the allowed ids: a model that invented ``at-07``
+        could otherwise only guess what to replace it with, and each guess costs
+        a tool round.
         """
         problems: list[str] = []
         declared = set(self.declared_outcomes())
         topics = {topic.id for module in curriculum.modules for topic in module.topics}
         tools = {tool.id for tool in assessment.tools}
+        allowed_outcomes = ids(sorted(declared))
+        allowed_topics = ids(sorted(topics))
+        allowed_tools = ids(sorted(tools))
 
         def unknown(outcome_ids: list[str], what: str) -> None:
             missing = [item for item in outcome_ids if item not in declared]
             if missing:
-                problems.append(f"{what} ссылается на необъявленные результаты обучения: {', '.join(missing)}")
+                problems.append(
+                    f"{what} ссылается на необъявленные результаты обучения: {', '.join(missing)}; "
+                    f"допустимые: {allowed_outcomes}"
+                )
 
         for question in assessment.questions:
             if question.tool_id not in tools:
-                problems.append(f"вопрос {question.id} ссылается на несуществующую форму контроля {question.tool_id}")
+                problems.append(
+                    f"вопрос {question.id} ссылается на несуществующую форму контроля {question.tool_id}; "
+                    f"допустимые формы контроля: {allowed_tools}"
+                )
             unknown(question.outcome_ids, f"вопрос {question.id}")
         for task in assessment.seminar_tasks:
-            if task.tool_id not in tools:
-                problems.append(f"задание {task.id} ссылается на несуществующую форму контроля {task.tool_id}")
+            if task.tool_id is not None and task.tool_id not in tools:
+                problems.append(
+                    f"задание {task.id} ссылается на несуществующую форму контроля {task.tool_id}; "
+                    f"допустимые формы контроля: {allowed_tools}"
+                )
             if task.topic_id not in topics:
-                problems.append(f"задание {task.id} ссылается на несуществующую тему {task.topic_id}")
+                problems.append(
+                    f"задание {task.id} ссылается на несуществующую тему {task.topic_id}; "
+                    f"допустимые темы: {allowed_topics}"
+                )
             unknown(task.outcome_ids, f"задание {task.id}")
         for tool in assessment.tools:
             missing = [item for item in tool.topic_ids if item not in topics]
             if missing:
-                problems.append(f"форма контроля {tool.id} ссылается на несуществующие темы: {', '.join(missing)}")
+                problems.append(
+                    f"форма контроля {tool.id} ссылается на несуществующие темы: {', '.join(missing)}; "
+                    f"допустимые темы: {allowed_topics}"
+                )
             unknown(tool.outcome_ids, f"форма контроля {tool.id}")
         unknown(assessment.final.outcome_ids, "итоговая аттестация")
         return problems
@@ -928,8 +1003,17 @@ class ProgramState(BaseModel):
         The means are the questions, the seminar tasks and the forms of
         control. The final attestation is the programme's conclusion and not
         one of them.
+
+        Every finding carries the statement of the outcome, so the model knows
+        which result it is leaving unchecked without re-reading the whole
+        competences block it wrote several turns ago.
         """
         declared = set(self.declared_outcomes())
+        statements = {
+            outcome.id: outcome.statement
+            for competence in self.competencies
+            for outcome in (*competence.experience, *competence.skills, *competence.knowledge)
+        }
         checked: dict[str, int] = dict.fromkeys(declared, 0)
         for outcome_ids in (
             [question.outcome_ids for question in assessment.questions]
@@ -940,7 +1024,9 @@ class ProgramState(BaseModel):
                 if outcome_id in checked:
                     checked[outcome_id] += 1
         problems = [
-            f"результат обучения {outcome_id} проверяется только {count} средствами — нужно хотя бы два"
+            f"результат обучения {outcome_id} «{short(statements.get(outcome_id), 100)}» проверяется только "
+            f"{count} средствами — нужно хотя бы два; добавь этот id в outcome_ids вопроса, задания "
+            f"или формы контроля"
             for outcome_id, count in sorted(checked.items())
             if count < 2
         ]
@@ -958,12 +1044,14 @@ class ProgramState(BaseModel):
         produced it, where :meth:`to_draft` could only discard the whole run.
         """
         problems: list[str] = []
+        allowed = ids(sorted(declared))
         for module in curriculum.modules:
             for topic in module.topics:
                 missing = [outcome_id for outcome_id in topic.outcome_ids if outcome_id not in declared]
                 if missing:
                     problems.append(
-                        f"тема {topic.id} ссылается на необъявленные результаты обучения: {', '.join(missing)}"
+                        f"тема {topic.id} ссылается на необъявленные результаты обучения: {', '.join(missing)}; "
+                        f"допустимые: {allowed}"
                     )
         return problems
 
@@ -978,8 +1066,11 @@ class ProgramState(BaseModel):
         covered = {
             outcome_id for module in curriculum.modules for topic in module.topics for outcome_id in topic.outcome_ids
         }
+        topics = ids([topic.id for module in curriculum.modules for topic in module.topics])
         return [
-            f"результат обучения {outcome_id} не раскрыт ни в одной теме" for outcome_id in sorted(declared - covered)
+            f"результат обучения {outcome_id} не раскрыт ни в одной теме; добавь его id в outcome_ids темы, "
+            f"например: {topics}"
+            for outcome_id in sorted(declared - covered)
         ]
 
     def curriculum_problems(self, curriculum: Curriculum) -> list[str]:
@@ -987,10 +1078,12 @@ class ProgramState(BaseModel):
         problems: list[str] = []
         total = curriculum.total_hours
         if self.requested_hours is not None and not math.isclose(total, self.requested_hours, abs_tol=1e-6):
+            delta = total - self.requested_hours
+            gap = f"не хватает {abs(delta):g} ч" if delta < 0 else f"лишние {abs(delta):g} ч"
             problems.append(
                 f"объём программы {total:g} ч (темы {curriculum.topic_hours:g} ч "
                 f"+ итоговая аттестация {curriculum.attestation_hours:g} ч) "
-                f"не совпадает с заявленным объёмом {self.requested_hours:g} ч"
+                f"не совпадает с заявленным объёмом {self.requested_hours:g} ч: {gap}"
             )
         problems += self.module_hours_problems(curriculum)
         problems += self.schedule_problems(curriculum)
@@ -1105,8 +1198,11 @@ def new_state(
     questions: Iterable[str] = (),
     kind: ProgramKind | None = None,
     format: ProgramFormat = ProgramFormat.COURSE,
+    mode: ProgramMode = ProgramMode.NEW,
     expected_test_questions: int | None = None,
     min_practice_share: float | None = None,
+    expectations: str | None = None,
+    sample_issues: Iterable[str] = (),
 ) -> ProgramState:
     """Start a run: either generating, or waiting for the methodist's answers.
 
@@ -1115,10 +1211,13 @@ def new_state(
     stage is enqueued only once the answers arrive. A run without them starts
     at once, with the competence stage already on the queue.
 
-    ``kind`` and ``format`` may come from the intake turn; a run that was not
-    told them leaves both to the competence stage, which writes them from what
-    the model chose. The limits from the request are kept with the run, so a
-    later stage can be held to them.
+    ``kind``, ``format`` and ``mode`` may come from the intake turn; a run that
+    was not told them leaves them to the competence stage, which writes them
+    from what the model chose. The limits from the request are kept with the
+    run, so a later stage can be held to them. ``expectations`` and
+    ``sample_issues`` are the two things the report has to show without failing
+    the run: a request that promises more than the volume can deliver, and a
+    sample whose numbers do not add up.
     """
     pending = [ClarificationQuestion(id=uuid.uuid4().hex, text=text.strip()) for text in questions if text.strip()]
     if pending:
@@ -1130,11 +1229,14 @@ def new_state(
             attempts={},
             requested_hours=requested_hours,
             requirements=requirements,
+            mode=mode,
             questions=pending,
             kind=kind,
             format=format,
             expected_test_questions=expected_test_questions,
             min_practice_share=min_practice_share,
+            expectations=expectations,
+            sample_issues=[issue.strip() for issue in sample_issues if issue.strip()],
         )
     return ProgramState(
         session_id=session_id,
@@ -1144,10 +1246,13 @@ def new_state(
         attempts={Stage.COMPETENCES: 1},
         requested_hours=requested_hours,
         requirements=requirements,
+        mode=mode,
         kind=kind,
         format=format,
         expected_test_questions=expected_test_questions,
         min_practice_share=min_practice_share,
+        expectations=expectations,
+        sample_issues=[issue.strip() for issue in sample_issues if issue.strip()],
         started_at=datetime.now(UTC),
     )
 
@@ -1168,7 +1273,73 @@ def apply_answers(state: ProgramState, answers: Sequence[ClarificationAnswer]) -
     expected = {question.id for question in state.pending_questions}
     if set(given) != expected:
         raise AnswersDoNotMatch("ответы не совпадают с заданными вопросами")
-    return state.with_answers(list(given.values()))
+    started = state.with_answers(list(given.values()))
+    # The answers are prose. The pipeline checks numbers, so the limits the
+    # methodist named in them are read back here, once, instead of making every
+    # later stage parse the transcript again. A value that is not in range is
+    # left unset and the words still travel in the stage brief.
+    #
+    # Only the answers are read for explicit units: a question that mentions
+    # "стажировки" or "10 вопросов" must not set the field when the answer is
+    # "нет". A bare number is read against the question that asked for it.
+    answers_text = "\n".join(answer.text for answer in given.values())
+    questions = {question.id: question.text for question in state.questions}
+    answered = [(questions[answer.question_id], answer.text) for answer in given.values()]
+    updates: dict[str, Any] = {}
+    if started.requested_hours is None:
+        hours = requested_hours(answers_text)
+        if hours is None:
+            hours = next(
+                (value for question, answer in answered if (value := hours_from_answer(question, answer)) is not None),
+                None,
+            )
+        if hours is not None:
+            updates["requested_hours"] = hours
+    if started.kind is None:
+        kind = programme_kind(answers_text)
+        if kind is None:
+            kind = next(
+                (value for question, answer in answered if (value := kind_from_answer(question, answer)) is not None),
+                None,
+            )
+        if kind is not None:
+            updates["kind"] = kind
+    if started.format is ProgramFormat.COURSE:
+        fmt = programme_format(answers_text)
+        if fmt is None:
+            fmt = next(
+                (value for question, answer in answered if (value := format_from_answer(question, answer)) is not None),
+                None,
+            )
+        if fmt is not None:
+            updates["format"] = fmt
+    if started.expected_test_questions is None:
+        questions_count = expected_test_questions(answers_text)
+        if questions_count is None:
+            questions_count = next(
+                (
+                    value
+                    for question, answer in answered
+                    if (value := questions_from_answer(question, answer)) is not None
+                ),
+                None,
+            )
+        if questions_count is not None:
+            updates["expected_test_questions"] = questions_count
+    if started.min_practice_share is None:
+        share = min_practice_share(answers_text)
+        if share is None:
+            share = next(
+                (
+                    value
+                    for question, answer in answered
+                    if (value := practice_share_from_answer(question, answer)) is not None
+                ),
+                None,
+            )
+        if share is not None:
+            updates["min_practice_share"] = share
+    return started._replace(**updates) if updates else started
 
 
 def _duplicates(items: Iterable[str]) -> list[str]:

@@ -5,6 +5,7 @@ import {
   programCompetencies,
   programDecision,
   programFormLabel,
+  programModeLabel,
   programGoal,
   programHours,
   programHoursLabel,
@@ -273,6 +274,9 @@ describe('program-view', () => {
     expect(programKindLabel(state())).toBeNull();
     expect(programFormLabel(filled)).toBe('Очно-заочная');
     expect(programFormLabel(state())).toBe('—');
+    expect(programModeLabel(state())).toBeNull();
+    expect(programModeLabel({ ...state(), mode: 'actualization' })).toBe('Актуализация');
+    expect(programModeLabel({ ...state(), mode: 'adaptation' })).toBe('Адаптация');
     expect(programGoal(filled)).toBe('Подготовить аналитиков');
     expect(programGoal(state())).toBeNull();
     expect(programCompetencies(filled)).toEqual([
@@ -371,6 +375,44 @@ describe('program-view', () => {
     expect(report?.checks[2].details).toEqual([
       { label: 'Компетенции', value: 'есть' },
       { label: 'Материалы', value: 'нет' }
+    ]);
+  });
+
+  it('shows the requested shares as percentages and labels every section', () => {
+    const reviewed = state({
+      report: {
+        ok: false,
+        checks: [
+          {
+            name: 'требования',
+            ok: false,
+            problems: ['доля практики меньше заявленной'],
+            details: { 'доля практики': 0.25, 'заявлено минимум': 0.5 }
+          },
+          {
+            name: 'разделы',
+            ok: false,
+            problems: [],
+            details: {
+              'условия реализации': true,
+              'кадровое обеспечение': false,
+              'профессиональный стандарт': true
+            }
+          }
+        ]
+      }
+    });
+
+    const report = programReport(reviewed);
+
+    expect(report?.checks[0].details).toEqual([
+      { label: 'Доля практики', value: '25%' },
+      { label: 'Заявлено минимум', value: '50%' }
+    ]);
+    expect(report?.checks[1].details).toEqual([
+      { label: 'Условия реализации', value: 'есть' },
+      { label: 'Кадровое обеспечение', value: 'нет' },
+      { label: 'Профессиональный стандарт', value: 'есть' }
     ]);
   });
 

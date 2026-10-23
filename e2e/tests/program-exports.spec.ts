@@ -71,6 +71,23 @@ test.describe("programme exports", () => {
     expect(statSync(path as string).size).toBeGreaterThan(0);
   });
 
+  test("downloads the JSON and the LMS question bank", async ({ page }) => {
+    await login(page);
+    await openFinishedProgramme(page);
+
+    const json = await downloadVia(page, /Скачать JSON/);
+    expect(json.suggestedFilename()).toBe("programme.json");
+    const jsonPath = await json.path();
+    expect(jsonPath).not.toBeNull();
+    expect(statSync(jsonPath as string).size).toBeGreaterThan(0);
+
+    const lms = await downloadVia(page, /Скачать тест для LMS/);
+    expect(lms.suggestedFilename()).toBe("programme-lms.xml");
+    const lmsPath = await lms.path();
+    expect(lmsPath).not.toBeNull();
+    expect(statSync(lmsPath as string).size).toBeGreaterThan(0);
+  });
+
   test("keeps the exports out of the uploads the methodist staged", async ({ page }) => {
     await login(page);
     await openFinishedProgramme(page);

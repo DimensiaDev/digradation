@@ -21,8 +21,19 @@ import structlog.stdlib
 from pydantic import BaseModel, Field, ValidationError
 
 from app.agentic import actions, sources, websearch
+from app.agentic.diagnostics import cap, ids, quote
 from app.agentic.errors import ProgramError
-from app.agentic.models import ProgramFormat, ProgramKind, ProgramStatus, Source, SourceKind, Stage
+from app.agentic.models import (
+    MAX_PROGRAM_HOURS,
+    MIN_PROGRAM_HOURS,
+    ProgramFormat,
+    ProgramKind,
+    ProgramMode,
+    ProgramStatus,
+    Source,
+    SourceKind,
+    Stage,
+)
 from app.agentic.sources import RagUnavailable
 from app.agentic.state import (
     MAX_QUESTION_LENGTH,
@@ -131,9 +142,12 @@ class BeginProgramArguments(BaseModel):
     )
     requested_hours: float | None = Field(
         default=None,
-        gt=0,
-        le=1000,
-        description="Объём программы в академических часах, если методист его назвал",
+        ge=MIN_PROGRAM_HOURS,
+        le=MAX_PROGRAM_HOURS,
+        description=(
+            f"Объём программы в академических часах, если методист его назвал: "
+            f"от {MIN_PROGRAM_HOURS} до {MAX_PROGRAM_HOURS}"
+        ),
     )
     kind: ProgramKind | None = Field(
         default=None,
@@ -142,6 +156,29 @@ class BeginProgramArguments(BaseModel):
     format: ProgramFormat | None = Field(
         default=None,
         description="Формат: course или internship. Заполняется только для professional_development",
+    )
+    mode: ProgramMode = Field(
+        default=ProgramMode.NEW,
+        description=(
+            "Режим: new для новой программы, actualization для актуализации существующей, "
+            "adaptation для адаптации под другую аудиторию или формат"
+        ),
+    )
+    expectations: str | None = Field(
+        default=None,
+        max_length=4000,
+        description=(
+            "Что заказчик ждёт сверх того, что даёт заявленный объём: например, «после курса "
+            "можно пойти работать». Это попадёт в отчёт, а не в обещание программы."
+        ),
+    )
+    sample_issues: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "Расхождения в приложенном образце программы, которые нельзя переносить в новую "
+            "программу: например, итоговая строка учебного плана не сходится с часами."
+        ),
     )
     expected_test_questions: int | None = Field(
         default=None,
@@ -265,7 +302,11 @@ _SAVE_DESCRIPTIONS: dict[Stage, str] = {
         "Сохранить оценочные средства: тестовые вопросы с ключами, задания для семинаров с критериями "
         "оценки, формы текущего контроля и итоговую аттестацию."
     ),
-    Stage.MATERIALS: "Сохранить планы лекций и слайды к темам учебного плана.",
+    Stage.MATERIALS: (
+        "Сохранить методические материалы, условия реализации и кадровое обеспечение: планы лекций "
+        "и слайды к темам, у которых есть лекционные часы, оборудование и учебно-методические "
+        "материалы, требования к преподавателям и должности."
+    ),
 }
 
 #: The save specification of each stage, built from that stage's block model, so
@@ -478,26 +519,74 @@ def _assessment_problems(state: ProgramState, block: AssessmentBlock) -> list[st
 
 
 def _materials_problems(state: ProgramState, block: MaterialsBlock) -> list[str]:
-    """Every plan and every deck has to belong to a topic of the plan.
+    """The materials have to teach the plan that was already committed.
 
-    The materials also have to be there: a curriculum with no lecture plan and
-    no slides is a curriculum with nothing in it, and the criterion asks for
-    the slides of at least one module.
+    Every plan and every deck belongs to a topic of the plan. A programme with
+    lecture hours needs at least one plan and one deck; an internship with no
+    lectures at all is not refused for lacking them, because its teaching is
+    the supervised practice. Conditions and staff are required either way: a
+    programme that does not say where it runs or who runs it is incomplete.
+
+    The criterion asks for the slides of at least one module rather than one
+    deck anywhere, and that cross-check stays in :meth:`ProgramState.report`.
     """
     if state.curriculum is None:
         return ["учебный план ещё не собран"]
     topics = {topic.id for module in state.curriculum.modules for topic in module.topics}
+    has_lectures = any(topic.hours.lecture > 0 for module in state.curriculum.modules for topic in module.topics)
+    plans = {plan.topic_id for plan in block.materials.lecture_plans}
+    decks = {deck.topic_id for deck in block.materials.slide_decks}
     problems = []
-    if not block.materials.lecture_plans:
-        problems.append("материалы не содержат ни одного плана лекции")
-    if not block.materials.slide_decks:
-        problems.append("материалы не содержат ни одного набора слайдов")
+    lecture_topics = [
+        topic.id for module in state.curriculum.modules for topic in module.topics if topic.hours.lecture > 0
+    ]
+    if has_lectures and not plans:
+        problems.append(
+            f"материалы не содержат ни одного плана лекции; план нужен для каждой темы с лекционными "
+            f"часами: {ids(lecture_topics)}"
+        )
+    if has_lectures and not decks:
+        problems.append(
+            f"материалы не содержат ни одного набора слайдов; слайды нужны для тем с лекционными "
+            f"часами хотя бы одного модуля: {ids(lecture_topics)}"
+        )
+    if has_lectures and plans and decks:
+        covered = any(
+            all(topic.id in plans and topic.id in decks for topic in module.topics if topic.hours.lecture > 0)
+            for module in state.curriculum.modules
+            if any(topic.hours.lecture > 0 for topic in module.topics)
+        )
+        if not covered:
+            modules = "; ".join(
+                f"{module.id}: {ids([topic.id for topic in module.topics if topic.hours.lecture > 0], 8)}"
+                for module in state.curriculum.modules
+                if any(topic.hours.lecture > 0 for topic in module.topics)
+            )
+            problems.append(
+                "ни один модуль не покрыт планами лекций и слайдами полностью: у каждой темы с лекциями "
+                f"одного модуля должны быть и план, и набор слайдов. Лекционные модули: {modules}"
+            )
+    conditions = block.materials.conditions
+    if not (conditions.equipment or conditions.teaching_materials):
+        problems.append("не заполнены условия реализации программы: укажи equipment и/или teaching_materials")
+    if not conditions.staffing_requirements and not block.materials.staffing:
+        problems.append(
+            "не заполнено кадровое обеспечение программы: укажи conditions.staffing_requirements "
+            "или список должностей staffing"
+        )
+    allowed_topics = ids(sorted(topics))
     for plan in block.materials.lecture_plans:
         if plan.topic_id not in topics:
-            problems.append(f"план лекции {plan.id} ссылается на несуществующую тему {plan.topic_id}")
+            problems.append(
+                f"план лекции {plan.id} ссылается на несуществующую тему {plan.topic_id}; "
+                f"допустимые темы: {allowed_topics}"
+            )
     for deck in block.materials.slide_decks:
         if deck.topic_id not in topics:
-            problems.append(f"слайды {deck.id} ссылаются на несуществующую тему {deck.topic_id}")
+            problems.append(
+                f"слайды {deck.id} ссылаются на несуществующую тему {deck.topic_id}; "
+                f"допустимые темы: {allowed_topics}"
+            )
     return problems
 
 
@@ -525,7 +614,7 @@ _SAVERS: dict[type[BaseModel], _Save] = {
         apply=lambda state, block, _sources: state.with_curriculum(block),
         problems=_hours_problems,
         rejected="Учебный план не принят",
-        retry="Исправь часы и ссылки на результаты освоения и сохрани блок снова.",
+        retry="Исправь все часы и ссылки на результаты освоения сразу и вызови save_program_draft один раз.",
         note="Учебный план сохранён. Кратко подтверди, что блок готов, и остановись.",
     ),
     SourcesBlock: _Save(
@@ -538,22 +627,24 @@ _SAVERS: dict[type[BaseModel], _Save] = {
         cited=_basis_ids,
         problems=_basis_problems,
         rejected="Паспорт программы не принят",
-        retry="Укажи в списке источников те документы, на которые опирается программа, и сохрани блок снова.",
+        retry="Добавь в список источников те документы, на которые опирается программа, "
+        "и вызови save_program_draft один раз.",
         note="Паспорт программы сохранён. Черновик собирается, подтверждение попросит методист.",
     ),
     AssessmentBlock: _Save(
         apply=lambda state, block, _sources: state.with_assessment(block),
         problems=_assessment_problems,
         rejected="Оценочные средства не приняты",
-        retry="Исправь привязки к темам и результатам обучения и добавь второе средство проверки "
-        "для каждого результата.",
+        retry="Добавь недостающие средства проверки, исправь привязки к темам и результатам обучения "
+        "и вызови save_program_draft один раз.",
         note="Оценочные средства сохранены. Кратко подтверди, что блок готов, и остановись.",
     ),
     MaterialsBlock: _Save(
         apply=lambda state, block, _sources: state.with_materials(block),
         problems=_materials_problems,
         rejected="Материалы не приняты",
-        retry="Укажи темы из учебного плана и сохрани блок снова.",
+        retry="Укажи темы из учебного плана, добавь планы и слайды для лекционных тем, заполни условия "
+        "и кадровое обеспечение и вызови save_program_draft один раз.",
         note="Материалы сохранены. Кратко подтверди, что блок готов, и остановись.",
     ),
 }
@@ -570,7 +661,7 @@ async def save_program_draft(ctx: ToolContext, arguments: BaseModel) -> SaveProg
     if isinstance(arguments, HoursBlock):
         arguments = _derived_module_hours(arguments)
     if problems := rule.problems(state, arguments):
-        return SaveProgramDraftResult(ok=False, error=rule.rejected, details=problems, note=rule.retry)
+        return SaveProgramDraftResult(ok=False, error=rule.rejected, details=cap(problems), note=rule.retry)
     citations = _resolve_sources(rule.cited(arguments), standards=rule.standards(arguments))
     if error := _citation_error(citations):
         return error
@@ -643,7 +734,8 @@ async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> B
             error="не указан объём программы",
             note=(
                 "Спроси у методиста объём в академических часах: без него программу не начать. "
-                "Срок вроде «месяц» — это не объём. Задай вопрос и дождись ответа."
+                "Срок вроде «месяц» — это не объём. Перечисли этот вопрос в questions и вызови "
+                "begin_program снова — программа начнётся после ответа."
             ),
         )
     ctx.state = new_state(
@@ -653,8 +745,11 @@ async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> B
         questions=arguments.questions,
         kind=arguments.kind,
         format=arguments.format or ProgramFormat.COURSE,
+        mode=arguments.mode,
         expected_test_questions=arguments.expected_test_questions,
         min_practice_share=arguments.min_practice_share,
+        expectations=arguments.expectations,
+        sample_issues=arguments.sample_issues,
     )
     ctx.dirty = True
     log.info(
@@ -663,6 +758,7 @@ async def begin_program(ctx: ToolContext, arguments: BeginProgramArguments) -> B
         requested_hours=arguments.requested_hours,
         kind=arguments.kind.value if arguments.kind else None,
         format=arguments.format.value if arguments.format else None,
+        mode=arguments.mode.value,
         questions=len(ctx.state.pending_questions),
     )
     if ctx.state.awaiting_answers:
@@ -785,8 +881,16 @@ async def execute_tool(ctx: ToolContext, call: FunctionCall) -> ToolResult:
     try:
         arguments = json.loads(call.arguments)
     except json.JSONDecodeError as error:
-        log.warning("tool_arguments_invalid", tool=call.name, exc=error)
-        return ToolResult(ok=False, error="Некорректные аргументы вызова")
+        log.warning("tool_arguments_invalid", tool=call.name, exc=error, arguments=call.arguments[:300])
+        return ToolResult(
+            ok=False,
+            error="Некорректные аргументы вызова",
+            details=[
+                f"аргументы не разбираются как JSON, позиция {error.pos}: {error.msg}",
+                f"получено: {quote(call.arguments[:300])}",
+            ],
+            note="Вызови инструмент снова: аргументы — один JSON-объект, строки внутри него экранированы.",
+        )
     try:
         parsed = arguments_model.model_validate(arguments)
     except ValidationError as error:
@@ -830,5 +934,19 @@ def call_executor(ctx: ToolContext, offered: list[Tool]) -> Callable[[ToolCall],
 
 
 def _describe_validation_error(error: ValidationError) -> list[str]:
-    """Flatten pydantic errors into ``path: message`` lines the model can act on."""
-    return [f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}" for item in error.errors()]
+    """Flatten pydantic errors into lines the model can act on.
+
+    A path on its own does not say what the model sent, so a refusal it cannot
+    match to a value costs another round. Every line therefore repeats the
+    received value, and the list is capped like every other refusal: a block
+    refused for a hundred reasons is unreadable, and the model repairs it one
+    call at a time.
+    """
+    lines = []
+    for item in error.errors():
+        path = ".".join(str(part) for part in item["loc"]) or "(корень)"
+        line = f"{path}: {item['msg']}"
+        if "input" in item:
+            line += f"; получено: {quote(item['input'])}"
+        lines.append(line)
+    return cap(lines)
