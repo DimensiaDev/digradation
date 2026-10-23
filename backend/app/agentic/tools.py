@@ -792,9 +792,6 @@ async def execute_tool(ctx: ToolContext, call: FunctionCall) -> ToolResult:
     except ValidationError as error:
         log.warning("tool_arguments_invalid", tool=call.name, errors=_describe_validation_error(error))
         return ToolResult(ok=False, error="Некорректные аргументы вызова", details=_describe_validation_error(error))
-    except ValidationError as error:
-        log.warning("tool_arguments_invalid", tool=call.name, errors=_describe_validation_error(error))
-        return ToolResult(ok=False, error="Некорректные аргументы вызова", details=_describe_validation_error(error))
     except Exception as error:
         # A validator that crashes on an unexpected shape is a bug in the
         # schema, not in the model's arguments. It still has to be a tool
