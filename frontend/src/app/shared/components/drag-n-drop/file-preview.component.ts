@@ -23,6 +23,111 @@ import { PreviewKind, mimeTypeFor, previewKindFor } from '../../utils/file-types
 type XLSXModule = typeof import('xlsx');
 type HyperFormulaCtor = typeof import('hyperformula').HyperFormula;
 
+/**
+ * The link schemes a document may keep. A `.docx` carries its own relationships and the
+ * preview writes their `Target` straight into `href`, so the file — which the methodist
+ * received from outside — chooses where a click in the preview goes. Anything outside this
+ * set (`javascript:`, `data:`, `vbscript:`) loses its `href` rather than being trusted.
+ */
+const SAFE_LINK_SCHEMES = new Set(['http:', 'https:', 'mailto:', 'tel:']);
+
+/**
+ * Elements the renderer never emits, removed so that a future version which does cannot
+ * smuggle one into the app's DOM. `script` and `iframe` execute or frame; `link`, `meta`
+ * and `base` can pull in or redirect without any script at all.
+ */
+const FORBIDDEN_PREVIEW_SELECTOR = 'script, iframe, object, embed, link, meta, base, form';
+
+/**
+ * What a `:host` selector in an injected rule is rewritten to. Nothing the renderer emits
+ * carries this attribute, so the rule matches no element — whereas a real `:host` inside the
+ * shadow tree matches the preview's own container, which is how a document could move or hide
+ * the dialog's chrome from behind the boundary meant to confine it.
+ */
+const INERT_HOST_SELECTOR = '[data-docx-preview-host-disabled]';
+
+/** An at-rule the browser resolves by fetching the stylesheet it names. */
+const CSS_IMPORT_RULE = /@import[^;]*;?/gi;
+
+/** Any `url(...)` in a declaration, quoted or bare. */
+const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*))\s*\)/gi;
+
+/**
+ * Where a rewritten external reference points instead. `about:invalid` is the value the URL
+ * standard defines as a non-fetchable address, so the declaration stays parseable and the
+ * browser never opens a socket for it.
+ */
+const INERT_URL = 'url(about:invalid)';
+
+/**
+ * Strip what an injected stylesheet must not be allowed to do, keeping the document's styling.
+ *
+ * `docx-preview` interpolates the document's own style ids and font names into CSS unescaped,
+ * so a crafted name closes its rule and opens one of its own. Three of the rules it can open
+ * matter here: an `@import` or a `url()` makes the browser fetch an address the file chose,
+ * leaking the methodist's address and the moment of the preview to a host outside the
+ * organisation, and a `:host` rule crosses the shadow boundary the other way. Everything else
+ * — the document's own declarations included — is left untouched, because unstyled is not an
+ * option and a shadow root cannot confine a rule it no longer contains.
+ */
+export function sanitizePreviewCss(css: string): string {
+  return css
+    .replace(CSS_IMPORT_RULE, '')
+    .replace(/:host\b/gi, INERT_HOST_SELECTOR)
+    .replace(CSS_URL, (match, doubleQuoted, singleQuoted, bare) => {
+      const target = (doubleQuoted ?? singleQuoted ?? bare ?? '').trim();
+      return /^data:/i.test(target) ? match : INERT_URL;
+    });
+}
+
+/**
+ * Whether a link target is one a preview may follow.
+ *
+ * Resolved through `URL` rather than matched as a string: the parser strips the whitespace and
+ * control characters that separate `java\nscript:` from the scheme a regex would miss, and a
+ * relative target resolves against the app's own origin, which is safe by construction.
+ * Anything the parser cannot read is refused.
+ */
+function isSafeLinkTarget(target: string): boolean {
+  try {
+    return SAFE_LINK_SCHEMES.has(new URL(target, window.location.origin).protocol);
+  } catch {
+    return false;
+  }
+}
+
+/** A bookmark or a table-of-contents entry: a place inside this document, not an address. */
+function isFragmentOnlyLink(target: string): boolean {
+  return target.trim().startsWith('#');
+}
+
+/**
+ * Strip what a rendered document must not be allowed to do, keeping what it may.
+ *
+ * Called on the shadow tree the preview rendered into, before the container holding it joins
+ * the document: a stylesheet in a detached tree is not applied, so its `@import` is not
+ * fetched and rewriting it here is in time rather than a report. That ordering is what the
+ * guard depends on — the caller must not connect the tree first.
+ */
+export function hardenRenderedDocument(root: ParentNode): void {
+  root.querySelectorAll(FORBIDDEN_PREVIEW_SELECTOR).forEach((node) => node.remove());
+  root.querySelectorAll('style').forEach((style) => {
+    style.textContent = sanitizePreviewCss(style.textContent ?? '');
+  });
+  root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((anchor) => {
+    const target = anchor.getAttribute('href') ?? '';
+    if (!isSafeLinkTarget(target)) {
+      anchor.removeAttribute('href');
+      return;
+    }
+    if (isFragmentOnlyLink(target)) {
+      return;
+    }
+    anchor.setAttribute('rel', 'noopener noreferrer');
+    anchor.setAttribute('target', '_blank');
+  });
+}
+
 const RUSSIAN_FUNCTION_MAP = new Map([
   ['СУММ', 'SUM'],
   ['ЕСЛИ', 'IF'],
@@ -215,7 +320,19 @@ export class FilePreviewComponent implements AfterViewInit {
     const { renderAsync } = await import('docx-preview');
     const container = document.createElement('div');
     container.className = 'file-preview__docx';
-    await renderAsync(buffer, container);
+    // The renderer builds its DOM imperatively and writes no template binding, so neither
+    // the sanitizer nor `[innerHTML]` is anywhere on this path. Two things it produces are
+    // therefore attacker-shaped: the `href` of a link, taken from the document's own
+    // relationships, and a stylesheet assembled from the document's style and font names —
+    // whose values are interpolated into rules without escaping, so a crafted name closes
+    // its rule and opens a global one. A shadow root confines the rules that stay inside it,
+    // which is why the stylesheet is not deleted — but it confines nothing that leaves it, so
+    // the stylesheet is rewritten and the links hardened before the container is appended.
+    const root = container.attachShadow({ mode: 'open' });
+    const body = document.createElement('div');
+    root.appendChild(body);
+    await renderAsync(buffer, body);
+    hardenRenderedDocument(root);
     return container;
   }
 

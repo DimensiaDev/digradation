@@ -1292,3 +1292,52 @@ to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALF
   time-dependent. Seed a run that is terminal (`failed`, `approved`, `verified`), waiting
   (`draft`, `awaiting_answers`) or `finalized` — the last is what a rendered draft actually is,
   and it is what keeps a decision panel reachable for a whole run. Found 2026-10-22.
+- **`docx-preview` copies a document's relationship `Target` into `a.href` with no scheme check, and
+  interpolates style/font names into CSS without escaping.** `renderHyperlink` does
+  `res.href = rel?.target ?? ''` for any external relationship, so a `.docx` — which in this product
+  arrives from outside the organisation — decides what a click in the preview does; `javascript:`
+  then runs in the app's origin. `styleToString` emits `key: value;` verbatim, and `encloseFontFamily`
+  tests only the *edges* of a font name, so a name like `a'; } body { display: none } /*` closes
+  `@font-face` and opens a global rule. Fixing the second by deleting every `<style>` element is not a
+  fix: that is the document's own formatting, and the preview renders unstyled without it — the
+  scoping has to come from a shadow root. And a shadow root is **not** a script sandbox, so the `href`
+  still needs its own allowlist. Verified in a browser on the mock stack: with the fix, a hostile link
+  keeps its text and loses its `href`, clicking it sets no flag and does not navigate, a real 91 kB
+  Word file still renders as an A4 page (794×1123 px) with its stylesheets inside the shadow tree and
+  none in the light DOM. Found 2026-10-23.
+- **A literal newline in an XML attribute is normalised to a space, so an XML fixture cannot test
+  "whitespace inside a URL scheme".** `Target="java&#10;script:..."` reaches the DOM with the newline
+  (a character reference is not subject to attribute-value normalisation) and is caught by
+  `new URL(...)`, which strips it and reports the `javascript:` scheme. Writing the newline *literally*
+  in the fixture instead makes the XML parser turn it into a space, the target becomes the relative
+  path `java script:`, and the test asserts the opposite of what it means. Use the character reference,
+  and remember that a raw `<` inside an XML attribute is malformed — that one hung the renderer rather
+  than failing it. Found 2026-10-23.
+- **A dynamic `import()` does not remove code from a production bundle — it only moves it to a
+  chunk.** The mock API's demo credentials (`admin123`) were found in `dist/main-*.js`; wrapping the
+  interceptor in `from(import(...)).pipe(mergeMap(...))` under `environment.useMocks` moved the
+  strings to `dist/chunk-*.js`, still shipped and still servable. It does not help that the guard is
+  a property read (`environment.useMocks`) rather than something the optimizer folds, so the import
+  site is never eliminated. The build-configuration way — a `fileReplacements` entry in `angular.json`
+  pointing at a stub, which takes the module out of the graph entirely — is what actually removes it.
+  Verify by building and grepping `dist`, not by reading the diff. Found 2026-10-23.
+- **A shadow root confines a stylesheet's *selectors*, not its *fetches*, and `:host` crosses it.** The
+  review of the docx preview found three openings the shadow boundary does not close. `docx-preview`
+  interpolates a document's style id into a selector, so a styleId of `Злой{}:host{position:fixed;...}`
+  emits a real `:host` rule *inside* the shadow tree — where `:host` matches the preview's own container
+  and can move or hide the dialog chrome. A `w:rFonts w:ascii` value or a `w:shd w:fill` value that
+  closes its declaration opens a rule of the document's own, and `background: url(https://evil/x.png)`
+  in it is a **fetchable** external request from the preview, before the methodist clicks anything.
+  `@import` in the same position is *not* fetchable — an `@import` after the first rule is invalid and
+  ignored — but rewriting it costs nothing and the shape is one a future renderer may place legally.
+  The fetch is prevented only because `renderAsync` writes the `<style>` into a tree that is still
+  detached (the container joins the document after `renderDocx` returns), and a stylesheet in a
+  detached tree is not applied; so `hardenRenderedDocument` has to run *before* the container is
+  appended, and that ordering is the guard, not a detail. The unterminated `url(` an attacker can also
+  emit (no closing paren) is a parse error, so the declaration is dropped and nothing is fetched — it is
+  the terminated form that has to be tested for. Found 2026-10-23.
+- **A fragment-only `href` is a bookmark, not an address, and `_blank` breaks the document's own table
+  of contents.** Hardening every safe link with `target="_blank"` also hit `href="#anchor"`: clicking an
+  entry in the document's table of contents opened the app a second time in a new tab instead of
+  scrolling the preview. A target that starts with `#` resolves against the current document and needs
+  no `rel`/`target` at all. Found 2026-10-23.

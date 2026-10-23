@@ -38,6 +38,38 @@ const { HyperFormula } = await import('hyperformula');
 Promoting any of these to a static top-level import pulls it into the eager bundle for every
 user, including those who never open a preview. Keep the dynamic `import()`.
 
+## The DOCX renderer is an unsanitized HTML sink, and is hardened twice
+
+`docx-preview` builds DOM imperatively — no template binding, no `DomSanitizer` — so both `href`
+and the stylesheet it assembles come from the file, which arrived from outside the organisation.
+`renderDocx` renders into a **shadow root** and then calls `hardenRenderedDocument` on it, before
+the container carrying that tree is appended:
+
+- The shadow root confines the stylesheet *selectors*. The renderer interpolates document style
+  and font names into CSS rules *without escaping*, so a name containing `}` closes its rule and
+  opens a global one. Inside a shadow tree a rule that stays there reaches nothing outside it.
+  **Do not "fix" this by removing the `<style>` elements** — that is the document's own
+  formatting, and the preview would render as plain text. The scope is the fix, not the deletion.
+- `:host` is *not* confined, and neither is a fetch. Inside the shadow tree `:host` matches the
+  preview's own container, so a document could move or hide the dialog controls; and a rule the
+  document synthesised can hold `@import` or `url(https://…)`, which the browser fetches while
+  the preview is only being looked at. `hardenRenderedDocument` therefore rewrites each generated
+  `<style>`: `@import` removed, `:host` replaced by an attribute selector nothing carries, and
+  every non-`data:` `url()` pointed at `about:invalid`. It runs while the tree is still detached —
+  a stylesheet in a detached tree is not applied and its `@import` was never fetched — so that
+  ordering is the guard. A `data:` URL is kept: that is how an embedded font arrives.
+- `hardenRenderedDocument` removes script/frame/meta-class elements and strips the `href` of any
+  link whose scheme is not http/https/mailto/tel. A shadow boundary is **not** a script sandbox,
+  so a `javascript:` link left alone would still execute. A fragment-only target (a bookmark, a
+  table-of-contents entry) is a place in the document, not an address: it keeps its `href` and
+  gets no `target`, or the table of contents opens the app in a second tab.
+
+`sanitizePreviewCss` and `hardenRenderedDocument` are exported so the spec can test them on real
+injected CSS; a render alone cannot prove a rewrite ran on input it never produced.
+
+Anything else that appends rendered HTML to the DOM belongs on this list too: it is a sink and
+owes the same treatment.
+
 ## XLSX previews need a formula engine
 
 A workbook may price its rows with **formulas** rather than literal values. Rendering
