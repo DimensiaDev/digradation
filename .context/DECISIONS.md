@@ -2561,3 +2561,26 @@ then fails visibly against the real API rather than answering from memory. `deve
 real module, so a developer who flips `useMocks` locally still gets the mock.
 
 Added 2026-10-23.
+
+## The docx preview rewrites its stylesheet instead of merely confining it
+
+The preview renders a document into a shadow root, which confines the *selectors* the document's
+styles can match. It does not confine what a stylesheet *fetches*, and `:host` inside the shadow tree
+still matches the preview's own host element, from which a document could move or hide the dialog's
+controls. So `hardenRenderedDocument` now rewrites every generated `<style>` as well: `@import`
+at-rules are removed, `:host` becomes an attribute selector nothing carries, and any `url(...)` whose
+target is not a `data:` URL is redirected to `about:invalid`, the non-fetchable address the URL
+standard defines. A `data:` URL is kept, because that is how an embedded font arrives and dropping it
+would render the document in the wrong typeface.
+
+The rewrite runs before the container carrying the tree is appended to the document. That ordering is
+what makes it a guard rather than a report: a stylesheet in a detached tree is not applied, so its
+`@import` was never fetched. Deleting the stylesheet outright is still not an option — it is the
+document's own formatting — and the shadow root stays, because it is what stops a selector that
+escaped its rule from reaching the app around the preview.
+
+The sanitizer and the link hardening are module-level functions rather than component methods so the
+spec can test them on real injected CSS: an end-to-end render cannot prove a rewrite ran on input it
+never produced.
+
+Added 2026-10-23.

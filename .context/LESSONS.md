@@ -1321,3 +1321,23 @@ to be 1` when used as `HalfVector(2048)`. The column type is the uppercase `HALF
   site is never eliminated. The build-configuration way — a `fileReplacements` entry in `angular.json`
   pointing at a stub, which takes the module out of the graph entirely — is what actually removes it.
   Verify by building and grepping `dist`, not by reading the diff. Found 2026-10-23.
+- **A shadow root confines a stylesheet's *selectors*, not its *fetches*, and `:host` crosses it.** The
+  review of the docx preview found three openings the shadow boundary does not close. `docx-preview`
+  interpolates a document's style id into a selector, so a styleId of `Злой{}:host{position:fixed;...}`
+  emits a real `:host` rule *inside* the shadow tree — where `:host` matches the preview's own container
+  and can move or hide the dialog chrome. A `w:rFonts w:ascii` value or a `w:shd w:fill` value that
+  closes its declaration opens a rule of the document's own, and `background: url(https://evil/x.png)`
+  in it is a **fetchable** external request from the preview, before the methodist clicks anything.
+  `@import` in the same position is *not* fetchable — an `@import` after the first rule is invalid and
+  ignored — but rewriting it costs nothing and the shape is one a future renderer may place legally.
+  The fetch is prevented only because `renderAsync` writes the `<style>` into a tree that is still
+  detached (the container joins the document after `renderDocx` returns), and a stylesheet in a
+  detached tree is not applied; so `hardenRenderedDocument` has to run *before* the container is
+  appended, and that ordering is the guard, not a detail. The unterminated `url(` an attacker can also
+  emit (no closing paren) is a parse error, so the declaration is dropped and nothing is fetched — it is
+  the terminated form that has to be tested for. Found 2026-10-23.
+- **A fragment-only `href` is a bookmark, not an address, and `_blank` breaks the document's own table
+  of contents.** Hardening every safe link with `target="_blank"` also hit `href="#anchor"`: clicking an
+  entry in the document's table of contents opened the app a second time in a new tab instead of
+  scrolling the preview. A target that starts with `#` resolves against the current document and needs
+  no `rel`/`target` at all. Found 2026-10-23.

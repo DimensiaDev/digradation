@@ -180,12 +180,18 @@ no longer matches, rather than assuming responses arrive in order.
   before it builds nodes. It is a second pass over the same sanitizer, so it changes nothing at
   runtime; it exists so the sanitization is visible in the source, because a reviewer reading
   `innerHTML` cannot tell an Angular binding from a raw assignment.
-- **A shadow root is how a rendered document's styles are confined.** `docx-preview` builds a
-  stylesheet from the document's own style and font names and interpolates their values into
-  rules unescaped, so a crafted name opens a global rule. The preview renders into a shadow
-  root, where no rule can reach the app around it; removing the stylesheet instead would leave
-  the document unstyled. A shadow boundary is not a sandbox for scripts — links still need
-  their `href` checked, which `hardenRenderedDocument` does.
+- **A shadow root is how a rendered document's styles are confined, and it confines selectors
+  only.** `docx-preview` builds a stylesheet from the document's own style and font names and
+  interpolates their values into rules unescaped, so a crafted name opens a global rule. The
+  preview renders into a shadow root, where a rule that stays inside it can reach nothing else;
+  removing the stylesheet instead would leave the document unstyled. Two things a shadow root
+  does not stop, and `hardenRenderedDocument` therefore rewrites the generated `<style>` rather
+  than trusting it: `:host` inside the tree matches the preview's own container, and an `@import`
+  or a `url()` in a rule the document synthesised is fetched from outside the organisation. The
+  rewrite runs before the container joins the document, which is the part that makes it in time
+  rather than a report. A shadow boundary is not a sandbox for scripts either — links still need
+  their `href` checked, which the same function does, keeping a fragment-only bookmark in the
+  current context instead of opening the app a second time.
 - The message text is untrusted twice over: the model writes the assistant's half, and the methodist's
   own half is echoed back from the API.
 
