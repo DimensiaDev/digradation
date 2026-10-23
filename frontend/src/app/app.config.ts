@@ -28,7 +28,9 @@ import {
 export function createInterceptors(useMocks: boolean): HttpInterceptorFn[] {
   // Angular runs interceptors in array order, so the mock must be last. It answers
   // instead of calling next(), which means credentials and error handling only see
-  // its responses when they wrap it.
+  // its responses when they wrap it. The production build replaces the mock module
+  // with a stub, so the demo credentials never reach the shipped bundle — see
+  // `fileReplacements` in angular.json and `mock-api.interceptor.prod.ts`.
   return useMocks
     ? [credentialsInterceptor, errorInterceptor, mockApiInterceptor]
     : [credentialsInterceptor, errorInterceptor];
