@@ -87,13 +87,16 @@ ALLOWED_CHAT_CONTENT_TYPES = [
     # A programme request comes with the template or an approved programme as
     # the example, and the provider reads .docx the same way it reads a PDF.
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    # A plain-text reference (a copied act, a checklist, a template fragment)
+    # goes to the provider as-is; no rasterising or parsing is needed.
+    "text/plain",
 ]
 CHAT_MAX_UPLOAD_SIZE = 30 * 1024 * 1024
 # Extensions the frontend offers (`ACCEPTED_EXTENSIONS` in file-types.ts), i.e. the
 # filenames whose types the content type allowlist above already permits. The
 # suffix is copied into the S3 key and shown back to the user, so it has to be
 # one of these rather than whatever the client felt like asking for.
-ALLOWED_CHAT_FILE_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".docx"})
+ALLOWED_CHAT_FILE_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".docx", ".txt"})
 # Values `upload_file` and the attachment workers write to the Redis status key. Anything else
 # found there, including an expired key which reads back as None, is reported as unknown rather
 # than passed to the response schema, which would raise on an unexpected value.

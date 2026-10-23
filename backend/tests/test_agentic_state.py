@@ -17,7 +17,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.agentic.errors import AnswersDoNotMatch, IncompleteDraft
-from app.agentic.models import ProgramStatus, Stage, StageStatus, StageStatuses
+from app.agentic.models import ProgramKind, ProgramStatus, Stage, StageStatus, StageStatuses
 from app.agentic.state import (
     SKELETON_ORDER,
     STAGE_ORDER,
@@ -26,6 +26,7 @@ from app.agentic.state import (
     ProgramExports,
     ProgramState,
     SourcesBlock,
+    SummaryBlock,
     apply_answers,
     new_state,
 )
@@ -165,7 +166,14 @@ def test_the_report_covers_the_hours_the_coverage_the_sources_and_the_sections(b
 
     report = state.report()
 
-    assert [check.name for check in report.checks] == ["часы", "покрытие", "источники", "разделы"]
+    assert [check.name for check in report.checks] == [
+        "часы",
+        "покрытие",
+        "источники",
+        "разделы",
+        "требования",
+        "материалы",
+    ]
     hours = report.checks[0]
     assert hours.ok is True
     assert hours.details["всего"] == 72
@@ -623,3 +631,44 @@ def test_a_redone_skeleton_returns_to_approval_when_it_is_whole(blocks: Blocks) 
 
     assert done.status is ProgramStatus.PENDING_APPROVAL
     assert done.current_stage is Stage.SUMMARY
+
+
+def test_the_report_notes_a_slow_run(blocks: Blocks) -> None:
+    """A slow run is not failed: the report says it was slow and the check stays green."""
+    from datetime import UTC, datetime, timedelta
+
+    state = make_state(blocks).model_copy(
+        update={
+            "started_at": datetime.now(UTC) - timedelta(seconds=2000),
+            "finished_at": datetime.now(UTC),
+            "stage_durations": {},
+        }
+    )
+
+    report = state.report()
+
+    assert report.ok is False  # other checks still fail: no assessment, no materials
+    assert any("прогон занял" in note for note in report.notes)
+
+
+def test_a_fast_run_has_no_timing_notes(blocks: Blocks) -> None:
+    report = make_state(blocks).report()
+    assert report.notes == []
+
+
+def test_the_issued_document_is_normalised_for_a_professional_programme(blocks: Blocks) -> None:
+    state = make_state(blocks).model_copy(update={"kind": ProgramKind.PROFESSIONAL_DEVELOPMENT})
+    wrong = state.summary.model_copy(update={"issued_document": "Сертификат"})
+
+    saved = state.with_summary(SummaryBlock(summary=wrong), [])
+
+    assert "удостоверение" in saved.summary.issued_document.lower()
+
+
+def test_the_issued_document_is_normalised_for_a_general_programme(blocks: Blocks) -> None:
+    state = make_state(blocks).model_copy(update={"kind": ProgramKind.GENERAL_DEVELOPMENT})
+    wrong = state.summary.model_copy(update={"issued_document": "Удостоверение"})
+
+    saved = state.with_summary(SummaryBlock(summary=wrong), [])
+
+    assert "сертификат" in saved.summary.issued_document.lower()

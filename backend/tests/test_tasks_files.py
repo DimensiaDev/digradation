@@ -462,6 +462,7 @@ async def test_process_attachment_missing_object_sets_error(world, task_db, s3, 
         "image/png",
         "image/jpeg",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain",
     ],
 )
 async def test_process_attachment_accepts_every_allowed_content_type(
@@ -491,7 +492,7 @@ async def test_process_attachment_unknown_content_type_sets_error(
     user = await world.user()
     chat = await world.chat(user)
     attachment = await world.attachment(chat, s3_key=f"routing/{uuid.uuid4().hex}.txt")
-    await s3_put(b"plain text", attachment.s3_key, content_type="text/plain")
+    await s3_put(b"plain text", attachment.s3_key, content_type="application/zip")
     mocks = block_kiq(monkeypatch, process_document)
 
     await run_task(process_attachment, attachment.id)

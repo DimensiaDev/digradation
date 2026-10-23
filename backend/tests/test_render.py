@@ -11,6 +11,7 @@ from app.agentic.models import (
     Module,
     Outcome,
     ProgramDraft,
+    ProgramFormat,
     ProgramKind,
     ProgramSummary,
     Schedule,
@@ -342,3 +343,19 @@ def test_render_has_pending_sections_note():
 def test_render_accepts_custom_city_and_year():
     text = _docx_text(render_program_draft(_minimal_draft(), city="Санкт-Петербург", year=2030))
     assert "Санкт-Петербург 2030" in text
+
+
+def test_render_internship_title():
+    """A professional programme in internship form says so on the cover."""
+    draft = _minimal_draft(kind=ProgramKind.PROFESSIONAL_DEVELOPMENT, format=ProgramFormat.INTERNSHIP)
+    text = _docx_text(render_program_draft(draft))
+    assert "ДОПОЛНИТЕЛЬНАЯ ПРОФЕССИОНАЛЬНАЯ ПРОГРАММА" in text
+    assert "В ФОРМЕ СТАЖИРОВКИ" in text
+
+
+def test_render_signatures_are_blank_lines():
+    """The signature block is left for the methodist to sign by hand."""
+    text = _docx_text(render_program_draft(_minimal_draft()))
+    assert "Разработчик:" in text
+    assert "Руководитель организации:" in text
+    assert "______________" in text

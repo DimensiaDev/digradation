@@ -96,10 +96,11 @@ async def search_web(query: str, *, limit: int = 5) -> list[WebDocument]:
     text = query.strip()
     if not text:
         return []
-    if offline():
+    if offline() or strict_sources():
         # The stack runs on the mock provider, and the end-to-end suite among
         # it: a search that reached the network would make it depend on the
-        # internet.
+        # internet. A strict deployment refuses the web outright, because
+        # nothing outside the corpus has been verified.
         return []
     endpoint = os.getenv(WEB_SEARCH_ENV)
     try:
@@ -123,6 +124,17 @@ def offline() -> bool:
     key = os.getenv("SBER_API_KEY", "").strip().lower()
     scope = os.getenv("SBER_API_SCOPE", "").strip().lower()
     return key == "mock" or scope == "mock"
+
+
+def strict_sources() -> bool:
+    """Whether the deployment accepts only the corpus as sources.
+
+    A strict deployment refuses the web search outright: the corpus is what the
+    methodist trusts, and a document from outside it is unconfirmed at best.
+    The switch is what closes the Wikipedia fallback in a demo that has to
+    stand behind every citation.
+    """
+    return os.getenv("STRICT_SOURCES", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 async def _search_service(endpoint: str, query: str, limit: int) -> list[WebDocument]:

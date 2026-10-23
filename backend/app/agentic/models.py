@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from enum import StrEnum
-from typing import Annotated, Self
+from typing import Annotated, Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -49,6 +49,18 @@ class ProgramKind(StrEnum):
 
     PROFESSIONAL_DEVELOPMENT = "professional_development"
     GENERAL_DEVELOPMENT = "general_development"
+
+
+class ProgramFormat(StrEnum):
+    """Delivery format of a professional programme.
+
+    A course is the ordinary delivery. An internship adds the "в форме
+    стажировки" sections: the report, the supervisor's role and the
+    defence of that report. Only professional programmes have the second.
+    """
+
+    COURSE = "course"
+    INTERNSHIP = "internship"
 
 
 class ProgramStatus(StrEnum):
@@ -122,28 +134,69 @@ class Topic(SchemaModel):
     control_form: str | None = Field(default=None, max_length=500, description="Форма текущего контроля по теме")
     outcome_ids: list[OutcomeId] = Field(default_factory=list, description="Learning outcomes the topic covers")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_bare_hours(cls, data: Any) -> Any:
+        """A topic that declares a bare number of hours keeps it as self-study.
+
+        The model writes ``hours: 4`` for a topic with no breakdown — a defence
+        at the end, for instance. The number is the total, and the schema has
+        nothing to invent a split from; keeping it as self-study means the
+        arithmetic still adds up and the contact-hour total stays honest. An
+        explicit breakdown passes through unchanged.
+        """
+        if isinstance(data, dict) and isinstance(data.get("hours"), (int, float)):
+            return {**data, "hours": {"self_study": float(data["hours"])}}
+        return data
+
 
 class Module(SchemaModel):
     """Section of the curriculum."""
 
     id: ModuleId
     title: str = Field(min_length=1, max_length=500)
-    topics: list[Topic] = Field(min_length=1)
+    topics: list[Topic] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _reject_empty_topics(self) -> Self:
+        """Only the final-attestation module may stand empty.
+
+        The model writes the attestation as a sixth module often enough that
+        the schema has to tolerate the shape. The curriculum check later
+        reports it as a finding, but the plan itself is not refused.
+        """
+        if not self.topics and "аттестац" not in self.title.lower():
+            raise ValueError(f"module {self.id}: no topics; a teaching module needs at least one")
+        return self
+
     #: The module states its own volume, and the plan checks it against the
     #: topics. A module that leaves it empty is refused by that check rather
     #: than by the schema, so the model is told what to fix.
     hours: float = Field(default=0, ge=0, description="Часы модуля — сумма часов его тем")
 
-    @model_validator(mode="after")
-    def _fill_the_hours(self) -> Self:
+    @model_validator(mode="before")
+    @classmethod
+    def _fill_the_hours(cls, data: Any) -> Any:
         """A module that declares no hours gets the sum of its topics.
 
-        A curriculum written before the field existed has no hours at all, and
-        the plan it belongs to has to keep adding up after a deploy.
+        A topic may carry its hours as a bare number (``hours: 4``) — the
+        model writes that when it has no breakdown — so both shapes are
+        summed here. A malformed ``hours`` is left untouched; the ``Topic``
+        validator below rejects it with a message the dispatcher hands back
+        to the model.
         """
-        if "hours" in self.model_fields_set:
-            return self
-        return self.model_copy(update={"hours": self.topic_hours})
+        if not isinstance(data, dict) or "hours" in data:
+            return data
+        total = 0.0
+        for topic in data.get("topics") or []:
+            if not isinstance(topic, dict):
+                continue
+            hours = topic.get("hours")
+            if isinstance(hours, dict):
+                total += sum(float(hours.get(key) or 0) for key in ("lecture", "practice", "lab", "self_study"))
+            elif isinstance(hours, (int, float)):
+                total += float(hours)
+        return {**data, "hours": total}
 
     @property
     def topic_hours(self) -> float:
@@ -264,6 +317,13 @@ class AssessmentTool(SchemaModel):
     criteria: list[str] = Field(default_factory=list, description="What a passing answer or artefact looks like")
     materials: list[str] = Field(default_factory=list, description="Ready materials: questions, cases, tasks")
 
+    @model_validator(mode="after")
+    def _require_criteria_for_kind(self) -> Self:
+        """A test and a seminar task are graded against criteria, so they have them."""
+        if self.kind in (AssessmentKind.TEST, AssessmentKind.SEMINAR_TASK) and not self.criteria:
+            raise ValueError(f"assessment tool {self.id}: {self.kind.value} requires criteria")
+        return self
+
 
 class TestQuestion(SchemaModel):
     """One question of a test with the reference answer key."""
@@ -300,6 +360,13 @@ class SeminarTask(SchemaModel):
     statement: str = Field(min_length=1, max_length=4000)
     outcome_ids: list[OutcomeId] = Field(min_length=1, description="Outcomes the task reveals")
     criteria: list[str] = Field(default_factory=list, description="Критерии оценки задания")
+
+    @model_validator(mode="after")
+    def _require_criteria(self) -> Self:
+        """A practical task without criteria says nothing about what a pass is."""
+        if not self.criteria:
+            raise ValueError(f"seminar task {self.id}: criteria are required")
+        return self
 
 
 class FinalAttestation(SchemaModel):
@@ -347,11 +414,56 @@ class SlideDeck(SchemaModel):
     slides: list[Slide] = Field(min_length=1)
 
 
+class Conditions(SchemaModel):
+    """Conditions of programme delivery: equipment, materials, staff."""
+
+    equipment: list[str] = Field(default_factory=list)
+    teaching_materials: list[str] = Field(default_factory=list)
+    staffing_requirements: list[str] = Field(default_factory=list)
+
+
+class StaffSlot(SchemaModel):
+    """Staff position of the programme."""
+
+    id: StaffSlotId
+    position: str = Field(min_length=1, max_length=500, description="Должность, e.g. «Руководитель стажировки»")
+    module_id: ModuleId | None = Field(default=None, description="Module the position is bound to")
+    fio: str | None = Field(default=None, max_length=500, description="Full name; left empty in the document")
+    degree: str | None = Field(default=None, max_length=500, description="Учёная степень или звание")
+
+
+class ApprovalInfo(SchemaModel):
+    """Order details, filled in manually on approval."""
+
+    order_number: str | None = Field(default=None, max_length=100)
+    order_date: date | None = None
+    signatory: str | None = Field(default=None, max_length=500, description="Who approves the programme")
+
+
+class CaseStudy(SchemaModel):
+    """One partner-company case the programme works on.
+
+    The cases are supplied by the companies, and the appendix holds the empty
+    rows until they arrive: a programme that runs on cases is still a valid
+    programme without them.
+    """
+
+    id: str = Field(min_length=1, max_length=100)
+    company: str | None = Field(default=None, max_length=500)
+    title: str = Field(min_length=1, max_length=500)
+    task: str | None = Field(default=None, max_length=4000)
+    data: str | None = Field(default=None, max_length=4000)
+    owner: str | None = Field(default=None, max_length=500)
+
+
 class Materials(SchemaModel):
-    """Teaching materials prepared for the programme."""
+    """Teaching materials, delivery conditions, staff and cases of the programme."""
 
     lecture_plans: list[LecturePlan] = Field(default_factory=list)
     slide_decks: list[SlideDeck] = Field(default_factory=list)
+    conditions: Conditions = Field(default_factory=Conditions, description="Условия реализации программы")
+    staffing: list[StaffSlot] = Field(default_factory=list, description="Кадровое обеспечение")
+    cases: list[CaseStudy] = Field(default_factory=list, description="Кейсы компаний-партнёров")
 
 
 class Source(SchemaModel):
@@ -381,32 +493,6 @@ class Source(SchemaModel):
         return self
 
 
-class Conditions(SchemaModel):
-    """Conditions of programme delivery: equipment, materials, staff."""
-
-    equipment: list[str] = Field(default_factory=list)
-    teaching_materials: list[str] = Field(default_factory=list)
-    staffing_requirements: list[str] = Field(default_factory=list)
-
-
-class StaffSlot(SchemaModel):
-    """Staff position of the programme."""
-
-    id: StaffSlotId
-    position: str = Field(min_length=1, max_length=500, description="Должность, e.g. «Руководитель стажировки»")
-    module_id: ModuleId | None = Field(default=None, description="Module the position is bound to")
-    fio: str | None = Field(default=None, max_length=500, description="Full name; left empty in the document")
-    degree: str | None = Field(default=None, max_length=500, description="Учёная степень или звание")
-
-
-class ApprovalInfo(SchemaModel):
-    """Order details, filled in manually on approval."""
-
-    order_number: str | None = Field(default=None, max_length=100)
-    order_date: date | None = None
-    signatory: str | None = Field(default=None, max_length=500, description="Who approves the programme")
-
-
 class ProgramSummary(SchemaModel):
     """Summary text of the programme: goal, audience, form and basis."""
 
@@ -424,6 +510,14 @@ class ProgramSummary(SchemaModel):
     level: str | None = Field(default=None, max_length=1000, description="Уровень освоения программы")
     basis_source_ids: list[SourceId] = Field(
         default_factory=list, description="Documents the programme is based on («разработана на основе»)"
+    )
+    expectations: str | None = Field(
+        default=None,
+        max_length=4000,
+        description=(
+            "Расхождение между пожеланием заказчика и тем, что даёт заявленный объём. "
+            "Заполняется, если заказчик просит больше, чем программа может дать."
+        ),
     )
 
 
@@ -477,6 +571,10 @@ class ProgramDraft(SchemaModel):
     """
 
     kind: ProgramKind = Field(description="Тип программы: повышение квалификации или общеразвивающая")
+    format: ProgramFormat = Field(
+        default=ProgramFormat.COURSE,
+        description="Формат: обычный курс или профессиональная программа в форме стажировки",
+    )
     title: str = Field(min_length=1, max_length=500, description="Название программы")
     summary: ProgramSummary = Field(description="Паспорт программы: цель, аудитория, форма обучения")
     competencies: list[Competence] = Field(min_length=1, description="Компетенции с результатами освоения")
@@ -484,3 +582,10 @@ class ProgramDraft(SchemaModel):
     sources: list[Source] = Field(
         default_factory=list, description="Источники, найденные поиском и использованные в программе"
     )
+
+    @model_validator(mode="after")
+    def _format_matches_kind(self) -> Self:
+        """An internship is a professional format; a general programme is a course."""
+        if self.format is ProgramFormat.INTERNSHIP and self.kind is not ProgramKind.PROFESSIONAL_DEVELOPMENT:
+            raise ValueError("format internship is only for professional_development")
+        return self

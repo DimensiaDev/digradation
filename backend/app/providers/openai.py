@@ -17,6 +17,7 @@ import json
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlparse
 
 from openai import AsyncOpenAI, AuthenticationError
 from openai.types import CompletionUsage
@@ -41,6 +42,43 @@ from app.providers.models import (
 #: ``ai-sage/Giga-Embeddings-instruct-3B`` (embeddings, not chat).
 DEFAULT_OPENAI_MODEL = "GigaChat/GigaChat-3-Pro"
 
+#: The hosts a strict deployment may talk to. Cloud.ru is the endpoint the
+#: criteria name; the school hub is what the demo uses today. Anything else is
+#: refused when ``STRICT_PROVIDER`` is on, so a foreign vendor cannot be
+#: reached by setting ``OPENAI_URL`` alone.
+ALLOWED_LLM_HOSTS_DEFAULT: tuple[str, ...] = (
+    "foundation-models.api.cloud.ru",
+    "hub.gigaschool.ru",
+)
+
+
+def _strict() -> bool:
+    return os.getenv("STRICT_PROVIDER", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _allowed_hosts() -> tuple[str, ...]:
+    """The hosts the deployment accepts, from ``ALLOWED_LLM_HOSTS`` or the defaults."""
+    raw = os.getenv("ALLOWED_LLM_HOSTS", "").strip()
+    if not raw:
+        return ALLOWED_LLM_HOSTS_DEFAULT
+    return tuple(host.strip().lower() for host in raw.split(",") if host.strip())
+
+
+def _reject_foreign_host(url: str) -> None:
+    """Refuse an endpoint a strict deployment has not approved.
+
+    A no-op unless ``STRICT_PROVIDER`` is on: a deployment that is not strict
+    talks to whatever ``OPENAI_URL`` names, which is what makes the school hub
+    and an operator's own proxy usable without changing the code.
+    """
+    if not _strict():
+        return
+    host = (urlparse(url).hostname or "").lower()
+    allowed = _allowed_hosts()
+    if host not in allowed:
+        raise ValueError(f"LLM host {host!r} is not in ALLOWED_LLM_HOSTS; " f"allowed: {', '.join(allowed)}")
+
+
 #: The marker GigaChat writes when it answers with a function call as text.
 #: The hub relays it verbatim in ``content``, with no structured ``tool_calls``
 #: beside it, so a call the model made would otherwise read as prose and the
@@ -59,6 +97,7 @@ class OpenAIProvider(AIClient):
         url = os.getenv("OPENAI_URL", "").strip()
         if not url:
             raise ValueError("OPENAI_URL must be set when SBER_API_SCOPE=openai")
+        _reject_foreign_host(url)
         self._client = AsyncOpenAI(api_key=api_key, base_url=url)
 
     def _model(self) -> str:
