@@ -2507,3 +2507,57 @@ handler and a `javascript:` link are stripped while markdown and highlighted cod
 Verified in a browser too, on the mock stack: a message with an `img onerror` and a script tag
 rendered with the handler gone, the script dropped, `window.__xss` unset, and `<strong>` plus a
 highlighted `pre code` intact. Added 2026-10-23.
+
+## A rendered document is a second HTML sink, and the preview confines it two ways
+
+The earlier entry "The message is the only HTML the client renders" was wrong, and the way it was
+wrong is the point: it reasoned over *template* bindings, and the file preview writes no binding at
+all. `docx-preview` builds the DOM imperatively from the file, so `[innerHTML]` and the sanitizer
+are both absent from that path, and two attacker-shaped things come out of it:
+
+- **the `href` of a link**, taken from the document's own relationships
+  (`renderHyperlink` copies `Target` into `a.href` with no scheme check), and
+- **a stylesheet** assembled from the document's style and font names, whose values are
+  interpolated into rules *unescaped* (`styleToString` does `key: value;`, and
+  `encloseFontFamily` only checks the *edges* of a font name for quotes). A name containing `}`
+  closes its rule and opens a global one.
+
+The fix is two mechanisms, because the two problems are different:
+
+- **Links are hardened explicitly** (`hardenRenderedDocument`): any `href` whose scheme is not
+  `http`/`https`/`mailto`/`tel` is removed, the rest get `rel="noopener noreferrer"` and
+  `target="_blank"`. The scheme is read through `new URL(...)`, never matched as a string — the URL
+  parser strips the tabs and newlines that separate `java\nscript:` from the scheme a regex would
+  miss. A relative target resolves against the app's origin and is safe by construction.
+- **The stylesheet is confined by a shadow root**, not deleted. The review proposed deleting every
+  `<style>` element; that is the document's own formatting, and the preview renders as plain text
+  without it. A shadow tree scopes *any* rule, including the ones we did not anticipate, while
+  keeping the styles the document is supposed to have. A shadow boundary is not a script sandbox,
+  which is why the links still need the first mechanism.
+
+The general rule this sets, and which `AGENTS.md` and the `frontend-file-preview` skill now state:
+an `[innerHTML]` binding is the only HTML sink Angular *sanitizes*, not the only sink that exists.
+Any code that appends DOM by hand is a sink and owes its own hardening, named in a comment so the
+next reviewer can find it.
+
+Added 2026-10-23.
+
+## The demo mock is excluded from the production build, not lazily imported
+
+`mock-api.interceptor.ts` carries the demo credentials (`admin` / `admin123`), and the review found
+them in `dist/main-*.js`. The suggested fix — reach the mock through a dynamic `import()` under
+`environment.useMocks` — **was implemented and does not work**: `useMocks` is a property read, not a
+constant the bundler folds, so the import site survives and the mock is emitted as a lazily-servable
+chunk that still contains the strings. The artifact kept the credentials; only their path changed.
+
+What removes them is excluding the module from the build, so the production configuration carries a
+second `fileReplacements` entry mapping `mock-api.interceptor.ts` onto
+`mock-api.interceptor.prod.ts`, a stub that passes the request on. The interceptor order and its name
+are unchanged, so `createInterceptors` and its test are untouched and the mock stays eager in mock
+mode, where load time does not matter.
+
+The stub deliberately does not fake a mock: a production build misconfigured with `useMocks: true`
+then fails visibly against the real API rather than answering from memory. `development` keeps the
+real module, so a developer who flips `useMocks` locally still gets the mock.
+
+Added 2026-10-23.
