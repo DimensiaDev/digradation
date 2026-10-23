@@ -167,14 +167,26 @@ no longer matches, rather than assuming responses arrive in order.
 
 ### Rendering HTML
 
-- **`[innerHTML]` is the only way to put HTML in the DOM, and it is the safe one** because
-  Angular sanitizes the binding. `bypassSecurityTrust*` is used nowhere; do not introduce it.
+- **`[innerHTML]` is the only HTML an Angular *template* binds, and it is the safe one**
+  because Angular sanitizes the binding. `bypassSecurityTrust*` is used nowhere; do not
+  introduce it.
+- **It is not the only HTML sink, and do not treat it as one.** The file preview
+  (`file-preview.component.ts`) appends a rendered `.docx` to the DOM imperatively, with no
+  template binding and no sanitizer anywhere on the path. Anything else that builds DOM by
+  hand is a sink too, and carries the same duty: a new sink must harden what it inserts and
+  say so in a comment, rather than assuming the sanitizer covers it.
 - **Call `DomSanitizer.sanitize(SecurityContext.HTML, …)` explicitly** at the boundary where
   untrusted text becomes markup — the message bubble does, and the spreadsheet preview sanitizes
   before it builds nodes. It is a second pass over the same sanitizer, so it changes nothing at
   runtime; it exists so the sanitization is visible in the source, because a reviewer reading
   `innerHTML` cannot tell an Angular binding from a raw assignment.
-- The text is untrusted twice over: the model writes the assistant's half, and the methodist's
+- **A shadow root is how a rendered document's styles are confined.** `docx-preview` builds a
+  stylesheet from the document's own style and font names and interpolates their values into
+  rules unescaped, so a crafted name opens a global rule. The preview renders into a shadow
+  root, where no rule can reach the app around it; removing the stylesheet instead would leave
+  the document unstyled. A shadow boundary is not a sandbox for scripts — links still need
+  their `href` checked, which `hardenRenderedDocument` does.
+- The message text is untrusted twice over: the model writes the assistant's half, and the methodist's
   own half is echoed back from the API.
 
 ### API layer

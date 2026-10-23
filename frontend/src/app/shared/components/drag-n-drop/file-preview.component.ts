@@ -23,6 +23,21 @@ import { PreviewKind, mimeTypeFor, previewKindFor } from '../../utils/file-types
 type XLSXModule = typeof import('xlsx');
 type HyperFormulaCtor = typeof import('hyperformula').HyperFormula;
 
+/**
+ * The link schemes a document may keep. A `.docx` carries its own relationships and the
+ * preview writes their `Target` straight into `href`, so the file — which the methodist
+ * received from outside — chooses where a click in the preview goes. Anything outside this
+ * set (`javascript:`, `data:`, `vbscript:`) loses its `href` rather than being trusted.
+ */
+const SAFE_LINK_SCHEMES = new Set(['http:', 'https:', 'mailto:', 'tel:']);
+
+/**
+ * Elements the renderer never emits, removed so that a future version which does cannot
+ * smuggle one into the app's DOM. `script` and `iframe` execute or frame; `link`, `meta`
+ * and `base` can pull in or redirect without any script at all.
+ */
+const FORBIDDEN_PREVIEW_SELECTOR = 'script, iframe, object, embed, link, meta, base, form';
+
 const RUSSIAN_FUNCTION_MAP = new Map([
   ['СУММ', 'SUM'],
   ['ЕСЛИ', 'IF'],
@@ -215,8 +230,57 @@ export class FilePreviewComponent implements AfterViewInit {
     const { renderAsync } = await import('docx-preview');
     const container = document.createElement('div');
     container.className = 'file-preview__docx';
-    await renderAsync(buffer, container);
+    // The renderer builds its DOM imperatively and writes no template binding, so neither
+    // the sanitizer nor `[innerHTML]` is anywhere on this path. Two things it produces are
+    // therefore attacker-shaped: the `href` of a link, taken from the document's own
+    // relationships, and a stylesheet assembled from the document's style and font names —
+    // whose values are interpolated into rules without escaping, so a crafted name closes
+    // its rule and opens a global one. A shadow root confines the second: a rule inside
+    // matches nothing outside this tree no matter which value broke out, which removing the
+    // stylesheet would not achieve without leaving the document unstyled. The links are
+    // hardened explicitly below, because a shadow boundary does not sandbox scripts.
+    const root = container.attachShadow({ mode: 'open' });
+    const body = document.createElement('div');
+    root.appendChild(body);
+    await renderAsync(buffer, body);
+    this.hardenRenderedDocument(root);
     return container;
+  }
+
+  /**
+   * Strip what a rendered document must not be allowed to do, keeping what it may.
+   *
+   * Called on the shadow tree the preview rendered into, so the `href` it rewrites is one
+   * the file chose and the elements it removes are ones the renderer would not normally
+   * emit.
+   */
+  private hardenRenderedDocument(root: ParentNode): void {
+    root.querySelectorAll(FORBIDDEN_PREVIEW_SELECTOR).forEach((node) => node.remove());
+    root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((anchor) => {
+      const target = anchor.getAttribute('href') ?? '';
+      if (!this.isSafeLinkTarget(target)) {
+        anchor.removeAttribute('href');
+        return;
+      }
+      anchor.setAttribute('rel', 'noopener noreferrer');
+      anchor.setAttribute('target', '_blank');
+    });
+  }
+
+  /**
+   * Whether a link target is one a preview may follow.
+   *
+   * Resolved through `URL` rather than matched as a string: the parser strips the whitespace
+   * and control characters that separate `java\nscript:` from the scheme a regex would miss,
+   * and a relative target resolves against the app's own origin, which is safe by
+   * construction. Anything the parser cannot read is refused.
+   */
+  private isSafeLinkTarget(target: string): boolean {
+    try {
+      return SAFE_LINK_SCHEMES.has(new URL(target, window.location.origin).protocol);
+    } catch {
+      return false;
+    }
   }
 
   private async renderSpreadsheet(file: File): Promise<Node> {

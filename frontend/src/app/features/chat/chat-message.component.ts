@@ -68,9 +68,14 @@ export class ChatMessageComponent {
    * the methodist's own half is echoed back from the API. `marked` turns either
    * into HTML, so the string that reaches the DOM is attacker-shaped and is run
    * through the sanitizer here rather than left to the implicit one on the
-   * `[innerHTML]` binding — a named step is one a reviewer can audit, and it is
-   * the only HTML sink in the application (`bypassSecurityTrust*` is used
-   * nowhere). Sanitizing twice is a no-op, so the rendered message is unchanged.
+   * `[innerHTML]` binding — a named step is one a reviewer can audit.
+   * `bypassSecurityTrust*` is used nowhere.
+   *
+   * This is the only HTML the *template* binds, but not the only HTML sink in the
+   * application: the file preview appends a rendered `.docx` to the DOM imperatively,
+   * outside Angular's sanitizer, and hardens what it appends itself — see
+   * `hardenRenderedDocument` in `file-preview.component.ts`. Do not read this comment as
+   * clearing other sinks.
    */
   private readonly sanitizer = inject(DomSanitizer);
 
